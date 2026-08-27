@@ -5,13 +5,13 @@ import { getLocale } from "next-intl/server";
 import { createFund } from "@/db/queries/create-fund";
 import { getFundForUser } from "@/db/queries/funds";
 import { redirect } from "@/i18n/navigation";
-import { writeLastFundId } from "@/lib/fund/last-fund";
 import { ActionError } from "@/lib/errors";
+import { writeLastFundId } from "@/lib/fund/last-fund";
 import { authActionClient } from "@/lib/safe-action";
 import { createFundSchema, switchFundSchema } from "@/lib/validation/fund";
 
 /**
- * Creates a fund and its owner (RF-25). The locale comes from the request,
+ * Creates a fund and its owner (RF-05). The locale comes from the request,
  * never from the form: it decides the language the starter categories seed in.
  */
 export const createFundAction = authActionClient
@@ -34,6 +34,8 @@ export const switchFundAction = authActionClient
     const fund = await getFundForUser(fundId);
     if (!fund) throw new ActionError("errors.fundNotFound");
 
+    const locale = await getLocale();
+
     await writeLastFundId(fundId);
-    redirect({ href: `/f/${fundId}`, locale: await getLocale() });
+    redirect({ href: `/f/${fundId}`, locale });
   });
