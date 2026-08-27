@@ -23,7 +23,7 @@ export const updateMemberSchema = z.object({
 
 export type UpdateMemberInput = z.infer<typeof updateMemberSchema>;
 
-// Archiving a member forces a decision on each of their accounts (RF-11):
+// Archiving a member forces a decision on each of their accounts (RF-12):
 // keep the account and pass it to the fund, or archive it alongside them.
 export const archiveMemberSchema = z.object({
   fundId: z.uuid(),

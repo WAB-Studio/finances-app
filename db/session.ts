@@ -43,6 +43,10 @@ export async function requireUser(): Promise<SessionUser> {
  * The only path from the server to fund data. Opens a transaction that runs as
  * `authenticated` — a role that neither owns `app_users` nor holds BYPASSRLS —
  * so the policies decide every row, not the query.
+ *
+ * Throwing here is the guard. A caller pairs `getSessionUser()` with this only
+ * when it needs `user.id` in a statement, or when `null` already means "the
+ * policies did not show you this"; anywhere else the check buys nothing.
  */
 export async function withUserDb<T>(
   fn: (tx: Transaction) => Promise<T>,

@@ -3,13 +3,16 @@ import "server-only";
 import { and, asc, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 
 import { accounts, members } from "@/db/schema";
+import type { Account } from "@/db/schema";
 import { withUserDb } from "@/db/session";
 import { pesosToCents } from "@/lib/money";
+
+type AccountKind = Account["kind"];
 
 export type AccountRow = {
   id: string;
   name: string;
-  kind: "asset" | "liability";
+  kind: AccountKind;
   institution: string | null;
   memberId: string | null;
   memberName: string | null;
@@ -69,7 +72,7 @@ export async function listAssignableMembers(
 export type CreateAccountArgs = {
   fundId: string;
   name: string;
-  kind: "asset" | "liability";
+  kind: AccountKind;
   memberId: string | null;
   institution: string | null;
   pesos: number;

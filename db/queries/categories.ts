@@ -4,7 +4,7 @@ import { and, asc, count, eq, isNull, sql } from "drizzle-orm";
 
 import { categories } from "@/db/schema";
 import type { Category } from "@/db/schema";
-import { getSessionUser, withUserDb } from "@/db/session";
+import { withUserDb } from "@/db/session";
 
 type CategoryKind = Category["kind"];
 
@@ -49,9 +49,6 @@ export async function listCategories(
   fundId: string,
   kind: CategoryKind,
 ): Promise<CategoryNode[]> {
-  const user = await getSessionUser();
-  if (!user) return [];
-
   return withUserDb(async (tx) => {
     const rows = await tx
       .select({
@@ -95,9 +92,6 @@ export async function listParentCategories(
   fundId: string,
   kind: CategoryKind,
 ): Promise<{ id: string; name: string }[]> {
-  const user = await getSessionUser();
-  if (!user) return [];
-
   return withUserDb(async (tx) =>
     tx
       .select({ id: categories.id, name: categories.name })
@@ -114,9 +108,6 @@ export async function listParentCategories(
  * the tab open when a category is created.
  */
 export async function listUsedCategoryColors(fundId: string): Promise<string[]> {
-  const user = await getSessionUser();
-  if (!user) return [];
-
   return withUserDb(async (tx) => {
     const rows = await tx
       .selectDistinct({ color: categories.color })
@@ -134,9 +125,6 @@ export async function createCategory({
   parentId,
   color,
 }: CreateCategoryArgs): Promise<{ categoryId: string }> {
-  const user = await getSessionUser();
-  if (!user) throw new Error("createCategory called without a session");
-
   return withUserDb(async (tx) => {
     const [row] = await tx
       .insert(categories)
@@ -160,9 +148,6 @@ export async function updateCategory({
   parentId,
   color,
 }: UpdateCategoryArgs): Promise<boolean> {
-  const user = await getSessionUser();
-  if (!user) throw new Error("updateCategory called without a session");
-
   return withUserDb(async (tx) => {
     const rows = await tx
       .update(categories)
@@ -180,9 +165,6 @@ export async function updateCategory({
 
 // What the delete confirmation names before it happens.
 export async function countChildren(fundId: string, categoryId: string): Promise<number> {
-  const user = await getSessionUser();
-  if (!user) return 0;
-
   return withUserDb(async (tx) => {
     const [row] = await tx
       .select({ total: count() })
@@ -201,9 +183,6 @@ export async function deleteCategory({
   fundId: string;
   categoryId: string;
 }): Promise<boolean> {
-  const user = await getSessionUser();
-  if (!user) throw new Error("deleteCategory called without a session");
-
   return withUserDb(async (tx) => {
     const rows = await tx
       .delete(categories)

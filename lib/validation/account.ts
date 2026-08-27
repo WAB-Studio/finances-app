@@ -3,7 +3,7 @@ import { z } from "zod";
 import { isCivilDate, todayInBogota } from "@/lib/dates";
 import { MAX_AMOUNT_PESOS, parsePesos } from "@/lib/money";
 
-// The single list every screen and query reads for an account's kind (RF-09).
+// The list the screens and both sides of validation read for an account's kind (RF-09).
 export const ACCOUNT_KINDS = ["asset", "liability"] as const;
 
 const accountNameSchema = z

@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { CATEGORY_COLORS } from "@/lib/fund/category-color";
 
-// The single list every screen and query reads for a category's kind (RF-27).
+// The list the screens and both sides of validation read for a category's kind (RF-27).
 export const CATEGORY_KINDS = ["expense", "income"] as const;
 
 const categoryNameSchema = z
@@ -15,7 +15,9 @@ const categoryParentIdSchema = z
   .uuid({ error: "categories.errors.parentInvalid" })
   .nullable();
 
-const categoryColorSchema = z.enum(CATEGORY_COLORS).nullable();
+const categoryColorSchema = z
+  .enum(CATEGORY_COLORS, { error: "categories.errors.colorRequired" })
+  .nullable();
 
 // A subcategory inherits its parent's colour and sends none of its own; a
 // top-level category has no parent to inherit from, so it must pick one (RF-26).

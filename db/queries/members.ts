@@ -3,12 +3,15 @@ import "server-only";
 import { and, asc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 
 import { accounts, members } from "@/db/schema";
+import type { Account, Member } from "@/db/schema";
 import { withUserDb } from "@/db/session";
+
+type MemberRole = Member["role"];
 
 export type MemberRow = {
   id: string;
   name: string;
-  role: "owner" | "member";
+  role: MemberRole;
   userId: string | null;
   archivedAt: Date | null;
   activeAccountCount: number;
@@ -52,7 +55,7 @@ export async function listMembers(
 export async function listMemberActiveAccounts(
   fundId: string,
   memberId: string,
-): Promise<{ id: string; name: string; kind: "asset" | "liability" }[]> {
+): Promise<{ id: string; name: string; kind: Account["kind"] }[]> {
   return withUserDb(async (tx) =>
     tx
       .select({ id: accounts.id, name: accounts.name, kind: accounts.kind })
@@ -87,7 +90,7 @@ export async function createMember({
   });
 }
 
-export async function updateMemberName({
+export async function updateMember({
   fundId,
   memberId,
   name,
@@ -108,7 +111,7 @@ export async function updateMemberName({
 }
 
 // One transaction, member's archive last: a failed account decision must leave
-// nothing half-applied (RF-12 — archiving a member never archives their accounts).
+// nothing half-applied (RF-12 — no account is archived except the ones chosen).
 export async function archiveMember({
   fundId,
   memberId,
