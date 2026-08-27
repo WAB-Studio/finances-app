@@ -100,7 +100,9 @@ export async function createAccount({
         memberId,
         institution,
         // A liability opens negative so net worth stays a plain sum (RNF-05).
-        initialBalanceCents: sql`case when ${kind} = 'liability' then -${cents} else ${cents} end`,
+        // `cents` is cast explicitly: an untyped param leaves unary minus with
+        // no single best operator, and Postgres refuses to parse the case.
+        initialBalanceCents: sql`case when ${kind} = 'liability' then -${cents}::bigint else ${cents}::bigint end`,
         initialBalanceOn: balanceOn,
       })
       .returning({ id: accounts.id });
@@ -138,8 +140,9 @@ export async function updateAccount({
         memberId,
         institution,
         // `kind` is immutable and absent from the grant, so it is read from
-        // the row itself rather than named in this `set`.
-        initialBalanceCents: sql`case when ${accounts.kind} = 'liability' then -${cents} else ${cents} end`,
+        // the row itself rather than named in this `set`. `cents` is cast
+        // explicitly for the same reason as in `createAccount`.
+        initialBalanceCents: sql`case when ${accounts.kind} = 'liability' then -${cents}::bigint else ${cents}::bigint end`,
         initialBalanceOn: balanceOn,
       })
       .where(and(eq(accounts.id, accountId), eq(accounts.fundId, fundId)))

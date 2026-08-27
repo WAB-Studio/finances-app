@@ -136,6 +136,7 @@ export function CategoriesScreen({
                         type="button"
                         variant="ghost"
                         color="gray"
+                        size="4"
                         aria-label={tKey("common.actions")}
                       >
                         <EllipsisVertical size={16} />
@@ -195,6 +196,7 @@ export function CategoriesScreen({
                                 type="button"
                                 variant="ghost"
                                 color="gray"
+                                size="4"
                                 aria-label={tKey("common.actions")}
                               >
                                 <EllipsisVertical size={16} />

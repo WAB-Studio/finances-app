@@ -267,6 +267,7 @@ function AccountCard({
               type="button"
               variant="ghost"
               color="gray"
+              size="4"
               disabled={pending}
               aria-label={tKey("common.actions")}
             >

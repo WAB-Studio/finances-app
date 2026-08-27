@@ -152,6 +152,7 @@ export function MembersScreen({
                           type="button"
                           variant="ghost"
                           color="gray"
+                          size="4"
                           aria-label={tKey("common.actions")}
                         >
                           <EllipsisVertical size={16} />
