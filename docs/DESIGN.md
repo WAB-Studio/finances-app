@@ -2,6 +2,12 @@
 
 Where interface decisions that outlive a single slice are written down.
 
+## The domain leads
+
+- Derive every interface decision from the domain, never from a pattern borrowed for its looks.
+- Put the person's experience ahead of what is convenient to build.
+- Give the screen to the action the person came to perform.
+
 ## Mobile first
 
 RNF-08 sets the requirement. This is how it shows in the interface.
@@ -12,12 +18,6 @@ RNF-08 sets the requirement. This is how it shows in the interface.
 - Treat the narrow viewport as the base case, never as a fallback.
 - A screen is done only once it holds at the narrow viewport: no horizontal
   overflow, no overlapping controls, no tap target too small to hit.
-
-## Frequency first
-
-- Give the screen to the action the person came to perform.
-- Rank a destination by how often it is used. Never by how important it looks.
-- Spend permanent screen space only on what is used daily.
 
 ## Navigation
 
