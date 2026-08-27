@@ -76,7 +76,7 @@ export function CategoriesScreen({
 
   // Rewrites the query string so the active tab survives a reload and can be linked to.
   function onKindChange(nextKind: string) {
-    router.push({ pathname, query: { kind: nextKind } });
+    router.push({ pathname, query: { kind: nextKind } }, { scroll: false });
   }
 
   const addButton = (
@@ -113,8 +113,12 @@ export function CategoriesScreen({
               <Flex direction="column" gap="3">
                 <Flex justify="between" align="center" gap="3">
                   <Flex align="center" gap="2" minWidth="0">
-                    {/* The schema refuses a top-level category without a colour. */}
-                    <ColorSwatch color={category.color!} label={category.name} />
+                    {/* `color` is a nullable column; only the write-path schema
+                        keeps a top-level category's colour set, so a row that
+                        arrived any other way loses the swatch, not the row. */}
+                    {category.color && (
+                      <ColorSwatch color={category.color} label={category.name} />
+                    )}
                     <Flex direction="column" minWidth="0">
                       <Text weight="medium" truncate>
                         {category.name}
