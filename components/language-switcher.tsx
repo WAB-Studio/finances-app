@@ -1,8 +1,9 @@
 "use client";
 
-import { LanguagesIcon } from "lucide-react";
+import { LanguagesIcon, Loader2Icon } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
+import { useState } from "react";
 import { toast } from "sonner";
 
 import { setLocaleAction } from "@/app/actions/locale";
@@ -29,11 +30,15 @@ export function LanguageSwitcher() {
   type MessageKey = Parameters<typeof tKey>[0];
   const locale = useLocale();
   const pathname = usePathname();
+  // Never cleared: the document is leaving, and the control must not come back
+  // to life in the gap between the action resolving and the new page painting.
+  const [leaving, setLeaving] = useState(false);
 
   const { execute, isPending } = useAction(setLocaleAction, {
     // A document navigation, never a client one: crossing `[locale]` remounts the
     // theme provider, and React cannot run its pre-paint script in the browser.
     onSuccess({ data }) {
+      setLeaving(true);
       window.location.assign(`/${data.locale}${pathname}`);
     },
     onError({ error }) {
@@ -48,9 +53,17 @@ export function LanguageSwitcher() {
   }
 
   return (
-    <Select value={locale} onValueChange={onValueChange} disabled={isPending}>
+    <Select
+      value={locale}
+      onValueChange={onValueChange}
+      disabled={isPending || leaving}
+    >
       <SelectTrigger aria-label={t("label")} className={triggerClassName}>
-        <LanguagesIcon className="size-4" />
+        {isPending || leaving ? (
+          <Loader2Icon className="size-4 animate-spin" aria-hidden />
+        ) : (
+          <LanguagesIcon className="size-4" />
+        )}
         <span className="hidden sm:inline">{t(`endonym.${locale}`)}</span>
       </SelectTrigger>
       <SelectContent>
