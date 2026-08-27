@@ -143,22 +143,24 @@ function MemberForm({
             </Field>
           )}
         />
-        <Flex gap="3" justify="end">
-          <Dialog.Close>
-            <Button
-              type="button"
-              variant="soft"
-              color="gray"
-              disabled={isPending}
-            >
-              {tKey("common.cancel")}
+        <Field>
+          <Flex gap="3" justify="end">
+            <Dialog.Close>
+              <Button
+                type="button"
+                variant="soft"
+                color="gray"
+                disabled={isPending}
+              >
+                {tKey("common.cancel")}
+              </Button>
+            </Dialog.Close>
+            <Button type="submit" disabled={isPending}>
+              {isPending && <Spinner />}
+              {tKey("common.save")}
             </Button>
-          </Dialog.Close>
-          <Button type="submit" disabled={isPending}>
-            {isPending && <Spinner />}
-            {tKey("common.save")}
-          </Button>
-        </Flex>
+          </Flex>
+        </Field>
       </FieldGroup>
     </form>
   );
