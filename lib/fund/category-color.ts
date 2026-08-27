@@ -18,7 +18,10 @@ export const CATEGORY_COLORS = [
 ] as const;
 
 // The first unused colour, or a deterministic wrap once every colour is taken.
+// `color` is an unconstrained `text()` column, so a stored value may differ
+// from the palette only in case; the comparison ignores it, the return never does.
 export function nextCategoryColor(used: readonly string[]): string {
-  const free = CATEGORY_COLORS.find((color) => !used.includes(color));
+  const usedUpper = used.map((color) => color.toUpperCase());
+  const free = CATEGORY_COLORS.find((color) => !usedUpper.includes(color));
   return free ?? CATEGORY_COLORS[used.length % CATEGORY_COLORS.length];
 }
