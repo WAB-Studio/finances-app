@@ -13,7 +13,7 @@ RNF-08 sets the requirement. This is how it shows in the interface.
 - A screen is done only once it holds at the narrow viewport: no horizontal
   overflow, no overlapping controls, no tap target too small to hit.
 
-## Utility first
+## Frequency first
 
 - Give the screen to the action the person came to perform.
 - Rank a destination by how often it is used. Never by how important it looks.
