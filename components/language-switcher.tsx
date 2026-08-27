@@ -39,7 +39,9 @@ export function LanguageSwitcher() {
     // theme provider, and React cannot run its pre-paint script in the browser.
     onSuccess({ data }) {
       setLeaving(true);
-      window.location.assign(`/${data.locale}${pathname}`);
+      window.location.assign(
+        new URL(`/${data.locale}${pathname}`, window.location.origin),
+      );
     },
     onError({ error }) {
       toast.error(

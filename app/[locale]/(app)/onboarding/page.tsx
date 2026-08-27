@@ -7,7 +7,6 @@ import { CreateFundForm } from "@/components/fund/create-fund-form";
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
@@ -46,7 +45,6 @@ export default async function OnboardingPage(
       <Card className="w-full max-w-sm">
         <CardHeader>
           <CardTitle>{t("title")}</CardTitle>
-          <CardDescription>{t("description")}</CardDescription>
         </CardHeader>
         <CardContent>
           <CreateFundForm />

@@ -40,7 +40,6 @@
   },
   "onboarding": {
     "title": "Crea tu fondo",
-    "description": "Es el bote común: sus cuentas, sus miembros y su historial.",
     "fundNameLabel": "Nombre del fondo",
     "fundNamePlaceholder": "Casa",
     "memberNameLabel": "¿Cómo te llamas?",

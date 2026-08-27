@@ -40,7 +40,6 @@
   },
   "onboarding": {
     "title": "Create your fund",
-    "description": "It is the shared pot: its accounts, its members and its history.",
     "fundNameLabel": "Fund name",
     "fundNamePlaceholder": "Household",
     "memberNameLabel": "What is your name?",
