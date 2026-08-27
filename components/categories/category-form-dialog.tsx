@@ -95,7 +95,6 @@ function CategoryForm({
   defaultParentId,
 }: CategoryFormProps) {
   const t = useTranslations("categories");
-  const tCommon = useTranslations("common");
   // Root-scoped: the keys arriving from the schema and the action are full paths.
   const tKey = useTranslations();
   type MessageKey = Parameters<typeof tKey>[0];
@@ -299,12 +298,12 @@ function CategoryForm({
                 color="gray"
                 disabled={isPending}
               >
-                {tCommon("cancel")}
+                {tKey("common.cancel")}
               </Button>
             </Dialog.Close>
             <Button type="submit" disabled={isPending}>
               {isPending && <Spinner />}
-              {tCommon("save")}
+              {tKey("common.save")}
             </Button>
           </Flex>
         </Field>

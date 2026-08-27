@@ -39,7 +39,8 @@ export function ArchiveMemberDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const t = useTranslations("members");
-  const tCommon = useTranslations("common");
+  // Root-scoped: the action's error is a full catalogue path, and `common` is
+  // not this component's namespace.
   const tKey = useTranslations();
   type MessageKey = Parameters<typeof tKey>[0];
 
@@ -62,8 +63,8 @@ export function ArchiveMemberDialog({
         onOpenChange={onOpenChange}
         title={t("archiveTitle")}
         description={t("archiveDescription")}
-        confirmLabel={tCommon("archive")}
-        cancelLabel={tCommon("cancel")}
+        confirmLabel={tKey("common.archive")}
+        cancelLabel={tKey("common.cancel")}
         pending={isPending}
         tone="neutral"
         onConfirm={() => execute({ fundId, memberId: member.id, accounts: [] })}
@@ -112,7 +113,8 @@ function AccountDecisions({
 }) {
   const t = useTranslations("members");
   const tAccounts = useTranslations("accounts");
-  const tCommon = useTranslations("common");
+  // Root-scoped: `common` is not this component's namespace.
+  const tKey = useTranslations();
 
   const [decisions, setDecisions] = useState<Record<string, Decision>>({});
 
@@ -163,7 +165,7 @@ function AccountDecisions({
       <Flex gap="3" justify="end">
         <Dialog.Close>
           <Button type="button" variant="soft" color="gray" disabled={pending}>
-            {tCommon("cancel")}
+            {tKey("common.cancel")}
           </Button>
         </Dialog.Close>
         <Button
@@ -172,7 +174,7 @@ function AccountDecisions({
           onClick={() => onConfirm(decisions)}
         >
           {pending && <Spinner />}
-          {tCommon("archive")}
+          {tKey("common.archive")}
         </Button>
       </Flex>
     </>
