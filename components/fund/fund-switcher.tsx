@@ -2,7 +2,6 @@
 
 import { useTranslations } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
-import { useTransition } from "react";
 import { toast } from "sonner";
 
 import { switchFundAction } from "@/app/actions/fund";
@@ -13,8 +12,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { usePathname } from "@/i18n/navigation";
 import type { FundSummary } from "@/db/queries/funds";
+import { usePathname } from "@/i18n/navigation";
 
 // `/f/<id>/…`, locale already stripped by `usePathname`.
 function activeFundId(pathname: string): string | undefined {
@@ -28,9 +27,8 @@ export function FundSwitcher({ funds }: { funds: FundSummary[] }) {
   const tKey = useTranslations();
   type MessageKey = Parameters<typeof tKey>[0];
   const pathname = usePathname();
-  const [isPending, startTransition] = useTransition();
 
-  const { execute, isExecuting } = useAction(switchFundAction, {
+  const { execute, isPending } = useAction(switchFundAction, {
     onError({ error }) {
       toast.error(
         tKey((error.serverError ?? "errors.unexpected") as MessageKey),
@@ -55,14 +53,14 @@ export function FundSwitcher({ funds }: { funds: FundSummary[] }) {
   }
 
   function onValueChange(fundId: string) {
-    startTransition(() => execute({ fundId }));
+    execute({ fundId });
   }
 
   return (
     <Select
       value={activeFundId(pathname)}
       onValueChange={onValueChange}
-      disabled={isPending || isExecuting}
+      disabled={isPending}
     >
       <SelectTrigger
         aria-label={t("label")}
