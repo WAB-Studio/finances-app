@@ -5,7 +5,7 @@ import { useTranslations } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
 
 import { signOutAction } from "@/app/actions/auth";
-import { Button } from "@/components/ui/button";
+import { Box, Button, Text } from "@/components/ui";
 
 export function SignOutButton() {
   const t = useTranslations("auth");
@@ -15,15 +15,15 @@ export function SignOutButton() {
     <Button
       type="button"
       variant="outline"
-      size="icon"
-      // Icon only on a narrow header; the label returns once there is room.
-      className="sm:w-auto sm:gap-1.5 sm:px-2.5"
       aria-label={t("signOut")}
       disabled={isPending}
       onClick={() => execute()}
     >
-      <LogOutIcon className="size-4" />
-      <span className="hidden sm:inline">{t("signOut")}</span>
+      <LogOutIcon size={16} />
+      {/* Hidden below `sm`; the button's own `aria-label` keeps the name regardless. */}
+      <Box display={{ initial: "none", sm: "inline" }} asChild>
+        <Text>{t("signOut")}</Text>
+      </Box>
     </Button>
   );
 }

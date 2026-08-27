@@ -1,23 +1,15 @@
 "use client";
 
-import { LanguagesIcon, Loader2Icon } from "lucide-react";
+import { LanguagesIcon } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
 import { useState } from "react";
 import { toast } from "sonner";
 
 import { setLocaleAction } from "@/app/actions/locale";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-} from "@/components/ui/select";
+import { Select, Spinner, ToolbarSelect } from "@/components/ui";
 import { usePathname } from "@/i18n/navigation";
 import { LOCALES, type Locale } from "@/lib/locales";
-
-// Matched to the theme switcher: the two sit side by side and must not reflow.
-const triggerClassName = "w-16 justify-between sm:w-36";
 
 function isLocale(value: string): value is Locale {
   return LOCALES.includes(value as Locale);
@@ -54,27 +46,22 @@ export function LanguageSwitcher() {
     if (isLocale(value)) execute({ locale: value });
   }
 
+  const pending = isPending || leaving;
+
   return (
-    <Select
+    <ToolbarSelect
       value={locale}
       onValueChange={onValueChange}
-      disabled={isPending || leaving}
+      disabled={pending}
+      label={t("label")}
+      icon={pending ? <Spinner /> : <LanguagesIcon size={16} />}
+      text={t(`endonym.${locale}`)}
     >
-      <SelectTrigger aria-label={t("label")} className={triggerClassName}>
-        {isPending || leaving ? (
-          <Loader2Icon className="size-4 animate-spin" aria-hidden />
-        ) : (
-          <LanguagesIcon className="size-4" />
-        )}
-        <span className="hidden sm:inline">{t(`endonym.${locale}`)}</span>
-      </SelectTrigger>
-      <SelectContent>
-        {LOCALES.map((option) => (
-          <SelectItem key={option} value={option}>
-            {t(`endonym.${option}`)}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+      {LOCALES.map((option) => (
+        <Select.Item key={option} value={option}>
+          {t(`endonym.${option}`)}
+        </Select.Item>
+      ))}
+    </ToolbarSelect>
   );
 }

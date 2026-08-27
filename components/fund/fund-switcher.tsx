@@ -1,19 +1,12 @@
 "use client";
 
-import { Loader2Icon } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
 import { useState } from "react";
 import { toast } from "sonner";
 
 import { switchFundAction } from "@/app/actions/fund";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Box, Flex, Select, Spinner, Text } from "@/components/ui";
 import type { FundSummary } from "@/db/queries/funds";
 import { usePathname } from "@/i18n/navigation";
 
@@ -46,17 +39,21 @@ export function FundSwitcher({ funds }: { funds: FundSummary[] }) {
 
   if (funds.length === 0) {
     return (
-      <span className="min-w-0 flex-1 truncate text-sm font-semibold tracking-tight">
-        {tKey("common.appName")}
-      </span>
+      <Box flexGrow="1" minWidth="0" asChild>
+        <Text weight="bold" truncate>
+          {tKey("common.appName")}
+        </Text>
+      </Box>
     );
   }
 
   if (funds.length === 1) {
     return (
-      <span className="min-w-0 flex-1 truncate text-sm font-semibold tracking-tight">
-        {funds[0].name}
-      </span>
+      <Box flexGrow="1" minWidth="0" asChild>
+        <Text weight="bold" truncate>
+          {funds[0].name}
+        </Text>
+      </Box>
     );
   }
 
@@ -65,28 +62,38 @@ export function FundSwitcher({ funds }: { funds: FundSummary[] }) {
     execute({ fundId });
   }
 
+  const selected = funds.find((fund) => fund.id === (picked ?? active));
+
   return (
-    <Select
+    <Select.Root
       value={picked ?? active ?? ""}
       onValueChange={onValueChange}
       disabled={switching}
     >
-      <SelectTrigger
-        aria-label={t("label")}
-        className="min-w-0 flex-1 justify-between"
-      >
-        <SelectValue />
-        {switching && (
-          <Loader2Icon className="ml-auto size-4 animate-spin text-muted-foreground" aria-hidden />
-        )}
-      </SelectTrigger>
-      <SelectContent>
+      {/* Elastic, not fixed: the trigger fills the free width `ToolbarSelect` doesn't leave. */}
+      <Box flexGrow="1" flexShrink="1" minWidth="0" asChild>
+        <Select.Trigger aria-label={t("label")}>
+          <Flex
+            as="span"
+            align="center"
+            justify="between"
+            gap="2"
+            width="100%"
+          >
+            <Box asChild flexGrow="1" minWidth="0">
+              <Text truncate>{selected?.name}</Text>
+            </Box>
+            {switching && <Spinner />}
+          </Flex>
+        </Select.Trigger>
+      </Box>
+      <Select.Content>
         {funds.map((fund) => (
-          <SelectItem key={fund.id} value={fund.id}>
+          <Select.Item key={fund.id} value={fund.id}>
             {fund.name}
-          </SelectItem>
+          </Select.Item>
         ))}
-      </SelectContent>
-    </Select>
+      </Select.Content>
+    </Select.Root>
   );
 }
