@@ -7,6 +7,7 @@ import { sql } from "drizzle-orm";
 import { accounts, categories, funds, members } from "@/db/schema";
 import { getSessionUser, withUserDb } from "@/db/session";
 import { CASH_ACCOUNT_NAME, SEED_CATEGORIES } from "@/lib/fund/seed";
+import { TIME_ZONE } from "@/lib/locales";
 import type { Locale } from "@/lib/locales";
 
 export type CreateFundArgs = { name: string; memberName: string; locale: Locale };
@@ -44,7 +45,7 @@ export async function createFund({
       name: CASH_ACCOUNT_NAME[locale],
       kind: "asset",
       initialBalanceCents: 0,
-      initialBalanceOn: sql`(now() at time zone 'America/Bogota')::date`,
+      initialBalanceOn: sql`(now() at time zone ${TIME_ZONE})::date`,
     });
 
     // Ids generated up front so children can reference a parent without a
