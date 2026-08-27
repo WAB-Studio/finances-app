@@ -3,7 +3,6 @@
 import { LanguagesIcon } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
-import { useTransition } from "react";
 import { toast } from "sonner";
 
 import { setLocaleAction } from "@/app/actions/locale";
@@ -13,7 +12,7 @@ import {
   SelectItem,
   SelectTrigger,
 } from "@/components/ui/select";
-import { usePathname, useRouter } from "@/i18n/navigation";
+import { usePathname } from "@/i18n/navigation";
 import { LOCALES, type Locale } from "@/lib/locales";
 
 // Matched to the theme switcher: the two sit side by side and must not reflow.
@@ -30,14 +29,12 @@ export function LanguageSwitcher() {
   type MessageKey = Parameters<typeof tKey>[0];
   const locale = useLocale();
   const pathname = usePathname();
-  const router = useRouter();
-  const [isNavigating, startTransition] = useTransition();
 
   const { execute, isPending } = useAction(setLocaleAction, {
-    // The URL moves only once the preference is stored, so a failed write
-    // leaves the visitor on the language they were already reading.
+    // A document navigation, never a client one: crossing `[locale]` remounts the
+    // theme provider, and React cannot run its pre-paint script in the browser.
     onSuccess({ data }) {
-      startTransition(() => router.replace(pathname, { locale: data.locale }));
+      window.location.assign(`/${data.locale}${pathname}`);
     },
     onError({ error }) {
       toast.error(
@@ -51,11 +48,7 @@ export function LanguageSwitcher() {
   }
 
   return (
-    <Select
-      value={locale}
-      onValueChange={onValueChange}
-      disabled={isPending || isNavigating}
-    >
+    <Select value={locale} onValueChange={onValueChange} disabled={isPending}>
       <SelectTrigger aria-label={t("label")} className={triggerClassName}>
         <LanguagesIcon className="size-4" />
         <span className="hidden sm:inline">{t(`endonym.${locale}`)}</span>
