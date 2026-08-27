@@ -13,8 +13,8 @@ import {
   Dialog,
   Flex,
   ScrollArea,
-  SegmentedControl,
   Spinner,
+  StackedSegmentedControl,
   Text,
 } from "@/components/ui";
 import type { MemberRow } from "@/db/queries/members";
@@ -138,7 +138,7 @@ function AccountDecisions({
               )}
             </Text>
           </Flex>
-          <SegmentedControl.Root
+          <StackedSegmentedControl.Root
             value={decisions[account.id] ?? ""}
             onValueChange={(value) =>
               setDecisions((prev) => ({
@@ -147,13 +147,13 @@ function AccountDecisions({
               }))
             }
           >
-            <SegmentedControl.Item value="archive">
+            <StackedSegmentedControl.Item value="archive">
               {t("accountToArchive")}
-            </SegmentedControl.Item>
-            <SegmentedControl.Item value="fund">
+            </StackedSegmentedControl.Item>
+            <StackedSegmentedControl.Item value="fund">
               {t("accountToFund")}
-            </SegmentedControl.Item>
-          </SegmentedControl.Root>
+            </StackedSegmentedControl.Item>
+          </StackedSegmentedControl.Root>
         </Flex>
       ))}
     </Flex>

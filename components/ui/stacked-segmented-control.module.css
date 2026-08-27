@@ -1,0 +1,63 @@
+/* Radix Themes ships a fixed height and `min-width: max-content` on
+   `.rt-SegmentedControlRoot`, so it refuses to shrink below both option
+   labels on one line: doubled to outrank Radix's own same-specificity
+   `:where()`-zeroed rules whichever stylesheet loads last. */
+.root.root {
+  display: grid;
+  grid-auto-flow: row;
+  min-width: 0;
+  width: 100%;
+  height: auto;
+}
+
+/* One row per option, each a full-width tap target of at least 44px. */
+.item.item {
+  min-height: 44px;
+}
+
+/* Stacked rows are not adjoining segments, so the tick Radix draws between
+   segments has nothing to divide. */
+.root :global(.rt-SegmentedControlItemSeparator) {
+  display: none;
+}
+
+/* The sliding indicator computes its width and its translateX from a
+   horizontal row of items; stacked, it would paint a stray band instead of
+   trailing the picked option, so the picked option paints its own
+   background and the indicator stays hidden until the row returns. */
+.root :global(.rt-SegmentedControlIndicator) {
+  display: none;
+}
+
+.item[data-state="on"] :global(.rt-SegmentedControlItemLabel) {
+  background-color: var(--segmented-control-indicator-background-color);
+  box-shadow: 0 0 0 1px var(--gray-a4);
+}
+
+@media (min-width: 768px) {
+  .root.root {
+    display: inline-grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 1fr;
+    min-width: max-content;
+    width: auto;
+    height: var(--space-6);
+  }
+
+  .item.item {
+    min-height: 0;
+  }
+
+  .root :global(.rt-SegmentedControlItemSeparator) {
+    display: revert;
+  }
+
+  .root :global(.rt-SegmentedControlItem[data-state="on"]) ~ :global(.rt-SegmentedControlIndicator) {
+    display: block;
+  }
+
+  .item[data-state="on"] :global(.rt-SegmentedControlItemLabel) {
+    background-color: transparent;
+    box-shadow: none;
+  }
+}
