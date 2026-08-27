@@ -72,6 +72,7 @@
     "unexpected": "Something went wrong. Please try again.",
     "unauthenticated": "Your session expired. Sign in again.",
     "emailRateLimited": "You requested too many links in a row. Wait a moment and try again.",
-    "linkInvalid": "This link is invalid or has expired. Request a new one."
+    "linkInvalid": "This link is invalid or has expired. Request a new one.",
+    "fundNotFound": "That fund is no longer available. Pick another one."
   }
 }

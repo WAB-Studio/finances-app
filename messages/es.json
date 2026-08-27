@@ -72,6 +72,7 @@
     "unexpected": "Algo salió mal. Vuelve a intentarlo.",
     "unauthenticated": "Tu sesión expiró. Vuelve a iniciar sesión.",
     "emailRateLimited": "Pediste demasiados enlaces seguidos. Espera un momento y vuelve a intentarlo.",
-    "linkInvalid": "El enlace no es válido o ya expiró. Pide uno nuevo."
+    "linkInvalid": "El enlace no es válido o ya expiró. Pide uno nuevo.",
+    "fundNotFound": "Ese fondo ya no está disponible. Elige otro."
   }
 }
