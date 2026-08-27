@@ -48,7 +48,7 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
 ## Comments
 
 - Say what the code does not. Skip the rest.
-- Keep them to one line.
+- Keep them to one idea. A wrapped line is still one.
 - Never restate the line below.
 - Never log a change, a date, an author or a ticket.
 
