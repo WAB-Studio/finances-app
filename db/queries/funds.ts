@@ -1,6 +1,7 @@
 import "server-only";
 
 import { and, asc, count, eq, isNull } from "drizzle-orm";
+import { cache } from "react";
 
 import { accounts, categories, funds, members } from "@/db/schema";
 import type { Fund } from "@/db/schema";
@@ -32,7 +33,10 @@ export async function listUserFunds(): Promise<FundSummary[]> {
 }
 
 // `null` here means the policy filtered the row, not that the query excluded it.
-export async function getFundForUser(fundId: string): Promise<FundSummary | null> {
+// Deduplicated per request: the layout, the metadata and the page all ask for the same fund.
+export const getFundForUser = cache(async function getFundForUser(
+  fundId: string,
+): Promise<FundSummary | null> {
   const user = await getSessionUser();
   if (!user) return null;
 
@@ -45,7 +49,7 @@ export async function getFundForUser(fundId: string): Promise<FundSummary | null
 
     return row ?? null;
   });
-}
+});
 
 export async function getFundOverview(fundId: string): Promise<FundOverview | null> {
   const user = await getSessionUser();

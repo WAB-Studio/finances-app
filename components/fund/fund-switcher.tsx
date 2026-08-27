@@ -1,7 +1,9 @@
 "use client";
 
+import { Loader2Icon } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
+import { useState } from "react";
 import { toast } from "sonner";
 
 import { switchFundAction } from "@/app/actions/fund";
@@ -27,14 +29,20 @@ export function FundSwitcher({ funds }: { funds: FundSummary[] }) {
   const tKey = useTranslations();
   type MessageKey = Parameters<typeof tKey>[0];
   const pathname = usePathname();
+  const [picked, setPicked] = useState<string | null>(null);
 
-  const { execute, isPending } = useAction(switchFundAction, {
+  const { execute } = useAction(switchFundAction, {
     onError({ error }) {
+      setPicked(null);
       toast.error(
         tKey((error.serverError ?? "errors.unexpected") as MessageKey),
       );
     },
   });
+
+  const active = activeFundId(pathname);
+  // The server owns the redirect, so the URL arriving is what ends the wait.
+  const switching = picked !== null && picked !== active;
 
   if (funds.length === 0) {
     return (
@@ -53,20 +61,22 @@ export function FundSwitcher({ funds }: { funds: FundSummary[] }) {
   }
 
   function onValueChange(fundId: string) {
+    setPicked(fundId);
     execute({ fundId });
   }
 
   return (
     <Select
-      value={activeFundId(pathname) ?? ""}
+      value={picked ?? active ?? ""}
       onValueChange={onValueChange}
-      disabled={isPending}
+      disabled={switching}
     >
       <SelectTrigger
         aria-label={t("label")}
         className="min-w-0 flex-1 justify-between"
       >
         <SelectValue />
+        {switching && <Loader2Icon className="size-4 shrink-0 animate-spin" aria-hidden />}
       </SelectTrigger>
       <SelectContent>
         {funds.map((fund) => (
