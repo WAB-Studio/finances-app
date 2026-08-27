@@ -48,14 +48,11 @@
     "memberNameDescription": "Así apareces en los informes por persona.",
     "memberNamePlaceholder": "Tu nombre",
     "submit": "Crear fondo",
-    "submitting": "Creando el fondo",
-    "whatHappens": "Al crearlo quedas como responsable del fondo, se crea su caja de efectivo compartida y un juego inicial de categorías que puedes cambiar después."
+    "submitting": "Creando el fondo"
   },
   "dashboard": {
     "emptyTitle": "Todavía no hay movimientos",
-    "emptyDescription": "Aquí vas a ver los saldos y los movimientos del fondo. Crear cuentas y registrar gastos llega en el siguiente paso.",
-    "cashAccountReady": "La caja de efectivo compartida ya existe: {name}.",
-    "categoriesReady": "{count} categorías iniciales listas para usar."
+    "emptyDescription": "Aquí vas a ver los saldos y los movimientos del fondo. Crear cuentas y registrar gastos llega en el siguiente paso."
   },
   "language": {
     "label": "Idioma",

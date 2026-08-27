@@ -48,14 +48,11 @@
     "memberNameDescription": "This is how you appear in per-person reports.",
     "memberNamePlaceholder": "Your name",
     "submit": "Create fund",
-    "submitting": "Creating the fund",
-    "whatHappens": "Creating it makes you the fund's owner, creates its shared cash account and a starter set of categories you can change later."
+    "submitting": "Creating the fund"
   },
   "dashboard": {
     "emptyTitle": "No movements yet",
-    "emptyDescription": "This is where the fund's balances and movements will appear. Creating accounts and recording expenses arrives in the next step.",
-    "cashAccountReady": "The shared cash account already exists: {name}.",
-    "categoriesReady": "{count} starter categories ready to use."
+    "emptyDescription": "This is where the fund's balances and movements will appear. Creating accounts and recording expenses arrives in the next step."
   },
   "language": {
     "label": "Language",

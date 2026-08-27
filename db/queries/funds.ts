@@ -68,6 +68,7 @@ export async function getFundOverview(fundId: string): Promise<FundOverview | nu
           eq(accounts.fundId, fundId),
           isNull(accounts.memberId),
           eq(accounts.kind, "asset"),
+          isNull(accounts.archivedAt),
         ),
       )
       .orderBy(asc(accounts.name))
