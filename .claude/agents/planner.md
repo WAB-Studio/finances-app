@@ -27,7 +27,7 @@ A slice: a set of RF codes from `docs/SPEC.md`, and the path to write the plan t
 - Files to create or edit, with path.
 - Contract: inputs, outputs, types.
 - RF codes covered.
-- Done criterion, verifiable by a command or a condition.
+- Done criterion, written as a fact to prove. Never as a command to run.
 - Dependencies: numbers of prior modules.
 
 # Limits

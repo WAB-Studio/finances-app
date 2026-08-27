@@ -55,6 +55,8 @@ Send: goal, files with path, contract, RF codes and the `docs/` sections to read
 builds on, done criterion, the decisions you already took.
 
 Name the branch. It commits its own work.
+State the done criterion as a fact to prove. Never as a command to run.
+Leave the worker to choose how it proves one.
 
 Strip the plan's numbering, its other modules and its rationale.
 
