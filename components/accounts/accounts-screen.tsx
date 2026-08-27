@@ -1,0 +1,306 @@
+"use client";
+
+import { EllipsisVerticalIcon, PlusIcon } from "lucide-react";
+import { useFormatter, useTranslations } from "next-intl";
+import { useAction } from "next-safe-action/hooks";
+import { useState } from "react";
+import { toast } from "sonner";
+
+import {
+  archiveAccountAction,
+  deleteAccountAction,
+  restoreAccountAction,
+} from "@/app/actions/accounts";
+import { AccountFormDialog } from "@/components/accounts/account-form-dialog";
+import {
+  Badge,
+  Button,
+  Card,
+  ConfirmDialog,
+  DropdownMenu,
+  EmptyState,
+  Flex,
+  Heading,
+  IconButton,
+  SegmentedControl,
+  Text,
+} from "@/components/ui";
+import type { AccountRow } from "@/db/queries/accounts";
+import { usePathname, useRouter } from "@/i18n/navigation";
+import { civilDateToDate } from "@/lib/dates";
+import { centsToPesos } from "@/lib/money";
+
+type Member = { id: string; name: string };
+type Group = { key: string; label: string; accounts: AccountRow[] };
+
+// `listAccounts` already orders fund accounts first, then by member name,
+// then by account name, so one pass that starts a new group on an owner
+// change reproduces that grouping without a second sort to keep in step.
+function groupByOwner(accounts: AccountRow[], fundLabel: string): Group[] {
+  const groups: Group[] = [];
+
+  for (const account of accounts) {
+    const key = account.memberId ?? "fund";
+    const current = groups.at(-1);
+    if (current && current.key === key) {
+      current.accounts.push(account);
+    } else {
+      groups.push({
+        key,
+        label: account.memberId ? account.memberName! : fundLabel,
+        accounts: [account],
+      });
+    }
+  }
+
+  return groups;
+}
+
+export function AccountsScreen({
+  fundId,
+  accounts,
+  members,
+  archived,
+}: {
+  fundId: string;
+  accounts: AccountRow[];
+  members: Member[];
+  archived: boolean;
+}) {
+  const t = useTranslations("accounts");
+  const tKey = useTranslations();
+  const pathname = usePathname();
+  const router = useRouter();
+
+  const [formOpen, setFormOpen] = useState(false);
+  const [editing, setEditing] = useState<AccountRow | undefined>(undefined);
+
+  function openCreate() {
+    setEditing(undefined);
+    setFormOpen(true);
+  }
+
+  function openEdit(account: AccountRow) {
+    setEditing(account);
+    setFormOpen(true);
+  }
+
+  // Rewrites the query string instead of holding the tab in state, so a
+  // reload or a shared link lands on the same tab.
+  function onTabChange(value: string) {
+    router.replace(value === "archived" ? `${pathname}?tab=archived` : pathname);
+  }
+
+  const groups = groupByOwner(accounts, tKey("common.fund"));
+  const addButton = (
+    <Button type="button" onClick={openCreate}>
+      <PlusIcon size={16} />
+      {t("add")}
+    </Button>
+  );
+
+  return (
+    <Flex direction="column" flexGrow="1" gap="4">
+      <Flex justify="between" align="center" gap="3">
+        <Heading size="6">{t("title")}</Heading>
+        {addButton}
+      </Flex>
+      <SegmentedControl.Root
+        value={archived ? "archived" : "active"}
+        onValueChange={onTabChange}
+      >
+        <SegmentedControl.Item value="active">
+          {t("activeTab")}
+        </SegmentedControl.Item>
+        <SegmentedControl.Item value="archived">
+          {t("archivedTab")}
+        </SegmentedControl.Item>
+      </SegmentedControl.Root>
+
+      {accounts.length === 0 ? (
+        <EmptyState title={t("emptyTitle")} action={addButton} />
+      ) : (
+        <Flex direction="column" gap="5">
+          {groups.map((group) => (
+            <Flex key={group.key} direction="column" gap="3">
+              <Text size="2" weight="bold" color="gray">
+                {group.label}
+              </Text>
+              <Flex direction="column" gap="2">
+                {group.accounts.map((account) => (
+                  <AccountCard
+                    key={account.id}
+                    fundId={fundId}
+                    account={account}
+                    archived={archived}
+                    onEdit={() => openEdit(account)}
+                  />
+                ))}
+              </Flex>
+            </Flex>
+          ))}
+        </Flex>
+      )}
+
+      <AccountFormDialog
+        fundId={fundId}
+        members={members}
+        open={formOpen}
+        onOpenChange={setFormOpen}
+        account={editing}
+      />
+    </Flex>
+  );
+}
+
+function AccountCard({
+  fundId,
+  account,
+  archived,
+  onEdit,
+}: {
+  fundId: string;
+  account: AccountRow;
+  archived: boolean;
+  onEdit: () => void;
+}) {
+  const t = useTranslations("accounts");
+  const tKey = useTranslations();
+  type MessageKey = Parameters<typeof tKey>[0];
+  const format = useFormatter();
+
+  // Restore and delete confirm first; archive does not, so this only ever
+  // tracks which of the two confirmations is open.
+  const [confirm, setConfirm] = useState<"restore" | "delete" | null>(null);
+
+  const { execute: executeArchive, isPending: archiving } = useAction(
+    archiveAccountAction,
+    {
+      onSuccess() {
+        toast.success(t("archived"));
+      },
+      onError({ error }) {
+        toast.error(
+          tKey((error.serverError ?? "errors.unexpected") as MessageKey),
+        );
+      },
+    },
+  );
+
+  const { execute: executeRestore, isPending: restoring } = useAction(
+    restoreAccountAction,
+    {
+      onSuccess() {
+        toast.success(t("restored"));
+        setConfirm(null);
+      },
+      onError({ error }) {
+        toast.error(
+          tKey((error.serverError ?? "errors.unexpected") as MessageKey),
+        );
+      },
+    },
+  );
+
+  const { execute: executeDelete, isPending: deleting } = useAction(
+    deleteAccountAction,
+    {
+      onSuccess() {
+        toast.success(t("deleted"));
+        setConfirm(null);
+      },
+      onError({ error }) {
+        toast.error(
+          tKey((error.serverError ?? "errors.unexpected") as MessageKey),
+        );
+      },
+    },
+  );
+
+  const pending = archiving || restoring || deleting;
+
+  return (
+    <Card>
+      <Flex justify="between" align="start" gap="3">
+        <Flex direction="column" gap="1" flexGrow="1" minWidth="0">
+          <Flex align="center" gap="2" wrap="wrap">
+            <Text weight="medium">{account.name}</Text>
+            <Badge color={account.kind === "liability" ? "red" : "green"}>
+              {t(account.kind === "liability" ? "kindLiability" : "kindAsset")}
+            </Badge>
+          </Flex>
+          {account.institution && (
+            <Text size="2" color="gray">
+              {account.institution}
+            </Text>
+          )}
+          {/* Names the opening figure, never a balance: no movement exists
+              yet, so nothing on this screen derives an actual balance. */}
+          <Text size="2" color="gray">
+            {t("openingBalanceRow", {
+              amount: format.number(
+                centsToPesos(Math.abs(account.initialBalanceCents)),
+                "currency",
+              ),
+              date: format.dateTime(civilDateToDate(account.initialBalanceOn)),
+            })}
+          </Text>
+        </Flex>
+        <DropdownMenu.Root>
+          <DropdownMenu.Trigger>
+            <IconButton
+              type="button"
+              variant="ghost"
+              color="gray"
+              disabled={pending}
+              aria-label={tKey("common.actions")}
+            >
+              <EllipsisVerticalIcon size={16} />
+            </IconButton>
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Content>
+            <DropdownMenu.Item onSelect={onEdit}>
+              {tKey("common.edit")}
+            </DropdownMenu.Item>
+            {archived ? (
+              <DropdownMenu.Item onSelect={() => setConfirm("restore")}>
+                {tKey("common.restore")}
+              </DropdownMenu.Item>
+            ) : (
+              <DropdownMenu.Item
+                onSelect={() => executeArchive({ fundId, accountId: account.id })}
+              >
+                {tKey("common.archive")}
+              </DropdownMenu.Item>
+            )}
+            <DropdownMenu.Item
+              color="red"
+              onSelect={() => setConfirm("delete")}
+            >
+              {tKey("common.delete")}
+            </DropdownMenu.Item>
+          </DropdownMenu.Content>
+        </DropdownMenu.Root>
+      </Flex>
+
+      <ConfirmDialog
+        open={confirm !== null}
+        onOpenChange={(open) => !open && setConfirm(null)}
+        title={confirm === "restore" ? t("restoreTitle") : t("deleteTitle")}
+        description={
+          confirm === "restore" ? t("restoreDescription") : t("deleteDescription")
+        }
+        confirmLabel={
+          confirm === "restore" ? tKey("common.restore") : tKey("common.delete")
+        }
+        cancelLabel={tKey("common.cancel")}
+        tone={confirm === "restore" ? "neutral" : "danger"}
+        pending={confirm === "restore" ? restoring : deleting}
+        onConfirm={() => {
+          if (confirm === "restore") executeRestore({ fundId, accountId: account.id });
+          if (confirm === "delete") executeDelete({ fundId, accountId: account.id });
+        }}
+      />
+    </Card>
+  );
+}
