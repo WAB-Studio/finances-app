@@ -1,0 +1,42 @@
+/* Positions and animates Dialog.Content only: Radix's own Overlay stays the
+   untouched scrim. The doubled class beats Radix's :where()-zeroed selectors
+   on width, position and border-radius whichever stylesheet loads last. */
+.content.content {
+  position: fixed;
+  inset: 0 auto 0 0;
+  margin: 0;
+  width: min(20rem, 85vw);
+  height: 100dvh;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+/* Radix's Presence needs a real `animation` to time the exit against; a
+   `transition` never fires on first paint and gives no unmount to wait for. */
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes nav-panel-slide-in {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(0);
+    }
+  }
+
+  @keyframes nav-panel-slide-out {
+    from {
+      transform: translateX(0);
+    }
+    to {
+      transform: translateX(-100%);
+    }
+  }
+
+  .content[data-state="open"] {
+    animation: nav-panel-slide-in 200ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .content[data-state="closed"] {
+    animation: nav-panel-slide-out 150ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+}
