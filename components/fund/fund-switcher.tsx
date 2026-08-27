@@ -9,12 +9,7 @@ import { switchFundAction } from "@/app/actions/fund";
 import { Box, Flex, Select, Spinner, Text } from "@/components/ui";
 import type { FundSummary } from "@/db/queries/funds";
 import { usePathname } from "@/i18n/navigation";
-
-// `/f/<id>/…`, locale already stripped by `usePathname`.
-function activeFundId(pathname: string): string | undefined {
-  const [, root, id] = pathname.split("/");
-  return root === "f" ? id : undefined;
-}
+import { activeFundId } from "@/lib/fund/active-fund-id";
 
 export function FundSwitcher({ funds }: { funds: FundSummary[] }) {
   const t = useTranslations("fund");
