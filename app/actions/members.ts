@@ -43,21 +43,16 @@ export const updateMemberAction = authActionClient
 export const archiveMemberAction = authActionClient
   .inputSchema(archiveMemberSchema)
   .action(async ({ parsedInput: { fundId, memberId, accounts } }) => {
+    let archived: boolean;
     try {
-      const archived = await archiveMember({
-        fundId,
-        memberId,
-        decisions: accounts,
-      });
-      if (!archived) throw new ActionError("errors.notFound");
+      archived = await archiveMember({ fundId, memberId, decisions: accounts });
     } catch (error) {
-      if (error instanceof ActionError) throw error;
-
       const code = pgErrorCode(error);
       if (code === "42501") throw new ActionError("errors.selfArchive");
       if (code === "23514") throw new ActionError("errors.lastOwner");
       throw error;
     }
+    if (!archived) throw new ActionError("errors.notFound");
 
     refresh();
   });
@@ -74,16 +69,16 @@ export const restoreMemberAction = authActionClient
 export const deleteMemberAction = authActionClient
   .inputSchema(deleteMemberSchema)
   .action(async ({ parsedInput: { fundId, memberId } }) => {
+    let deleted: boolean;
     try {
-      const deleted = await deleteMember({ fundId, memberId });
-      if (!deleted) throw new ActionError("errors.notFound");
+      deleted = await deleteMember({ fundId, memberId });
     } catch (error) {
-      if (error instanceof ActionError) throw error;
-
-      const code = pgErrorCode(error);
-      if (code === "23503") throw new ActionError("errors.memberHasAccounts");
+      if (pgErrorCode(error) === "23503") {
+        throw new ActionError("errors.memberHasAccounts");
+      }
       throw error;
     }
+    if (!deleted) throw new ActionError("errors.notFound");
 
     refresh();
   });

@@ -28,11 +28,11 @@ import {
  */
 export const createAccountAction = authActionClient
   .inputSchema(createAccountSchema)
-  .action(async ({ parsedInput: { fundId, name, kind, memberId, institution, amount, balanceOn } }) => {
+  .action(async ({ parsedInput: { amount, ...account } }) => {
     const pesos = parsePesos(amount);
     if (pesos === null) throw new ActionError("errors.unexpected");
 
-    await createAccount({ fundId, name, kind, memberId, institution, pesos, balanceOn });
+    await createAccount({ ...account, pesos });
     refresh();
   });
 
@@ -42,19 +42,11 @@ export const createAccountAction = authActionClient
  */
 export const updateAccountAction = authActionClient
   .inputSchema(updateAccountSchema)
-  .action(async ({ parsedInput: { fundId, accountId, name, memberId, institution, amount, balanceOn } }) => {
+  .action(async ({ parsedInput: { amount, ...account } }) => {
     const pesos = parsePesos(amount);
     if (pesos === null) throw new ActionError("errors.unexpected");
 
-    const updated = await updateAccount({
-      fundId,
-      accountId,
-      name,
-      memberId,
-      institution,
-      pesos,
-      balanceOn,
-    });
+    const updated = await updateAccount({ ...account, pesos });
     if (!updated) throw new ActionError("errors.notFound");
 
     refresh();
