@@ -54,6 +54,25 @@ export const members = pgTable(
       to: authenticatedRole,
       withCheck: sql`${authUid} = ${table.userId} and ${table.role} = 'owner' and (select private.fund_is_unclaimed(${table.fundId}))`,
     }),
+    // RF-07: a member of the fund records a person who has no login of their own.
+    pgPolicy("members_insert_fund_member", {
+      for: "insert",
+      to: authenticatedRole,
+      withCheck: sql`(select private.is_fund_member(${table.fundId})) and ${table.userId} is null and ${table.role} = 'member'`,
+    }),
+    // Renaming your own row is fine; leaving it archived while claiming it back is not.
+    pgPolicy("members_update_member", {
+      for: "update",
+      to: authenticatedRole,
+      using: sql`(select private.is_fund_member(${table.fundId}))`,
+      withCheck: sql`(select private.is_fund_member(${table.fundId})) and (${table.userId} is distinct from ${authUid} or ${table.archivedAt} is null)`,
+    }),
+    // RF-11: a member with movements is archived elsewhere; this policy only lets the row be dropped, never you.
+    pgPolicy("members_delete_member", {
+      for: "delete",
+      to: authenticatedRole,
+      using: sql`(select private.is_fund_member(${table.fundId})) and ${table.userId} is distinct from ${authUid}`,
+    }),
   ],
 );
 

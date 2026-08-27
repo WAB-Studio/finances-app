@@ -50,6 +50,17 @@ export const categories = pgTable(
       to: authenticatedRole,
       withCheck: sql`(select private.is_fund_member(${table.fundId}))`,
     }),
+    pgPolicy("categories_update_member", {
+      for: "update",
+      to: authenticatedRole,
+      using: sql`(select private.is_fund_member(${table.fundId}))`,
+      withCheck: sql`(select private.is_fund_member(${table.fundId}))`,
+    }),
+    pgPolicy("categories_delete_member", {
+      for: "delete",
+      to: authenticatedRole,
+      using: sql`(select private.is_fund_member(${table.fundId}))`,
+    }),
   ],
 );
 

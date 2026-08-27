@@ -39,6 +39,11 @@ export const accounts = pgTable(
   (table) => [
     check("accounts_name_length", sql`length(btrim(${table.name})) between 1 and 80`),
     check("accounts_kind_valid", sql`${table.kind} in ('asset', 'liability')`),
+    // A liability's opening balance is stored negative; an asset's is stored non-negative.
+    check(
+      "accounts_initial_balance_sign",
+      sql`(${table.kind} = 'asset' and ${table.initialBalanceCents} >= 0) or (${table.kind} = 'liability' and ${table.initialBalanceCents} <= 0)`,
+    ),
     // Null member_id skips the check; a set one is pinned to the same fund as the account.
     foreignKey({
       columns: [table.memberId, table.fundId],
@@ -55,6 +60,17 @@ export const accounts = pgTable(
       for: "insert",
       to: authenticatedRole,
       withCheck: sql`(select private.is_fund_member(${table.fundId}))`,
+    }),
+    pgPolicy("accounts_update_member", {
+      for: "update",
+      to: authenticatedRole,
+      using: sql`(select private.is_fund_member(${table.fundId}))`,
+      withCheck: sql`(select private.is_fund_member(${table.fundId}))`,
+    }),
+    pgPolicy("accounts_delete_member", {
+      for: "delete",
+      to: authenticatedRole,
+      using: sql`(select private.is_fund_member(${table.fundId}))`,
     }),
   ],
 );
