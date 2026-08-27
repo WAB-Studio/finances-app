@@ -40,3 +40,15 @@ export { Theme } from "@radix-ui/themes";
 export { AppTheme } from "./theme";
 
 export { Toaster } from "./toaster";
+
+export {
+  Dialog,
+  DropdownMenu,
+  IconButton,
+  type IconButtonProps,
+  Badge,
+  type BadgeProps,
+  SegmentedControl,
+  ScrollArea,
+  VisuallyHidden,
+} from "@radix-ui/themes";

@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { Box, Flex, Select, Text } from "@radix-ui/themes";
+import type { Responsive } from "@radix-ui/themes/props";
 
 // Stated once, here: the trigger holds this width whatever the value, icon or pending state.
 const TRIGGER_WIDTH = { initial: "40px", sm: "9.5rem" };
@@ -14,6 +15,7 @@ export function ToolbarSelect({
   icon,
   text,
   children,
+  width = TRIGGER_WIDTH,
 }: {
   value: string;
   onValueChange: (value: string) => void;
@@ -22,6 +24,7 @@ export function ToolbarSelect({
   icon: ReactNode;
   text: string;
   children?: ReactNode;
+  width?: Responsive<string>;
 }) {
   return (
     <Select.Root
@@ -29,7 +32,7 @@ export function ToolbarSelect({
       onValueChange={onValueChange}
       disabled={disabled}
     >
-      <Box width={TRIGGER_WIDTH} asChild>
+      <Box width={width} asChild>
         <Select.Trigger aria-label={label}>
           {/* Fixed content, not the selected item's text: the trigger's width holds. */}
           <Flex as="span" align="center" gap="2">
