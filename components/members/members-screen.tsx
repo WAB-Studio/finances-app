@@ -276,10 +276,8 @@ export function MembersScreen({
             onOpenChange={() => setRowAction(null)}
             title={t("deleteTitle")}
             description={t("deleteBlocked")}
-            confirmLabel={tKey("common.cancel")}
             cancelLabel={tKey("common.cancel")}
-            tone="neutral"
-            onConfirm={() => setRowAction(null)}
+            dismissOnly
           />
         )}
       </main>
