@@ -74,7 +74,7 @@ export function ArchiveMemberDialog({
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Content>
+      <Dialog.Content maxWidth={{ initial: "90vw", sm: "600px" }}>
         <Flex direction="column" gap="4">
           <Dialog.Title>{t("archiveTitle")}</Dialog.Title>
           <Dialog.Description>
@@ -123,7 +123,13 @@ function AccountDecisions({
   const list = (
     <Flex direction="column" gap="4">
       {accounts.map((account) => (
-        <Flex key={account.id} justify="between" align="center" gap="3">
+        <Flex
+          key={account.id}
+          direction={{ initial: "column", sm: "row" }}
+          justify="between"
+          align={{ initial: "stretch", sm: "center" }}
+          gap="3"
+        >
           <Flex direction="column">
             <Text weight="medium">{account.name}</Text>
             <Text size="2" color="gray">
