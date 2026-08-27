@@ -4,10 +4,11 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { notFound } from "next/navigation";
 
-import { ThemeProvider } from "@/components/theme-provider";
-import { Toaster } from "@/components/ui/sonner";
+import { AppTheme, Flex, Toaster } from "@/components/ui";
 import { routing } from "@/i18n/routing";
-import "../globals.css";
+import { themeScript } from "@/lib/theme";
+import "@radix-ui/themes/styles.css";
+import "../theme.css";
 
 const geistSans = Geist({
   // The name the shadcn theme reads for its sans stack.
@@ -49,21 +50,23 @@ export default async function LocaleLayout(props: LayoutProps<"/[locale]">) {
   return (
     <html
       lang={locale}
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
-      // `next-themes` writes the theme class here before hydration.
+      className={`${geistSans.variable} ${geistMono.variable}`}
+      // The inline script below writes the theme class here before hydration.
       suppressHydrationWarning
     >
-      <body className="flex min-h-full flex-col">
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+      </head>
+      <body>
         <NextIntlClientProvider>
-          <ThemeProvider
-            attribute="class"
-            defaultTheme="system"
-            enableSystem
-            disableTransitionOnChange
-          >
-            {props.children}
-            <Toaster richColors position="top-center" />
-          </ThemeProvider>
+          <AppTheme>
+            <Flex direction="column" height="100dvh">
+              <Flex direction="column" flexGrow="1">
+                {props.children}
+              </Flex>
+              <Toaster />
+            </Flex>
+          </AppTheme>
         </NextIntlClientProvider>
       </body>
     </html>

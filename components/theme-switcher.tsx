@@ -2,28 +2,17 @@
 
 import { Monitor, Moon, Sun } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { useTheme } from "next-themes";
 import { useSyncExternalStore } from "react";
 
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-} from "@/components/ui/select";
-
-const themes = ["light", "dark", "system"] as const;
-
-type Theme = (typeof themes)[number];
+import { Select, ToolbarSelect } from "@/components/ui";
+import { THEMES, type Theme } from "@/lib/theme";
+import { useTheme } from "@/lib/use-theme";
 
 const icons = { light: Sun, dark: Moon, system: Monitor };
 
-function isTheme(value: string | undefined): value is Theme {
-  return themes.includes(value as Theme);
+function isTheme(value: string): value is Theme {
+  return (THEMES as readonly string[]).includes(value);
 }
-
-// Fixed width on both branches; the mounted swap must not reflow the header strip.
-const triggerClassName = "w-16 justify-between sm:w-36";
 
 const subscribe = () => () => {};
 
@@ -38,46 +27,47 @@ function useMounted() {
 
 export function ThemeSwitcher() {
   const t = useTranslations("theme");
-  const { theme, setTheme, resolvedTheme } = useTheme();
+  const { theme, resolvedTheme, setTheme } = useTheme();
   const mounted = useMounted();
 
-  // `useTheme` reads storage only after hydration, so the real value cannot be rendered on the first pass.
+  // The stored value cannot be known on the server, so the first pass stays disabled.
   if (!mounted) {
     return (
-      <Select value="" disabled>
-        <SelectTrigger aria-label={t("label")} className={triggerClassName}>
-          <Monitor className="size-4" />
-          <span className="hidden sm:inline">{t("label")}</span>
-        </SelectTrigger>
-      </Select>
+      <ToolbarSelect
+        value=""
+        onValueChange={() => {}}
+        disabled
+        label={t("label")}
+        icon={<Monitor size={16} />}
+        text={t("label")}
+      />
     );
   }
 
-  const current = isTheme(theme) ? theme : "system";
-  // `resolvedTheme` decides the icon only; the value keeps `system` as its own option.
-  const TriggerIcon =
-    current === "system"
-      ? icons[resolvedTheme === "dark" ? "dark" : "light"]
-      : icons[current];
+  // `resolvedTheme` decides the icon only; the value keeps "system" as its own option.
+  const TriggerIcon = theme === "system" ? icons[resolvedTheme] : icons[theme];
+
+  function onValueChange(value: string) {
+    if (isTheme(value)) setTheme(value);
+  }
 
   return (
-    <Select value={current} onValueChange={setTheme}>
-      <SelectTrigger aria-label={t("label")} className={triggerClassName}>
-        <TriggerIcon className="size-4" />
-        <span className="hidden sm:inline">{t(current)}</span>
-      </SelectTrigger>
-      <SelectContent>
-        {themes.map((option) => {
-          const Icon = icons[option];
+    <ToolbarSelect
+      value={theme}
+      onValueChange={onValueChange}
+      label={t("label")}
+      icon={<TriggerIcon size={16} />}
+      text={t(theme)}
+    >
+      {THEMES.map((option) => {
+        const Icon = icons[option];
 
-          return (
-            <SelectItem key={option} value={option}>
-              <Icon className="size-4" />
-              {t(option)}
-            </SelectItem>
-          );
-        })}
-      </SelectContent>
-    </Select>
+        return (
+          <Select.Item key={option} value={option}>
+            <Icon size={16} /> {t(option)}
+          </Select.Item>
+        );
+      })}
+    </ToolbarSelect>
   );
 }

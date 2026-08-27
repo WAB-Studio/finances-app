@@ -1,0 +1,7 @@
+/* Radix Themes scopes its reset to `.radix-themes`; the document itself still
+   needs to fill the viewport and lose the user-agent's default body margin. */
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
