@@ -4,7 +4,7 @@ import { useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useTranslations } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
-import { Controller, useForm, type Resolver } from "react-hook-form";
+import { Controller, useForm, useWatch, type Resolver } from "react-hook-form";
 import { toast } from "sonner";
 
 import {
@@ -103,9 +103,9 @@ export function CategoryFormDialog({
     defaultValues: buildDefaultValues(),
   });
 
-  // Mirrors the parentId field outside react-hook-form: `form.watch` returns
-  // a function React Compiler cannot memoize safely.
-  const [parentId, setParentId] = useState(() => buildDefaultValues().parentId);
+  // Subscribes to the field itself; `form.watch` would return a function the
+  // React Compiler refuses to memoize, skipping the whole component.
+  const parentId = useWatch({ control: form.control, name: "parentId" });
 
   // Each open may hand the dialog a different row: reset during render, on the
   // open transition itself, rather than in an effect that would render stale
@@ -113,11 +113,7 @@ export function CategoryFormDialog({
   const [wasOpen, setWasOpen] = useState(open);
   if (open !== wasOpen) {
     setWasOpen(open);
-    if (open) {
-      const defaults = buildDefaultValues();
-      form.reset(defaults);
-      setParentId(defaults.parentId);
-    }
+    if (open) form.reset(buildDefaultValues());
   }
 
   function onActionSuccess() {
@@ -205,7 +201,6 @@ export function CategoryFormDialog({
                       const nextParentId =
                         value === NO_PARENT_VALUE ? null : value;
                       field.onChange(nextParentId);
-                      setParentId(nextParentId);
                       // A subcategory carries no colour of its own; picking a
                       // parent clears it, clearing the parent brings back the default.
                       form.setValue(
