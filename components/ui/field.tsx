@@ -1,3 +1,5 @@
+"use client";
+
 import { createContext, useContext, useMemo, type ReactNode } from "react";
 import { Flex, Text } from "@radix-ui/themes";
 
