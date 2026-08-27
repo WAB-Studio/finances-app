@@ -47,7 +47,8 @@ function groupByOwner(accounts: AccountRow[], fundLabel: string): Group[] {
     } else {
       groups.push({
         key,
-        label: account.memberId ? account.memberName! : fundLabel,
+        // The left join yields a name exactly when `memberId` is set.
+        label: account.memberName ?? fundLabel,
         accounts: [account],
       });
     }
@@ -72,28 +73,21 @@ export function AccountsScreen({
   const pathname = usePathname();
   const router = useRouter();
 
-  const [formOpen, setFormOpen] = useState(false);
-  const [editing, setEditing] = useState<AccountRow | undefined>(undefined);
-
-  function openCreate() {
-    setEditing(undefined);
-    setFormOpen(true);
-  }
-
-  function openEdit(account: AccountRow) {
-    setEditing(account);
-    setFormOpen(true);
-  }
+  // "new" and a row share one dialog instance; its own key resets the form.
+  const [formTarget, setFormTarget] = useState<AccountRow | "new" | null>(null);
 
   // Rewrites the query string instead of holding the tab in state, so a
   // reload or a shared link lands on the same tab.
   function onTabChange(value: string) {
-    router.replace(value === "archived" ? `${pathname}?tab=archived` : pathname);
+    router.push(
+      { pathname, query: value === "archived" ? { tab: "archived" } : {} },
+      { scroll: false },
+    );
   }
 
   const groups = groupByOwner(accounts, tKey("common.fund"));
   const addButton = (
-    <Button type="button" onClick={openCreate}>
+    <Button type="button" onClick={() => setFormTarget("new")}>
       <PlusIcon size={16} />
       {t("add")}
     </Button>
@@ -133,7 +127,7 @@ export function AccountsScreen({
                     fundId={fundId}
                     account={account}
                     archived={archived}
-                    onEdit={() => openEdit(account)}
+                    onEdit={() => setFormTarget(account)}
                   />
                 ))}
               </Flex>
@@ -145,9 +139,11 @@ export function AccountsScreen({
       <AccountFormDialog
         fundId={fundId}
         members={members}
-        open={formOpen}
-        onOpenChange={setFormOpen}
-        account={editing}
+        open={formTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setFormTarget(null);
+        }}
+        account={formTarget === "new" ? undefined : (formTarget ?? undefined)}
       />
     </Flex>
   );
