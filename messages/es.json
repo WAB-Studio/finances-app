@@ -3,7 +3,9 @@
     "title": "Fondo compartido",
     "description": "Cuentas, movimientos y saldos compartidos entre varias personas.",
     "loginTitle": "Iniciar sesión",
-    "loginDescription": "Entra con un enlace enviado a tu correo, sin contraseña."
+    "loginDescription": "Entra con un enlace enviado a tu correo, sin contraseña.",
+    "onboardingTitle": "Crear un fondo",
+    "onboardingDescription": "Un fondo es el bote común: sus cuentas, sus miembros y su historial."
   },
   "common": {
     "appName": "Fondo compartido",
@@ -26,6 +28,34 @@
     "errors": {
       "emailInvalid": "Escribe un correo electrónico válido."
     }
+  },
+  "fund": {
+    "label": "Fondo",
+    "errors": {
+      "nameRequired": "Escribe un nombre para el fondo.",
+      "nameTooLong": "El nombre no puede pasar de 80 caracteres.",
+      "memberNameRequired": "Escribe tu nombre.",
+      "memberNameTooLong": "El nombre no puede pasar de 80 caracteres.",
+      "fundIdInvalid": "Ese fondo no es válido."
+    }
+  },
+  "onboarding": {
+    "title": "Crea tu fondo",
+    "description": "Es el bote común: sus cuentas, sus miembros y su historial.",
+    "fundNameLabel": "Nombre del fondo",
+    "fundNamePlaceholder": "Casa",
+    "memberNameLabel": "¿Cómo te llamas?",
+    "memberNameDescription": "Así apareces en los informes por persona.",
+    "memberNamePlaceholder": "Tu nombre",
+    "submit": "Crear fondo",
+    "submitting": "Creando el fondo",
+    "whatHappens": "Al crearlo quedas como responsable del fondo, se crea su caja de efectivo compartida y un juego inicial de categorías que puedes cambiar después."
+  },
+  "dashboard": {
+    "emptyTitle": "Todavía no hay movimientos",
+    "emptyDescription": "Aquí vas a ver los saldos y los movimientos del fondo. Crear cuentas y registrar gastos llega en el siguiente paso.",
+    "cashAccountReady": "La caja de efectivo compartida ya existe: {name}.",
+    "categoriesReady": "{count} categorías iniciales listas para usar."
   },
   "language": {
     "label": "Idioma",

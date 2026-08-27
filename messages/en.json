@@ -3,7 +3,9 @@
     "title": "Shared fund",
     "description": "Accounts, movements and balances shared between several people.",
     "loginTitle": "Sign in",
-    "loginDescription": "Sign in with a link sent to your email, no password needed."
+    "loginDescription": "Sign in with a link sent to your email, no password needed.",
+    "onboardingTitle": "Create a fund",
+    "onboardingDescription": "A fund is the shared pot: its accounts, its members and its history."
   },
   "common": {
     "appName": "Shared fund",
@@ -26,6 +28,34 @@
     "errors": {
       "emailInvalid": "Enter a valid email address."
     }
+  },
+  "fund": {
+    "label": "Fund",
+    "errors": {
+      "nameRequired": "Enter a name for the fund.",
+      "nameTooLong": "The name cannot exceed 80 characters.",
+      "memberNameRequired": "Enter your name.",
+      "memberNameTooLong": "The name cannot exceed 80 characters.",
+      "fundIdInvalid": "That fund is not valid."
+    }
+  },
+  "onboarding": {
+    "title": "Create your fund",
+    "description": "It is the shared pot: its accounts, its members and its history.",
+    "fundNameLabel": "Fund name",
+    "fundNamePlaceholder": "Household",
+    "memberNameLabel": "What is your name?",
+    "memberNameDescription": "This is how you appear in per-person reports.",
+    "memberNamePlaceholder": "Your name",
+    "submit": "Create fund",
+    "submitting": "Creating the fund",
+    "whatHappens": "Creating it makes you the fund's owner, creates its shared cash account and a starter set of categories you can change later."
+  },
+  "dashboard": {
+    "emptyTitle": "No movements yet",
+    "emptyDescription": "This is where the fund's balances and movements will appear. Creating accounts and recording expenses arrives in the next step.",
+    "cashAccountReady": "The shared cash account already exists: {name}.",
+    "categoriesReady": "{count} starter categories ready to use."
   },
   "language": {
     "label": "Language",
