@@ -39,6 +39,8 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
 - Prove a policy fires. Never assert it from the migration.
 - Validate on the server with the same Zod schema that validates the form.
 - Move every interface string into next-intl. Hardcoding is forbidden.
+- Compose a screen from `components/ui` and its props. Never write a utility class outside it.
+- Add a prop to the primitive when a screen needs a variant. Never patch one from outside.
 - Write interface text a person acts on. Cut text that only explains.
 - Install only from §4. Discard the do-not-install list.
 - Write code and identifiers in English. Write user-facing copy in the user's language.

@@ -189,7 +189,7 @@ erDiagram
     funds {
         uuid id PK
         text name
-        char currency
+        text currency "default COP"
         timestamptz created_at
         timestamptz updated_at
     }
@@ -338,15 +338,15 @@ Principles, not recipes:
 |---|---|---|
 | ORM and migrations | **Drizzle** | Schema, access policies and types declared once in TypeScript. |
 | Auth | **Supabase Auth** | Passwordless login, email delivery, sessions, and the identity the access policies read. |
-| Components | **shadcn/ui** + Radix + Tailwind | Accessible dialogs, selects, popovers and theming without writing them. |
+| Components | **Radix Themes** | Layout, typography, controls and theming as components with props, one stylesheet, no build step. |
 | Validation | **Zod** | One schema serves the form, the server and the types. |
 | Server actions | **next-safe-action** | Validation, typed errors and loading state on every mutation. |
 | Forms | **React Hook Form** | State, errors and submission wired to the validation schema. |
 | Table | **TanStack Table** | Sorting, filtering, pagination and selection for the transaction list. |
-| Charts | **Recharts** | It is what the shadcn charts wrap. |
+| Charts | to evaluate | Open: the reports slice (RF-33 to RF-37) picks the library when it builds the first chart. |
 | Dates | **date-fns** | Date arithmetic and time zones, tree-shakeable. |
-| Toasts | **sonner** | Notifications, already integrated with shadcn. |
-| Icons | **lucide-react** | Ships with shadcn. |
+| Toasts | **sonner** | Notifications; Radix Themes ships no toast. |
+| Icons | **lucide-react** | An icon set, chosen independently of the component library. |
 | Environment | **@t3-oss/env-nextjs** | Fails at build time on a missing variable, not in production. |
 | Language | **next-intl** | Locale routing, server-side translations, date and number formatting. |
 | Spreadsheets (phase 2) | **ExcelJS** | Reading and writing `.xlsx` with valid options in the template. |
@@ -364,3 +364,4 @@ Principles, not recipes:
 | SheetJS `xlsx` | ExcelJS: the npm package has gone years without an update and carries unpatched vulnerabilities. |
 | next-i18next | next-intl: the former is tied to the Pages Router. |
 | An auditing library | A database trigger. |
+| shadcn/ui, Tailwind | Radix Themes. |
