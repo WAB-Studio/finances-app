@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 import { z } from "zod";
 
 import { AccountsScreen } from "@/components/accounts/accounts-screen";
+import { Flex } from "@/components/ui";
 import { getFundForUser } from "@/db/queries/funds";
 import { listAccounts, listAssignableMembers } from "@/db/queries/accounts";
 import { routing } from "@/i18n/routing";
@@ -54,11 +55,15 @@ export default async function AccountsPage({
   ]);
 
   return (
-    <AccountsScreen
-      fundId={fundId}
-      accounts={accounts}
-      members={members}
-      archived={archived}
-    />
+    <Flex asChild direction="column" flexGrow="1" p="6">
+      <main>
+        <AccountsScreen
+          fundId={fundId}
+          accounts={accounts}
+          members={members}
+          archived={archived}
+        />
+      </main>
+    </Flex>
   );
 }

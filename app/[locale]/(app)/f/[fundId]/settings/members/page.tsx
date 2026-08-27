@@ -5,39 +5,43 @@ import { notFound } from "next/navigation";
 import { z } from "zod";
 
 import { MembersScreen } from "@/components/members/members-screen";
+import { Flex } from "@/components/ui";
 import { getFundForUser } from "@/db/queries/funds";
 import { listMemberActiveAccounts, listMembers } from "@/db/queries/members";
 import { requireUser } from "@/db/session";
 import { routing } from "@/i18n/routing";
 
+// `.next/types` cannot know this route yet in every slot, so its params are
+// written out rather than pulled from the generated `PageProps` helper.
 type Params = { locale: string; fundId: string };
-type SearchParams = Record<string, string | string[] | undefined>;
+type SearchParams = { tab?: string | string[] };
 
-// A repeated parameter arrives as an array; only a single value ever names a tab.
-function firstValue(value: string | string[] | undefined): string | undefined {
-  return typeof value === "string" ? value : undefined;
-}
-
-export async function generateMetadata(props: {
+export async function generateMetadata({
+  params,
+}: {
   params: Promise<Params>;
 }): Promise<Metadata> {
-  const { fundId } = await props.params;
-  const fund = await getFundForUser(fundId);
-  if (!fund) notFound();
+  const { locale } = await params;
+  if (!hasLocale(routing.locales, locale)) notFound();
 
-  const t = await getTranslations("members");
+  const t = await getTranslations({ locale, namespace: "members" });
+
   return { title: t("title") };
 }
 
-export default async function MembersPage(props: {
+export default async function MembersPage({
+  params,
+  searchParams,
+}: {
   params: Promise<Params>;
   searchParams: Promise<SearchParams>;
 }) {
-  const { locale, fundId } = await props.params;
+  const { locale, fundId } = await params;
   if (!hasLocale(routing.locales, locale)) notFound();
 
   setRequestLocale(locale);
 
+  // An invalid uuid must never reach Postgres, which answers `22P02`.
   if (!z.uuid().safeParse(fundId).success) notFound();
 
   const fund = await getFundForUser(fundId);
@@ -45,8 +49,8 @@ export default async function MembersPage(props: {
 
   const user = await requireUser();
 
-  const searchParams = await props.searchParams;
-  const archived = firstValue(searchParams.archived) === "true";
+  const { tab } = await searchParams;
+  const archived = tab === "archived";
 
   const members = await listMembers(fundId, { archived });
 
@@ -64,12 +68,16 @@ export default async function MembersPage(props: {
   );
 
   return (
-    <MembersScreen
-      fundId={fundId}
-      members={members}
-      currentUserId={user.id}
-      archived={archived}
-      memberAccounts={memberAccounts}
-    />
+    <Flex asChild direction="column" flexGrow="1" p="6">
+      <main>
+        <MembersScreen
+          fundId={fundId}
+          members={members}
+          currentUserId={user.id}
+          archived={archived}
+          memberAccounts={memberAccounts}
+        />
+      </main>
+    </Flex>
   );
 }
