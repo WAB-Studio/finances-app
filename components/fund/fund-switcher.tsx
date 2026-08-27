@@ -76,7 +76,9 @@ export function FundSwitcher({ funds }: { funds: FundSummary[] }) {
         className="min-w-0 flex-1 justify-between"
       >
         <SelectValue />
-        {switching && <Loader2Icon className="size-4 shrink-0 animate-spin" aria-hidden />}
+        {switching && (
+          <Loader2Icon className="ml-auto size-4 animate-spin text-muted-foreground" aria-hidden />
+        )}
       </SelectTrigger>
       <SelectContent>
         {funds.map((fund) => (
