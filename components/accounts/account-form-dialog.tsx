@@ -228,7 +228,12 @@ function CreateAccountForm({
           render={({ field, fieldState }) => (
             <Field invalid={fieldState.invalid}>
               <FieldLabel htmlFor="account-institution">
-                {t("institutionLabel")} ({tKey("common.optional")})
+                <Flex as="span" align="center" gap="1">
+                  {t("institutionLabel")}
+                  <Text size="2" weight="regular" color="gray">
+                    {tKey("common.optional")}
+                  </Text>
+                </Flex>
               </FieldLabel>
               <TextField.Root
                 {...field}
@@ -444,7 +449,12 @@ function EditAccountForm({
           render={({ field, fieldState }) => (
             <Field invalid={fieldState.invalid}>
               <FieldLabel htmlFor="account-institution">
-                {t("institutionLabel")} ({tKey("common.optional")})
+                <Flex as="span" align="center" gap="1">
+                  {t("institutionLabel")}
+                  <Text size="2" weight="regular" color="gray">
+                    {tKey("common.optional")}
+                  </Text>
+                </Flex>
               </FieldLabel>
               <TextField.Root
                 {...field}
