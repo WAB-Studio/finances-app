@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { notFound } from "next/navigation";
 
+import { Box, Flex, Heading, Text } from "@/components/ui";
 import { getFundForUser } from "@/db/queries/funds";
 import { requireUser } from "@/db/session";
 import { routing } from "@/i18n/routing";
@@ -32,17 +33,29 @@ export default async function FundPage(
   const t = await getTranslations();
 
   return (
-    <main className="flex flex-1 flex-col gap-2 p-6">
-      <p className="text-muted-foreground text-sm">
-        {t("common.greeting", { email: user.email })}
-      </p>
-      <h1 className="text-2xl font-semibold tracking-tight">{fund.name}</h1>
-      <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
-        <p className="text-lg font-medium">{t("dashboard.emptyTitle")}</p>
-        <p className="text-muted-foreground max-w-prose">
-          {t("dashboard.emptyDescription")}
-        </p>
-      </div>
-    </main>
+    <Flex asChild direction="column" flexGrow="1" gap="2" p="6">
+      <main>
+        <Text size="2" color="gray">
+          {t("common.greeting", { email: user.email })}
+        </Text>
+        <Heading size="6">{fund.name}</Heading>
+        <Flex
+          direction="column"
+          flexGrow="1"
+          align="center"
+          justify="center"
+          gap="2"
+        >
+          <Text size="4" weight="medium" align="center">
+            {t("dashboard.emptyTitle")}
+          </Text>
+          <Box maxWidth="65ch">
+            <Text color="gray" align="center">
+              {t("dashboard.emptyDescription")}
+            </Text>
+          </Box>
+        </Flex>
+      </main>
+    </Flex>
   );
 }

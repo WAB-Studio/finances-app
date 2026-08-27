@@ -1,16 +1,11 @@
 import { hasLocale } from "next-intl";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import type { Metadata } from "next";
+import { CircleAlertIcon } from "lucide-react";
 import { notFound } from "next/navigation";
 
 import { LoginForm } from "@/components/auth/login-form";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Box, Callout, Card, Flex, Heading, Text } from "@/components/ui";
 import { routing } from "@/i18n/routing";
 
 // A path the proxy put in `?next=`, or nothing: a repeated parameter arrives as
@@ -46,24 +41,28 @@ export default async function LoginPage(props: PageProps<"/[locale]/login">) {
   const linkInvalid = firstValue(searchParams.error) === "linkInvalid";
 
   return (
-    <main className="flex flex-1 items-center justify-center p-4">
-      <Card className="w-full max-w-sm">
-        <CardHeader>
-          <CardTitle>{t("auth.signIn")}</CardTitle>
-          <CardDescription>{t("auth.loginDescription")}</CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          {linkInvalid && (
-            <div
-              role="alert"
-              className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
-            >
-              {t("errors.linkInvalid")}
-            </div>
-          )}
-          <LoginForm next={firstValue(searchParams.next)} />
-        </CardContent>
-      </Card>
-    </main>
+    <Flex asChild flexGrow="1" align="center" justify="center" p="4">
+      <main>
+        <Box width="100%" maxWidth="24rem">
+          <Card>
+            <Flex direction="column" gap="4">
+              <Flex direction="column" gap="1">
+                <Heading size="5">{t("auth.signIn")}</Heading>
+                <Text color="gray">{t("auth.loginDescription")}</Text>
+              </Flex>
+              {linkInvalid && (
+                <Callout.Root color="red" role="alert">
+                  <Callout.Icon>
+                    <CircleAlertIcon size={16} aria-hidden />
+                  </Callout.Icon>
+                  <Callout.Text>{t("errors.linkInvalid")}</Callout.Text>
+                </Callout.Root>
+              )}
+              <LoginForm next={firstValue(searchParams.next)} />
+            </Flex>
+          </Card>
+        </Box>
+      </main>
+    </Flex>
   );
 }

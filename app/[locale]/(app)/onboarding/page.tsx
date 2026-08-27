@@ -4,12 +4,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 import { CreateFundForm } from "@/components/fund/create-fund-form";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Box, Card, Flex, Heading } from "@/components/ui";
 import { requireUser } from "@/db/session";
 import { routing } from "@/i18n/routing";
 
@@ -41,15 +36,17 @@ export default async function OnboardingPage(
   const t = await getTranslations("onboarding");
 
   return (
-    <main className="flex flex-1 items-center justify-center p-4">
-      <Card className="w-full max-w-sm">
-        <CardHeader>
-          <CardTitle>{t("title")}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <CreateFundForm />
-        </CardContent>
-      </Card>
-    </main>
+    <Flex asChild flexGrow="1" align="center" justify="center" p="4">
+      <main>
+        <Box width="100%" maxWidth="24rem">
+          <Card>
+            <Flex direction="column" gap="4">
+              <Heading size="5">{t("title")}</Heading>
+              <CreateFundForm />
+            </Flex>
+          </Card>
+        </Box>
+      </main>
+    </Flex>
   );
 }
