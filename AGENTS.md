@@ -10,7 +10,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 # Shared fund app
 
-Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `docs/FLOWS.md`.
+Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `docs/FLOWS.md`. Interface: `docs/DESIGN.md`.
 
 ## Working here
 
