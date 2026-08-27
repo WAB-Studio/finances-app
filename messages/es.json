@@ -51,7 +51,7 @@
   },
   "dashboard": {
     "emptyTitle": "Todavía no hay movimientos",
-    "emptyDescription": "Aquí vas a ver los saldos y los movimientos del fondo. Crear cuentas y registrar gastos llega en el siguiente paso."
+    "emptyDescription": "Aquí vas a ver los saldos y los movimientos del fondo."
   },
   "language": {
     "label": "Idioma",

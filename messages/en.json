@@ -51,7 +51,7 @@
   },
   "dashboard": {
     "emptyTitle": "No movements yet",
-    "emptyDescription": "This is where the fund's balances and movements will appear. Creating accounts and recording expenses arrives in the next step."
+    "emptyDescription": "This is where the fund's balances and movements will appear."
   },
   "language": {
     "label": "Language",
