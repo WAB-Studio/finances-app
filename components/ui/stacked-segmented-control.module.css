@@ -29,9 +29,16 @@
   display: none;
 }
 
+/* Stacked, the picked row has no grey track behind it to read as "raised",
+   so it paints the app's own accent instead of Radix's white indicator: a
+   tinted fill plus a bolder glyph, not a hue swap, carries the selection. */
 .item[data-state="on"] :global(.rt-SegmentedControlItemLabel) {
-  background-color: var(--segmented-control-indicator-background-color);
-  box-shadow: 0 0 0 1px var(--gray-a4);
+  background-color: var(--accent-9);
+}
+
+.item[data-state="on"] :global(.rt-SegmentedControlItemLabelActive) {
+  color: var(--accent-contrast);
+  font-weight: var(--font-weight-bold);
 }
 
 @media (min-width: 768px) {
@@ -58,6 +65,10 @@
 
   .item[data-state="on"] :global(.rt-SegmentedControlItemLabel) {
     background-color: transparent;
-    box-shadow: none;
+  }
+
+  .item[data-state="on"] :global(.rt-SegmentedControlItemLabelActive) {
+    color: inherit;
+    font-weight: var(--font-weight-medium);
   }
 }
