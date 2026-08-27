@@ -10,8 +10,7 @@
   "common": {
     "appName": "Shared fund",
     "backHome": "Back to home",
-    "greeting": "Hi, {email}",
-    "setupPending": "This is where your fund will live. That part arrives in the next step."
+    "greeting": "Hi, {email}"
   },
   "auth": {
     "signIn": "Sign in",

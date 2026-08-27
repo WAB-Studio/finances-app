@@ -10,8 +10,7 @@
   "common": {
     "appName": "Fondo compartido",
     "backHome": "Volver al inicio",
-    "greeting": "Hola, {email}",
-    "setupPending": "Aquí vas a crear tu fondo. Esa parte llega en el siguiente paso."
+    "greeting": "Hola, {email}"
   },
   "auth": {
     "signIn": "Iniciar sesión",
