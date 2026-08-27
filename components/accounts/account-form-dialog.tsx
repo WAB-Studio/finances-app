@@ -167,6 +167,7 @@ function CreateAccountForm({
                 size="3"
                 value={field.value}
                 onValueChange={field.onChange}
+                aria-invalid={fieldState.invalid}
               >
                 <SegmentedControl.Item value="asset">
                   {t("kindAsset")}

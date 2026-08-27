@@ -273,6 +273,7 @@ function CategoryForm({
                     t("colorOption", { number: index + 1 })
                   }
                   disabled={isPending}
+                  invalid={fieldState.invalid}
                 />
                 {fieldState.invalid && (
                   <FieldError
