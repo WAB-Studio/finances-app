@@ -15,10 +15,10 @@ import { getFundForUser } from "@/db/queries/funds";
 import { routing } from "@/i18n/routing";
 import { CATEGORY_KINDS } from "@/lib/validation/category";
 
-// Written out, not `PageProps<...>`: the route is new in this slot, and a
-// stale `.next/types` from another slot would not know it yet.
-type Params = Promise<{ locale: string; fundId: string }>;
-type SearchParams = Promise<{ kind?: string | string[] }>;
+// `.next/types` cannot know this route yet in every slot, so its params are
+// written out rather than pulled from the generated `PageProps` helper.
+type Params = { locale: string; fundId: string };
+type SearchParams = { kind?: string | string[] };
 
 // A mistyped tab is not a missing page: an unknown `kind` opens `expense`, not a 404.
 function parseKind(value: string | string[] | undefined) {
@@ -26,10 +26,12 @@ function parseKind(value: string | string[] | undefined) {
   return result.success ? result.data : "expense";
 }
 
-export async function generateMetadata(props: {
-  params: Params;
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<Params>;
 }): Promise<Metadata> {
-  const { locale } = await props.params;
+  const { locale } = await params;
   if (!hasLocale(routing.locales, locale)) notFound();
 
   const t = await getTranslations({ locale, namespace: "categories" });
@@ -37,11 +39,14 @@ export async function generateMetadata(props: {
   return { title: t("title") };
 }
 
-export default async function CategoriesPage(props: {
-  params: Params;
-  searchParams: SearchParams;
+export default async function CategoriesPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<Params>;
+  searchParams: Promise<SearchParams>;
 }) {
-  const { locale, fundId } = await props.params;
+  const { locale, fundId } = await params;
   if (!hasLocale(routing.locales, locale)) notFound();
 
   setRequestLocale(locale);
@@ -52,7 +57,7 @@ export default async function CategoriesPage(props: {
   const fund = await getFundForUser(fundId);
   if (!fund) notFound();
 
-  const { kind: kindParam } = await props.searchParams;
+  const { kind: kindParam } = await searchParams;
   const kind = parseKind(kindParam);
 
   // Both kinds count toward the default colour: it belongs to the fund, not the open tab.

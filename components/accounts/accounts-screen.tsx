@@ -93,7 +93,8 @@ export function AccountsScreen({
     </Button>
   );
 
-  // Add would create an active account, so the archived tab offers none.
+  // Add would create an active account, so the archived tab offers none, in
+  // the header or in the empty state.
   const emptyState = archived ? (
     <EmptyState title={t("archivedEmpty")} />
   ) : (
@@ -108,7 +109,7 @@ export function AccountsScreen({
     <Flex direction="column" gap="4">
       <Flex justify="between" align="center" gap="3" wrap="wrap">
         <Heading size="5">{t("title")}</Heading>
-        {addButton}
+        {!archived && addButton}
       </Flex>
       <SegmentedControl.Root
         value={archived ? "archived" : "active"}
