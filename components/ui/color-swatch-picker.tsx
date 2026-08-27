@@ -60,7 +60,7 @@ export function ColorSwatchPicker({
   );
 }
 
-// A stored colour, read-only: renders with no `className` and no `style` of its own.
+// A stored colour, read-only: takes no `className` and no `style`, so no caller restyles it.
 export function ColorSwatch({
   color,
   label,
