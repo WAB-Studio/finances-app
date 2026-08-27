@@ -1,6 +1,6 @@
 "use client";
 
-import { EllipsisVerticalIcon, PlusIcon } from "lucide-react";
+import { EllipsisVertical, Plus } from "lucide-react";
 import { useFormatter, useTranslations } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
 import { useState } from "react";
@@ -88,15 +88,15 @@ export function AccountsScreen({
   const groups = groupByOwner(accounts, tKey("common.fund"));
   const addButton = (
     <Button type="button" onClick={() => setFormTarget("new")}>
-      <PlusIcon size={16} />
+      <Plus size={16} />
       {t("add")}
     </Button>
   );
 
   return (
-    <Flex direction="column" flexGrow="1" gap="4">
-      <Flex justify="between" align="center" gap="3">
-        <Heading size="6">{t("title")}</Heading>
+    <Flex direction="column" gap="4">
+      <Flex justify="between" align="center" gap="3" wrap="wrap">
+        <Heading size="5">{t("title")}</Heading>
         {addButton}
       </Flex>
       <SegmentedControl.Root
@@ -251,7 +251,7 @@ function AccountCard({
               disabled={pending}
               aria-label={tKey("common.actions")}
             >
-              <EllipsisVerticalIcon size={16} />
+              <EllipsisVertical size={16} />
             </IconButton>
           </DropdownMenu.Trigger>
           <DropdownMenu.Content>

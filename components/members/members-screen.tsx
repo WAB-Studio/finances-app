@@ -1,6 +1,6 @@
 "use client";
 
-import { MoreVertical, Plus } from "lucide-react";
+import { EllipsisVertical, Plus } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
 import { useState } from "react";
@@ -93,194 +93,191 @@ export function MembersScreen({
   }
 
   return (
-    <Flex asChild direction="column" gap="4" p={{ initial: "4", sm: "6" }}>
-      <main>
-        <Flex justify="between" align="center" gap="3" wrap="wrap">
-          <Heading size="5">{t("title")}</Heading>
-          <Button type="button" onClick={() => setFormTarget("new")}>
-            <Plus size={16} />
-            {t("add")}
-          </Button>
-        </Flex>
+    <Flex direction="column" gap="4">
+      <Flex justify="between" align="center" gap="3" wrap="wrap">
+        <Heading size="5">{t("title")}</Heading>
+        <Button type="button" onClick={() => setFormTarget("new")}>
+          <Plus size={16} />
+          {t("add")}
+        </Button>
+      </Flex>
 
-        <SegmentedControl.Root
-          value={archived ? "archived" : "active"}
-          onValueChange={onTabChange}
-        >
-          <SegmentedControl.Item value="active">
-            {t("activeTab")}
-          </SegmentedControl.Item>
-          <SegmentedControl.Item value="archived">
-            {t("archivedTab")}
-          </SegmentedControl.Item>
-        </SegmentedControl.Root>
+      <SegmentedControl.Root
+        value={archived ? "archived" : "active"}
+        onValueChange={onTabChange}
+      >
+        <SegmentedControl.Item value="active">
+          {t("activeTab")}
+        </SegmentedControl.Item>
+        <SegmentedControl.Item value="archived">
+          {t("archivedTab")}
+        </SegmentedControl.Item>
+      </SegmentedControl.Root>
 
-        {archived && members.length === 0 ? (
-          <EmptyState title={t("archivedEmpty")} />
-        ) : (
-          <Flex direction="column" gap="3">
-            {members.map((member) => {
-              const isSelf = member.userId === currentUserId;
+      {archived && members.length === 0 ? (
+        <EmptyState title={t("archivedEmpty")} />
+      ) : (
+        <Flex direction="column" gap="3">
+          {members.map((member) => {
+            const isSelf = member.userId === currentUserId;
 
-              return (
-                <Card key={member.id}>
-                  <Flex justify="between" align="center" gap="3">
-                    <Flex direction="column" gap="1" flexGrow="1" minWidth="0">
-                      <Flex align="center" gap="2" wrap="wrap">
-                        <Text weight="medium" truncate>
-                          {member.name}
-                        </Text>
-                        {member.role === "owner" && (
-                          <Badge color="blue">{t("ownerBadge")}</Badge>
-                        )}
-                        {isSelf && <Badge>{t("you")}</Badge>}
-                        {member.userId === null && (
-                          <Badge color="gray">{t("noLoginBadge")}</Badge>
-                        )}
-                      </Flex>
-                      <Text size="2" color="gray">
-                        {t("accountCount", { count: member.activeAccountCount })}
+            return (
+              <Card key={member.id}>
+                <Flex justify="between" align="center" gap="3">
+                  <Flex direction="column" gap="1" flexGrow="1" minWidth="0">
+                    <Flex align="center" gap="2" wrap="wrap">
+                      <Text weight="medium" truncate>
+                        {member.name}
                       </Text>
+                      {member.role === "owner" && (
+                        <Badge color="blue">{t("ownerBadge")}</Badge>
+                      )}
+                      {isSelf && <Badge>{t("you")}</Badge>}
+                      {member.userId === null && (
+                        <Badge color="gray">{t("noLoginBadge")}</Badge>
+                      )}
                     </Flex>
+                    <Text size="2" color="gray">
+                      {t("accountCount", { count: member.activeAccountCount })}
+                    </Text>
+                  </Flex>
 
-                    <Box flexShrink="0">
-                      <DropdownMenu.Root>
-                        <DropdownMenu.Trigger>
-                          <IconButton
-                            type="button"
-                            variant="ghost"
-                            color="gray"
-                            size="3"
-                            aria-label={tKey("common.actions")}
-                          >
-                            <MoreVertical size={18} />
-                          </IconButton>
-                        </DropdownMenu.Trigger>
-                        <DropdownMenu.Content>
-                          <DropdownMenu.Item
-                            onSelect={() => setFormTarget(member)}
-                          >
-                            {tKey("common.edit")}
-                          </DropdownMenu.Item>
-                          {/* The database refuses both on the session user's own row: offering them would only fail. */}
-                          {!isSelf && (
-                            <>
-                              <DropdownMenu.Separator />
-                              {member.archivedAt ? (
-                                <DropdownMenu.Item
-                                  onSelect={() =>
-                                    setRowAction({ kind: "restore", member })
-                                  }
-                                >
-                                  {tKey("common.restore")}
-                                </DropdownMenu.Item>
-                              ) : (
-                                <DropdownMenu.Item
-                                  onSelect={() =>
-                                    setRowAction({ kind: "archive", member })
-                                  }
-                                >
-                                  {tKey("common.archive")}
-                                </DropdownMenu.Item>
-                              )}
+                  <Box flexShrink="0">
+                    <DropdownMenu.Root>
+                      <DropdownMenu.Trigger>
+                        <IconButton
+                          type="button"
+                          variant="ghost"
+                          color="gray"
+                          aria-label={tKey("common.actions")}
+                        >
+                          <EllipsisVertical size={16} />
+                        </IconButton>
+                      </DropdownMenu.Trigger>
+                      <DropdownMenu.Content>
+                        <DropdownMenu.Item
+                          onSelect={() => setFormTarget(member)}
+                        >
+                          {tKey("common.edit")}
+                        </DropdownMenu.Item>
+                        {/* The database refuses both on the session user's own row: offering them would only fail. */}
+                        {!isSelf && (
+                          <>
+                            <DropdownMenu.Separator />
+                            {member.archivedAt ? (
                               <DropdownMenu.Item
-                                color="red"
                                 onSelect={() =>
-                                  setRowAction({
-                                    kind:
-                                      member.activeAccountCount > 0
-                                        ? "deleteBlocked"
-                                        : "delete",
-                                    member,
-                                  })
+                                  setRowAction({ kind: "restore", member })
                                 }
                               >
-                                {tKey("common.delete")}
+                                {tKey("common.restore")}
                               </DropdownMenu.Item>
-                            </>
-                          )}
-                        </DropdownMenu.Content>
-                      </DropdownMenu.Root>
-                    </Box>
-                  </Flex>
-                </Card>
-              );
-            })}
-          </Flex>
-        )}
+                            ) : (
+                              <DropdownMenu.Item
+                                onSelect={() =>
+                                  setRowAction({ kind: "archive", member })
+                                }
+                              >
+                                {tKey("common.archive")}
+                              </DropdownMenu.Item>
+                            )}
+                            <DropdownMenu.Item
+                              color="red"
+                              onSelect={() =>
+                                setRowAction({
+                                  kind:
+                                    member.activeAccountCount > 0
+                                      ? "deleteBlocked"
+                                      : "delete",
+                                  member,
+                                })
+                              }
+                            >
+                              {tKey("common.delete")}
+                            </DropdownMenu.Item>
+                          </>
+                        )}
+                      </DropdownMenu.Content>
+                    </DropdownMenu.Root>
+                  </Box>
+                </Flex>
+              </Card>
+            );
+          })}
+        </Flex>
+      )}
 
-        <MemberFormDialog
+      <MemberFormDialog
+        fundId={fundId}
+        open={formTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setFormTarget(null);
+        }}
+        member={
+          formTarget === null || formTarget === "new"
+            ? undefined
+            : { id: formTarget.id, name: formTarget.name }
+        }
+      />
+
+      {rowAction?.kind === "archive" && (
+        <ArchiveMemberDialog
           fundId={fundId}
-          open={formTarget !== null}
+          member={rowAction.member}
+          accounts={memberAccounts[rowAction.member.id] ?? []}
+          open
           onOpenChange={(open) => {
-            if (!open) setFormTarget(null);
+            if (!open) setRowAction(null);
           }}
-          member={
-            formTarget === null || formTarget === "new"
-              ? undefined
-              : { id: formTarget.id, name: formTarget.name }
+        />
+      )}
+
+      {rowAction?.kind === "restore" && (
+        <ConfirmDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setRowAction(null);
+          }}
+          title={t("restoreTitle")}
+          description={t("restoreDescription")}
+          confirmLabel={tKey("common.restore")}
+          cancelLabel={tKey("common.cancel")}
+          pending={restoreState.isPending}
+          tone="neutral"
+          onConfirm={() =>
+            restoreState.execute({ fundId, memberId: rowAction.member.id })
           }
         />
+      )}
 
-        {rowAction?.kind === "archive" && (
-          <ArchiveMemberDialog
-            fundId={fundId}
-            member={rowAction.member}
-            accounts={memberAccounts[rowAction.member.id] ?? []}
-            open
-            onOpenChange={(open) => {
-              if (!open) setRowAction(null);
-            }}
-          />
-        )}
+      {rowAction?.kind === "delete" && (
+        <ConfirmDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setRowAction(null);
+          }}
+          title={t("deleteTitle")}
+          description={t("deleteDescription")}
+          confirmLabel={tKey("common.delete")}
+          cancelLabel={tKey("common.cancel")}
+          pending={deleteState.isPending}
+          onConfirm={() =>
+            deleteState.execute({ fundId, memberId: rowAction.member.id })
+          }
+        />
+      )}
 
-        {rowAction?.kind === "restore" && (
-          <ConfirmDialog
-            open
-            onOpenChange={(open) => {
-              if (!open) setRowAction(null);
-            }}
-            title={t("restoreTitle")}
-            description={t("restoreDescription")}
-            confirmLabel={tKey("common.restore")}
-            cancelLabel={tKey("common.cancel")}
-            pending={restoreState.isPending}
-            tone="neutral"
-            onConfirm={() =>
-              restoreState.execute({ fundId, memberId: rowAction.member.id })
-            }
-          />
-        )}
-
-        {rowAction?.kind === "delete" && (
-          <ConfirmDialog
-            open
-            onOpenChange={(open) => {
-              if (!open) setRowAction(null);
-            }}
-            title={t("deleteTitle")}
-            description={t("deleteDescription")}
-            confirmLabel={tKey("common.delete")}
-            cancelLabel={tKey("common.cancel")}
-            pending={deleteState.isPending}
-            onConfirm={() =>
-              deleteState.execute({ fundId, memberId: rowAction.member.id })
-            }
-          />
-        )}
-
-        {/* The foreign key would refuse this delete; nothing here calls the action. */}
-        {rowAction?.kind === "deleteBlocked" && (
-          <ConfirmDialog
-            open
-            onOpenChange={() => setRowAction(null)}
-            title={t("deleteTitle")}
-            description={t("deleteBlocked")}
-            cancelLabel={tKey("common.cancel")}
-            dismissOnly
-          />
-        )}
-      </main>
+      {/* The foreign key would refuse this delete; nothing here calls the action. */}
+      {rowAction?.kind === "deleteBlocked" && (
+        <ConfirmDialog
+          open
+          onOpenChange={() => setRowAction(null)}
+          title={t("deleteTitle")}
+          description={t("deleteBlocked")}
+          cancelLabel={tKey("common.cancel")}
+          dismissOnly
+        />
+      )}
     </Flex>
   );
 }

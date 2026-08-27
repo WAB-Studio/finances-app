@@ -92,7 +92,7 @@ export function CategoriesScreen({
         <Heading size="5">{t("title")}</Heading>
         {addButton}
       </Flex>
-      <SegmentedControl.Root value={kind} onValueChange={onKindChange} size="3">
+      <SegmentedControl.Root value={kind} onValueChange={onKindChange}>
         <SegmentedControl.Item value="expense">
           {t("expenseTab")}
         </SegmentedControl.Item>
@@ -138,7 +138,7 @@ export function CategoriesScreen({
                         color="gray"
                         aria-label={tKey("common.actions")}
                       >
-                        <EllipsisVertical size={18} />
+                        <EllipsisVertical size={16} />
                       </IconButton>
                     </DropdownMenu.Trigger>
                     <DropdownMenu.Content>
