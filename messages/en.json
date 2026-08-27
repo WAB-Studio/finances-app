@@ -45,7 +45,6 @@
     "fundNamePlaceholder": "Household",
     "memberNameLabel": "What is your name?",
     "memberNameDescription": "This is how you appear in per-person reports.",
-    "memberNamePlaceholder": "Your name",
     "submit": "Create fund",
     "submitting": "Creating the fund"
   },
