@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Loader2Icon, MailCheckIcon } from "lucide-react";
+import { MailCheckIcon } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
 import { useMemo, useState } from "react";
@@ -9,14 +9,17 @@ import { Controller, useForm } from "react-hook-form";
 import { toast } from "sonner";
 
 import { signInAction } from "@/app/actions/auth";
-import { Button } from "@/components/ui/button";
 import {
+  Button,
   Field,
   FieldError,
   FieldGroup,
   FieldLabel,
-} from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
+  Flex,
+  Spinner,
+  Text,
+  TextField,
+} from "@/components/ui";
 import { signInSchema, type SignInInput } from "@/lib/validation/auth";
 
 export function LoginForm({ next }: { next?: string }) {
@@ -60,19 +63,25 @@ export function LoginForm({ next }: { next?: string }) {
 
   if (sentTo) {
     return (
-      <div className="flex flex-col gap-4">
-        <div className="flex flex-col items-center gap-2 text-center">
-          <MailCheckIcon className="size-6 text-primary" aria-hidden />
-          <p className="font-medium">{t("sentTitle")}</p>
-          <p className="text-sm text-muted-foreground">
+      <Flex direction="column" gap="4">
+        <Flex direction="column" align="center" gap="2">
+          <Text>
+            <MailCheckIcon size={24} aria-hidden />
+          </Text>
+          <Text size="3" weight="medium">
+            {t("sentTitle")}
+          </Text>
+          <Text size="2" color="gray" align="center">
             {t("sentDescription", { email: sentTo })}
-          </p>
-          <p className="text-sm text-muted-foreground">{t("sentHint")}</p>
-        </div>
+          </Text>
+          <Text size="2" color="gray" align="center">
+            {t("sentHint")}
+          </Text>
+        </Flex>
         <Button type="button" variant="outline" onClick={backToIdle}>
           {t("useAnotherEmail")}
         </Button>
-      </div>
+      </Flex>
     );
   }
 
@@ -83,11 +92,12 @@ export function LoginForm({ next }: { next?: string }) {
           name="email"
           control={form.control}
           render={({ field, fieldState }) => (
-            <Field data-invalid={fieldState.invalid}>
+            <Field invalid={fieldState.invalid}>
               <FieldLabel htmlFor="login-email">{t("emailLabel")}</FieldLabel>
-              <Input
+              <TextField.Root
                 {...field}
                 id="login-email"
+                size="3"
                 type="email"
                 inputMode="email"
                 autoComplete="email"
@@ -109,7 +119,7 @@ export function LoginForm({ next }: { next?: string }) {
         />
         <Field>
           <Button type="submit" disabled={isPending}>
-            {isPending && <Loader2Icon className="animate-spin" aria-hidden />}
+            {isPending && <Spinner />}
             {isPending ? t("sending") : t("sendLink")}
           </Button>
         </Field>

@@ -1,22 +1,22 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Loader2Icon } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
 import { Controller, useForm } from "react-hook-form";
 import { toast } from "sonner";
 
 import { createFundAction } from "@/app/actions/fund";
-import { Button } from "@/components/ui/button";
 import {
+  Button,
   Field,
   FieldDescription,
   FieldError,
   FieldGroup,
   FieldLabel,
-} from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
+  Spinner,
+  TextField,
+} from "@/components/ui";
 import { createFundSchema, type CreateFundInput } from "@/lib/validation/fund";
 
 export function CreateFundForm() {
@@ -49,11 +49,12 @@ export function CreateFundForm() {
           name="name"
           control={form.control}
           render={({ field, fieldState }) => (
-            <Field data-invalid={fieldState.invalid}>
+            <Field invalid={fieldState.invalid}>
               <FieldLabel htmlFor="fund-name">{t("fundNameLabel")}</FieldLabel>
-              <Input
+              <TextField.Root
                 {...field}
                 id="fund-name"
+                size="3"
                 autoFocus
                 autoComplete="off"
                 placeholder={t("fundNamePlaceholder")}
@@ -75,13 +76,14 @@ export function CreateFundForm() {
           name="memberName"
           control={form.control}
           render={({ field, fieldState }) => (
-            <Field data-invalid={fieldState.invalid}>
+            <Field invalid={fieldState.invalid}>
               <FieldLabel htmlFor="member-name">
                 {t("memberNameLabel")}
               </FieldLabel>
-              <Input
+              <TextField.Root
                 {...field}
                 id="member-name"
+                size="3"
                 autoComplete="name"
                 aria-invalid={fieldState.invalid}
                 disabled={isPending}
@@ -99,7 +101,7 @@ export function CreateFundForm() {
         />
         <Field>
           <Button type="submit" disabled={isPending}>
-            {isPending && <Loader2Icon className="animate-spin" aria-hidden />}
+            {isPending && <Spinner />}
             {isPending ? t("submitting") : t("submit")}
           </Button>
         </Field>

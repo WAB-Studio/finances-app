@@ -1,5 +1,8 @@
-import { useMemo, type ReactNode } from "react";
+import { createContext, useContext, useMemo, type ReactNode } from "react";
 import { Flex, Text } from "@radix-ui/themes";
+
+// Carries a Field's invalid flag down to its FieldLabel, nothing else.
+const FieldInvalidContext = createContext(false);
 
 // One vertical stack of Fields, the gap that separates one form row from the next.
 export function FieldGroup({ children }: { children?: ReactNode }) {
@@ -19,15 +22,17 @@ export function Field({
   children?: ReactNode;
 }) {
   return (
-    <Flex
-      role="group"
-      direction="column"
-      gap="2"
-      width="100%"
-      data-invalid={invalid || undefined}
-    >
-      {children}
-    </Flex>
+    <FieldInvalidContext.Provider value={!!invalid}>
+      <Flex
+        role="group"
+        direction="column"
+        gap="2"
+        width="100%"
+        data-invalid={invalid || undefined}
+      >
+        {children}
+      </Flex>
+    </FieldInvalidContext.Provider>
   );
 }
 
@@ -38,8 +43,15 @@ export function FieldLabel({
   htmlFor: string;
   children?: ReactNode;
 }) {
+  const invalid = useContext(FieldInvalidContext);
   return (
-    <Text as="label" htmlFor={htmlFor} size="2" weight="medium">
+    <Text
+      as="label"
+      htmlFor={htmlFor}
+      size="2"
+      weight="medium"
+      color={invalid ? "red" : undefined}
+    >
       {children}
     </Text>
   );
