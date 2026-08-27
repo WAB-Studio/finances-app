@@ -39,20 +39,9 @@ export function ArchiveMemberDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const t = useTranslations("members");
-  const tAccounts = useTranslations("accounts");
   const tCommon = useTranslations("common");
   const tKey = useTranslations();
   type MessageKey = Parameters<typeof tKey>[0];
-
-  const [decisions, setDecisions] = useState<Record<string, Decision>>({});
-  // Tracked to catch the open transition during render, not in an effect.
-  const [wasOpen, setWasOpen] = useState(open);
-
-  // Every reopening starts blank: a leftover choice would be the app deciding, not the person.
-  if (open !== wasOpen) {
-    setWasOpen(open);
-    if (open) setDecisions({});
-  }
 
   const { execute, isPending } = useAction(archiveMemberAction, {
     onSuccess() {
@@ -82,18 +71,52 @@ export function ArchiveMemberDialog({
     );
   }
 
-  const allAnswered = accounts.every((account) => decisions[account.id]);
+  return (
+    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+      <Dialog.Content>
+        <Flex direction="column" gap="4">
+          <Dialog.Title>{t("archiveTitle")}</Dialog.Title>
+          <Dialog.Description>
+            {t("archiveAccountsDescription")}
+          </Dialog.Description>
+          {/* Closing unmounts the content, so every reopening starts blank: a
+              leftover choice would be the app deciding, not the person. */}
+          <AccountDecisions
+            accounts={accounts}
+            pending={isPending}
+            onConfirm={(decisions) =>
+              execute({
+                fundId,
+                memberId: member.id,
+                accounts: accounts.map((account) => ({
+                  accountId: account.id,
+                  decision: decisions[account.id]!,
+                })),
+              })
+            }
+          />
+        </Flex>
+      </Dialog.Content>
+    </Dialog.Root>
+  );
+}
 
-  function handleConfirm() {
-    execute({
-      fundId,
-      memberId: member.id,
-      accounts: accounts.map((account) => ({
-        accountId: account.id,
-        decision: decisions[account.id]!,
-      })),
-    });
-  }
+function AccountDecisions({
+  accounts,
+  pending,
+  onConfirm,
+}: {
+  accounts: ArchiveAccount[];
+  pending: boolean;
+  onConfirm: (decisions: Record<string, Decision>) => void;
+}) {
+  const t = useTranslations("members");
+  const tAccounts = useTranslations("accounts");
+  const tCommon = useTranslations("common");
+
+  const [decisions, setDecisions] = useState<Record<string, Decision>>({});
+
+  const allAnswered = accounts.every((account) => decisions[account.id]);
 
   const list = (
     <Flex direction="column" gap="4">
@@ -129,42 +152,29 @@ export function ArchiveMemberDialog({
   );
 
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Content>
-        <Flex direction="column" gap="4">
-          <Dialog.Title>{t("archiveTitle")}</Dialog.Title>
-          <Dialog.Description>
-            {t("archiveAccountsDescription")}
-          </Dialog.Description>
-          {accounts.length > SCROLL_THRESHOLD ? (
-            <Box height="16rem">
-              <ScrollArea>{list}</ScrollArea>
-            </Box>
-          ) : (
-            list
-          )}
-          <Flex gap="3" justify="end">
-            <Dialog.Close>
-              <Button
-                type="button"
-                variant="soft"
-                color="gray"
-                disabled={isPending}
-              >
-                {tCommon("cancel")}
-              </Button>
-            </Dialog.Close>
-            <Button
-              type="button"
-              disabled={!allAnswered || isPending}
-              onClick={handleConfirm}
-            >
-              {isPending && <Spinner />}
-              {tCommon("archive")}
-            </Button>
-          </Flex>
-        </Flex>
-      </Dialog.Content>
-    </Dialog.Root>
+    <>
+      {accounts.length > SCROLL_THRESHOLD ? (
+        <Box height="16rem">
+          <ScrollArea>{list}</ScrollArea>
+        </Box>
+      ) : (
+        list
+      )}
+      <Flex gap="3" justify="end">
+        <Dialog.Close>
+          <Button type="button" variant="soft" color="gray" disabled={pending}>
+            {tCommon("cancel")}
+          </Button>
+        </Dialog.Close>
+        <Button
+          type="button"
+          disabled={!allAnswered || pending}
+          onClick={() => onConfirm(decisions)}
+        >
+          {pending && <Spinner />}
+          {tCommon("archive")}
+        </Button>
+      </Flex>
+    </>
   );
 }

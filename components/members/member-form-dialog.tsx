@@ -3,7 +3,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useTranslations } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
-import { useEffect } from "react";
 import { Controller, useForm, type Resolver } from "react-hook-form";
 import { toast } from "sonner";
 
@@ -23,6 +22,8 @@ import { createMemberSchema, updateMemberSchema } from "@/lib/validation/member"
 
 type FormValues = { fundId: string; memberId?: string; name: string };
 
+type Member = { id: string; name: string };
+
 export function MemberFormDialog({
   fundId,
   open,
@@ -32,7 +33,37 @@ export function MemberFormDialog({
   fundId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  member?: { id: string; name: string };
+  member?: Member;
+}) {
+  const t = useTranslations("members");
+
+  return (
+    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+      <Dialog.Content>
+        <Flex direction="column" gap="4">
+          <Dialog.Title>{t(member ? "editTitle" : "addTitle")}</Dialog.Title>
+          {/* Closing unmounts the content, and the key remounts on a change of
+              subject, so the form below is always born with fresh defaults. */}
+          <MemberForm
+            key={member?.id ?? "create"}
+            fundId={fundId}
+            member={member}
+            onOpenChange={onOpenChange}
+          />
+        </Flex>
+      </Dialog.Content>
+    </Dialog.Root>
+  );
+}
+
+function MemberForm({
+  fundId,
+  member,
+  onOpenChange,
+}: {
+  fundId: string;
+  member?: Member;
+  onOpenChange: (open: boolean) => void;
 }) {
   const t = useTranslations("members");
   // Root-scoped: the keys arriving from the schema and the action are full paths.
@@ -48,16 +79,6 @@ export function MemberFormDialog({
       ? { fundId, memberId: member.id, name: member.name }
       : { fundId, name: "" },
   });
-
-  // Reopening for a create must not show the name left over from an edit.
-  useEffect(() => {
-    if (!open) return;
-    form.reset(
-      member
-        ? { fundId, memberId: member.id, name: member.name }
-        : { fundId, name: "" },
-    );
-  }, [open, fundId, member, form]);
 
   function onError({ error }: { error: { serverError?: string } }) {
     toast.error(tKey((error.serverError ?? "errors.unexpected") as MessageKey));
@@ -95,65 +116,50 @@ export function MemberFormDialog({
   }
 
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Content>
-        <Flex direction="column" gap="4">
-          <Dialog.Title>
-            {t(mode === "edit" ? "editTitle" : "addTitle")}
-          </Dialog.Title>
-          <form onSubmit={form.handleSubmit(onSubmit)} noValidate>
-            <FieldGroup>
-              <Controller
-                name="name"
-                control={form.control}
-                render={({ field, fieldState }) => (
-                  <Field invalid={fieldState.invalid}>
-                    <FieldLabel htmlFor="member-name">
-                      {t("nameLabel")}
-                    </FieldLabel>
-                    <TextField.Root
-                      {...field}
-                      id="member-name"
-                      size="3"
-                      autoFocus
-                      autoComplete="off"
-                      aria-invalid={fieldState.invalid}
-                      disabled={isPending}
-                    />
-                    {fieldState.invalid && (
-                      <FieldError
-                        errors={[
-                          {
-                            message: tKey(
-                              fieldState.error!.message as MessageKey,
-                            ),
-                          },
-                        ]}
-                      />
-                    )}
-                  </Field>
-                )}
+    <form onSubmit={form.handleSubmit(onSubmit)} noValidate>
+      <FieldGroup>
+        <Controller
+          name="name"
+          control={form.control}
+          render={({ field, fieldState }) => (
+            <Field invalid={fieldState.invalid}>
+              <FieldLabel htmlFor="member-name">{t("nameLabel")}</FieldLabel>
+              <TextField.Root
+                {...field}
+                id="member-name"
+                size="3"
+                autoFocus
+                autoComplete="off"
+                aria-invalid={fieldState.invalid}
+                disabled={isPending}
               />
-              <Flex gap="3" justify="end">
-                <Dialog.Close>
-                  <Button
-                    type="button"
-                    variant="soft"
-                    color="gray"
-                    disabled={isPending}
-                  >
-                    {tKey("common.cancel")}
-                  </Button>
-                </Dialog.Close>
-                <Button type="submit" disabled={isPending}>
-                  {isPending && <Spinner />}
-                  {tKey("common.save")}
-                </Button>
-              </Flex>
-            </FieldGroup>
-          </form>
+              {fieldState.invalid && (
+                <FieldError
+                  errors={[
+                    { message: tKey(fieldState.error!.message as MessageKey) },
+                  ]}
+                />
+              )}
+            </Field>
+          )}
+        />
+        <Flex gap="3" justify="end">
+          <Dialog.Close>
+            <Button
+              type="button"
+              variant="soft"
+              color="gray"
+              disabled={isPending}
+            >
+              {tKey("common.cancel")}
+            </Button>
+          </Dialog.Close>
+          <Button type="submit" disabled={isPending}>
+            {isPending && <Spinner />}
+            {tKey("common.save")}
+          </Button>
         </Flex>
-      </Dialog.Content>
-    </Dialog.Root>
+      </FieldGroup>
+    </form>
   );
 }

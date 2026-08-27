@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useTranslations } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
@@ -49,30 +48,52 @@ type CategoryFormValues = {
   color: string | null;
 };
 
-export function CategoryFormDialog({
-  fundId,
-  kind,
-  parents,
-  usedColors,
-  open,
-  onOpenChange,
-  category,
-  defaultParentId,
-}: {
+type Category = {
+  id: string;
+  name: string;
+  parentId: string | null;
+  color: string | null;
+};
+
+type CategoryFormProps = {
   fundId: string;
   kind: "expense" | "income";
   parents: { id: string; name: string }[];
   usedColors: string[];
-  open: boolean;
   onOpenChange: (open: boolean) => void;
-  category?: {
-    id: string;
-    name: string;
-    parentId: string | null;
-    color: string | null;
-  };
+  category?: Category;
   defaultParentId?: string | null;
-}) {
+};
+
+export function CategoryFormDialog({
+  open,
+  ...props
+}: CategoryFormProps & { open: boolean }) {
+  const t = useTranslations("categories");
+
+  return (
+    <Dialog.Root open={open} onOpenChange={props.onOpenChange}>
+      <Dialog.Content>
+        <Dialog.Title>
+          {t(props.category ? "editTitle" : "addTitle")}
+        </Dialog.Title>
+        {/* Closing unmounts the content, and the key remounts on a change of
+            subject, so the form below is always born with fresh defaults. */}
+        <CategoryForm key={props.category?.id ?? "create"} {...props} />
+      </Dialog.Content>
+    </Dialog.Root>
+  );
+}
+
+function CategoryForm({
+  fundId,
+  kind,
+  parents,
+  usedColors,
+  onOpenChange,
+  category,
+  defaultParentId,
+}: CategoryFormProps) {
   const t = useTranslations("categories");
   const tCommon = useTranslations("common");
   // Root-scoped: the keys arriving from the schema and the action are full paths.
@@ -81,40 +102,29 @@ export function CategoryFormDialog({
 
   const isEdit = !!category;
 
-  function buildDefaultValues(): CategoryFormValues {
-    const parentId = category ? category.parentId : (defaultParentId ?? null);
-    return {
-      fundId,
-      categoryId: category?.id ?? "",
-      kind,
-      name: category?.name ?? "",
-      parentId,
-      color:
-        parentId === null
-          ? (category?.color ?? nextCategoryColor(usedColors))
-          : null,
-    };
-  }
-
   const form = useForm<CategoryFormValues>({
     resolver: (isEdit
       ? zodResolver(updateCategorySchema)
       : zodResolver(createCategorySchema)) as unknown as Resolver<CategoryFormValues>,
-    defaultValues: buildDefaultValues(),
+    defaultValues: (() => {
+      const parentId = category ? category.parentId : (defaultParentId ?? null);
+      return {
+        fundId,
+        categoryId: category?.id ?? "",
+        kind,
+        name: category?.name ?? "",
+        parentId,
+        color:
+          parentId === null
+            ? (category?.color ?? nextCategoryColor(usedColors))
+            : null,
+      };
+    })(),
   });
 
   // Subscribes to the field itself; `form.watch` would return a function the
   // React Compiler refuses to memoize, skipping the whole component.
   const parentId = useWatch({ control: form.control, name: "parentId" });
-
-  // Each open may hand the dialog a different row: reset during render, on the
-  // open transition itself, rather than in an effect that would render stale
-  // values for a frame first.
-  const [wasOpen, setWasOpen] = useState(open);
-  if (open !== wasOpen) {
-    setWasOpen(open);
-    if (open) form.reset(buildDefaultValues());
-  }
 
   function onActionSuccess() {
     toast.success(t(isEdit ? "updated" : "created"));
@@ -151,159 +161,154 @@ export function CategoryFormDialog({
   const parentOptions = parents.filter((parent) => parent.id !== category?.id);
 
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Content>
-        <Dialog.Title>{t(isEdit ? "editTitle" : "addTitle")}</Dialog.Title>
-        <form onSubmit={form.handleSubmit(onSubmit)} noValidate>
-          <FieldGroup>
-            <Controller
-              name="name"
-              control={form.control}
-              render={({ field, fieldState }) => (
-                <Field invalid={fieldState.invalid}>
-                  <FieldLabel htmlFor="category-name">
-                    {t("nameLabel")}
-                  </FieldLabel>
-                  <TextField.Root
-                    {...field}
-                    id="category-name"
-                    size="3"
-                    autoFocus
-                    autoComplete="off"
-                    aria-invalid={fieldState.invalid}
-                    disabled={isPending}
-                  />
-                  {fieldState.invalid && (
-                    <FieldError
-                      errors={[
-                        {
-                          message: tKey(
-                            fieldState.error!.message as MessageKey,
-                          ),
-                        },
-                      ]}
-                    />
-                  )}
-                </Field>
-              )}
-            />
-            <Controller
-              name="parentId"
-              control={form.control}
-              render={({ field, fieldState }) => (
-                <Field invalid={fieldState.invalid}>
-                  <FieldLabel htmlFor="category-parent">
-                    {t("parentLabel")}
-                  </FieldLabel>
-                  <Select.Root
-                    value={field.value ?? NO_PARENT_VALUE}
-                    onValueChange={(value) => {
-                      const nextParentId =
-                        value === NO_PARENT_VALUE ? null : value;
-                      field.onChange(nextParentId);
-                      // A subcategory carries no colour of its own; picking a
-                      // parent clears it, clearing the parent brings back the default.
-                      form.setValue(
-                        "color",
-                        nextParentId === null
-                          ? nextCategoryColor(usedColors)
-                          : null,
-                      );
-                    }}
-                    disabled={isPending}
-                  >
-                    <Select.Trigger
-                      id="category-parent"
-                      aria-invalid={fieldState.invalid}
-                    />
-                    <Select.Content>
-                      <Select.Item value={NO_PARENT_VALUE}>
-                        {t("parentNone")}
-                      </Select.Item>
-                      {parentOptions.map((parent) => (
-                        <Select.Item key={parent.id} value={parent.id}>
-                          {parent.name}
-                        </Select.Item>
-                      ))}
-                    </Select.Content>
-                  </Select.Root>
-                  {fieldState.invalid && (
-                    <FieldError
-                      errors={[
-                        {
-                          message: tKey(
-                            fieldState.error!.message as MessageKey,
-                          ),
-                        },
-                      ]}
-                    />
-                  )}
-                </Field>
-              )}
-            />
-            <Field>
-              <FieldLabel htmlFor="category-kind">
-                {t("kindLabel")}
+    <form onSubmit={form.handleSubmit(onSubmit)} noValidate>
+      <FieldGroup>
+        <Controller
+          name="name"
+          control={form.control}
+          render={({ field, fieldState }) => (
+            <Field invalid={fieldState.invalid}>
+              <FieldLabel htmlFor="category-name">
+                {t("nameLabel")}
               </FieldLabel>
-              <Text id="category-kind" size="3">
-                {t(kind === "expense" ? "kindExpense" : "kindIncome")}
-              </Text>
-              <FieldDescription>{t("kindLocked")}</FieldDescription>
-            </Field>
-            {parentId === null && (
-              <Controller
-                name="color"
-                control={form.control}
-                render={({ field, fieldState }) => (
-                  <Field invalid={fieldState.invalid}>
-                    <ColorSwatchPicker
-                      id="category-color"
-                      name="color"
-                      value={field.value ?? ""}
-                      onValueChange={field.onChange}
-                      colors={CATEGORY_COLORS}
-                      label={t("colorLabel")}
-                      optionLabel={(index) =>
-                        t("colorOption", { number: index + 1 })
-                      }
-                      disabled={isPending}
-                    />
-                    {fieldState.invalid && (
-                      <FieldError
-                        errors={[
-                          {
-                            message: tKey(
-                              fieldState.error!.message as MessageKey,
-                            ),
-                          },
-                        ]}
-                      />
-                    )}
-                  </Field>
-                )}
+              <TextField.Root
+                {...field}
+                id="category-name"
+                size="3"
+                autoFocus
+                autoComplete="off"
+                aria-invalid={fieldState.invalid}
+                disabled={isPending}
               />
-            )}
-            <Field>
-              <Flex gap="3" justify="end">
-                <Dialog.Close>
-                  <Button
-                    type="button"
-                    variant="soft"
-                    color="gray"
-                    disabled={isPending}
-                  >
-                    {tCommon("cancel")}
-                  </Button>
-                </Dialog.Close>
-                <Button type="submit" disabled={isPending}>
-                  {isPending && <Spinner />}
-                  {tCommon("save")}
-                </Button>
-              </Flex>
+              {fieldState.invalid && (
+                <FieldError
+                  errors={[
+                    {
+                      message: tKey(
+                        fieldState.error!.message as MessageKey,
+                      ),
+                    },
+                  ]}
+                />
+              )}
             </Field>
-          </FieldGroup>
-        </form>
-      </Dialog.Content>
-    </Dialog.Root>
+          )}
+        />
+        <Controller
+          name="parentId"
+          control={form.control}
+          render={({ field, fieldState }) => (
+            <Field invalid={fieldState.invalid}>
+              <FieldLabel htmlFor="category-parent">
+                {t("parentLabel")}
+              </FieldLabel>
+              <Select.Root
+                value={field.value ?? NO_PARENT_VALUE}
+                onValueChange={(value) => {
+                  const nextParentId =
+                    value === NO_PARENT_VALUE ? null : value;
+                  field.onChange(nextParentId);
+                  // A subcategory carries no colour of its own; picking a
+                  // parent clears it, clearing the parent brings back the default.
+                  form.setValue(
+                    "color",
+                    nextParentId === null
+                      ? nextCategoryColor(usedColors)
+                      : null,
+                  );
+                }}
+                disabled={isPending}
+              >
+                <Select.Trigger
+                  id="category-parent"
+                  aria-invalid={fieldState.invalid}
+                />
+                <Select.Content>
+                  <Select.Item value={NO_PARENT_VALUE}>
+                    {t("parentNone")}
+                  </Select.Item>
+                  {parentOptions.map((parent) => (
+                    <Select.Item key={parent.id} value={parent.id}>
+                      {parent.name}
+                    </Select.Item>
+                  ))}
+                </Select.Content>
+              </Select.Root>
+              {fieldState.invalid && (
+                <FieldError
+                  errors={[
+                    {
+                      message: tKey(
+                        fieldState.error!.message as MessageKey,
+                      ),
+                    },
+                  ]}
+                />
+              )}
+            </Field>
+          )}
+        />
+        <Field>
+          <FieldLabel htmlFor="category-kind">
+            {t("kindLabel")}
+          </FieldLabel>
+          <Text id="category-kind" size="3">
+            {t(kind === "expense" ? "kindExpense" : "kindIncome")}
+          </Text>
+          <FieldDescription>{t("kindLocked")}</FieldDescription>
+        </Field>
+        {parentId === null && (
+          <Controller
+            name="color"
+            control={form.control}
+            render={({ field, fieldState }) => (
+              <Field invalid={fieldState.invalid}>
+                <ColorSwatchPicker
+                  id="category-color"
+                  name="color"
+                  value={field.value ?? ""}
+                  onValueChange={field.onChange}
+                  colors={CATEGORY_COLORS}
+                  label={t("colorLabel")}
+                  optionLabel={(index) =>
+                    t("colorOption", { number: index + 1 })
+                  }
+                  disabled={isPending}
+                />
+                {fieldState.invalid && (
+                  <FieldError
+                    errors={[
+                      {
+                        message: tKey(
+                          fieldState.error!.message as MessageKey,
+                        ),
+                      },
+                    ]}
+                  />
+                )}
+              </Field>
+            )}
+          />
+        )}
+        <Field>
+          <Flex gap="3" justify="end">
+            <Dialog.Close>
+              <Button
+                type="button"
+                variant="soft"
+                color="gray"
+                disabled={isPending}
+              >
+                {tCommon("cancel")}
+              </Button>
+            </Dialog.Close>
+            <Button type="submit" disabled={isPending}>
+              {isPending && <Spinner />}
+              {tCommon("save")}
+            </Button>
+          </Flex>
+        </Field>
+      </FieldGroup>
+    </form>
   );
 }
