@@ -12,13 +12,12 @@ import {
   updateCategorySchema,
 } from "@/lib/validation/category";
 
-// The trigger raises one code, 23514, for four refusals: self-parenting, a
-// grandchild, a parent that already has children, and a kind mismatch. The
-// request's parent is the only signal available without reading the
-// database's text — a named parent could disagree in kind, so it reads as
-// that; no parent named at all means the refusal was about nesting instead.
+// The trigger raises one code, 23514, for four refusals; three are
+// nesting-shaped and the fourth, a kind mismatch, is the one the parent picker
+// already prevents. A null parent leaves the trigger before it can raise at
+// all, so that branch only guards against the trigger changing shape.
 function categoryConstraintErrorKey(parentId: string | null): string {
-  return parentId ? "errors.categoryKindMismatch" : "errors.categoryNesting";
+  return parentId ? "errors.categoryNesting" : "errors.categoryKindMismatch";
 }
 
 /**
