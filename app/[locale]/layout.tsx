@@ -4,9 +4,9 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { notFound } from "next/navigation";
 
+import { ThemeScript } from "@/components/theme-script";
 import { AppTheme, Flex, Toaster } from "@/components/ui";
 import { routing } from "@/i18n/routing";
-import { themeScript } from "@/lib/theme";
 import "@radix-ui/themes/styles.css";
 import "../theme.css";
 
@@ -55,7 +55,7 @@ export default async function LocaleLayout(props: LayoutProps<"/[locale]">) {
       suppressHydrationWarning
     >
       <head>
-        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+        <ThemeScript />
       </head>
       <body>
         <NextIntlClientProvider>

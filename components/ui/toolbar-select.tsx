@@ -40,7 +40,9 @@ export function ToolbarSelect({
           </Flex>
         </Select.Trigger>
       </Box>
-      {children && <Select.Content>{children}</Select.Content>}
+      {children && (
+        <Select.Content position="popper">{children}</Select.Content>
+      )}
     </Select.Root>
   );
 }

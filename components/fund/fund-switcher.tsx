@@ -87,7 +87,7 @@ export function FundSwitcher({ funds }: { funds: FundSummary[] }) {
           </Flex>
         </Select.Trigger>
       </Box>
-      <Select.Content>
+      <Select.Content position="popper">
         {funds.map((fund) => (
           <Select.Item key={fund.id} value={fund.id}>
             {fund.name}
