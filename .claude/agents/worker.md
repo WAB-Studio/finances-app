@@ -41,12 +41,18 @@ Ask nothing when nothing qualifies.
 Run `npx tsc --noEmit` and `npm run lint`. Fix what you broke.
 Run the assignment's done criterion.
 
+# Commit
+
+Commit once the done criterion passes. One commit, on the branch you were given.
+Match the style of `git log --oneline -5`. Report the hash.
+
 # Forbidden
 
 - Installing dependencies outside `docs/SPEC.md` §4.
 - Refactoring code outside the assignment.
 - Creating files the assignment does not ask for.
-- Running `git commit` unless the assignment says so. Never `git push`.
+- Running `git push`.
+- `git add -A`. Stage the paths you wrote.
 - Migrating the database unless the assignment says so.
 
 # Output

@@ -54,6 +54,8 @@ Send: the slice's RF codes, the plan path, the paths already written, the slices
 Send: goal, files with path, contract, RF codes and the `docs/` sections to read, paths the assignment
 builds on, done criterion, the decisions you already took.
 
+Name the branch. It commits its own work.
+
 Strip the plan's numbering, its other modules and its rationale.
 
 ## Rules
