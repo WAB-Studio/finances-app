@@ -119,7 +119,6 @@
     "openingBalanceLabel": "Opening balance",
     "openingOwedLabel": "Opening debt",
     "openingBalanceOnLabel": "Opening balance date",
-    "openingBalanceName": "Opening balance",
     "openingBalanceRow": "{amount} on {date}",
     "activeTab": "Active",
     "archivedTab": "Archived",

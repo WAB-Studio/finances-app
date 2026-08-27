@@ -248,7 +248,7 @@ function AccountCard({
               yet, so nothing on this screen derives an actual balance. */}
           <Flex align="center" gap="1" wrap="wrap">
             <Text size="2" color="gray">
-              {t("openingBalanceName")}
+              {t("openingBalanceLabel")}
             </Text>
             <Text size="2" color="gray">
               {t("openingBalanceRow", {

@@ -119,7 +119,6 @@
     "openingBalanceLabel": "Saldo inicial",
     "openingOwedLabel": "Deuda inicial",
     "openingBalanceOnLabel": "Fecha del saldo inicial",
-    "openingBalanceName": "Saldo inicial",
     "openingBalanceRow": "{amount} el {date}",
     "activeTab": "Activas",
     "archivedTab": "Archivadas",

@@ -96,10 +96,13 @@ export function MembersScreen({
     <Flex direction="column" gap="4">
       <Flex justify="between" align="center" gap="3" wrap="wrap">
         <Heading size="5">{t("title")}</Heading>
-        <Button type="button" onClick={() => setFormTarget("new")}>
-          <Plus size={16} />
-          {t("add")}
-        </Button>
+        {/* Add would create an active member, so the archived tab offers none. */}
+        {!archived && (
+          <Button type="button" onClick={() => setFormTarget("new")}>
+            <Plus size={16} />
+            {t("add")}
+          </Button>
+        )}
       </Flex>
 
       <SegmentedControl.Root
