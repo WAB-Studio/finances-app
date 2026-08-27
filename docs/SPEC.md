@@ -190,6 +190,8 @@ erDiagram
         uuid id PK
         text name
         char currency
+        timestamptz created_at
+        timestamptz updated_at
     }
 
     members {
@@ -199,6 +201,8 @@ erDiagram
         text name
         text role "owner | member"
         timestamptz archived_at
+        timestamptz created_at
+        timestamptz updated_at
     }
 
     accounts {
@@ -211,6 +215,8 @@ erDiagram
         bigint initial_balance_cents
         date initial_balance_on
         timestamptz archived_at
+        timestamptz created_at
+        timestamptz updated_at
     }
 
     debt_terms {
@@ -228,6 +234,8 @@ erDiagram
         text name
         text kind "expense | income"
         text color
+        timestamptz created_at
+        timestamptz updated_at
     }
 
     transactions {
