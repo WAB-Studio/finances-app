@@ -58,7 +58,7 @@ export function FundSwitcher({ funds }: { funds: FundSummary[] }) {
 
   return (
     <Select
-      value={activeFundId(pathname)}
+      value={activeFundId(pathname) ?? ""}
       onValueChange={onValueChange}
       disabled={isPending}
     >

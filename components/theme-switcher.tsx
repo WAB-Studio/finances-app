@@ -44,7 +44,7 @@ export function ThemeSwitcher() {
   // `useTheme` reads storage only after hydration, so the real value cannot be rendered on the first pass.
   if (!mounted) {
     return (
-      <Select disabled>
+      <Select value="" disabled>
         <SelectTrigger aria-label={t("label")} className={triggerClassName}>
           <Monitor className="size-4" />
           <span className="hidden sm:inline">{t("label")}</span>
