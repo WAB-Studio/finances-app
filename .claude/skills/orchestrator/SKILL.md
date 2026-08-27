@@ -39,8 +39,11 @@ Every dispatch stands on its own.
 
 ## Grouping
 
-Put modules that touch the same files in one assignment. Cut where the files stop overlapping.
-Cut a layer boundary — schema, action, component — before cutting anything else.
+- Load the assignment full. Never cut for size.
+- Cut on a dependency the worker cannot satisfy yet.
+- Cut on a layer boundary — schema, action, component.
+- Put modules that touch the same files in one assignment.
+- Group a docs edit with the module it describes.
 
 ## Dispatching planner
 

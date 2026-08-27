@@ -33,6 +33,8 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
 - Store money as integer cents. Floating point is forbidden.
 - Derive balances from movements. Never store them in a column.
 - Derive the transaction type from the accounts involved.
+- Revoke ALL from `anon`, `authenticated` and `service_role` in every migration that creates a table. Supabase grants them at `CREATE TABLE`.
+- Prove a policy fires. Never assert it from the migration.
 - Validate on the server with the same Zod schema that validates the form.
 - Move every interface string into next-intl. Hardcoding is forbidden.
 - Install only from §4. Discard the do-not-install list.

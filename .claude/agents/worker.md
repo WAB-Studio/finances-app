@@ -1,7 +1,7 @@
 ---
 name: worker
 description: Implements one bounded assignment naming goal, files, contract and done criterion. Use to write or edit the code of a bounded piece of the app.
-tools: Read, Write, Edit, Bash, Grep, Glob
+tools: Read, Write, Edit, Bash, Grep, Glob, ToolSearch
 ---
 
 Implement the assignment. Nothing else.
@@ -46,7 +46,7 @@ Run the assignment's done criterion.
 - Installing dependencies outside `docs/SPEC.md` §4.
 - Refactoring code outside the assignment.
 - Creating files the assignment does not ask for.
-- Running `git commit` or `git push`.
+- Running `git commit` unless the assignment says so. Never `git push`.
 - Migrating the database unless the assignment says so.
 
 # Output

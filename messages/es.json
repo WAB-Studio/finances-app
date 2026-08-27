@@ -1,0 +1,51 @@
+{
+  "metadata": {
+    "title": "Fondo compartido",
+    "description": "Cuentas, movimientos y saldos compartidos entre varias personas.",
+    "loginTitle": "Iniciar sesión",
+    "loginDescription": "Entra con un enlace enviado a tu correo, sin contraseña."
+  },
+  "common": {
+    "appName": "Fondo compartido",
+    "backHome": "Volver al inicio",
+    "greeting": "Hola, {email}",
+    "setupPending": "Aquí vas a crear tu fondo. Esa parte llega en el siguiente paso."
+  },
+  "auth": {
+    "signIn": "Iniciar sesión",
+    "signOut": "Cerrar sesión",
+    "loginDescription": "Escribe tu correo y te enviamos un enlace para entrar. No necesitas contraseña.",
+    "emailLabel": "Correo electrónico",
+    "emailPlaceholder": "tu@correo.com",
+    "sendLink": "Enviar enlace",
+    "sending": "Enviando el enlace",
+    "sentTitle": "Revisa tu correo",
+    "sentDescription": "Enviamos un enlace de acceso a {email}. Ábrelo desde donde quieras, incluso en otro navegador.",
+    "sentHint": "Si no llega en unos minutos, revisa la carpeta de spam.",
+    "useAnotherEmail": "Usar otro correo",
+    "errors": {
+      "emailInvalid": "Escribe un correo electrónico válido."
+    }
+  },
+  "language": {
+    "label": "Idioma",
+    "endonym": {
+      "es": "Español",
+      "en": "English"
+    }
+  },
+  "theme": {
+    "label": "Tema",
+    "light": "Claro",
+    "dark": "Oscuro",
+    "system": "Sistema"
+  },
+  "errors": {
+    "notFoundTitle": "Esta página no existe",
+    "notFoundDescription": "Puede que el enlace esté mal escrito o que la página se haya movido.",
+    "unexpected": "Algo salió mal. Vuelve a intentarlo.",
+    "unauthenticated": "Tu sesión expiró. Vuelve a iniciar sesión.",
+    "emailRateLimited": "Pediste demasiados enlaces seguidos. Espera un momento y vuelve a intentarlo.",
+    "linkInvalid": "El enlace no es válido o ya expiró. Pide uno nuevo."
+  }
+}

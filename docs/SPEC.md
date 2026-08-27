@@ -25,7 +25,7 @@ Default language: Spanish. Currency: COP. Time zone: `America/Bogota`.
 
 ### Scope and phases
 
-**Phase 1 (MVP):** RF-01 through RF-48.
+**Phase 1 (MVP):** RF-01 through RF-48, and RF-54.
 
 **Phase 2:** RF-49 through RF-53. Import, export and audit viewer. No model
 changes required: `external_ref` exists from phase 1 so that importing is
@@ -39,7 +39,7 @@ alerts, accounting exports, native apps. None of this gets built or left
 
 #### Authentication and fund
 
-- [ ] **RF-01** — Passwordless email login.
+- [x] **RF-01** — Passwordless email login.
 - [ ] **RF-02** — A user can belong to several funds; they operate on one at a time and can switch.
 - [ ] **RF-03** — Only the `owner` invites members, edits the fund and manages categories.
 - [ ] **RF-04** — All members of a fund see the same data. There are no partial-read roles.
@@ -111,9 +111,13 @@ alerts, accounting exports, native apps. None of this gets built or left
 
 #### Language
 
-- [ ] **RF-46** — Interface in Spanish and English, with the language visible in the URL. Spanish by default.
-- [ ] **RF-47** — The preference belongs to the user and follows them across every fund they belong to.
-- [ ] **RF-48** — No interface text is hardcoded. Dates and numbers follow the active language; the currency is always COP.
+- [x] **RF-46** — Interface in Spanish and English, with the language visible in the URL. Spanish by default.
+- [x] **RF-47** — The preference belongs to the user and follows them across every fund they belong to.
+- [x] **RF-48** — No interface text is hardcoded. Dates and numbers follow the active language; the currency is always COP.
+
+#### Appearance
+
+- [x] **RF-54** — Light theme, dark theme, or follow the system, switchable from the app shell. The choice persists on the device that made it.
 
 #### Import, export and visible audit (phase 2)
 
@@ -174,6 +178,13 @@ erDiagram
     categories ||--o{ recurring_rules : "classifies"
 
     recurring_rules ||--o{ transactions : "generates"
+
+    app_users {
+        uuid id PK
+        text locale "es | en"
+        timestamptz created_at
+        timestamptz updated_at
+    }
 
     funds {
         uuid id PK
@@ -282,6 +293,8 @@ Rules the model must always guarantee, regardless of how they are implemented:
 - Money is an integer number of cents.
 - The audit log cannot be bypassed from any write path.
 - `external_ref` is unique within a fund.
+- `app_users` hangs off no fund: the language preference belongs to the
+  user and follows them across every fund they belong to (RF-47).
 
 ---
 
@@ -299,8 +312,11 @@ Principles, not recipes:
   enough: access policies are evaluated in Postgres against the real user, so
   that an application bug cannot expose another fund's data.
 - **Scheduled work runs inside the database**, not as an external task. Applying
-  recurring rules and purging the log are transactional operations and must not
-  depend on an outside service answering.
+  recurring rules (RF-30) and purging the log (RNF-14) are transactional
+  operations and must not depend on an outside service answering; both stay in
+  the database. The single exception is the keepalive that holds inactivity off
+  (RNF-12): a job inside the database cannot revive a project that is already
+  paused, so that one call has to arrive from outside.
 - **Auditing is captured in the data layer**, not the application layer. It is
   the only way RF-45 holds.
 - **Cost is a design constraint, not an outcome.** Any component that could

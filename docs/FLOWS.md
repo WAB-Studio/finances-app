@@ -246,3 +246,14 @@ Frequently skipped, and responsible for half the perceived quality:
 | Archived member with accounts | Member settings | Ask per account: archive it or hand it to the fund (RF-12) |
 | Expired session | Any action | Back to login, preserving the destination |
 | Service unavailable | Any query | Explicit error, never a blank screen |
+
+---
+
+## 10. Appearance
+
+The theme is light, dark, or whatever the system asks for (RF-54). It is chosen
+from the same header strip as the language, and it is remembered per device: the
+same person may read dark on their phone and light on their laptop.
+
+Unlike the language, it does not follow the user between devices, because
+"follow the system" is a property of the device.
