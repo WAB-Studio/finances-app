@@ -9,11 +9,7 @@ import { toast } from "sonner";
 import { setLocaleAction } from "@/app/actions/locale";
 import { Select, Spinner, ToolbarSelect } from "@/components/ui";
 import { usePathname } from "@/i18n/navigation";
-import { LOCALES, type Locale } from "@/lib/locales";
-
-function isLocale(value: string): value is Locale {
-  return LOCALES.includes(value as Locale);
-}
+import { isLocale, LOCALES } from "@/lib/locales";
 
 export function LanguageSwitcher() {
   const t = useTranslations("language");
@@ -27,8 +23,7 @@ export function LanguageSwitcher() {
   const [leaving, setLeaving] = useState(false);
 
   const { execute, isPending } = useAction(setLocaleAction, {
-    // A document navigation, never a client one: crossing `[locale]` remounts the
-    // theme provider, and React cannot run its pre-paint script in the browser.
+    // A document navigation, never a client one: only a full load re-runs the pre-paint theme script.
     onSuccess({ data }) {
       setLeaving(true);
       window.location.assign(

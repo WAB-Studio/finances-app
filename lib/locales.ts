@@ -13,6 +13,10 @@ export const DEFAULT_LOCALE = "es";
 
 export type Locale = (typeof LOCALES)[number];
 
+export function isLocale(value: string): value is Locale {
+  return LOCALES.includes(value as Locale);
+}
+
 export const TIME_ZONE = "America/Bogota";
 
 export const CURRENCY = "COP";

@@ -5,14 +5,10 @@ import { useTranslations } from "next-intl";
 import { useSyncExternalStore } from "react";
 
 import { Select, ToolbarSelect } from "@/components/ui";
-import { THEMES, type Theme } from "@/lib/theme";
+import { isTheme, THEMES } from "@/lib/theme";
 import { useTheme } from "@/lib/use-theme";
 
 const icons = { light: Sun, dark: Moon, system: Monitor };
-
-function isTheme(value: string): value is Theme {
-  return (THEMES as readonly string[]).includes(value);
-}
 
 const subscribe = () => () => {};
 

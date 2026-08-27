@@ -11,7 +11,7 @@ import "@radix-ui/themes/styles.css";
 import "../theme.css";
 
 const geistSans = Geist({
-  // The name the shadcn theme reads for its sans stack.
+  // The name `AppTheme` reads for its sans stack.
   variable: "--font-sans",
   subsets: ["latin"],
 });
