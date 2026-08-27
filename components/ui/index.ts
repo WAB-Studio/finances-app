@@ -52,3 +52,7 @@ export {
   ScrollArea,
   VisuallyHidden,
 } from "@radix-ui/themes";
+
+export { ConfirmDialog } from "./confirm-dialog";
+
+export { EmptyState } from "./empty-state";
