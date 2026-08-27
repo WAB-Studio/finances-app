@@ -1,0 +1,698 @@
+{
+  "id": "0c7f5bd4-76a1-40f5-ba61-e99d48877af4",
+  "prevId": "af4c94ef-95a8-42eb-b65e-e4cdf67328ec",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.app_users": {
+      "name": "app_users",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "locale": {
+          "name": "locale",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'es'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "app_users_id_users_id_fk": {
+          "name": "app_users_id_users_id_fk",
+          "tableFrom": "app_users",
+          "tableTo": "users",
+          "schemaTo": "auth",
+          "columnsFrom": [
+            "id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {
+        "app_users_select_self": {
+          "name": "app_users_select_self",
+          "as": "PERMISSIVE",
+          "for": "SELECT",
+          "to": [
+            "authenticated"
+          ],
+          "using": "(select auth.uid()) = \"app_users\".\"id\""
+        },
+        "app_users_insert_self": {
+          "name": "app_users_insert_self",
+          "as": "PERMISSIVE",
+          "for": "INSERT",
+          "to": [
+            "authenticated"
+          ],
+          "withCheck": "(select auth.uid()) = \"app_users\".\"id\""
+        },
+        "app_users_update_self": {
+          "name": "app_users_update_self",
+          "as": "PERMISSIVE",
+          "for": "UPDATE",
+          "to": [
+            "authenticated"
+          ],
+          "using": "(select auth.uid()) = \"app_users\".\"id\"",
+          "withCheck": "(select auth.uid()) = \"app_users\".\"id\""
+        }
+      },
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.funds": {
+      "name": "funds",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "currency": {
+          "name": "currency",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'COP'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {
+        "funds_select_member": {
+          "name": "funds_select_member",
+          "as": "PERMISSIVE",
+          "for": "SELECT",
+          "to": [
+            "authenticated"
+          ],
+          "using": "(select private.is_fund_member(\"funds\".\"id\"))"
+        },
+        "funds_insert_any": {
+          "name": "funds_insert_any",
+          "as": "PERMISSIVE",
+          "for": "INSERT",
+          "to": [
+            "authenticated"
+          ],
+          "withCheck": "true"
+        }
+      },
+      "checkConstraints": {
+        "funds_name_length": {
+          "name": "funds_name_length",
+          "value": "length(btrim(\"funds\".\"name\")) between 1 and 80"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.members": {
+      "name": "members",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "fund_id": {
+          "name": "fund_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "role": {
+          "name": "role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'member'"
+        },
+        "archived_at": {
+          "name": "archived_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "members_fund_user_unique": {
+          "name": "members_fund_user_unique",
+          "columns": [
+            {
+              "expression": "fund_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"members\".\"user_id\" is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "members_fund_id_idx": {
+          "name": "members_fund_id_idx",
+          "columns": [
+            {
+              "expression": "fund_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "members_user_id_fund_id_idx": {
+          "name": "members_user_id_fund_id_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "fund_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "members_fund_id_funds_id_fk": {
+          "name": "members_fund_id_funds_id_fk",
+          "tableFrom": "members",
+          "tableTo": "funds",
+          "columnsFrom": [
+            "fund_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "members_user_id_app_users_id_fk": {
+          "name": "members_user_id_app_users_id_fk",
+          "tableFrom": "members",
+          "tableTo": "app_users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "members_id_fund_id_unique": {
+          "name": "members_id_fund_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id",
+            "fund_id"
+          ]
+        }
+      },
+      "policies": {
+        "members_select_member": {
+          "name": "members_select_member",
+          "as": "PERMISSIVE",
+          "for": "SELECT",
+          "to": [
+            "authenticated"
+          ],
+          "using": "(select private.is_fund_member(\"members\".\"fund_id\"))"
+        },
+        "members_insert_owner_claim": {
+          "name": "members_insert_owner_claim",
+          "as": "PERMISSIVE",
+          "for": "INSERT",
+          "to": [
+            "authenticated"
+          ],
+          "withCheck": "(select auth.uid()) = \"members\".\"user_id\" and \"members\".\"role\" = 'owner' and (select private.fund_is_unclaimed(\"members\".\"fund_id\"))"
+        }
+      },
+      "checkConstraints": {
+        "members_name_length": {
+          "name": "members_name_length",
+          "value": "length(btrim(\"members\".\"name\")) between 1 and 80"
+        },
+        "members_role_valid": {
+          "name": "members_role_valid",
+          "value": "\"members\".\"role\" in ('owner', 'member')"
+        },
+        "members_owner_has_user": {
+          "name": "members_owner_has_user",
+          "value": "\"members\".\"role\" <> 'owner' or \"members\".\"user_id\" is not null"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.accounts": {
+      "name": "accounts",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "fund_id": {
+          "name": "fund_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "member_id": {
+          "name": "member_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "institution": {
+          "name": "institution",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "initial_balance_cents": {
+          "name": "initial_balance_cents",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "initial_balance_on": {
+          "name": "initial_balance_on",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "archived_at": {
+          "name": "archived_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "accounts_fund_id_idx": {
+          "name": "accounts_fund_id_idx",
+          "columns": [
+            {
+              "expression": "fund_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "accounts_member_id_idx": {
+          "name": "accounts_member_id_idx",
+          "columns": [
+            {
+              "expression": "member_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "accounts_fund_id_funds_id_fk": {
+          "name": "accounts_fund_id_funds_id_fk",
+          "tableFrom": "accounts",
+          "tableTo": "funds",
+          "columnsFrom": [
+            "fund_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "accounts_member_id_fund_id_members_id_fund_id_fk": {
+          "name": "accounts_member_id_fund_id_members_id_fund_id_fk",
+          "tableFrom": "accounts",
+          "tableTo": "members",
+          "columnsFrom": [
+            "member_id",
+            "fund_id"
+          ],
+          "columnsTo": [
+            "id",
+            "fund_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {
+        "accounts_select_member": {
+          "name": "accounts_select_member",
+          "as": "PERMISSIVE",
+          "for": "SELECT",
+          "to": [
+            "authenticated"
+          ],
+          "using": "(select private.is_fund_member(\"accounts\".\"fund_id\"))"
+        },
+        "accounts_insert_member": {
+          "name": "accounts_insert_member",
+          "as": "PERMISSIVE",
+          "for": "INSERT",
+          "to": [
+            "authenticated"
+          ],
+          "withCheck": "(select private.is_fund_member(\"accounts\".\"fund_id\"))"
+        }
+      },
+      "checkConstraints": {
+        "accounts_name_length": {
+          "name": "accounts_name_length",
+          "value": "length(btrim(\"accounts\".\"name\")) between 1 and 80"
+        },
+        "accounts_kind_valid": {
+          "name": "accounts_kind_valid",
+          "value": "\"accounts\".\"kind\" in ('asset', 'liability')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.categories": {
+      "name": "categories",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "fund_id": {
+          "name": "fund_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "parent_id": {
+          "name": "parent_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "color": {
+          "name": "color",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "categories_fund_id_idx": {
+          "name": "categories_fund_id_idx",
+          "columns": [
+            {
+              "expression": "fund_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "categories_parent_id_idx": {
+          "name": "categories_parent_id_idx",
+          "columns": [
+            {
+              "expression": "parent_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "categories_fund_id_funds_id_fk": {
+          "name": "categories_fund_id_funds_id_fk",
+          "tableFrom": "categories",
+          "tableTo": "funds",
+          "columnsFrom": [
+            "fund_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "categories_parent_id_fund_id_categories_id_fund_id_fk": {
+          "name": "categories_parent_id_fund_id_categories_id_fund_id_fk",
+          "tableFrom": "categories",
+          "tableTo": "categories",
+          "columnsFrom": [
+            "parent_id",
+            "fund_id"
+          ],
+          "columnsTo": [
+            "id",
+            "fund_id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "categories_id_fund_id_unique": {
+          "name": "categories_id_fund_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id",
+            "fund_id"
+          ]
+        }
+      },
+      "policies": {
+        "categories_select_member": {
+          "name": "categories_select_member",
+          "as": "PERMISSIVE",
+          "for": "SELECT",
+          "to": [
+            "authenticated"
+          ],
+          "using": "(select private.is_fund_member(\"categories\".\"fund_id\"))"
+        },
+        "categories_insert_member": {
+          "name": "categories_insert_member",
+          "as": "PERMISSIVE",
+          "for": "INSERT",
+          "to": [
+            "authenticated"
+          ],
+          "withCheck": "(select private.is_fund_member(\"categories\".\"fund_id\"))"
+        }
+      },
+      "checkConstraints": {
+        "categories_name_length": {
+          "name": "categories_name_length",
+          "value": "length(btrim(\"categories\".\"name\")) between 1 and 80"
+        },
+        "categories_kind_valid": {
+          "name": "categories_kind_valid",
+          "value": "\"categories\".\"kind\" in ('expense', 'income')"
+        }
+      },
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}
