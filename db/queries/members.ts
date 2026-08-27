@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, asc, count, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 
 import { accounts, members } from "@/db/schema";
 import type { Account, Member } from "@/db/schema";
@@ -24,13 +24,21 @@ export async function listMembers(
 ): Promise<MemberRow[]> {
   return withUserDb(async (tx) => {
     // Correlated, not a second round trip: the screen needs this count to decide
-    // whether archiving needs its extra dialog.
-    const activeAccountCount = sql<number>`(
-      select count(*)::int from ${accounts}
-      where ${accounts.memberId} = ${members.id}
-        and ${accounts.fundId} = ${members.fundId}
-        and ${accounts.archivedAt} is null
-    )`;
+    // whether archiving needs its extra dialog. Built as a query, not a raw `sql`
+    // fragment — a single-table outer select strips table qualifiers from any
+    // column it finds inside an interpolated fragment, which turned this into
+    // `accounts.member_id = accounts.id` and a count of zero for every member.
+    const activeAccountCount = tx
+      .select({ n: count().as("n") })
+      .from(accounts)
+      .where(
+        and(
+          eq(accounts.memberId, members.id),
+          eq(accounts.fundId, members.fundId),
+          isNull(accounts.archivedAt),
+        ),
+      )
+      .as("activeAccountCount");
 
     return tx
       .select({
