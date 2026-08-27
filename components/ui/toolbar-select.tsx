@@ -3,9 +3,7 @@
 import type { ReactNode } from "react";
 import { Box, Flex, Select, Text } from "@radix-ui/themes";
 
-// Stated once, here: the trigger never reflows when its value, icon or
-// pending state changes. Narrow screens get room for the icon alone;
-// `sm` and up get room for the icon and the text beside it.
+// Stated once, here: the trigger holds this width whatever the value, icon or pending state.
 const TRIGGER_WIDTH = { initial: "40px", sm: "9.5rem" };
 
 export function ToolbarSelect({
