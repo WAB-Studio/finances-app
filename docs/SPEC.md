@@ -40,10 +40,10 @@ alerts, accounting exports, native apps. None of this gets built or left
 #### Authentication and fund
 
 - [x] **RF-01** — Passwordless email login.
-- [ ] **RF-02** — A user can belong to several funds; they operate on one at a time and can switch.
+- [x] **RF-02** — A user can belong to several funds; they operate on one at a time and can switch.
 - [ ] **RF-03** — Only the `owner` invites members, edits the fund and manages categories.
-- [ ] **RF-04** — All members of a fund see the same data. There are no partial-read roles.
-- [ ] **RF-05** — Whoever creates the fund becomes `owner`. The role is transferable, but a fund is never left without an owner.
+- [x] **RF-04** — All members of a fund see the same data. There are no partial-read roles.
+- [x] **RF-05** — Whoever creates the fund becomes `owner`. The role is transferable, but a fund is never left without an owner.
 - [ ] **RF-06** — Accepting an invitation links the user to the member that already exists in the fund, if any; otherwise a member is created.
 
 #### Members and accounts
@@ -78,7 +78,7 @@ alerts, accounting exports, native apps. None of this gets built or left
 
 - [ ] **RF-26** — CRUD for categories with one level of subcategories. A subcategory belongs to the same fund as its parent.
 - [ ] **RF-27** — Each category is either expense or income.
-- [ ] **RF-28** — Creating a fund seeds an initial category set in the active language.
+- [x] **RF-28** — Creating a fund seeds an initial category set in the active language.
 
 #### Recurring
 
@@ -97,7 +97,7 @@ alerts, accounting exports, native apps. None of this gets built or left
 
 #### Cash
 
-- [ ] **RF-38** — The fund has a shared cash account, created along with the fund.
+- [x] **RF-38** — The fund has a shared cash account, created along with the fund.
 - [ ] **RF-39** — A cash withdrawal goes to the member's own cash account if they have one, and to the fund's if they do not. The app neither asks nor stores a mode: the rule is derived from which accounts exist.
 - [ ] **RF-40** — Cash expenses come out of the matching cash account. By RF-19 the withdrawal is not an expense, so the amount is never counted twice.
 - [ ] **RF-41** — Handing physical cash between people is not recorded: it does not change accounts.
