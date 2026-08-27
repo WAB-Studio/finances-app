@@ -93,6 +93,17 @@ export function AccountsScreen({
     </Button>
   );
 
+  // Add would create an active account, so the archived tab offers none.
+  const emptyState = archived ? (
+    <EmptyState title={t("archivedEmpty")} />
+  ) : (
+    <EmptyState
+      title={t("emptyTitle")}
+      description={t("emptyDescription")}
+      action={addButton}
+    />
+  );
+
   return (
     <Flex direction="column" gap="4">
       <Flex justify="between" align="center" gap="3" wrap="wrap">
@@ -112,7 +123,7 @@ export function AccountsScreen({
       </SegmentedControl.Root>
 
       {accounts.length === 0 ? (
-        <EmptyState title={t("emptyTitle")} action={addButton} />
+        emptyState
       ) : (
         <Flex direction="column" gap="5">
           {groups.map((group) => (
@@ -165,15 +176,17 @@ function AccountCard({
   type MessageKey = Parameters<typeof tKey>[0];
   const format = useFormatter();
 
-  // Restore and delete confirm first; archive does not, so this only ever
-  // tracks which of the two confirmations is open.
-  const [confirm, setConfirm] = useState<"restore" | "delete" | null>(null);
+  // Tracks which of the three confirmations is open.
+  const [confirm, setConfirm] = useState<"archive" | "restore" | "delete" | null>(
+    null,
+  );
 
   const { execute: executeArchive, isPending: archiving } = useAction(
     archiveAccountAction,
     {
       onSuccess() {
         toast.success(t("archived"));
+        setConfirm(null);
       },
       onError({ error }) {
         toast.error(
@@ -232,15 +245,20 @@ function AccountCard({
           )}
           {/* Names the opening figure, never a balance: no movement exists
               yet, so nothing on this screen derives an actual balance. */}
-          <Text size="2" color="gray">
-            {t("openingBalanceRow", {
-              amount: format.number(
-                centsToPesos(Math.abs(account.initialBalanceCents)),
-                "currency",
-              ),
-              date: format.dateTime(civilDateToDate(account.initialBalanceOn)),
-            })}
-          </Text>
+          <Flex align="center" gap="1" wrap="wrap">
+            <Text size="2" color="gray">
+              {t("openingBalanceName")}
+            </Text>
+            <Text size="2" color="gray">
+              {t("openingBalanceRow", {
+                amount: format.number(
+                  centsToPesos(Math.abs(account.initialBalanceCents)),
+                  "currency",
+                ),
+                date: format.dateTime(civilDateToDate(account.initialBalanceOn)),
+              })}
+            </Text>
+          </Flex>
         </Flex>
         <DropdownMenu.Root>
           <DropdownMenu.Trigger>
@@ -263,9 +281,7 @@ function AccountCard({
                 {tKey("common.restore")}
               </DropdownMenu.Item>
             ) : (
-              <DropdownMenu.Item
-                onSelect={() => executeArchive({ fundId, accountId: account.id })}
-              >
+              <DropdownMenu.Item onSelect={() => setConfirm("archive")}>
                 {tKey("common.archive")}
               </DropdownMenu.Item>
             )}
@@ -279,24 +295,46 @@ function AccountCard({
         </DropdownMenu.Root>
       </Flex>
 
-      <ConfirmDialog
-        open={confirm !== null}
-        onOpenChange={(open) => !open && setConfirm(null)}
-        title={confirm === "restore" ? t("restoreTitle") : t("deleteTitle")}
-        description={
-          confirm === "restore" ? t("restoreDescription") : t("deleteDescription")
-        }
-        confirmLabel={
-          confirm === "restore" ? tKey("common.restore") : tKey("common.delete")
-        }
-        cancelLabel={tKey("common.cancel")}
-        tone={confirm === "restore" ? "neutral" : "danger"}
-        pending={confirm === "restore" ? restoring : deleting}
-        onConfirm={() => {
-          if (confirm === "restore") executeRestore({ fundId, accountId: account.id });
-          if (confirm === "delete") executeDelete({ fundId, accountId: account.id });
-        }}
-      />
+      {confirm === "archive" && (
+        <ConfirmDialog
+          open
+          onOpenChange={(open) => !open && setConfirm(null)}
+          title={t("archiveTitle")}
+          description={t("archiveDescription")}
+          confirmLabel={tKey("common.archive")}
+          cancelLabel={tKey("common.cancel")}
+          tone="neutral"
+          pending={archiving}
+          onConfirm={() => executeArchive({ fundId, accountId: account.id })}
+        />
+      )}
+
+      {confirm === "restore" && (
+        <ConfirmDialog
+          open
+          onOpenChange={(open) => !open && setConfirm(null)}
+          title={t("restoreTitle")}
+          description={t("restoreDescription")}
+          confirmLabel={tKey("common.restore")}
+          cancelLabel={tKey("common.cancel")}
+          tone="neutral"
+          pending={restoring}
+          onConfirm={() => executeRestore({ fundId, accountId: account.id })}
+        />
+      )}
+
+      {confirm === "delete" && (
+        <ConfirmDialog
+          open
+          onOpenChange={(open) => !open && setConfirm(null)}
+          title={t("deleteTitle")}
+          description={t("deleteDescription")}
+          confirmLabel={tKey("common.delete")}
+          cancelLabel={tKey("common.cancel")}
+          pending={deleting}
+          onConfirm={() => executeDelete({ fundId, accountId: account.id })}
+        />
+      )}
     </Card>
   );
 }

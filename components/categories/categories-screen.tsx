@@ -249,27 +249,28 @@ export function CategoriesScreen({
         category={formTarget?.category}
         defaultParentId={formTarget?.defaultParentId}
       />
-      <ConfirmDialog
-        open={deleteTarget !== null}
-        onOpenChange={(open) => {
-          if (!open) setDeleteTarget(null);
-        }}
-        title={t("deleteTitle")}
-        description={
-          deleteTarget && deleteTarget.childCount > 0
-            ? t("deleteWithChildrenDescription", {
-                count: deleteTarget.childCount,
-              })
-            : t("deleteDescription")
-        }
-        confirmLabel={tKey("common.delete")}
-        cancelLabel={tKey("common.cancel")}
-        pending={deleteAction.isPending}
-        onConfirm={() =>
-          deleteTarget &&
-          deleteAction.execute({ fundId, categoryId: deleteTarget.id })
-        }
-      />
+      {deleteTarget && (
+        <ConfirmDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setDeleteTarget(null);
+          }}
+          title={t("deleteTitle")}
+          description={
+            deleteTarget.childCount > 0
+              ? t("deleteWithChildrenDescription", {
+                  count: deleteTarget.childCount,
+                })
+              : t("deleteDescription")
+          }
+          confirmLabel={tKey("common.delete")}
+          cancelLabel={tKey("common.cancel")}
+          pending={deleteAction.isPending}
+          onConfirm={() =>
+            deleteAction.execute({ fundId, categoryId: deleteTarget.id })
+          }
+        />
+      )}
     </Flex>
   );
 }
