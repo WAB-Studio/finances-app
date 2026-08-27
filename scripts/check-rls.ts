@@ -174,6 +174,19 @@ async function checkFundPolicies() {
     .begin(async (tx) => {
       await enterUserContext(tx, realUser);
 
+      const counts = async () => {
+        const [row] = await tx<{ f: string; m: string; a: string; c: string }[]>`
+          select
+            (select count(*)::text from funds) as f,
+            (select count(*)::text from members) as m,
+            (select count(*)::text from accounts) as a,
+            (select count(*)::text from categories) as c`;
+        return row;
+      };
+
+      // Whatever this user already owns is the floor: the probe proves the delta, not an empty database.
+      const baseline = await counts();
+
       // No `returning` here: an unclaimed fund fails its own SELECT policy, and Postgres
       // enforces that policy on a RETURNING row just as it would on a plain select. The id is
       // ours to supply — `funds_insert_any`'s check is `true` — so membership can follow at once.
@@ -213,21 +226,14 @@ async function checkFundPolicies() {
         values (${probeId}, 'rls probe category', 'expense')`;
       assert(labels[3], true, "account and category inserted as a member");
 
-      const counts = async () => {
-        const [row] = await tx<{ f: string; m: string; a: string; c: string }[]>`
-          select
-            (select count(*)::text from funds) as f,
-            (select count(*)::text from members) as m,
-            (select count(*)::text from accounts) as a,
-            (select count(*)::text from categories) as c`;
-        return row;
-      };
-
       const memberCounts = await counts();
+      const grewByOne = (key: "f" | "m" | "a" | "c") =>
+        Number(memberCounts[key]) - Number(baseline[key]) === 1;
       assert(
         labels[4],
-        Object.values(memberCounts).every((n) => n === "1"),
-        `funds=${memberCounts.f} members=${memberCounts.m} accounts=${memberCounts.a} categories=${memberCounts.c}`,
+        (["f", "m", "a", "c"] as const).every(grewByOne),
+        `funds=${memberCounts.f} members=${memberCounts.m} accounts=${memberCounts.a} categories=${memberCounts.c}` +
+          ` over baseline funds=${baseline.f} members=${baseline.m} accounts=${baseline.a} categories=${baseline.c}`,
       );
 
       await enterUserContext(tx, intruder);
