@@ -33,6 +33,8 @@ export {
   FieldError,
 } from "./field";
 
+export type { Responsive } from "@radix-ui/themes/props";
+
 export { ToolbarSelect } from "./toolbar-select";
 
 export { Theme } from "@radix-ui/themes";

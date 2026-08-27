@@ -7,11 +7,11 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { setLocaleAction } from "@/app/actions/locale";
-import { Select, Spinner, ToolbarSelect } from "@/components/ui";
+import { type Responsive, Select, Spinner, ToolbarSelect } from "@/components/ui";
 import { usePathname } from "@/i18n/navigation";
 import { isLocale, LOCALES } from "@/lib/locales";
 
-export function LanguageSwitcher() {
+export function LanguageSwitcher({ width }: { width?: Responsive<string> }) {
   const t = useTranslations("language");
   // Root-scoped: the action's error is a full catalogue path.
   const tKey = useTranslations();
@@ -51,6 +51,7 @@ export function LanguageSwitcher() {
       label={t("label")}
       icon={pending ? <Spinner /> : <LanguagesIcon size={16} />}
       text={t(`endonym.${locale}`)}
+      width={width}
     >
       {LOCALES.map((option) => (
         <Select.Item key={option} value={option}>

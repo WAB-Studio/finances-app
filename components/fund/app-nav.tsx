@@ -93,11 +93,9 @@ export function AppNav({ funds }: { funds: FundSummary[] }) {
           })}
         </Flex>
       )}
-      {/* Still 40px icon-only here: filling the row needs a width prop on
-          LanguageSwitcher and ThemeSwitcher themselves, out of this file. */}
       <Flex direction="column" gap="2">
-        <LanguageSwitcher />
-        <ThemeSwitcher />
+        <LanguageSwitcher width="100%" />
+        <ThemeSwitcher width="100%" />
         <SignOutButton />
       </Flex>
     </NavPanel>

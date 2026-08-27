@@ -4,7 +4,7 @@ import { Monitor, Moon, Sun } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useSyncExternalStore } from "react";
 
-import { Select, ToolbarSelect } from "@/components/ui";
+import { type Responsive, Select, ToolbarSelect } from "@/components/ui";
 import { isTheme, THEMES } from "@/lib/theme";
 import { useTheme } from "@/lib/use-theme";
 
@@ -21,7 +21,7 @@ function useMounted() {
   );
 }
 
-export function ThemeSwitcher() {
+export function ThemeSwitcher({ width }: { width?: Responsive<string> }) {
   const t = useTranslations("theme");
   const { theme, resolvedTheme, setTheme } = useTheme();
   const mounted = useMounted();
@@ -36,6 +36,7 @@ export function ThemeSwitcher() {
         label={t("label")}
         icon={<Monitor size={16} />}
         text={t("label")}
+        width={width}
       />
     );
   }
@@ -54,6 +55,7 @@ export function ThemeSwitcher() {
       label={t("label")}
       icon={<TriggerIcon size={16} />}
       text={t(theme)}
+      width={width}
     >
       {THEMES.map((option) => {
         const Icon = icons[option];
