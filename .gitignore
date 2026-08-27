@@ -47,3 +47,6 @@ CLAUDE.local.md
 # local-only agents (machine-specific setup, never committed)
 .claude/agents/integrator.md
 .claude/skills/orchestrator-local/
+
+# plans and local working notes: readable, never committed
+private/

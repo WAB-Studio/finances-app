@@ -19,7 +19,7 @@ Every dispatch stands on its own.
 ## Plan
 
 1. Turn the goal into a slice: the RF codes that ship together.
-2. Pick a plan path in the session scratchpad. Never inside the repo.
+2. Pick a plan path: `private/plan-<slice>.md`.
 3. Dispatch `planner` with the slice and that path.
 4. Read the plan. Check every module is bounded, ordered, tied to RF codes, and has a done criterion.
 5. Put any `Questions` to the user. Wait for the answers.
@@ -32,7 +32,7 @@ Every dispatch stands on its own.
 3. Dispatch `worker`. Wait for the report.
 4. Read the report. Resolve its `Unresolved`. Collect its `Deferred`.
 5. Put any `Questions` to the user. Re-dispatch the assignment with the answers.
-6. Repeat until the assignments are done.
+6. Mark the plan's modules done as they land. Repeat until the assignments are done.
 7. Run `npx tsc --noEmit` and `npm run lint`.
 8. Tick the slice's RF codes in `docs/SPEC.md`.
 9. Report to the user.

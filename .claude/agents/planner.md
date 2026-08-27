@@ -39,7 +39,7 @@ A slice: a set of RF codes from `docs/SPEC.md`, and the path to write the plan t
 - Never renumber, reuse or retire an RF or RNF code. Raise it under `Questions`.
 - Pick from the §4 stack. Discard the do-not-install list.
 - Hold the §2 invariants: integer cents, derived balances, type derived from the accounts, unbypassable audit.
-- Write the plan only to the given path. Never into the repo.
+- Write the plan only to the given path.
 - Raise a decision the slice does not fix under `Questions`. Keep planning.
 
 # Questions

@@ -15,7 +15,7 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
 ## Working here
 
 - Run the `orchestrator` skill to develop. It dispatches `planner` and `worker`.
-- Keep plans in the session scratchpad. Never commit one.
+- Keep plans in `private/`.
 - Ship one slice at a time.
 
 ## Requirements
