@@ -2,10 +2,8 @@ import { hasLocale } from "next-intl";
 import { setRequestLocale } from "next-intl/server";
 import { notFound } from "next/navigation";
 
-import { SignOutButton } from "@/components/auth/sign-out-button";
+import { AppNav } from "@/components/fund/app-nav";
 import { FundSwitcher } from "@/components/fund/fund-switcher";
-import { LanguageSwitcher } from "@/components/language-switcher";
-import { ThemeSwitcher } from "@/components/theme-switcher";
 import { Flex, Separator } from "@/components/ui";
 import { listUserFunds } from "@/db/queries/funds";
 import { requireUser } from "@/db/session";
@@ -36,12 +34,8 @@ export default async function AppLayout(props: LayoutProps<"/[locale]">) {
         py="2"
       >
         <header>
+          <AppNav funds={funds} />
           <FundSwitcher funds={funds} />
-          <Flex flexShrink="0" align="center" gap="2">
-            <LanguageSwitcher />
-            <ThemeSwitcher />
-            <SignOutButton />
-          </Flex>
         </header>
       </Flex>
       <Separator size="4" />
