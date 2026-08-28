@@ -170,19 +170,12 @@ function AccountDecisions({
       )}
       <Flex gap="3" justify="end">
         <Dialog.Close>
-          <Button
-            type="button"
-            size="3"
-            variant="soft"
-            color="gray"
-            disabled={pending}
-          >
+          <Button type="button" variant="soft" color="gray" disabled={pending}>
             {tKey("common.cancel")}
           </Button>
         </Dialog.Close>
         <Button
           type="button"
-          size="3"
           disabled={!allAnswered || pending}
           onClick={() => onConfirm(decisions)}
         >

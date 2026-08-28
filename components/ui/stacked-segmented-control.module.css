@@ -48,9 +48,7 @@
     grid-auto-columns: 1fr;
     min-width: max-content;
     width: auto;
-    /* The row's own tap-target floor, restated because `.root.root` outranks
-       the height Radix's size class would have set. */
-    height: var(--space-7);
+    height: var(--space-6);
   }
 
   .item.item {

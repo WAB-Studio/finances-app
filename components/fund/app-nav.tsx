@@ -54,12 +54,7 @@ export function AppNav({ funds }: { funds: FundSummary[] }) {
   const activeFund = funds.find((fund) => fund.id === fundId);
 
   const trigger = (
-    <IconButton
-      type="button"
-      variant="ghost"
-      size="4"
-      aria-label={t("openLabel")}
-    >
+    <IconButton type="button" variant="ghost" aria-label={t("openLabel")}>
       <Menu size={20} />
     </IconButton>
   );
@@ -89,7 +84,7 @@ export function AppNav({ funds }: { funds: FundSummary[] }) {
                   aria-current={current ? "page" : undefined}
                   onClick={() => setOpen(false)}
                 >
-                  <Flex as="span" align="center" gap="2" minHeight="40px">
+                  <Flex as="span" align="center" gap="2" minHeight="32px">
                     <Icon size={18} />
                     {t(key)}
                   </Flex>

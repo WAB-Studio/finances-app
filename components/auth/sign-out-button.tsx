@@ -14,7 +14,6 @@ export function SignOutButton() {
   return (
     <Button
       type="button"
-      size="3"
       variant="outline"
       aria-label={t("signOut")}
       disabled={isPending}

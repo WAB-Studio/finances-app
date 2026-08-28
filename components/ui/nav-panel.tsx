@@ -36,7 +36,6 @@ export function NavPanel({
                 type="button"
                 variant="ghost"
                 color="gray"
-                size="4"
                 aria-label={closeLabel}
               >
                 <X size={20} />

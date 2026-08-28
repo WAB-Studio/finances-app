@@ -80,7 +80,7 @@ export function CategoriesScreen({
   }
 
   const addButton = (
-    <Button type="button" size="3" onClick={() => setFormTarget({})}>
+    <Button type="button" onClick={() => setFormTarget({})}>
       <Plus size={16} />
       {t("add")}
     </Button>
@@ -92,7 +92,7 @@ export function CategoriesScreen({
         <Heading size="5">{t("title")}</Heading>
         {addButton}
       </Flex>
-      <SegmentedControl.Root size="3" value={kind} onValueChange={onKindChange}>
+      <SegmentedControl.Root value={kind} onValueChange={onKindChange}>
         <SegmentedControl.Item value="expense">
           {t("expenseTab")}
         </SegmentedControl.Item>
@@ -136,7 +136,7 @@ export function CategoriesScreen({
                         type="button"
                         variant="ghost"
                         color="gray"
-                        size="4"
+                        size="3"
                         aria-label={tKey("common.actions")}
                       >
                         <EllipsisVertical size={16} />
@@ -196,7 +196,7 @@ export function CategoriesScreen({
                                 type="button"
                                 variant="ghost"
                                 color="gray"
-                                size="4"
+                                size="3"
                                 aria-label={tKey("common.actions")}
                               >
                                 <EllipsisVertical size={16} />

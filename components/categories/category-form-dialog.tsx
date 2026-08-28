@@ -202,7 +202,6 @@ function CategoryForm({
                 {t("parentLabel")}
               </FieldLabel>
               <Select.Root
-                size="3"
                 value={field.value ?? NO_PARENT_VALUE}
                 onValueChange={(value) => {
                   const nextParentId =
@@ -296,7 +295,6 @@ function CategoryForm({
             <Dialog.Close>
               <Button
                 type="button"
-                size="3"
                 variant="soft"
                 color="gray"
                 disabled={isPending}
@@ -304,7 +302,7 @@ function CategoryForm({
                 {tKey("common.cancel")}
               </Button>
             </Dialog.Close>
-            <Button type="submit" size="3" disabled={isPending}>
+            <Button type="submit" disabled={isPending}>
               {isPending && <Spinner />}
               {tKey("common.save")}
             </Button>

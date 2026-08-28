@@ -98,7 +98,7 @@ export function MembersScreen({
         <Heading size="5">{t("title")}</Heading>
         {/* Add would create an active member, so the archived tab offers none. */}
         {!archived && (
-          <Button type="button" size="3" onClick={() => setFormTarget("new")}>
+          <Button type="button" onClick={() => setFormTarget("new")}>
             <Plus size={16} />
             {t("add")}
           </Button>
@@ -106,7 +106,6 @@ export function MembersScreen({
       </Flex>
 
       <SegmentedControl.Root
-        size="3"
         value={archived ? "archived" : "active"}
         onValueChange={onTabChange}
       >
@@ -153,7 +152,7 @@ export function MembersScreen({
                           type="button"
                           variant="ghost"
                           color="gray"
-                          size="4"
+                          size="3"
                           aria-label={tKey("common.actions")}
                         >
                           <EllipsisVertical size={16} />

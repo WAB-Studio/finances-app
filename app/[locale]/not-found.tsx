@@ -31,7 +31,7 @@ export default function NotFound() {
               as="span"
               align="center"
               justify="center"
-              minHeight="40px"
+              minHeight="32px"
               px="2"
             >
               {t("common.backHome")}
