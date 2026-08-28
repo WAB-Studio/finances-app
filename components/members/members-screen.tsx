@@ -25,6 +25,7 @@ import {
 } from "@/components/ui";
 import type { MemberRow } from "@/db/queries/members";
 import { usePathname, useRouter } from "@/i18n/navigation";
+import { useActionErrorToast } from "@/lib/use-action-toast";
 
 type MemberAccount = { id: string; name: string; kind: "asset" | "liability" };
 
@@ -50,9 +51,9 @@ export function MembersScreen({
   memberAccounts: Record<string, MemberAccount[]>;
 }) {
   const t = useTranslations("members");
-  // Root-scoped: `common` and the actions' errors are full catalogue paths.
+  // Root-scoped: `common` is a full catalogue path, not this component's namespace.
   const tKey = useTranslations();
-  type MessageKey = Parameters<typeof tKey>[0];
+  const onActionError = useActionErrorToast();
 
   const router = useRouter();
   const pathname = usePathname();
@@ -66,11 +67,7 @@ export function MembersScreen({
       toast.success(t("restored"));
       setRowAction(null);
     },
-    onError({ error }) {
-      toast.error(
-        tKey((error.serverError ?? "errors.unexpected") as MessageKey),
-      );
-    },
+    onError: onActionError,
   });
 
   const deleteState = useAction(deleteMemberAction, {
@@ -78,11 +75,7 @@ export function MembersScreen({
       toast.success(t("deleted"));
       setRowAction(null);
     },
-    onError({ error }) {
-      toast.error(
-        tKey((error.serverError ?? "errors.unexpected") as MessageKey),
-      );
-    },
+    onError: onActionError,
   });
 
   function onTabChange(value: string) {

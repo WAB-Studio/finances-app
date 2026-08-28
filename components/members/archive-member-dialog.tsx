@@ -18,6 +18,7 @@ import {
   Text,
 } from "@/components/ui";
 import type { MemberRow } from "@/db/queries/members";
+import { useActionErrorToast } from "@/lib/use-action-toast";
 
 type ArchiveAccount = { id: string; name: string; kind: "asset" | "liability" };
 type Decision = "archive" | "fund";
@@ -39,21 +40,16 @@ export function ArchiveMemberDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const t = useTranslations("members");
-  // Root-scoped: the action's error is a full catalogue path, and `common` is
-  // not this component's namespace.
+  // Root-scoped: `common` is not this component's namespace.
   const tKey = useTranslations();
-  type MessageKey = Parameters<typeof tKey>[0];
+  const onError = useActionErrorToast();
 
   const { execute, isPending } = useAction(archiveMemberAction, {
     onSuccess() {
       toast.success(t("archived"));
       onOpenChange(false);
     },
-    onError({ error }) {
-      toast.error(
-        tKey((error.serverError ?? "errors.unexpected") as MessageKey),
-      );
-    },
+    onError,
   });
 
   if (accounts.length === 0) {
@@ -139,6 +135,7 @@ function AccountDecisions({
             </Text>
           </Flex>
           <StackedSegmentedControl.Root
+            aria-label={t("accountDecisionLabel", { name: account.name })}
             value={decisions[account.id] ?? ""}
             onValueChange={(value) =>
               setDecisions((prev) => ({
