@@ -4,29 +4,34 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { MailCheckIcon } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
+import type { ComponentProps } from "react";
 import { useMemo, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
-import { toast } from "sonner";
 
 import { signInAction } from "@/app/actions/auth";
 import {
   Button,
   Field,
-  FieldError,
   FieldGroup,
   FieldLabel,
+  FieldMessage,
   Flex,
   Spinner,
   Text,
   TextField,
+  useFieldControl,
 } from "@/components/ui";
+import { useActionErrorToast } from "@/lib/use-action-toast";
 import { signInSchema, type SignInInput } from "@/lib/validation/auth";
+
+// Field's own child, not Controller's: `useFieldControl` reads the invalid
+// state Field provides, which only reaches components nested inside it.
+function FieldTextField(props: ComponentProps<typeof TextField.Root>) {
+  return <TextField.Root {...props} {...useFieldControl()} />;
+}
 
 export function LoginForm({ next }: { next?: string }) {
   const t = useTranslations("auth");
-  // Root-scoped: the keys arriving from the schema and the action are full paths.
-  const tKey = useTranslations();
-  type MessageKey = Parameters<typeof tKey>[0];
 
   // The address the link went to, and the whole "sent" state: not a route, so
   // the browser's back button never lands on a stale inbox panel.
@@ -44,11 +49,7 @@ export function LoginForm({ next }: { next?: string }) {
     onSuccess({ input }) {
       setSentTo(input.email);
     },
-    onError({ error }) {
-      toast.error(
-        tKey((error.serverError ?? "errors.unexpected") as MessageKey),
-      );
-    },
+    onError: useActionErrorToast(),
   });
 
   function onSubmit(values: SignInInput) {
@@ -94,7 +95,7 @@ export function LoginForm({ next }: { next?: string }) {
           render={({ field, fieldState }) => (
             <Field invalid={fieldState.invalid}>
               <FieldLabel htmlFor="login-email">{t("emailLabel")}</FieldLabel>
-              <TextField.Root
+              <FieldTextField
                 {...field}
                 id="login-email"
                 size="3"
@@ -103,17 +104,9 @@ export function LoginForm({ next }: { next?: string }) {
                 autoComplete="email"
                 autoFocus
                 placeholder={t("emailPlaceholder")}
-                aria-invalid={fieldState.invalid}
                 disabled={isPending}
               />
-              {fieldState.invalid && (
-                // The Zod message is a key; `FieldError` prints whatever string it gets.
-                <FieldError
-                  errors={[
-                    { message: tKey(fieldState.error!.message as MessageKey) },
-                  ]}
-                />
-              )}
+              <FieldMessage error={fieldState.error} />
             </Field>
           )}
         />

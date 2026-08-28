@@ -3,27 +3,32 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useTranslations } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
+import type { ComponentProps } from "react";
 import { Controller, useForm } from "react-hook-form";
-import { toast } from "sonner";
 
 import { createFundAction } from "@/app/actions/fund";
 import {
   Button,
   Field,
   FieldDescription,
-  FieldError,
   FieldGroup,
   FieldLabel,
+  FieldMessage,
   Spinner,
   TextField,
+  useFieldControl,
 } from "@/components/ui";
+import { useActionErrorToast } from "@/lib/use-action-toast";
 import { createFundSchema, type CreateFundInput } from "@/lib/validation/fund";
+
+// Field's own child, not Controller's: `useFieldControl` reads the invalid
+// state Field provides, which only reaches components nested inside it.
+function FieldTextField(props: ComponentProps<typeof TextField.Root>) {
+  return <TextField.Root {...props} {...useFieldControl()} />;
+}
 
 export function CreateFundForm() {
   const t = useTranslations("onboarding");
-  // Root-scoped: the keys arriving from the schema and the action are full paths.
-  const tKey = useTranslations();
-  type MessageKey = Parameters<typeof tKey>[0];
 
   const form = useForm({
     resolver: zodResolver(createFundSchema),
@@ -31,11 +36,7 @@ export function CreateFundForm() {
   });
 
   const { execute, isPending } = useAction(createFundAction, {
-    onError({ error }) {
-      toast.error(
-        tKey((error.serverError ?? "errors.unexpected") as MessageKey),
-      );
-    },
+    onError: useActionErrorToast(),
   });
 
   function onSubmit(values: CreateFundInput) {
@@ -51,24 +52,16 @@ export function CreateFundForm() {
           render={({ field, fieldState }) => (
             <Field invalid={fieldState.invalid}>
               <FieldLabel htmlFor="fund-name">{t("fundNameLabel")}</FieldLabel>
-              <TextField.Root
+              <FieldTextField
                 {...field}
                 id="fund-name"
                 size="3"
                 autoFocus
                 autoComplete="off"
                 placeholder={t("fundNamePlaceholder")}
-                aria-invalid={fieldState.invalid}
                 disabled={isPending}
               />
-              {fieldState.invalid && (
-                // The Zod message is a key; `FieldError` prints whatever string it gets.
-                <FieldError
-                  errors={[
-                    { message: tKey(fieldState.error!.message as MessageKey) },
-                  ]}
-                />
-              )}
+              <FieldMessage error={fieldState.error} />
             </Field>
           )}
         />
@@ -80,22 +73,15 @@ export function CreateFundForm() {
               <FieldLabel htmlFor="member-name">
                 {t("memberNameLabel")}
               </FieldLabel>
-              <TextField.Root
+              <FieldTextField
                 {...field}
                 id="member-name"
                 size="3"
                 autoComplete="name"
-                aria-invalid={fieldState.invalid}
                 disabled={isPending}
               />
               <FieldDescription>{t("memberNameDescription")}</FieldDescription>
-              {fieldState.invalid && (
-                <FieldError
-                  errors={[
-                    { message: tKey(fieldState.error!.message as MessageKey) },
-                  ]}
-                />
-              )}
+              <FieldMessage error={fieldState.error} />
             </Field>
           )}
         />

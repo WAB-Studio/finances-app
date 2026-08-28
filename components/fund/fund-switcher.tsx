@@ -3,28 +3,26 @@
 import { useTranslations } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
 import { useState } from "react";
-import { toast } from "sonner";
 
 import { switchFundAction } from "@/app/actions/fund";
 import { Box, Flex, Select, Spinner, Text } from "@/components/ui";
 import type { FundSummary } from "@/db/queries/funds";
 import { usePathname } from "@/i18n/navigation";
 import { activeFundId } from "@/lib/fund/active-fund-id";
+import { useActionErrorToast } from "@/lib/use-action-toast";
 
 export function FundSwitcher({ funds }: { funds: FundSummary[] }) {
   const t = useTranslations("fund");
-  // Root-scoped: the action's error is a full catalogue path.
+  // Root-scoped: `common.appName` lives outside the `fund` namespace.
   const tKey = useTranslations();
-  type MessageKey = Parameters<typeof tKey>[0];
   const pathname = usePathname();
   const [picked, setPicked] = useState<string | null>(null);
+  const onActionError = useActionErrorToast();
 
   const { execute } = useAction(switchFundAction, {
-    onError({ error }) {
+    onError(args) {
       setPicked(null);
-      toast.error(
-        tKey((error.serverError ?? "errors.unexpected") as MessageKey),
-      );
+      onActionError(args);
     },
   });
 

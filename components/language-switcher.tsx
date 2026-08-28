@@ -4,18 +4,15 @@ import { LanguagesIcon } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
 import { useState } from "react";
-import { toast } from "sonner";
 
 import { setLocaleAction } from "@/app/actions/locale";
 import { type Responsive, Select, Spinner, ToolbarSelect } from "@/components/ui";
 import { usePathname } from "@/i18n/navigation";
 import { isLocale, LOCALES } from "@/lib/locales";
+import { useActionErrorToast } from "@/lib/use-action-toast";
 
 export function LanguageSwitcher({ width }: { width?: Responsive<string> }) {
   const t = useTranslations("language");
-  // Root-scoped: the action's error is a full catalogue path.
-  const tKey = useTranslations();
-  type MessageKey = Parameters<typeof tKey>[0];
   const locale = useLocale();
   const pathname = usePathname();
   // Never cleared: the document is leaving, and the control must not come back
@@ -30,11 +27,7 @@ export function LanguageSwitcher({ width }: { width?: Responsive<string> }) {
         new URL(`/${data.locale}${pathname}`, window.location.origin),
       );
     },
-    onError({ error }) {
-      toast.error(
-        tKey((error.serverError ?? "errors.unexpected") as MessageKey),
-      );
-    },
+    onError: useActionErrorToast(),
   });
 
   function onValueChange(value: string) {
