@@ -27,3 +27,6 @@ RNF-08 sets the requirement. This is how it shows in the interface.
 - Put the frequent action within thumb reach. Keep navigation out of that zone.
 - Open the destinations from a panel.
 - Keep the active fund visible wherever a write can happen.
+- Reserve the bottom gutter on every app page.
+- Compose it from `Page` in `components/ui`.
+- Never write a page's padding at the page.
