@@ -87,7 +87,7 @@ export function AccountsScreen({
 
   const groups = groupByOwner(accounts, tKey("common.fund"));
   const addButton = (
-    <Button type="button" onClick={() => setFormTarget("new")}>
+    <Button type="button" size="3" onClick={() => setFormTarget("new")}>
       <Plus size={16} />
       {t("add")}
     </Button>
@@ -112,6 +112,7 @@ export function AccountsScreen({
         {!archived && addButton}
       </Flex>
       <SegmentedControl.Root
+        size="3"
         value={archived ? "archived" : "active"}
         onValueChange={onTabChange}
       >

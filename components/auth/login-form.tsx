@@ -78,7 +78,7 @@ export function LoginForm({ next }: { next?: string }) {
             {t("sentHint")}
           </Text>
         </Flex>
-        <Button type="button" variant="outline" onClick={backToIdle}>
+        <Button type="button" size="3" variant="outline" onClick={backToIdle}>
           {t("useAnotherEmail")}
         </Button>
       </Flex>
@@ -118,7 +118,7 @@ export function LoginForm({ next }: { next?: string }) {
           )}
         />
         <Field>
-          <Button type="submit" disabled={isPending}>
+          <Button type="submit" size="3" disabled={isPending}>
             {isPending && <Spinner />}
             {isPending ? t("sending") : t("sendLink")}
           </Button>

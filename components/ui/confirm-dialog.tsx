@@ -52,6 +52,7 @@ export function ConfirmDialog({
           <AlertDialog.Cancel>
             {/* Standing alone it is the action, not the way past one. */}
             <Button
+              size="3"
               variant={dismissOnly ? "solid" : "soft"}
               color={dismissOnly ? undefined : "gray"}
               disabled={pending}
@@ -62,6 +63,7 @@ export function ConfirmDialog({
           {!dismissOnly && (
             <AlertDialog.Action>
               <Button
+                size="3"
                 color={tone === "danger" ? "red" : undefined}
                 disabled={pending}
                 onClick={(event) => {

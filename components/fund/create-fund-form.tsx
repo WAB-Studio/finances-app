@@ -100,7 +100,7 @@ export function CreateFundForm() {
           )}
         />
         <Field>
-          <Button type="submit" disabled={isPending}>
+          <Button type="submit" size="3" disabled={isPending}>
             {isPending && <Spinner />}
             {isPending ? t("submitting") : t("submit")}
           </Button>

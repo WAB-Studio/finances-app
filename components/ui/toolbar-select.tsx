@@ -5,7 +5,7 @@ import { Box, Flex, Select, Text } from "@radix-ui/themes";
 import type { Responsive } from "@radix-ui/themes/props";
 
 // Stated once, here: the trigger holds this width whatever the value, icon or pending state.
-const TRIGGER_WIDTH = { initial: "40px", sm: "9.5rem" };
+const TRIGGER_WIDTH = { initial: "48px", sm: "9.5rem" };
 
 export function ToolbarSelect({
   value,
@@ -28,6 +28,7 @@ export function ToolbarSelect({
 }) {
   return (
     <Select.Root
+      size="3"
       value={value}
       onValueChange={onValueChange}
       disabled={disabled}

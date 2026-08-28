@@ -1,7 +1,8 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Dialog, Flex } from "@radix-ui/themes";
+import { X } from "lucide-react";
+import { Dialog, Flex, IconButton } from "@radix-ui/themes";
 
 import styles from "./nav-panel.module.css";
 
@@ -12,12 +13,14 @@ export function NavPanel({
   open,
   onOpenChange,
   title,
+  closeLabel,
   trigger,
   children,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: string;
+  closeLabel: string;
   trigger: ReactNode;
   children?: ReactNode;
 }) {
@@ -26,7 +29,20 @@ export function NavPanel({
       <Dialog.Trigger>{trigger}</Dialog.Trigger>
       <Dialog.Content className={styles.content}>
         <Flex direction="column" gap="4">
-          <Dialog.Title>{title}</Dialog.Title>
+          <Flex align="center" justify="between" gap="3">
+            <Dialog.Title mb="0">{title}</Dialog.Title>
+            <Dialog.Close>
+              <IconButton
+                type="button"
+                variant="ghost"
+                color="gray"
+                size="4"
+                aria-label={closeLabel}
+              >
+                <X size={20} />
+              </IconButton>
+            </Dialog.Close>
+          </Flex>
           {children}
         </Flex>
       </Dialog.Content>

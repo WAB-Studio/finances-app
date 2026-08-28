@@ -61,6 +61,7 @@ export function FundSwitcher({ funds }: { funds: FundSummary[] }) {
 
   return (
     <Select.Root
+      size="3"
       value={picked ?? active ?? ""}
       onValueChange={onValueChange}
       disabled={switching}
