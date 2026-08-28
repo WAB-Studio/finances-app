@@ -60,23 +60,37 @@ export async function listMembers(
   });
 }
 
-export async function listMemberActiveAccounts(
+// One query for the whole fund, not one per member: the members page used to
+// pay a round trip per row it rendered.
+export async function listMembersActiveAccounts(
   fundId: string,
-  memberId: string,
-): Promise<{ id: string; name: string; kind: Account["kind"] }[]> {
-  return withUserDb(async (tx) =>
-    tx
-      .select({ id: accounts.id, name: accounts.name, kind: accounts.kind })
+): Promise<Record<string, { id: string; name: string; kind: Account["kind"] }[]>> {
+  return withUserDb(async (tx) => {
+    const rows = await tx
+      .select({
+        memberId: accounts.memberId,
+        id: accounts.id,
+        name: accounts.name,
+        kind: accounts.kind,
+      })
       .from(accounts)
       .where(
         and(
           eq(accounts.fundId, fundId),
-          eq(accounts.memberId, memberId),
+          isNotNull(accounts.memberId),
           isNull(accounts.archivedAt),
         ),
       )
-      .orderBy(asc(accounts.name)),
-  );
+      .orderBy(asc(accounts.memberId), asc(accounts.name));
+
+    const byMember: Record<string, { id: string; name: string; kind: Account["kind"] }[]> = {};
+    for (const row of rows) {
+      // `isNotNull(accounts.memberId)` above already excludes the null case.
+      const memberId = row.memberId as string;
+      (byMember[memberId] ??= []).push({ id: row.id, name: row.name, kind: row.kind });
+    }
+    return byMember;
+  });
 }
 
 // `user_id` stays null and `role` stays at its default — the only shape
@@ -118,8 +132,12 @@ export async function updateMember({
   });
 }
 
-// One transaction, member's archive last: a failed account decision must leave
-// nothing half-applied (RF-12 — no account is archived except the ones chosen).
+export type ArchiveMemberResult = { status: "ok" } | { status: "not-found" } | { status: "incomplete" };
+
+// One transaction. RF-12 needs every active account decided before anything is
+// written, so the decision set is checked against the member's active accounts
+// first — a member archived with an undecided account would leave that account
+// live under an archived owner.
 export async function archiveMember({
   fundId,
   memberId,
@@ -128,8 +146,47 @@ export async function archiveMember({
   fundId: string;
   memberId: string;
   decisions: { accountId: string; decision: "archive" | "fund" }[];
-}): Promise<boolean> {
+}): Promise<ArchiveMemberResult> {
   return withUserDb(async (tx) => {
+    const activeAccounts = await tx
+      .select({ id: accounts.id })
+      .from(accounts)
+      .where(
+        and(
+          eq(accounts.fundId, fundId),
+          eq(accounts.memberId, memberId),
+          isNull(accounts.archivedAt),
+        ),
+      );
+
+    const activeIds = new Set(activeAccounts.map((account) => account.id));
+    const decidedIds = new Set<string>();
+
+    for (const decision of decisions) {
+      // Outside the active set or already decided — either way a nothing-written return.
+      if (!activeIds.has(decision.accountId) || decidedIds.has(decision.accountId)) {
+        return { status: "incomplete" };
+      }
+      decidedIds.add(decision.accountId);
+    }
+
+    if (decidedIds.size < activeIds.size) {
+      return { status: "incomplete" };
+    }
+
+    // Member first: `members_update_member` is the only policy here that can
+    // refuse on `archived_at`, so a 42501 raised at this statement is always
+    // the self-archive refusal, never one of the account updates below.
+    const rows = await tx
+      .update(members)
+      .set({ archivedAt: sql`now()` })
+      .where(and(eq(members.fundId, fundId), eq(members.id, memberId)))
+      .returning({ id: members.id });
+
+    if (rows.length === 0) {
+      return { status: "not-found" };
+    }
+
     const archiveIds = decisions
       .filter((decision) => decision.decision === "archive")
       .map((decision) => decision.accountId);
@@ -163,13 +220,7 @@ export async function archiveMember({
         );
     }
 
-    const rows = await tx
-      .update(members)
-      .set({ archivedAt: sql`now()` })
-      .where(and(eq(members.fundId, fundId), eq(members.id, memberId)))
-      .returning({ id: members.id });
-
-    return rows.length > 0;
+    return { status: "ok" };
   });
 }
 
