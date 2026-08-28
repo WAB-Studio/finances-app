@@ -43,16 +43,24 @@ export const updateMemberAction = authActionClient
 export const archiveMemberAction = authActionClient
   .inputSchema(archiveMemberSchema)
   .action(async ({ parsedInput: { fundId, memberId, accounts } }) => {
-    let archived: boolean;
+    let result: Awaited<ReturnType<typeof archiveMember>>;
     try {
-      archived = await archiveMember({ fundId, memberId, decisions: accounts });
+      result = await archiveMember({ fundId, memberId, decisions: accounts });
     } catch (error) {
       const code = pgErrorCode(error);
+      // The members update is the transaction's first write, so a 42501 here
+      // can only come from `members_update_member`'s WITH CHECK — the same
+      // caller already passed `accounts_update_member`'s fund-membership test.
       if (code === "42501") throw new ActionError("errors.selfArchive");
+      // `members_keep_owner` is DEFERRABLE INITIALLY DEFERRED: it fires at
+      // COMMIT, outside this try, so it reaches the client as errors.unexpected today.
       if (code === "23514") throw new ActionError("errors.lastOwner");
       throw error;
     }
-    if (!archived) throw new ActionError("errors.notFound");
+    if (result.status === "not-found") throw new ActionError("errors.notFound");
+    if (result.status === "incomplete") {
+      throw new ActionError("errors.accountDecisionsIncomplete");
+    }
 
     refresh();
   });
@@ -73,9 +81,9 @@ export const deleteMemberAction = authActionClient
     try {
       deleted = await deleteMember({ fundId, memberId });
     } catch (error) {
-      if (pgErrorCode(error) === "23503") {
-        throw new ActionError("errors.memberHasAccounts");
-      }
+      const code = pgErrorCode(error);
+      if (code === "23503") throw new ActionError("errors.memberHasAccounts");
+      if (code === "23514") throw new ActionError("errors.lastOwner");
       throw error;
     }
     if (!deleted) throw new ActionError("errors.notFound");
