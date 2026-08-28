@@ -2,6 +2,7 @@ import "server-only";
 
 import { sql } from "drizzle-orm";
 import { getLocale } from "next-intl/server";
+import { cache } from "react";
 
 import { db } from "@/db/client";
 import { redirect } from "@/i18n/navigation";
@@ -13,7 +14,8 @@ type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 // The verified JWT payload. It never leaves this module: callers get the two
 // fields below, so no policy decision can ever be made from a claim we control.
-async function getVerifiedClaims() {
+// Deduplicated per request: the layout, every guard and every query ask for the same session.
+const getVerifiedClaims = cache(async function getVerifiedClaims() {
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase.auth.getClaims();
 
@@ -25,7 +27,7 @@ async function getVerifiedClaims() {
   if (!sub || !email) return null;
 
   return { claims: data.claims, user: { id: sub, email } satisfies SessionUser };
-}
+});
 
 export async function getSessionUser(): Promise<SessionUser | null> {
   return (await getVerifiedClaims())?.user ?? null;

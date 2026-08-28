@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, count, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
 
 import { categories } from "@/db/schema";
 import type { Category } from "@/db/schema";
@@ -160,18 +160,6 @@ export async function updateCategory({
       .returning({ id: categories.id });
 
     return rows.length > 0;
-  });
-}
-
-// What the delete confirmation names before it happens.
-export async function countChildren(fundId: string, categoryId: string): Promise<number> {
-  return withUserDb(async (tx) => {
-    const [row] = await tx
-      .select({ total: count() })
-      .from(categories)
-      .where(and(eq(categories.fundId, fundId), eq(categories.parentId, categoryId)));
-
-    return row?.total ?? 0;
   });
 }
 
