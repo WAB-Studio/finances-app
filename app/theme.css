@@ -5,3 +5,13 @@ body {
   height: 100%;
   margin: 0;
 }
+
+/* Every portalled surface (menu, listbox, dialog) wraps in its own nested
+   `Theme`, another `.radix-themes` node that re-declares these variables from
+   Radix's own stylesheet: doubled to outrank that same-specificity rule
+   whichever sheet loads last. */
+.radix-themes.radix-themes {
+  --default-font-family: var(--font-sans);
+  --heading-font-family: var(--font-sans);
+  --code-font-family: var(--font-geist-mono);
+}
