@@ -70,9 +70,7 @@ function MemberForm({
   const t = useTranslations("members");
   // Root-scoped: `common` is a full catalogue path, not this component's namespace.
   const tKey = useTranslations();
-  const onError = useActionErrorToast();
-
-  const mode = member ? "edit" : "create";
+  const isEdit = !!member;
   const schema = member ? updateMemberSchema : createMemberSchema;
 
   const form = useForm<FormValues>({
@@ -82,34 +80,35 @@ function MemberForm({
       : { fundId, name: "" },
   });
 
-  // Both hooks stay mounted regardless of mode: React forbids a conditional call.
-  const createState = useAction(createMemberAction, {
-    onSuccess() {
-      toast.success(t("created"));
-      onOpenChange(false);
-    },
-    onError,
+  function onActionSuccess() {
+    toast.success(t(isEdit ? "updated" : "created"));
+    onOpenChange(false);
+  }
+
+  const onActionError = useActionErrorToast();
+
+  // Two hooks, not one behind a ternary: the actions' input types differ, and
+  // rules of hooks forbid picking which one to call.
+  const create = useAction(createMemberAction, {
+    onSuccess: onActionSuccess,
+    onError: onActionError,
   });
-  const updateState = useAction(updateMemberAction, {
-    onSuccess() {
-      toast.success(t("updated"));
-      onOpenChange(false);
-    },
-    onError,
+  const update = useAction(updateMemberAction, {
+    onSuccess: onActionSuccess,
+    onError: onActionError,
   });
 
-  const isPending =
-    mode === "edit" ? updateState.isPending : createState.isPending;
+  const isPending = isEdit ? update.isPending : create.isPending;
 
   function onSubmit(values: FormValues) {
-    if (mode === "edit") {
-      updateState.execute({
+    if (isEdit) {
+      update.execute({
         fundId: values.fundId,
         memberId: values.memberId!,
         name: values.name,
       });
     } else {
-      createState.execute({ fundId: values.fundId, name: values.name });
+      create.execute({ fundId: values.fundId, name: values.name });
     }
   }
 

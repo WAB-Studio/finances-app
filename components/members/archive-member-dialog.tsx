@@ -42,14 +42,14 @@ export function ArchiveMemberDialog({
   const t = useTranslations("members");
   // Root-scoped: `common` is not this component's namespace.
   const tKey = useTranslations();
-  const onError = useActionErrorToast();
+  const onActionError = useActionErrorToast();
 
   const { execute, isPending } = useAction(archiveMemberAction, {
     onSuccess() {
       toast.success(t("archived"));
       onOpenChange(false);
     },
-    onError,
+    onError: onActionError,
   });
 
   if (accounts.length === 0) {
