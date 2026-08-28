@@ -15,8 +15,8 @@ export function ColorSwatchPicker({
   label,
   optionLabel,
   disabled,
-  invalid,
-  describedBy,
+  "aria-invalid": invalid,
+  "aria-describedby": describedBy,
 }: {
   id: string;
   name: string;
@@ -26,8 +26,8 @@ export function ColorSwatchPicker({
   label: string;
   optionLabel: (index: number) => string;
   disabled?: boolean;
-  invalid?: boolean;
-  describedBy?: string;
+  "aria-invalid"?: boolean;
+  "aria-describedby"?: string;
 }) {
   return (
     <fieldset

@@ -27,12 +27,12 @@ export {
 
 export {
   Field,
+  FieldControl,
   FieldGroup,
   FieldLabel,
   FieldDescription,
   FieldError,
   FieldMessage,
-  useFieldControl,
 } from "./field";
 
 export type { Responsive } from "@radix-ui/themes/props";

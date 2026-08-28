@@ -4,7 +4,6 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { MailCheckIcon } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
-import type { ComponentProps } from "react";
 import { useMemo, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 
@@ -12,6 +11,7 @@ import { signInAction } from "@/app/actions/auth";
 import {
   Button,
   Field,
+  FieldControl,
   FieldGroup,
   FieldLabel,
   FieldMessage,
@@ -19,16 +19,9 @@ import {
   Spinner,
   Text,
   TextField,
-  useFieldControl,
 } from "@/components/ui";
 import { useActionErrorToast } from "@/lib/use-action-toast";
 import { signInSchema, type SignInInput } from "@/lib/validation/auth";
-
-// Field's own child, not Controller's: `useFieldControl` reads the invalid
-// state Field provides, which only reaches components nested inside it.
-function FieldTextField(props: ComponentProps<typeof TextField.Root>) {
-  return <TextField.Root {...props} {...useFieldControl()} />;
-}
 
 export function LoginForm({ next }: { next?: string }) {
   const t = useTranslations("auth");
@@ -95,17 +88,19 @@ export function LoginForm({ next }: { next?: string }) {
           render={({ field, fieldState }) => (
             <Field invalid={fieldState.invalid}>
               <FieldLabel htmlFor="login-email">{t("emailLabel")}</FieldLabel>
-              <FieldTextField
-                {...field}
-                id="login-email"
-                size="3"
-                type="email"
-                inputMode="email"
-                autoComplete="email"
-                autoFocus
-                placeholder={t("emailPlaceholder")}
-                disabled={isPending}
-              />
+              <FieldControl>
+                <TextField.Root
+                  {...field}
+                  id="login-email"
+                  size="3"
+                  type="email"
+                  inputMode="email"
+                  autoComplete="email"
+                  autoFocus
+                  placeholder={t("emailPlaceholder")}
+                  disabled={isPending}
+                />
+              </FieldControl>
               <FieldMessage error={fieldState.error} />
             </Field>
           )}

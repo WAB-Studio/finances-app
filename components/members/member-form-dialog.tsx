@@ -3,12 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useTranslations } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
-import {
-  Controller,
-  useForm,
-  type ControllerRenderProps,
-  type Resolver,
-} from "react-hook-form";
+import { Controller, useForm, type Resolver } from "react-hook-form";
 import { toast } from "sonner";
 
 import { createMemberAction, updateMemberAction } from "@/app/actions/members";
@@ -16,13 +11,13 @@ import {
   Button,
   Dialog,
   Field,
+  FieldControl,
   FieldGroup,
   FieldLabel,
   FieldMessage,
   Flex,
   Spinner,
   TextField,
-  useFieldControl,
 } from "@/components/ui";
 import { useActionErrorToast } from "@/lib/use-action-toast";
 import { createMemberSchema, updateMemberSchema } from "@/lib/validation/member";
@@ -127,7 +122,16 @@ function MemberForm({
           render={({ field, fieldState }) => (
             <Field invalid={fieldState.invalid}>
               <FieldLabel htmlFor="member-name">{t("nameLabel")}</FieldLabel>
-              <NameField field={field} disabled={isPending} />
+              <FieldControl>
+                <TextField.Root
+                  {...field}
+                  id="member-name"
+                  size="3"
+                  autoFocus
+                  autoComplete="off"
+                  disabled={isPending}
+                />
+              </FieldControl>
               <FieldMessage error={fieldState.error} />
             </Field>
           )}
@@ -152,29 +156,5 @@ function MemberForm({
         </Field>
       </FieldGroup>
     </form>
-  );
-}
-
-// A named component, not an inline render callback: `useFieldControl` reads
-// the enclosing Field's context, and only a component may call a hook.
-function NameField({
-  field,
-  disabled,
-}: {
-  field: ControllerRenderProps<FormValues, "name">;
-  disabled: boolean;
-}) {
-  const controlProps = useFieldControl();
-
-  return (
-    <TextField.Root
-      {...field}
-      {...controlProps}
-      id="member-name"
-      size="3"
-      autoFocus
-      autoComplete="off"
-      disabled={disabled}
-    />
   );
 }

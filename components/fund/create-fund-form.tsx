@@ -3,29 +3,22 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useTranslations } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
-import type { ComponentProps } from "react";
 import { Controller, useForm } from "react-hook-form";
 
 import { createFundAction } from "@/app/actions/fund";
 import {
   Button,
   Field,
+  FieldControl,
   FieldDescription,
   FieldGroup,
   FieldLabel,
   FieldMessage,
   Spinner,
   TextField,
-  useFieldControl,
 } from "@/components/ui";
 import { useActionErrorToast } from "@/lib/use-action-toast";
 import { createFundSchema, type CreateFundInput } from "@/lib/validation/fund";
-
-// Field's own child, not Controller's: `useFieldControl` reads the invalid
-// state Field provides, which only reaches components nested inside it.
-function FieldTextField(props: ComponentProps<typeof TextField.Root>) {
-  return <TextField.Root {...props} {...useFieldControl()} />;
-}
 
 export function CreateFundForm() {
   const t = useTranslations("onboarding");
@@ -52,15 +45,17 @@ export function CreateFundForm() {
           render={({ field, fieldState }) => (
             <Field invalid={fieldState.invalid}>
               <FieldLabel htmlFor="fund-name">{t("fundNameLabel")}</FieldLabel>
-              <FieldTextField
-                {...field}
-                id="fund-name"
-                size="3"
-                autoFocus
-                autoComplete="off"
-                placeholder={t("fundNamePlaceholder")}
-                disabled={isPending}
-              />
+              <FieldControl>
+                <TextField.Root
+                  {...field}
+                  id="fund-name"
+                  size="3"
+                  autoFocus
+                  autoComplete="off"
+                  placeholder={t("fundNamePlaceholder")}
+                  disabled={isPending}
+                />
+              </FieldControl>
               <FieldMessage error={fieldState.error} />
             </Field>
           )}
@@ -73,13 +68,15 @@ export function CreateFundForm() {
               <FieldLabel htmlFor="member-name">
                 {t("memberNameLabel")}
               </FieldLabel>
-              <FieldTextField
-                {...field}
-                id="member-name"
-                size="3"
-                autoComplete="name"
-                disabled={isPending}
-              />
+              <FieldControl>
+                <TextField.Root
+                  {...field}
+                  id="member-name"
+                  size="3"
+                  autoComplete="name"
+                  disabled={isPending}
+                />
+              </FieldControl>
               <FieldDescription>{t("memberNameDescription")}</FieldDescription>
               <FieldMessage error={fieldState.error} />
             </Field>

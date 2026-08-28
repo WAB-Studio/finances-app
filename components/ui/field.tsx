@@ -1,10 +1,12 @@
 "use client";
 
 import {
+  cloneElement,
   createContext,
   useContext,
   useId,
   useMemo,
+  type ReactElement,
   type ReactNode,
 } from "react";
 import { useTranslations } from "next-intl";
@@ -55,12 +57,20 @@ export function Field({
 
 // `aria-invalid` and `aria-describedby` for the control a Field wraps, both
 // unset while the field is valid.
-export function useFieldControl() {
+function useFieldControl() {
   const { invalid, errorId } = useContext(FieldContext);
   return {
     "aria-invalid": invalid ? true : undefined,
     "aria-describedby": invalid ? errorId : undefined,
   };
+}
+
+// Puts those attributes on the control it wraps. A wrapper, not a hook the
+// screen calls: the scope that renders `<Field>` sits above the context Field
+// provides, so reading it there yields the ambient value and both attributes
+// come back undefined.
+export function FieldControl({ children }: { children: ReactElement }) {
+  return cloneElement(children, useFieldControl());
 }
 
 export function FieldLabel({

@@ -3,7 +3,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useTranslations } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
-import { cloneElement, type ReactElement } from "react";
 import { Controller, useForm, useWatch, type Resolver } from "react-hook-form";
 import { toast } from "sonner";
 
@@ -12,6 +11,7 @@ import {
   Button,
   Dialog,
   Field,
+  FieldControl,
   FieldDescription,
   FieldGroup,
   FieldLabel,
@@ -22,7 +22,6 @@ import {
   Spinner,
   Text,
   TextField,
-  useFieldControl,
 } from "@/components/ui";
 import type { AccountRow } from "@/db/queries/accounts";
 import { todayInBogota } from "@/lib/dates";
@@ -55,12 +54,6 @@ type AccountFormValues = {
   amount: string;
   balanceOn: string;
 };
-
-// `useFieldControl` reads Field's context, and only a component's own body
-// may call a hook — never the Controller callback that renders each control.
-function WithFieldControl({ children }: { children: ReactElement }) {
-  return cloneElement(children, useFieldControl());
-}
 
 export function AccountFormDialog({
   fundId,
@@ -183,7 +176,7 @@ function AccountForm({
           render={({ field, fieldState }) => (
             <Field invalid={fieldState.invalid}>
               <FieldLabel htmlFor="account-name">{t("nameLabel")}</FieldLabel>
-              <WithFieldControl>
+              <FieldControl>
                 <TextField.Root
                   {...field}
                   id="account-name"
@@ -192,7 +185,7 @@ function AccountForm({
                   autoComplete="off"
                   disabled={isPending}
                 />
-              </WithFieldControl>
+              </FieldControl>
               <FieldMessage error={fieldState.error} />
             </Field>
           )}
@@ -215,7 +208,7 @@ function AccountForm({
             render={({ field, fieldState }) => (
               <Field invalid={fieldState.invalid}>
                 <FieldLabel id="account-kind-label">{t("kindLabel")}</FieldLabel>
-                <WithFieldControl>
+                <FieldControl>
                   <SegmentedControl.Root
                     size="3"
                     value={field.value}
@@ -229,7 +222,7 @@ function AccountForm({
                       {t("kindLiability")}
                     </SegmentedControl.Item>
                   </SegmentedControl.Root>
-                </WithFieldControl>
+                </FieldControl>
                 <FieldMessage error={fieldState.error} />
               </Field>
             )}
@@ -249,9 +242,9 @@ function AccountForm({
                 }
                 disabled={isPending}
               >
-                <WithFieldControl>
+                <FieldControl>
                   <Select.Trigger id="account-owner" />
-                </WithFieldControl>
+                </FieldControl>
                 <Select.Content position="popper">
                   <Select.Item value={FUND_OWNER}>{t("ownerFund")}</Select.Item>
                   {members.map((member) => (
@@ -278,7 +271,7 @@ function AccountForm({
                   </Text>
                 </Flex>
               </FieldLabel>
-              <WithFieldControl>
+              <FieldControl>
                 <TextField.Root
                   {...field}
                   id="account-institution"
@@ -286,7 +279,7 @@ function AccountForm({
                   autoComplete="organization"
                   disabled={isPending}
                 />
-              </WithFieldControl>
+              </FieldControl>
               <FieldMessage error={fieldState.error} />
             </Field>
           )}
@@ -297,7 +290,7 @@ function AccountForm({
           render={({ field, fieldState }) => (
             <Field invalid={fieldState.invalid}>
               <FieldLabel htmlFor="account-amount">{amountLabel}</FieldLabel>
-              <WithFieldControl>
+              <FieldControl>
                 <TextField.Root
                   {...field}
                   id="account-amount"
@@ -305,7 +298,7 @@ function AccountForm({
                   inputMode="numeric"
                   disabled={isPending}
                 />
-              </WithFieldControl>
+              </FieldControl>
               <FieldMessage error={fieldState.error} />
             </Field>
           )}
@@ -318,7 +311,7 @@ function AccountForm({
               <FieldLabel htmlFor="account-balance-on">
                 {t("openingBalanceOnLabel")}
               </FieldLabel>
-              <WithFieldControl>
+              <FieldControl>
                 <TextField.Root
                   {...field}
                   id="account-balance-on"
@@ -326,7 +319,7 @@ function AccountForm({
                   type="date"
                   disabled={isPending}
                 />
-              </WithFieldControl>
+              </FieldControl>
               <FieldMessage error={fieldState.error} />
             </Field>
           )}

@@ -3,7 +3,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useTranslations } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
-import { cloneElement, type ReactElement } from "react";
 import { Controller, useForm, useWatch, type Resolver } from "react-hook-form";
 import { toast } from "sonner";
 
@@ -16,6 +15,7 @@ import {
   ColorSwatchPicker,
   Dialog,
   Field,
+  FieldControl,
   FieldDescription,
   FieldGroup,
   FieldLabel,
@@ -25,7 +25,6 @@ import {
   Spinner,
   Text,
   TextField,
-  useFieldControl,
 } from "@/components/ui";
 import { CATEGORY_COLORS, nextCategoryColor } from "@/lib/fund/category-color";
 import { useActionErrorToast } from "@/lib/use-action-toast";
@@ -57,24 +56,6 @@ type Category = {
   parentId: string | null;
   color: string | null;
 };
-
-// `useFieldControl` reads Field's context, and only a component's own body
-// may call a hook — never the Controller callback that renders each control.
-function WithFieldControl({ children }: { children: ReactElement }) {
-  return cloneElement(children, useFieldControl());
-}
-
-// ColorSwatchPicker names its own invalid flag `invalid`, so only the
-// describedby id crosses from `useFieldControl` — the caller sets the rest.
-function WithDescribedBy({
-  children,
-}: {
-  children: ReactElement<{ describedBy?: string }>;
-}) {
-  return cloneElement(children, {
-    describedBy: useFieldControl()["aria-describedby"],
-  });
-}
 
 type CategoryFormProps = {
   fundId: string;
@@ -200,7 +181,7 @@ function CategoryForm({
               <FieldLabel htmlFor="category-name">
                 {t("nameLabel")}
               </FieldLabel>
-              <WithFieldControl>
+              <FieldControl>
                 <TextField.Root
                   {...field}
                   id="category-name"
@@ -209,7 +190,7 @@ function CategoryForm({
                   autoComplete="off"
                   disabled={isPending}
                 />
-              </WithFieldControl>
+              </FieldControl>
               <FieldMessage error={fieldState.error} />
             </Field>
           )}
@@ -239,9 +220,9 @@ function CategoryForm({
                 }}
                 disabled={isPending}
               >
-                <WithFieldControl>
+                <FieldControl>
                   <Select.Trigger id="category-parent" />
-                </WithFieldControl>
+                </FieldControl>
                 <Select.Content>
                   <Select.Item value={NO_PARENT_VALUE}>
                     {t("parentNone")}
@@ -271,7 +252,7 @@ function CategoryForm({
             control={form.control}
             render={({ field, fieldState }) => (
               <Field invalid={fieldState.invalid}>
-                <WithDescribedBy>
+                <FieldControl>
                   <ColorSwatchPicker
                     id="category-color"
                     name="color"
@@ -283,9 +264,8 @@ function CategoryForm({
                       t("colorOption", { number: index + 1 })
                     }
                     disabled={isPending}
-                    invalid={fieldState.invalid}
                   />
-                </WithDescribedBy>
+                </FieldControl>
                 <FieldMessage error={fieldState.error} />
               </Field>
             )}
