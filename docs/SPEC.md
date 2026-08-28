@@ -43,7 +43,7 @@ alerts, accounting exports, native apps. None of this gets built or left
 - [x] **RF-02** — A user can belong to several funds; they operate on one at a time and can switch.
 - [ ] **RF-03** — Only the `owner` invites members, edits the fund and manages categories.
 - [x] **RF-04** — All members of a fund see the same data. There are no partial-read roles.
-- [x] **RF-05** — Whoever creates the fund becomes `owner`. The role is transferable, but a fund is never left without an owner.
+- [ ] **RF-05** — Whoever creates the fund becomes `owner`. The role is transferable, but a fund is never left without an owner.
 - [ ] **RF-06** — Accepting an invitation links the user to the member that already exists in the fund, if any; otherwise a member is created.
 
 #### Members and accounts
@@ -344,7 +344,7 @@ Principles, not recipes:
 | Components | **Radix Themes** | Layout, typography, controls and theming as components with props, one stylesheet, no build step. |
 | Validation | **Zod** | One schema serves the form, the server and the types. |
 | Server actions | **next-safe-action** | Validation, typed errors and loading state on every mutation. |
-| Forms | **React Hook Form** | State, errors and submission wired to the validation schema. |
+| Forms | **React Hook Form**, with **@hookform/resolvers** | State, errors and submission wired to the validation schema; the resolver binds Zod to React Hook Form. |
 | Table | **TanStack Table** | Sorting, filtering, pagination and selection for the transaction list. |
 | Charts | to evaluate | Open: the reports slice (RF-33 to RF-37) picks the library when it builds the first chart. |
 | Dates | **date-fns** | Date arithmetic and time zones, tree-shakeable. |
