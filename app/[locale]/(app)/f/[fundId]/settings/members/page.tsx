@@ -5,23 +5,16 @@ import { notFound } from "next/navigation";
 import { z } from "zod";
 
 import { MembersScreen } from "@/components/members/members-screen";
-import { Flex } from "@/components/ui";
+import { Page } from "@/components/ui";
 import { getFundForUser } from "@/db/queries/funds";
-import { listMemberActiveAccounts, listMembers } from "@/db/queries/members";
+import { listMembers, listMembersActiveAccounts } from "@/db/queries/members";
 import { requireUser } from "@/db/session";
 import { routing } from "@/i18n/routing";
 
-// `.next/types` cannot know this route yet in every slot, so its params are
-// written out rather than pulled from the generated `PageProps` helper.
-type Params = { locale: string; fundId: string };
-type SearchParams = { tab?: string | string[] };
-
-export async function generateMetadata({
-  params,
-}: {
-  params: Promise<Params>;
-}): Promise<Metadata> {
-  const { locale } = await params;
+export async function generateMetadata(
+  props: PageProps<"/[locale]/f/[fundId]/settings/members">,
+): Promise<Metadata> {
+  const { locale } = await props.params;
   if (!hasLocale(routing.locales, locale)) notFound();
 
   const t = await getTranslations({ locale, namespace: "members" });
@@ -29,14 +22,10 @@ export async function generateMetadata({
   return { title: t("title") };
 }
 
-export default async function MembersPage({
-  params,
-  searchParams,
-}: {
-  params: Promise<Params>;
-  searchParams: Promise<SearchParams>;
-}) {
-  const { locale, fundId } = await params;
+export default async function MembersPage(
+  props: PageProps<"/[locale]/f/[fundId]/settings/members">,
+) {
+  const { locale, fundId } = await props.params;
   if (!hasLocale(routing.locales, locale)) notFound();
 
   setRequestLocale(locale);
@@ -44,42 +33,28 @@ export default async function MembersPage({
   // An invalid uuid must never reach Postgres, which answers `22P02`.
   if (!z.uuid().safeParse(fundId).success) notFound();
 
-  const { tab } = await searchParams;
+  const { tab } = await props.searchParams;
   const archived = tab === "archived";
 
   // The fund check rides along instead of gating: the policies filter the rows
   // below anyway, so a fund the user cannot see comes back empty and then 404s.
-  const [fund, user, members] = await Promise.all([
+  const [fund, user, members, memberAccounts] = await Promise.all([
     getFundForUser(fundId),
     requireUser(),
     listMembers(fundId, { archived }),
+    listMembersActiveAccounts(fundId),
   ]);
   if (!fund) notFound();
 
-  // One entry per member with an active account: the archive dialog needs the
-  // list ready before it opens, not fetched once the user picks a row.
-  const memberAccounts = Object.fromEntries(
-    await Promise.all(
-      members
-        .filter((member) => member.activeAccountCount > 0)
-        .map(async (member) => [
-          member.id,
-          await listMemberActiveAccounts(fundId, member.id),
-        ]),
-    ),
-  );
-
   return (
-    <Flex asChild direction="column" flexGrow="1" p="6">
-      <main>
-        <MembersScreen
-          fundId={fundId}
-          members={members}
-          currentUserId={user.id}
-          archived={archived}
-          memberAccounts={memberAccounts}
-        />
-      </main>
-    </Flex>
+    <Page>
+      <MembersScreen
+        fundId={fundId}
+        members={members}
+        currentUserId={user.id}
+        archived={archived}
+        memberAccounts={memberAccounts}
+      />
+    </Page>
   );
 }
