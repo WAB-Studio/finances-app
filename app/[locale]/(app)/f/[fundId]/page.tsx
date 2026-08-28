@@ -2,8 +2,9 @@ import { hasLocale } from "next-intl";
 import type { Metadata } from "next";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { notFound } from "next/navigation";
+import { z } from "zod";
 
-import { EmptyState, Flex, Heading, Text } from "@/components/ui";
+import { EmptyState, Flex, Heading, Page, Text } from "@/components/ui";
 import { getFundForUser } from "@/db/queries/funds";
 import { requireUser } from "@/db/session";
 import { routing } from "@/i18n/routing";
@@ -12,6 +13,10 @@ export async function generateMetadata(
   props: PageProps<"/[locale]/f/[fundId]">,
 ): Promise<Metadata> {
   const { fundId } = await props.params;
+
+  // An invalid uuid must never reach Postgres, which answers `22P02`.
+  if (!z.uuid().safeParse(fundId).success) notFound();
+
   const fund = await getFundForUser(fundId);
   if (!fund) notFound();
 
@@ -26,15 +31,20 @@ export default async function FundPage(
 
   setRequestLocale(locale);
 
-  const fund = await getFundForUser(fundId);
+  // An invalid uuid must never reach Postgres, which answers `22P02`.
+  if (!z.uuid().safeParse(fundId).success) notFound();
+
+  const [fund, user] = await Promise.all([
+    getFundForUser(fundId),
+    requireUser(),
+  ]);
   if (!fund) notFound();
 
-  const user = await requireUser();
   const t = await getTranslations();
 
   return (
-    <Flex asChild direction="column" flexGrow="1" gap="2" p="6">
-      <main>
+    <Page>
+      <Flex direction="column" gap="2">
         <Text size="2" color="gray">
           {t("common.greeting", { email: user.email })}
         </Text>
@@ -43,7 +53,7 @@ export default async function FundPage(
           title={t("dashboard.emptyTitle")}
           description={t("dashboard.emptyDescription")}
         />
-      </main>
-    </Flex>
+      </Flex>
+    </Page>
   );
 }
