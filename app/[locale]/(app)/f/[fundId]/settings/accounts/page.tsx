@@ -43,16 +43,17 @@ export default async function AccountsPage({
   // An invalid uuid must never reach Postgres, which answers `22P02`.
   if (!z.uuid().safeParse(fundId).success) notFound();
 
-  const fund = await getFundForUser(fundId);
-  if (!fund) notFound();
-
   const { tab } = await searchParams;
   const archived = tab === "archived";
 
-  const [accounts, members] = await Promise.all([
+  // The fund check rides along instead of gating: the policies filter the rows
+  // below anyway, so a fund the user cannot see comes back empty and then 404s.
+  const [fund, accounts, members] = await Promise.all([
+    getFundForUser(fundId),
     listAccounts(fundId, { archived }),
     listAssignableMembers(fundId),
   ]);
+  if (!fund) notFound();
 
   return (
     <Flex asChild direction="column" flexGrow="1" p="6">

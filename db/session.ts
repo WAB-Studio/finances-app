@@ -58,14 +58,13 @@ export async function withUserDb<T>(
   const claims = JSON.stringify(session.claims);
 
   return db.transaction(async (tx) => {
-    // Claims first, while still `postgres`; the reverse order leaves a window
-    // where the connection is `authenticated` with the previous request's claims.
-    await tx.execute(
-      sql`select set_config('request.jwt.claims', ${claims}, true)`,
-    );
-    await tx.execute(sql`select set_config('statement_timeout', '8000', true)`);
+    // One statement, not three: a round trip to the pooler costs more than the
+    // query it precedes, and no statement runs between the claims and the role.
     // `true` is `is_local`: the pooler hands this connection on at commit.
-    await tx.execute(sql`select set_config('role', 'authenticated', true)`);
+    await tx.execute(sql`select
+      set_config('request.jwt.claims', ${claims}, true),
+      set_config('statement_timeout', '8000', true),
+      set_config('role', 'authenticated', true)`);
 
     return fn(tx);
   });

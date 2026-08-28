@@ -44,15 +44,17 @@ export default async function MembersPage({
   // An invalid uuid must never reach Postgres, which answers `22P02`.
   if (!z.uuid().safeParse(fundId).success) notFound();
 
-  const fund = await getFundForUser(fundId);
-  if (!fund) notFound();
-
-  const user = await requireUser();
-
   const { tab } = await searchParams;
   const archived = tab === "archived";
 
-  const members = await listMembers(fundId, { archived });
+  // The fund check rides along instead of gating: the policies filter the rows
+  // below anyway, so a fund the user cannot see comes back empty and then 404s.
+  const [fund, user, members] = await Promise.all([
+    getFundForUser(fundId),
+    requireUser(),
+    listMembers(fundId, { archived }),
+  ]);
+  if (!fund) notFound();
 
   // One entry per member with an active account: the archive dialog needs the
   // list ready before it opens, not fetched once the user picks a row.

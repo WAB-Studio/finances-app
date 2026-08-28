@@ -16,8 +16,9 @@ const sql =
   postgres(env.DATABASE_URL, {
     // Supavisor's transaction mode rejects named prepared statements.
     prepare: false,
-    // One connection per serverless invocation; the pooler does the pooling.
-    max: 1,
+    // Above one: a page fans its queries out with `Promise.all`, and a single
+    // connection turns them back into a queue.
+    max: 8,
     // Seconds. postgres@3 defaults to null and would hold the socket forever.
     idle_timeout: 20,
     connect_timeout: 10,

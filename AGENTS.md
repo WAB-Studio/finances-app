@@ -37,6 +37,9 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
 - Derive the transaction type from the accounts involved.
 - Revoke ALL from `anon`, `authenticated` and `service_role` in every migration that creates a table. Supabase grants them at `CREATE TABLE`.
 - Prove a policy fires. Never assert it from the migration.
+- Count round trips to Postgres, not queries. Every one pays the full latency to the pooler.
+- Settle the session in one statement. Never one statement per `set_config`.
+- Fan a screen's queries out with `Promise.all`, the fund guard included. Never chain the awaits.
 - Validate on the server with the same Zod schema that validates the form.
 - Move every interface string into next-intl. Hardcoding is forbidden.
 - Compose a screen from `components/ui` and its props. Never write a utility class outside it.

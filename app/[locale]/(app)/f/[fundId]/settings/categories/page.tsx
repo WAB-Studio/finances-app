@@ -54,18 +54,19 @@ export default async function CategoriesPage({
   // An invalid uuid must never reach Postgres, which answers `22P02`.
   if (!z.uuid().safeParse(fundId).success) notFound();
 
-  const fund = await getFundForUser(fundId);
-  if (!fund) notFound();
-
   const { kind: kindParam } = await searchParams;
   const kind = parseKind(kindParam);
 
+  // The fund check rides along instead of gating: the policies filter the rows
+  // below anyway, so a fund the user cannot see comes back empty and then 404s.
   // Both kinds count toward the default colour: it belongs to the fund, not the open tab.
-  const [categories, parents, usedColors] = await Promise.all([
+  const [fund, categories, parents, usedColors] = await Promise.all([
+    getFundForUser(fundId),
     listCategories(fundId, kind),
     listParentCategories(fundId, kind),
     listUsedCategoryColors(fundId),
   ]);
+  if (!fund) notFound();
 
   return (
     <Flex asChild direction="column" flexGrow="1" p="6">
