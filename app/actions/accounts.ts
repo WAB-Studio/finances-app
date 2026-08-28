@@ -32,8 +32,9 @@ export const createAccountAction = authActionClient
     const pesos = parsePesos(amount);
     if (pesos === null) throw new ActionError("errors.unexpected");
 
-    await createAccount({ ...account, pesos });
+    const { accountId } = await createAccount({ ...account, pesos });
     refresh();
+    return { accountId };
   });
 
 /**

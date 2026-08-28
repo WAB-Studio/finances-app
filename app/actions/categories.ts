@@ -28,8 +28,9 @@ function categoryConstraintErrorKey(parentId: string | null): string {
 export const createCategoryAction = authActionClient
   .inputSchema(createCategorySchema)
   .action(async ({ parsedInput }) => {
+    let categoryId: string;
     try {
-      await createCategory(parsedInput);
+      ({ categoryId } = await createCategory(parsedInput));
     } catch (error) {
       if (pgErrorCode(error) === "23514") {
         throw new ActionError(categoryConstraintErrorKey(parsedInput.parentId));
@@ -38,6 +39,7 @@ export const createCategoryAction = authActionClient
     }
 
     refresh();
+    return { categoryId };
   });
 
 /**

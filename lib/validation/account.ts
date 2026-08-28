@@ -16,11 +16,14 @@ const accountMemberIdSchema = z
   .uuid({ error: "accounts.errors.memberInvalid" })
   .nullable();
 
+// A blank field means "no institution", same as an absent one, so both reach
+// the query layer as null; the length check runs before the collapse.
 const accountInstitutionSchema = z
   .string()
   .trim()
   .max(80, { error: "accounts.errors.institutionTooLong" })
-  .nullable();
+  .nullable()
+  .transform((value) => (value === "" ? null : value));
 
 // The opening amount stays a peso string through validation: no sign is
 // applied here, since the sign is a property of the account's kind (RF-10).
