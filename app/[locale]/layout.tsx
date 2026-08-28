@@ -1,6 +1,6 @@
 import { hasLocale, NextIntlClientProvider } from "next-intl";
 import { getTranslations, setRequestLocale } from "next-intl/server";
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { notFound } from "next/navigation";
 
@@ -24,6 +24,11 @@ const geistMono = Geist_Mono({
 export function generateStaticParams() {
   return routing.locales.map((locale) => ({ locale }));
 }
+
+// Lets env(safe-area-inset-*) resolve instead of 0 on a notched phone.
+export const viewport: Viewport = {
+  viewportFit: "cover",
+};
 
 export async function generateMetadata(
   props: LayoutProps<"/[locale]">,
