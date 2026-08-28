@@ -10,6 +10,8 @@ import {
 import { useTranslations } from "next-intl";
 import { Flex, Text } from "@radix-ui/themes";
 
+import type { MessageKey } from "@/lib/use-action-toast";
+
 // Carries a Field's invalid flag and error id down to its label and control.
 const FieldContext = createContext({ invalid: false, errorId: "" });
 
@@ -157,12 +159,11 @@ export function FieldError({
   );
 }
 
-// The 18-call-site block, once: translates a React Hook Form error message as
-// a root-scoped catalogue path and renders it under the Field's error id.
+// React Hook Form carries the catalogue path, not the sentence: the message is
+// translated here, under the Field's error id.
 export function FieldMessage({ error }: { error?: { message?: string } }) {
   const { errorId } = useContext(FieldContext);
   const t = useTranslations();
-  type MessageKey = Parameters<typeof t>[0];
 
   if (!error?.message) {
     return null;
