@@ -17,7 +17,6 @@
     "delete": "Eliminar",
     "archive": "Archivar",
     "restore": "Restaurar",
-    "add": "Añadir",
     "actions": "Acciones",
     "fund": "Fondo",
     "optional": "Opcional"
@@ -86,6 +85,7 @@
     "archiveTitle": "Archivar miembro",
     "archiveDescription": "El miembro deja de aparecer en las listas activas. Sus cuentas no cambian.",
     "archiveAccountsDescription": "Decide qué pasa con cada una de sus cuentas: se archiva o pasa al fondo.",
+    "accountDecisionLabel": "Qué pasa con {name}",
     "accountToArchive": "Archivar la cuenta",
     "accountToFund": "Pasar la cuenta al fondo",
     "restoreTitle": "Restaurar miembro",
@@ -208,6 +208,7 @@
     "notFound": "Eso ya no existe.",
     "memberHasAccounts": "Este miembro tiene cuentas. Archívalo en su lugar.",
     "accountInUse": "Esta cuenta tiene movimientos. Archívala en su lugar.",
+    "accountDecisionsIncomplete": "Falta decidir qué pasa con alguna de sus cuentas.",
     "categoryInUse": "Esta categoría está en uso y no se puede eliminar.",
     "lastOwner": "El fondo necesita al menos un propietario.",
     "selfArchive": "No puedes archivarte a ti mismo.",
