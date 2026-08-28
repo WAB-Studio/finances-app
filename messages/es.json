@@ -118,7 +118,7 @@
     "institutionLabel": "Entidad",
     "openingBalanceLabel": "Saldo inicial",
     "openingOwedLabel": "Deuda inicial",
-    "openingBalanceOnLabel": "Fecha del saldo inicial",
+    "openingBalanceOnLabel": "Fecha inicial",
     "openingBalanceRow": "{amount} el {date}",
     "activeTab": "Activas",
     "archivedTab": "Archivadas",

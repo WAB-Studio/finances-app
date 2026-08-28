@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { notFound } from "next/navigation";
 
-import { Box, Flex, Heading, Text } from "@/components/ui";
+import { EmptyState, Flex, Heading, Text } from "@/components/ui";
 import { getFundForUser } from "@/db/queries/funds";
 import { requireUser } from "@/db/session";
 import { routing } from "@/i18n/routing";
@@ -39,22 +39,10 @@ export default async function FundPage(
           {t("common.greeting", { email: user.email })}
         </Text>
         <Heading size="6">{fund.name}</Heading>
-        <Flex
-          direction="column"
-          flexGrow="1"
-          align="center"
-          justify="center"
-          gap="2"
-        >
-          <Text size="4" weight="medium" align="center">
-            {t("dashboard.emptyTitle")}
-          </Text>
-          <Box maxWidth="65ch">
-            <Text color="gray" align="center">
-              {t("dashboard.emptyDescription")}
-            </Text>
-          </Box>
-        </Flex>
+        <EmptyState
+          title={t("dashboard.emptyTitle")}
+          description={t("dashboard.emptyDescription")}
+        />
       </main>
     </Flex>
   );

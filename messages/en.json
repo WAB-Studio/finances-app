@@ -118,7 +118,7 @@
     "institutionLabel": "Institution",
     "openingBalanceLabel": "Opening balance",
     "openingOwedLabel": "Opening debt",
-    "openingBalanceOnLabel": "Opening balance date",
+    "openingBalanceOnLabel": "Opening date",
     "openingBalanceRow": "{amount} on {date}",
     "activeTab": "Active",
     "archivedTab": "Archived",
