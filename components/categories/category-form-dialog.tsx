@@ -3,6 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useTranslations } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
+import { cloneElement, type ReactElement } from "react";
 import { Controller, useForm, useWatch, type Resolver } from "react-hook-form";
 import { toast } from "sonner";
 
@@ -16,16 +17,18 @@ import {
   Dialog,
   Field,
   FieldDescription,
-  FieldError,
   FieldGroup,
   FieldLabel,
+  FieldMessage,
   Flex,
   Select,
   Spinner,
   Text,
   TextField,
+  useFieldControl,
 } from "@/components/ui";
 import { CATEGORY_COLORS, nextCategoryColor } from "@/lib/fund/category-color";
+import { useActionErrorToast } from "@/lib/use-action-toast";
 import {
   createCategorySchema,
   updateCategorySchema,
@@ -55,14 +58,33 @@ type Category = {
   color: string | null;
 };
 
+// `useFieldControl` reads Field's context, and only a component's own body
+// may call a hook — never the Controller callback that renders each control.
+function WithFieldControl({ children }: { children: ReactElement }) {
+  return cloneElement(children, useFieldControl());
+}
+
+// ColorSwatchPicker names its own invalid flag `invalid`, so only the
+// describedby id crosses from `useFieldControl` — the caller sets the rest.
+function WithDescribedBy({
+  children,
+}: {
+  children: ReactElement<{ describedBy?: string }>;
+}) {
+  return cloneElement(children, {
+    describedBy: useFieldControl()["aria-describedby"],
+  });
+}
+
 type CategoryFormProps = {
   fundId: string;
   kind: "expense" | "income";
-  parents: { id: string; name: string }[];
+  parents: { id: string; name: string; hasChildren: boolean }[];
   usedColors: string[];
   onOpenChange: (open: boolean) => void;
   category?: Category;
   defaultParentId?: string | null;
+  hasChildren: boolean;
 };
 
 export function CategoryFormDialog({
@@ -93,11 +115,11 @@ function CategoryForm({
   onOpenChange,
   category,
   defaultParentId,
+  hasChildren,
 }: CategoryFormProps) {
   const t = useTranslations("categories");
   // Root-scoped: the keys arriving from the schema and the action are full paths.
   const tKey = useTranslations();
-  type MessageKey = Parameters<typeof tKey>[0];
 
   const isEdit = !!category;
 
@@ -130,9 +152,7 @@ function CategoryForm({
     onOpenChange(false);
   }
 
-  function onActionError({ error }: { error: { serverError?: string } }) {
-    toast.error(tKey((error.serverError ?? "errors.unexpected") as MessageKey));
-  }
+  const onActionError = useActionErrorToast();
 
   // Two hooks, not one behind a ternary: the actions' input types differ, and
   // rules of hooks forbid picking which one to call.
@@ -157,7 +177,17 @@ function CategoryForm({
     }
   }
 
-  const parentOptions = parents.filter((parent) => parent.id !== category?.id);
+  // RF-26 caps nesting at one level: a category with children offers no
+  // parent at all, and a category that already has children never appears as
+  // an option — except the option that is already this subcategory's parent,
+  // kept selectable so an existing value is never orphaned mid-edit.
+  const parentOptions = hasChildren
+    ? []
+    : parents.filter(
+        (parent) =>
+          parent.id !== category?.id &&
+          (!parent.hasChildren || parent.id === category?.parentId),
+      );
 
   return (
     <form onSubmit={form.handleSubmit(onSubmit)} noValidate>
@@ -170,26 +200,17 @@ function CategoryForm({
               <FieldLabel htmlFor="category-name">
                 {t("nameLabel")}
               </FieldLabel>
-              <TextField.Root
-                {...field}
-                id="category-name"
-                size="3"
-                autoFocus
-                autoComplete="off"
-                aria-invalid={fieldState.invalid}
-                disabled={isPending}
-              />
-              {fieldState.invalid && (
-                <FieldError
-                  errors={[
-                    {
-                      message: tKey(
-                        fieldState.error!.message as MessageKey,
-                      ),
-                    },
-                  ]}
+              <WithFieldControl>
+                <TextField.Root
+                  {...field}
+                  id="category-name"
+                  size="3"
+                  autoFocus
+                  autoComplete="off"
+                  disabled={isPending}
                 />
-              )}
+              </WithFieldControl>
+              <FieldMessage error={fieldState.error} />
             </Field>
           )}
         />
@@ -218,10 +239,9 @@ function CategoryForm({
                 }}
                 disabled={isPending}
               >
-                <Select.Trigger
-                  id="category-parent"
-                  aria-invalid={fieldState.invalid}
-                />
+                <WithFieldControl>
+                  <Select.Trigger id="category-parent" />
+                </WithFieldControl>
                 <Select.Content>
                   <Select.Item value={NO_PARENT_VALUE}>
                     {t("parentNone")}
@@ -233,25 +253,14 @@ function CategoryForm({
                   ))}
                 </Select.Content>
               </Select.Root>
-              {fieldState.invalid && (
-                <FieldError
-                  errors={[
-                    {
-                      message: tKey(
-                        fieldState.error!.message as MessageKey,
-                      ),
-                    },
-                  ]}
-                />
-              )}
+              <FieldMessage error={fieldState.error} />
             </Field>
           )}
         />
         <Field>
-          <FieldLabel htmlFor="category-kind">
-            {t("kindLabel")}
-          </FieldLabel>
-          <Text id="category-kind" size="3">
+          {/* Not labelable: a read-only Text names nothing a <label> can target. */}
+          <FieldLabel>{t("kindLabel")}</FieldLabel>
+          <Text size="3">
             {t(kind === "expense" ? "kindExpense" : "kindIncome")}
           </Text>
           <FieldDescription>{t("kindLocked")}</FieldDescription>
@@ -262,30 +271,22 @@ function CategoryForm({
             control={form.control}
             render={({ field, fieldState }) => (
               <Field invalid={fieldState.invalid}>
-                <ColorSwatchPicker
-                  id="category-color"
-                  name="color"
-                  value={field.value ?? ""}
-                  onValueChange={field.onChange}
-                  colors={CATEGORY_COLORS}
-                  label={t("colorLabel")}
-                  optionLabel={(index) =>
-                    t("colorOption", { number: index + 1 })
-                  }
-                  disabled={isPending}
-                  invalid={fieldState.invalid}
-                />
-                {fieldState.invalid && (
-                  <FieldError
-                    errors={[
-                      {
-                        message: tKey(
-                          fieldState.error!.message as MessageKey,
-                        ),
-                      },
-                    ]}
+                <WithDescribedBy>
+                  <ColorSwatchPicker
+                    id="category-color"
+                    name="color"
+                    value={field.value ?? ""}
+                    onValueChange={field.onChange}
+                    colors={CATEGORY_COLORS}
+                    label={t("colorLabel")}
+                    optionLabel={(index) =>
+                      t("colorOption", { number: index + 1 })
+                    }
+                    disabled={isPending}
+                    invalid={fieldState.invalid}
                   />
-                )}
+                </WithDescribedBy>
+                <FieldMessage error={fieldState.error} />
               </Field>
             )}
           />

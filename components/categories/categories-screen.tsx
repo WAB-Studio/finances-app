@@ -24,14 +24,18 @@ import {
 } from "@/components/ui";
 import type { CategoryNode } from "@/db/queries/categories";
 import { usePathname, useRouter } from "@/i18n/navigation";
+import { useActionErrorToast } from "@/lib/use-action-toast";
 
 type CategoryKind = "expense" | "income";
 
 // What the form dialog opens for: a blank top-level category, a subcategory
 // preselected under `defaultParentId`, or an existing category to edit.
+// `hasChildren` is absent whenever `category` is, since a target with no
+// category never gates the parent picker.
 type FormTarget = {
   category?: { id: string; name: string; parentId: string | null; color: string | null };
   defaultParentId?: string | null;
+  hasChildren?: boolean;
 };
 
 // A top-level category names its children before the cascade removes them;
@@ -52,9 +56,8 @@ export function CategoriesScreen({
   usedColors: string[];
 }) {
   const t = useTranslations("categories");
-  // Root-scoped: the action's error and `common`'s labels are full catalogue paths.
+  // Root-scoped: `common`'s labels are full catalogue paths.
   const tKey = useTranslations();
-  type MessageKey = Parameters<typeof tKey>[0];
 
   const pathname = usePathname();
   const router = useRouter();
@@ -62,17 +65,26 @@ export function CategoriesScreen({
   const [formTarget, setFormTarget] = useState<FormTarget | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
 
+  const onActionError = useActionErrorToast();
+
   const deleteAction = useAction(deleteCategoryAction, {
     onSuccess() {
       toast.success(t("deleted"));
       setDeleteTarget(null);
     },
-    onError({ error }) {
-      toast.error(
-        tKey((error.serverError ?? "errors.unexpected") as MessageKey),
-      );
-    },
+    onError: onActionError,
   });
+
+  // RF-26 caps nesting at one level: a would-be parent that already has
+  // children is marked here, so the dialog can keep it off the picker
+  // without a second pass over `categories`.
+  const parentOptions = parents.map((parent) => ({
+    id: parent.id,
+    name: parent.name,
+    hasChildren:
+      (categories.find((category) => category.id === parent.id)?.children
+        .length ?? 0) > 0,
+  }));
 
   // Rewrites the query string so the active tab survives a reload and can be linked to.
   function onKindChange(nextKind: string) {
@@ -152,6 +164,7 @@ export function CategoriesScreen({
                               parentId: null,
                               color: category.color,
                             },
+                            hasChildren: category.children.length > 0,
                           })
                         }
                       >
@@ -242,7 +255,7 @@ export function CategoriesScreen({
       <CategoryFormDialog
         fundId={fundId}
         kind={kind}
-        parents={parents}
+        parents={parentOptions}
         usedColors={usedColors}
         open={formTarget !== null}
         onOpenChange={(open) => {
@@ -250,6 +263,7 @@ export function CategoriesScreen({
         }}
         category={formTarget?.category}
         defaultParentId={formTarget?.defaultParentId}
+        hasChildren={formTarget?.hasChildren ?? false}
       />
       {deleteTarget && (
         <ConfirmDialog
