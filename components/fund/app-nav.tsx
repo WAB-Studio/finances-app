@@ -54,7 +54,12 @@ export function AppNav({ funds }: { funds: FundSummary[] }) {
   const activeFund = funds.find((fund) => fund.id === fundId);
 
   const trigger = (
-    <IconButton type="button" variant="ghost" size="4" aria-label={t("openLabel")}>
+    <IconButton
+      type="button"
+      variant="ghost"
+      size="4"
+      aria-label={t("openLabel")}
+    >
       <Menu size={20} />
     </IconButton>
   );

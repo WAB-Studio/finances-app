@@ -27,7 +27,13 @@ export default function NotFound() {
         </Box>
         <Link asChild>
           <LocaleLink href="/">
-            <Flex as="span" align="center" justify="center" minHeight="40px" px="2">
+            <Flex
+              as="span"
+              align="center"
+              justify="center"
+              minHeight="40px"
+              px="2"
+            >
               {t("common.backHome")}
             </Flex>
           </LocaleLink>
