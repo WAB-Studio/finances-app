@@ -1,6 +1,6 @@
 import { useTranslations } from "next-intl";
 
-import { Box, Flex, Heading, Link, Text } from "@/components/ui";
+import { Box, Flex, Heading, Link, TapTarget, Text } from "@/components/ui";
 import { Link as LocaleLink } from "@/i18n/navigation";
 
 export default function NotFound() {
@@ -27,15 +27,9 @@ export default function NotFound() {
         </Box>
         <Link asChild>
           <LocaleLink href="/">
-            <Flex
-              as="span"
-              align="center"
-              justify="center"
-              minHeight="32px"
-              px="2"
-            >
+            <TapTarget align="center" justify="center" px="2">
               {t("common.backHome")}
-            </Flex>
+            </TapTarget>
           </LocaleLink>
         </Link>
       </main>

@@ -64,3 +64,5 @@ export { NavPanel } from "./nav-panel";
 export { ColorSwatchPicker, ColorSwatch } from "./color-swatch-picker";
 
 export { StackedSegmentedControl } from "./stacked-segmented-control";
+
+export { TapTarget } from "./tap-target";

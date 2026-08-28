@@ -8,7 +8,7 @@ import { useState } from "react";
 import { SignOutButton } from "@/components/auth/sign-out-button";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { ThemeSwitcher } from "@/components/theme-switcher";
-import { Flex, IconButton, Link, NavPanel } from "@/components/ui";
+import { Flex, IconButton, Link, NavPanel, TapTarget } from "@/components/ui";
 import type { FundSummary } from "@/db/queries/funds";
 import { Link as LocaleLink, usePathname } from "@/i18n/navigation";
 import { activeFundId } from "@/lib/fund/active-fund-id";
@@ -84,10 +84,10 @@ export function AppNav({ funds }: { funds: FundSummary[] }) {
                   aria-current={current ? "page" : undefined}
                   onClick={() => setOpen(false)}
                 >
-                  <Flex as="span" align="center" gap="2" minHeight="32px">
+                  <TapTarget align="center" gap="2">
                     <Icon size={18} />
                     {t(key)}
-                  </Flex>
+                  </TapTarget>
                 </LocaleLink>
               </Link>
             );
