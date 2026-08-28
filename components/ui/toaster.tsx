@@ -12,7 +12,7 @@ import { Toaster as Sonner } from "sonner";
 import { Spinner } from "@radix-ui/themes";
 import { useTheme } from "@/lib/use-theme";
 
-// Radix Themes tokens, not Tailwind: the toast surface flips with the resolved appearance.
+// Reads Radix Themes tokens, so the toast surface flips with the resolved appearance.
 const toasterStyle = {
   "--normal-bg": "var(--color-panel-solid)",
   "--normal-text": "var(--gray-12)",
