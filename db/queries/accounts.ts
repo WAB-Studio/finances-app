@@ -98,7 +98,8 @@ export async function createAccount({
         name,
         kind,
         memberId,
-        institution,
+        // A blank field means "no institution", the same as an absent one.
+        institution: institution === "" ? null : institution,
         // A liability opens negative so net worth stays a plain sum (RNF-05).
         // `cents` is cast explicitly: an untyped param leaves unary minus with
         // no single best operator, and Postgres refuses to parse the case.
@@ -138,7 +139,7 @@ export async function updateAccount({
       .set({
         name,
         memberId,
-        institution,
+        institution: institution === "" ? null : institution,
         // `kind` is immutable and absent from the grant, so it is read from
         // the row itself rather than named in this `set`. `cents` is cast
         // explicitly for the same reason as in `createAccount`.
