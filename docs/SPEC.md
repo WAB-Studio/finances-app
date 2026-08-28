@@ -48,12 +48,12 @@ alerts, accounting exports, native apps. None of this gets built or left
 
 #### Members and accounts
 
-- [ ] **RF-07** — CRUD for members. A member need not have a user: you record on their behalf even if they never open the app.
-- [ ] **RF-08** — CRUD for accounts. Every account belongs to the fund; linking it to a member is optional. Without a member it is a shared account.
-- [ ] **RF-09** — An account is either an asset (savings, cash) or a liability (card, loan).
-- [ ] **RF-10** — Creating an account captures its opening balance and the date that balance is true as of.
+- [x] **RF-07** — CRUD for members. A member need not have a user: you record on their behalf even if they never open the app.
+- [x] **RF-08** — CRUD for accounts. Every account belongs to the fund; linking it to a member is optional. Without a member it is a shared account.
+- [x] **RF-09** — An account is either an asset (savings, cash) or a liability (card, loan).
+- [x] **RF-10** — Creating an account captures its opening balance and the date that balance is true as of.
 - [ ] **RF-11** — Accounts and members that have movements are archived, not deleted.
-- [ ] **RF-12** — Archiving a member does not archive their accounts. The user decides per account: archive it or hand it to the fund.
+- [x] **RF-12** — Archiving a member does not archive their accounts. The user decides per account: archive it or hand it to the fund.
 
 #### Debts
 
@@ -76,8 +76,8 @@ alerts, accounting exports, native apps. None of this gets built or left
 
 #### Categories
 
-- [ ] **RF-26** — CRUD for categories with one level of subcategories. A subcategory belongs to the same fund as its parent.
-- [ ] **RF-27** — Each category is either expense or income.
+- [x] **RF-26** — CRUD for categories with one level of subcategories. A subcategory belongs to the same fund as its parent.
+- [x] **RF-27** — Each category is either expense or income.
 - [x] **RF-28** — Creating a fund seeds an initial category set in the active language.
 
 #### Recurring
@@ -294,6 +294,9 @@ Rules the model must always guarantee, regardless of how they are implemented:
 - A debt is a liability account, not a separate entity. Its balance comes from
   the same calculation as a savings account's.
 - A balance is never stored: it derives from the opening balance plus movements.
+- An account's opening balance is signed the way the account is worth: an asset's is zero or
+  positive, a liability's is zero or negative. The sign comes from `kind`, never from the
+  user.
 - Null `from` and `to` define the type: destination only is income, source only
   is expense, both is a transfer. Never both null.
 - Both accounts on a transaction belong to the same fund as the transaction.
