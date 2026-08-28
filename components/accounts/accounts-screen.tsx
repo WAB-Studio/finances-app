@@ -29,9 +29,17 @@ import type { AccountRow } from "@/db/queries/accounts";
 import { usePathname, useRouter } from "@/i18n/navigation";
 import { civilDateToDate } from "@/lib/dates";
 import { centsToPesos } from "@/lib/money";
+import { useActionErrorToast } from "@/lib/use-action-toast";
 
 type Member = { id: string; name: string };
 type Group = { key: string; label: string; accounts: AccountRow[] };
+
+// The subject of a menu action, not a dialog's own field state: closing any
+// of the dialogs below clears this, and reopening one always names an account.
+type RowAction =
+  | { kind: "archive"; account: AccountRow }
+  | { kind: "restore"; account: AccountRow }
+  | { kind: "delete"; account: AccountRow };
 
 // `listAccounts` already orders fund accounts first, then by member name,
 // then by account name, so one pass that starts a new group on an owner
@@ -72,9 +80,35 @@ export function AccountsScreen({
   const tKey = useTranslations();
   const pathname = usePathname();
   const router = useRouter();
+  const onActionError = useActionErrorToast();
 
   // "new" and a row share one dialog instance; its own key resets the form.
   const [formTarget, setFormTarget] = useState<AccountRow | "new" | null>(null);
+  const [rowAction, setRowAction] = useState<RowAction | null>(null);
+
+  const archiveState = useAction(archiveAccountAction, {
+    onSuccess() {
+      toast.success(t("archived"));
+      setRowAction(null);
+    },
+    onError: onActionError,
+  });
+
+  const restoreState = useAction(restoreAccountAction, {
+    onSuccess() {
+      toast.success(t("restored"));
+      setRowAction(null);
+    },
+    onError: onActionError,
+  });
+
+  const deleteState = useAction(deleteAccountAction, {
+    onSuccess() {
+      toast.success(t("deleted"));
+      setRowAction(null);
+    },
+    onError: onActionError,
+  });
 
   // Rewrites the query string instead of holding the tab in state, so a
   // reload or a shared link lands on the same tab.
@@ -136,10 +170,12 @@ export function AccountsScreen({
                 {group.accounts.map((account) => (
                   <AccountCard
                     key={account.id}
-                    fundId={fundId}
                     account={account}
                     archived={archived}
                     onEdit={() => setFormTarget(account)}
+                    onArchive={() => setRowAction({ kind: "archive", account })}
+                    onRestore={() => setRowAction({ kind: "restore", account })}
+                    onDelete={() => setRowAction({ kind: "delete", account })}
                   />
                 ))}
               </Flex>
@@ -157,77 +193,75 @@ export function AccountsScreen({
         }}
         account={formTarget === "new" ? undefined : (formTarget ?? undefined)}
       />
+
+      {rowAction?.kind === "archive" && (
+        <ConfirmDialog
+          open
+          onOpenChange={(open) => !open && setRowAction(null)}
+          title={t("archiveTitle")}
+          description={t("archiveDescription")}
+          confirmLabel={tKey("common.archive")}
+          cancelLabel={tKey("common.cancel")}
+          tone="neutral"
+          pending={archiveState.isPending}
+          onConfirm={() =>
+            archiveState.execute({ fundId, accountId: rowAction.account.id })
+          }
+        />
+      )}
+
+      {rowAction?.kind === "restore" && (
+        <ConfirmDialog
+          open
+          onOpenChange={(open) => !open && setRowAction(null)}
+          title={t("restoreTitle")}
+          description={t("restoreDescription")}
+          confirmLabel={tKey("common.restore")}
+          cancelLabel={tKey("common.cancel")}
+          tone="neutral"
+          pending={restoreState.isPending}
+          onConfirm={() =>
+            restoreState.execute({ fundId, accountId: rowAction.account.id })
+          }
+        />
+      )}
+
+      {rowAction?.kind === "delete" && (
+        <ConfirmDialog
+          open
+          onOpenChange={(open) => !open && setRowAction(null)}
+          title={t("deleteTitle")}
+          description={t("deleteDescription")}
+          confirmLabel={tKey("common.delete")}
+          cancelLabel={tKey("common.cancel")}
+          pending={deleteState.isPending}
+          onConfirm={() =>
+            deleteState.execute({ fundId, accountId: rowAction.account.id })
+          }
+        />
+      )}
     </Flex>
   );
 }
 
 function AccountCard({
-  fundId,
   account,
   archived,
   onEdit,
+  onArchive,
+  onRestore,
+  onDelete,
 }: {
-  fundId: string;
   account: AccountRow;
   archived: boolean;
   onEdit: () => void;
+  onArchive: () => void;
+  onRestore: () => void;
+  onDelete: () => void;
 }) {
   const t = useTranslations("accounts");
   const tKey = useTranslations();
-  type MessageKey = Parameters<typeof tKey>[0];
   const format = useFormatter();
-
-  // Tracks which of the three confirmations is open.
-  const [confirm, setConfirm] = useState<"archive" | "restore" | "delete" | null>(
-    null,
-  );
-
-  const { execute: executeArchive, isPending: archiving } = useAction(
-    archiveAccountAction,
-    {
-      onSuccess() {
-        toast.success(t("archived"));
-        setConfirm(null);
-      },
-      onError({ error }) {
-        toast.error(
-          tKey((error.serverError ?? "errors.unexpected") as MessageKey),
-        );
-      },
-    },
-  );
-
-  const { execute: executeRestore, isPending: restoring } = useAction(
-    restoreAccountAction,
-    {
-      onSuccess() {
-        toast.success(t("restored"));
-        setConfirm(null);
-      },
-      onError({ error }) {
-        toast.error(
-          tKey((error.serverError ?? "errors.unexpected") as MessageKey),
-        );
-      },
-    },
-  );
-
-  const { execute: executeDelete, isPending: deleting } = useAction(
-    deleteAccountAction,
-    {
-      onSuccess() {
-        toast.success(t("deleted"));
-        setConfirm(null);
-      },
-      onError({ error }) {
-        toast.error(
-          tKey((error.serverError ?? "errors.unexpected") as MessageKey),
-        );
-      },
-    },
-  );
-
-  const pending = archiving || restoring || deleting;
 
   return (
     <Card>
@@ -268,7 +302,6 @@ function AccountCard({
               variant="ghost"
               color="gray"
               size="3"
-              disabled={pending}
               aria-label={tKey("common.actions")}
             >
               <EllipsisVertical size={16} />
@@ -279,64 +312,20 @@ function AccountCard({
               {tKey("common.edit")}
             </DropdownMenu.Item>
             {archived ? (
-              <DropdownMenu.Item onSelect={() => setConfirm("restore")}>
+              <DropdownMenu.Item onSelect={onRestore}>
                 {tKey("common.restore")}
               </DropdownMenu.Item>
             ) : (
-              <DropdownMenu.Item onSelect={() => setConfirm("archive")}>
+              <DropdownMenu.Item onSelect={onArchive}>
                 {tKey("common.archive")}
               </DropdownMenu.Item>
             )}
-            <DropdownMenu.Item
-              color="red"
-              onSelect={() => setConfirm("delete")}
-            >
+            <DropdownMenu.Item color="red" onSelect={onDelete}>
               {tKey("common.delete")}
             </DropdownMenu.Item>
           </DropdownMenu.Content>
         </DropdownMenu.Root>
       </Flex>
-
-      {confirm === "archive" && (
-        <ConfirmDialog
-          open
-          onOpenChange={(open) => !open && setConfirm(null)}
-          title={t("archiveTitle")}
-          description={t("archiveDescription")}
-          confirmLabel={tKey("common.archive")}
-          cancelLabel={tKey("common.cancel")}
-          tone="neutral"
-          pending={archiving}
-          onConfirm={() => executeArchive({ fundId, accountId: account.id })}
-        />
-      )}
-
-      {confirm === "restore" && (
-        <ConfirmDialog
-          open
-          onOpenChange={(open) => !open && setConfirm(null)}
-          title={t("restoreTitle")}
-          description={t("restoreDescription")}
-          confirmLabel={tKey("common.restore")}
-          cancelLabel={tKey("common.cancel")}
-          tone="neutral"
-          pending={restoring}
-          onConfirm={() => executeRestore({ fundId, accountId: account.id })}
-        />
-      )}
-
-      {confirm === "delete" && (
-        <ConfirmDialog
-          open
-          onOpenChange={(open) => !open && setConfirm(null)}
-          title={t("deleteTitle")}
-          description={t("deleteDescription")}
-          confirmLabel={tKey("common.delete")}
-          cancelLabel={tKey("common.cancel")}
-          pending={deleting}
-          onConfirm={() => executeDelete({ fundId, accountId: account.id })}
-        />
-      )}
     </Card>
   );
 }
