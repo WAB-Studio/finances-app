@@ -16,6 +16,7 @@ export function ColorSwatchPicker({
   optionLabel,
   disabled,
   invalid,
+  describedBy,
 }: {
   id: string;
   name: string;
@@ -26,12 +27,14 @@ export function ColorSwatchPicker({
   optionLabel: (index: number) => string;
   disabled?: boolean;
   invalid?: boolean;
+  describedBy?: string;
 }) {
   return (
     <fieldset
       id={id}
       className={styles.fieldset}
       aria-invalid={invalid || undefined}
+      aria-describedby={describedBy}
     >
       <legend className={styles.legend}>{label}</legend>
       <div className={styles.swatches}>

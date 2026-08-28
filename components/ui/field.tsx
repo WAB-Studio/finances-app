@@ -1,10 +1,17 @@
 "use client";
 
-import { createContext, useContext, useMemo, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useId,
+  useMemo,
+  type ReactNode,
+} from "react";
+import { useTranslations } from "next-intl";
 import { Flex, Text } from "@radix-ui/themes";
 
-// Carries a Field's invalid flag down to its FieldLabel, nothing else.
-const FieldInvalidContext = createContext(false);
+// Carries a Field's invalid flag and error id down to its label and control.
+const FieldContext = createContext({ invalid: false, errorId: "" });
 
 // One vertical stack of Fields, the gap that separates one form row from the next.
 export function FieldGroup({ children }: { children?: ReactNode }) {
@@ -23,8 +30,14 @@ export function Field({
   invalid?: boolean;
   children?: ReactNode;
 }) {
+  const errorId = useId();
+  const value = useMemo(
+    () => ({ invalid: !!invalid, errorId }),
+    [invalid, errorId],
+  );
+
   return (
-    <FieldInvalidContext.Provider value={!!invalid}>
+    <FieldContext.Provider value={value}>
       <Flex
         role="group"
         direction="column"
@@ -34,22 +47,51 @@ export function Field({
       >
         {children}
       </Flex>
-    </FieldInvalidContext.Provider>
+    </FieldContext.Provider>
   );
+}
+
+// `aria-invalid` and `aria-describedby` for the control a Field wraps, both
+// unset while the field is valid.
+export function useFieldControl() {
+  const { invalid, errorId } = useContext(FieldContext);
+  return {
+    "aria-invalid": invalid ? true : undefined,
+    "aria-describedby": invalid ? errorId : undefined,
+  };
 }
 
 export function FieldLabel({
   htmlFor,
+  id,
   children,
 }: {
-  htmlFor: string;
+  htmlFor?: string;
+  id?: string;
   children?: ReactNode;
 }) {
-  const invalid = useContext(FieldInvalidContext);
+  const { invalid } = useContext(FieldContext);
+
+  if (htmlFor) {
+    return (
+      <Text
+        as="label"
+        htmlFor={htmlFor}
+        size="2"
+        weight="medium"
+        color={invalid ? "red" : undefined}
+      >
+        {children}
+      </Text>
+    );
+  }
+
+  // Not labelable: a `<div role="radiogroup">` or `<fieldset>` names itself
+  // through `aria-labelledby` pointing at this span's `id` instead.
   return (
     <Text
-      as="label"
-      htmlFor={htmlFor}
+      as="span"
+      id={id}
       size="2"
       weight="medium"
       color={invalid ? "red" : undefined}
@@ -68,9 +110,11 @@ export function FieldDescription({ children }: { children?: ReactNode }) {
 }
 
 export function FieldError({
+  id,
   errors,
   children,
 }: {
+  id?: string;
   errors?: Array<{ message?: string } | undefined>;
   children?: ReactNode;
 }) {
@@ -107,8 +151,27 @@ export function FieldError({
   }
 
   return (
-    <Text as="div" role="alert" size="2" color="red">
+    <Text id={id} as="div" role="alert" size="2" color="red">
       {content}
     </Text>
+  );
+}
+
+// The 18-call-site block, once: translates a React Hook Form error message as
+// a root-scoped catalogue path and renders it under the Field's error id.
+export function FieldMessage({ error }: { error?: { message?: string } }) {
+  const { errorId } = useContext(FieldContext);
+  const t = useTranslations();
+  type MessageKey = Parameters<typeof t>[0];
+
+  if (!error?.message) {
+    return null;
+  }
+
+  return (
+    <FieldError
+      id={errorId}
+      errors={[{ message: t(error.message as MessageKey) }]}
+    />
   );
 }
