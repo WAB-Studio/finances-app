@@ -17,7 +17,7 @@ RNF-08 sets the requirement. This is how it shows in the interface.
   Add `xs`, `sm`, `md`, `lg` or `xl` only for what changes above it.
 - Treat the narrow viewport as the base case, never as a fallback.
 - A screen is done only once it holds at the narrow viewport: no horizontal
-  overflow, no overlapping controls, no tap target too small to hit.
+  overflow, no overlapping controls, no tap target under 40 px on its shorter side.
 
 ## Navigation
 
