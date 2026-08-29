@@ -4,8 +4,9 @@ import { isCivilDate, todayInBogota } from "@/lib/dates";
 import { MAX_AMOUNT_PESOS, parsePesos, pesosToCents } from "@/lib/money";
 
 // A peso string travels through validation unparsed: the amount stays a
-// string the form owns until the action turns it into integer cents.
-function pesoAmountSchema(keys: {
+// string the form owns until the action turns it into integer cents. Exported
+// so every money field across the ledger, budgets and goals shares one parse.
+export function pesoAmountSchema(keys: {
   required: string;
   invalid: string;
   tooLarge: string;
@@ -43,13 +44,14 @@ const splitAmountSchema = pesoAmountSchema({
 // The source and destination stay nullable: income names only a destination,
 // expense only a source, a transfer both (RF-20). The kind is derived from
 // which is null, never sent.
-const accountRefSchema = z
+export const accountRefSchema = z
   .uuid({ error: "transactions.errors.accountInvalid" })
   .nullable();
 
 // The date the movement occurred; it can be past or today, never future,
-// compared as a YYYY-MM-DD string end to end (RNF-06).
-const occurredAtSchema = z.string().superRefine((value, ctx) => {
+// compared as a YYYY-MM-DD string end to end (RNF-06). Exported so a planned
+// payment's settlement date shares the same not-future rule.
+export const occurredAtSchema = z.string().superRefine((value, ctx) => {
   if (value.trim().length === 0) {
     ctx.addIssue("transactions.errors.dateRequired");
     return;
@@ -97,8 +99,12 @@ type TransactionFields = {
 };
 
 // At least one account, so income and expense stay one-sided and a transfer
-// keeps both (RF-20).
-function requireAnAccount(data: TransactionFields, ctx: z.RefinementCtx) {
+// keeps both (RF-20). Typed on the account pair alone so a planned payment,
+// which carries no splits, reuses the very same refinement.
+export function requireAnAccount(
+  data: { fromAccountId: string | null; toAccountId: string | null },
+  ctx: z.RefinementCtx,
+) {
   if (data.fromAccountId === null && data.toAccountId === null) {
     ctx.addIssue({
       code: "custom",
