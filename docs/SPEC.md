@@ -143,6 +143,13 @@ accounting exports, native apps. None of this gets built or left
 - [ ] **RF-52** — Re-importing the same file does not duplicate: every row carries a stable external reference and, if it already exists in the fund, it is updated.
 - [ ] **RF-53** — Read-only audit log viewer, filterable by entity, user and date range.
 
+#### Ingest
+
+- [ ] **RF-85** — A signed JSON webhook creates a movement from a payload: the request carries a bearer credential that resolves it to exactly one user; the quick-entry interpreter (RF-22) infers amount, category and description from the payload's text; the movement is written under that user's writable scope so the access policies and the audit apply as if the user had recorded it; and a stable external reference makes a re-delivery idempotent, updating nothing and duplicating nothing.
+- [ ] **RF-86** — A user issues, names and revokes per-user webhook credentials; each credential's bearer token is shown once and stored only as a hash, may carry a default account and category the ingest falls back to when the payload does not name them, and a per-credential rate limit.
+
+The webhook reuses RF-22 (quick entry), RF-25 (created_by) and RF-45 (no write bypasses audit) unchanged: the same interpreter reads the payload text and the same insert path records the movement, so the created-by stamp and the audit hold as on any manual write. RF-52's idempotency shape is mirrored, not reused — RF-52 stays a spreadsheet-import requirement; the webhook applies the same stable-external-reference rule to its own deliveries.
+
 ### Non-functional requirements
 
 | ID | Requirement |
@@ -209,6 +216,10 @@ erDiagram
     app_users ||--o{ budgets : "owns (personal)"
     app_users ||--o{ planned_payments : "owns (personal)"
     app_users ||--o{ savings_goals : "owns (personal)"
+    app_users ||--o{ webhook_credentials : "issues"
+
+    accounts ||--o| webhook_credentials : "default"
+    categories ||--o| webhook_credentials : "default"
 
     accounts ||--o| debt_terms : "if liability"
     accounts ||--o{ installment_plans : "schedules"
@@ -466,6 +477,22 @@ erDiagram
         uuid transaction_id FK
         bigint amount_cents
     }
+
+    webhook_credentials {
+        uuid id PK
+        uuid owner_user_id FK
+        text name
+        text token_hash "sha-256 hex, stored never shown"
+        uuid default_account_id FK "null = payload must name it"
+        uuid default_category_id FK "null = payload must name it"
+        integer rate_limit_per_min "default 60"
+        timestamptz rate_window_started_at "resolver-managed"
+        integer rate_count "resolver-managed"
+        timestamptz last_used_at
+        timestamptz revoked_at
+        timestamptz created_at
+        timestamptz updated_at
+    }
 ```
 
 ### Invariants
@@ -534,6 +561,10 @@ Rules the model must always guarantee, regardless of how they are implemented:
   group's movements).
 - `app_users` hangs off no fund: the language preference belongs to the
   user and follows them across every fund they belong to (RF-47).
+- A webhook credential belongs to exactly one user; only a hash of its bearer
+  token is stored, never the token; an ingest through it writes under that user's
+  scope, so RLS and audit apply as if the user recorded the movement; a
+  per-credential fixed-window rate limit bounds its request rate.
 
 ---
 
