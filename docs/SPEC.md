@@ -57,10 +57,14 @@ accounting exports, native apps. None of this gets built or left
 
 #### Debts
 
-- [ ] **RF-13** — A liability account may carry an effective annual rate, minimum payment, credit limit and payment day.
-- [ ] **RF-14** — The app estimates monthly interest from balance and rate. The annual-to-monthly conversion is effective, not linear.
-- [ ] **RF-15** — Consolidated debt view: total balance, summed monthly interest and next payment due.
 - [ ] **RF-16** — Paying down a debt is recorded as a transfer from an asset account.
+- [ ] **RF-78** — A liability account may carry debt terms: an effective annual rate, a minimum payment as a fixed amount or a percentage of balance, a credit limit, a statement cut-off day, a payment due day and an aval.
+- [ ] **RF-79** — The app estimates a debt's monthly interest from its derived balance and effective annual rate; the annual-to-monthly conversion is effective, not linear.
+- [ ] **RF-80** — A revolving card exposes its available credit — its limit less its derived balance — its statement cut-off and payment due day, and its minimum payment for the period. Interest, when charged, is a real movement, so the balance stays derived.
+- [ ] **RF-81** — A fixed-installment or BNPL debt carries a plan — principal, number of installments, frequency (monthly or fortnightly), interest, down payment, aval, start date and merchant — from which dated installment lines are generated.
+- [ ] **RF-82** — A payment into a debt account is allocated to its unpaid installment lines oldest-first, marking a line paid only when the payment fully covers it and linking the paying movement; a partial remainder is left unallocated, and a plan's pending is its unpaid lines, always derived, never stored.
+- [ ] **RF-83** — Consolidated debt view: total owed across all debts, each card's available credit, the summed estimated monthly interest, and the next payment due — each debt's minimum plus the installment lines falling due.
+- [ ] **RF-84** — A liability account keeps a statement history: one record per statement period with its bounds, its payment due date and the balance, minimum and interest captured at the cut-off. A statement is an immutable historical snapshot, materialised for past periods, never rewritten.
 
 #### Transactions
 
@@ -170,6 +174,9 @@ Dead codes. The number stays burned and the tick stays as it was.
 - [ ] **RF-05** — Whoever creates the fund becomes `owner`. The role is transferable, but a fund is never left without an owner. _Retired 2026-08-28. Successor: RF-59 (group leader)._
 - [x] **RF-08** — CRUD for accounts. Every account belongs to the fund; linking it to a member is optional. Without a member it is a shared account. _Retired 2026-08-28. Successor: RF-60 (personal vs group account)._
 - [x] **RF-12** — Archiving a member does not archive their accounts. The user decides per account: archive it or hand it to the fund. _Retired 2026-08-28. Successor: RF-61 (hand to the group)._
+- [ ] **RF-13** — A liability account may carry an effective annual rate, minimum payment, credit limit and payment day. _Retired 2026-08-29. Successor: RF-78 (debt terms with kind, percentage minimum, cut-off and aval)._
+- [ ] **RF-14** — The app estimates monthly interest from balance and rate. The annual-to-monthly conversion is effective, not linear. _Retired 2026-08-29. Successor: RF-79 (interest from derived balance)._
+- [ ] **RF-15** — Consolidated debt view: total balance, summed monthly interest and next payment due. _Retired 2026-08-29. Successor: RF-83 (available credit and installment lines due)._
 - [ ] **RF-21** — Both accounts on a transaction always belong to the same fund. _Retired 2026-08-28. Successor: RF-62 (same writable scope)._
 - [x] **RF-26** — CRUD for categories with one level of subcategories. A subcategory belongs to the same fund as its parent. _Retired 2026-08-28. Successor: RF-63 (scoped to user or group)._
 - [x] **RF-28** — Creating a fund seeds an initial category set in the active language. _Retired 2026-08-28. Successor: RF-64 (seed on personal space or group)._
@@ -204,6 +211,9 @@ erDiagram
     app_users ||--o{ savings_goals : "owns (personal)"
 
     accounts ||--o| debt_terms : "if liability"
+    accounts ||--o{ installment_plans : "schedules"
+    accounts ||--o{ debt_statements : "closes"
+    installment_plans ||--o{ installment_lines : "generates"
     accounts ||--o{ transactions : "source"
     accounts ||--o{ transactions : "destination"
     accounts ||--o{ recurring_rules : "source"
@@ -225,6 +235,7 @@ erDiagram
     transactions ||--o{ transaction_labels : "tagged by"
     transactions ||--o| planned_payments : "settles"
     transactions ||--o{ goal_contributions : "contributes"
+    transactions ||--o{ installment_lines : "pays"
     labels ||--o{ transaction_labels : "tags"
 
     recurring_rules ||--o{ transactions : "generates"
@@ -275,10 +286,54 @@ erDiagram
 
     debt_terms {
         uuid account_id PK,FK
+        text debt_kind "revolving | installment"
         numeric annual_rate "effective annual"
-        bigint minimum_payment_cents
+        bigint minimum_payment_cents "fixed amount XOR pct"
+        numeric minimum_payment_pct "fraction 0..1"
         bigint credit_limit_cents
-        smallint payment_day
+        smallint statement_cut_off_day
+        smallint payment_due_day
+        bigint aval_cents
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    installment_plans {
+        uuid id PK
+        uuid account_id FK
+        text description
+        bigint principal_cents
+        smallint n_installments
+        text frequency "monthly | fortnightly"
+        numeric interest_rate
+        bigint down_payment_cents
+        bigint aval_cents
+        date start_date
+        text merchant
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    installment_lines {
+        uuid id PK
+        uuid plan_id FK
+        smallint seq
+        date due_date
+        bigint amount_cents "aval folded in"
+        uuid paid_transaction_id FK "null until paid in full"
+        timestamptz created_at
+    }
+
+    debt_statements {
+        uuid id PK
+        uuid account_id FK
+        date period_start
+        date cut_off_date
+        date payment_due_date
+        bigint statement_balance_cents "signed like the account"
+        bigint minimum_payment_cents
+        bigint interest_estimate_cents
+        timestamptz closed_at
     }
 
     categories {
@@ -457,6 +512,20 @@ Rules the model must always guarantee, regardless of how they are implemented:
 - A savings goal's progress derives from its contributions and is never stored.
 - A goal contribution shares its goal's scope with its transaction, and counts a
   movement toward a goal at most once.
+- A debt's terms belong to a liability account and carry no scope of their own:
+  the account's scope gates them.
+- A debt's minimum payment is a fixed amount XOR a percentage of the balance,
+  never both.
+- A debt's monthly-interest estimate derives from its balance and effective
+  annual rate and is never stored; actual interest enters as a real movement.
+- An installment plan schedules an existing liability balance into dated lines
+  and never adds to total owed.
+- A payment into a debt account allocates to its unpaid installment lines
+  oldest-first; a line is paid in full or not at all, and the paying movement is
+  linked. A partial remainder is left unallocated.
+- A plan's pending derives from its unpaid lines and is never stored.
+- A debt statement is an immutable snapshot captured at its cut-off: the one
+  persisted balance figure, never kept in sync with later movements.
 - A group's `cash_mode` is `shared` (a single group cash account) or
   `per_member` (one cash account per member).
 - Money is an integer number of cents.
