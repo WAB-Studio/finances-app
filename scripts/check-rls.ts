@@ -138,6 +138,10 @@ async function main() {
   await checkBudgetPolicies();
   await checkPlannedPaymentPolicies();
   await checkSavingsGoalPolicies();
+  await checkDebtTermsPolicies();
+  await checkInstallmentPolicies();
+  await checkDebtDerivedFigures();
+  await checkDebtStatementPolicies();
 }
 
 // Assertions 9-26: the repivoted schema. A group holds accounts and categories a user XOR a group
@@ -1425,6 +1429,586 @@ async function checkSavingsGoalPolicies() {
     tailLabel,
     afterUser === "postgres" && probeCount === "0",
     `current_user = ${afterUser}, rows named 'rls goals%' = ${probeCount}`,
+  );
+}
+
+// Assertions 63-69: the debt_terms table. A profile attaches only to a liability the caller may write;
+// the liability trigger, the amount-XOR-percentage check and the due-day range each reject a bad row;
+// read is universal inside the group and a non-writer cannot mint a profile on another member's personal
+// liability. Every fixture is seeded through the app's own policies and rolled back.
+async function checkDebtTermsPolicies() {
+  console.log("");
+  const leaderUser = randomUUID();
+  const memberUser = randomUUID();
+  const secondLeader = randomUUID();
+  const groupId = randomUUID();
+  const secondGroup = randomUUID();
+
+  const labels = [
+    "63. a profile on the caller's own liability inserts",
+    "64. a profile on an asset account is refused",
+    "65. a minimum set as both an amount and a percentage is refused",
+    "66. a payment due day outside 1..31 is refused",
+    "67. a second group's debt terms stay invisible",
+    "68. a member reads a group liability's terms",
+    "69. a non-writer cannot mint terms on another member's personal liability",
+  ];
+  const tailLabel = "70. the rolled-back debt terms transaction leaves no trace";
+
+  const forcedRollback = Symbol("forced rollback");
+
+  await sql
+    .begin(async (tx) => {
+      await tx`insert into auth.users (id) values (${leaderUser}), (${memberUser}), (${secondLeader})`;
+      await tx`insert into app_users (id) values (${leaderUser}), (${memberUser}), (${secondLeader})`;
+
+      await enterUserContext(tx, leaderUser);
+      await tx`insert into groups (id, name, cash_mode) values (${groupId}, 'rls debt terms', 'shared')`;
+      await tx`insert into group_members (group_id, user_id, name, role)
+        values (${groupId}, ${leaderUser}, 'rls debt terms leader', 'leader')`;
+
+      // A liability with a profile below, an asset the trigger rejects, a second liability for the check
+      // constraints (which roll back, so it stays profileless), and a group liability the member reads.
+      const [{ id: liabilityA }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_cents, initial_balance_on)
+        values (${leaderUser}, 'rls debt terms leader card', 'liability', -500000, (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: assetAccount }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_on)
+        values (${leaderUser}, 'rls debt terms leader cash', 'asset', (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: liabilityB }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_cents, initial_balance_on)
+        values (${leaderUser}, 'rls debt terms leader card B', 'liability', -100000, (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: groupLiability }] = await tx<{ id: string }[]>`
+        insert into accounts (group_id, is_shared, name, kind, initial_balance_cents, initial_balance_on)
+        values (${groupId}, true, 'rls debt terms group card', 'liability', -200000, (now() at time zone 'America/Bogota')::date) returning id`;
+
+      // 63: a profile on the caller's own liability lands.
+      const inserted = await tx<{ account_id: string }[]>`
+        insert into debt_terms (account_id, debt_kind, annual_rate, minimum_payment_pct, credit_limit_cents, statement_cut_off_day, payment_due_day)
+        values (${liabilityA}, 'revolving', 0.28, 0.05, 1500000, 15, 5) returning account_id`;
+      assert(labels[0], inserted.length === 1, `inserted rows = ${inserted.length}`);
+
+      // 64: the liability trigger refuses a profile on an asset account.
+      await tx
+        .savepoint(async (sp) => {
+          await sp`insert into debt_terms (account_id, debt_kind, annual_rate)
+            values (${assetAccount}, 'revolving', 0.28)`;
+          assert(labels[1], false, "a profile on an asset stood, which it must not");
+        })
+        .catch((error: unknown) => {
+          assert(labels[1], pgCode(error) === "23514", `sqlstate ${pgCode(error) ?? "none"}`);
+        });
+
+      // 65: the minimum is a fixed amount XOR a percentage — both at once is refused.
+      await tx
+        .savepoint(async (sp) => {
+          await sp`insert into debt_terms (account_id, debt_kind, annual_rate, minimum_payment_cents, minimum_payment_pct)
+            values (${liabilityB}, 'revolving', 0.28, 50000, 0.05)`;
+          assert(labels[2], false, "both an amount and a percentage stood, which they must not");
+        })
+        .catch((error: unknown) => {
+          assert(labels[2], pgCode(error) === "23514", `sqlstate ${pgCode(error) ?? "none"}`);
+        });
+
+      // 66: the payment due day is a real day of month — 0 and 32 are both refused.
+      let dueZeroCode: string | undefined;
+      let dueOverCode: string | undefined;
+      await tx
+        .savepoint(async (sp) => {
+          await sp`insert into debt_terms (account_id, debt_kind, annual_rate, payment_due_day)
+            values (${liabilityB}, 'revolving', 0.28, 0)`;
+        })
+        .catch((error: unknown) => {
+          dueZeroCode = pgCode(error);
+        });
+      await tx
+        .savepoint(async (sp) => {
+          await sp`insert into debt_terms (account_id, debt_kind, annual_rate, payment_due_day)
+            values (${liabilityB}, 'revolving', 0.28, 32)`;
+        })
+        .catch((error: unknown) => {
+          dueOverCode = pgCode(error);
+        });
+      assert(
+        labels[3],
+        dueZeroCode === "23514" && dueOverCode === "23514",
+        `day 0 sqlstate ${dueZeroCode ?? "none"}, day 32 sqlstate ${dueOverCode ?? "none"}`,
+      );
+
+      // Terms on the group liability, for the member read below.
+      await tx`insert into debt_terms (account_id, debt_kind, annual_rate, minimum_payment_pct)
+        values (${groupLiability}, 'revolving', 0.30, 0.05)`;
+
+      // The plain member, seeded as the owner — no policy hands out a membership.
+      await tx`reset role`;
+      await tx`insert into group_members (group_id, user_id, name, role)
+        values (${groupId}, ${memberUser}, 'rls debt terms member', 'member')`;
+
+      // A second group with its own leader and a liability whose terms the subject must never see.
+      await enterUserContext(tx, secondLeader);
+      await tx`insert into groups (id, name, cash_mode) values (${secondGroup}, 'rls debt terms second', 'shared')`;
+      await tx`insert into group_members (group_id, user_id, name, role)
+        values (${secondGroup}, ${secondLeader}, 'rls debt terms second leader', 'leader')`;
+      const [{ id: secondLiability }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_cents, initial_balance_on)
+        values (${secondLeader}, 'rls debt terms second card', 'liability', -300000, (now() at time zone 'America/Bogota')::date) returning id`;
+      await tx`insert into debt_terms (account_id, debt_kind, annual_rate, minimum_payment_pct)
+        values (${secondLiability}, 'revolving', 0.25, 0.04)`;
+
+      // 67: back under the subject, the second group's terms are invisible.
+      await enterUserContext(tx, leaderUser);
+      const [{ count: seesSecond }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from debt_terms where account_id = ${secondLiability}`;
+      assert(labels[4], seesSecond === "0", `subject→second terms = ${seesSecond}`);
+
+      // 68: the member reads the group liability's terms through the universal read.
+      await enterUserContext(tx, memberUser);
+      const [{ count: seesGroup }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from debt_terms where account_id = ${groupLiability}`;
+      assert(labels[5], seesGroup === "1", `member→group terms = ${seesGroup}`);
+
+      // 69: the member cannot mint terms on the leader's personal liability.
+      await tx
+        .savepoint(async (sp) => {
+          await sp`insert into debt_terms (account_id, debt_kind, annual_rate)
+            values (${liabilityB}, 'revolving', 0.28)`;
+          assert(labels[6], false, "a non-writer minted terms, which it must not");
+        })
+        .catch((error: unknown) => {
+          assert(labels[6], pgCode(error) === "42501", `sqlstate ${pgCode(error) ?? "none"}`);
+        });
+
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`select current_user`;
+  const [{ count: probeCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from accounts where name like 'rls debt terms%'`;
+  assert(
+    tailLabel,
+    afterUser === "postgres" && probeCount === "0",
+    `current_user = ${afterUser}, rows named 'rls debt terms%' = ${probeCount}`,
+  );
+}
+
+// Assertions 71-76: the installment plans, their lines and the oldest-first allocator. A plan attaches
+// only to a liability; a line links only to a movement touching the plan's account; and the FIFO walk,
+// replicated inline, settles the fully-covered lines in due order, leaves the remainder unassigned and
+// unwinds on deletion of the paying movement. Every fixture is seeded through the app's own policies and
+// rolled back.
+async function checkInstallmentPolicies() {
+  console.log("");
+  const leaderUser = randomUUID();
+
+  const labels = [
+    "71. a plan on the caller's liability inserts with its lines",
+    "72. a plan on an asset account is refused",
+    "73. a line links to a movement touching the plan account and rejects one that does not",
+    "74. a 200000 payment settles exactly the two oldest 100000 lines and leaves the third unpaid",
+    "75. a 150000 payment settles only the first line and leaves the remainder unassigned",
+    "76. deleting the paying movement unlinks every line and restores the full pending",
+  ];
+  const tailLabel = "77. the rolled-back installment transaction leaves no trace";
+
+  const forcedRollback = Symbol("forced rollback");
+
+  await sql
+    .begin(async (tx) => {
+      await tx`insert into auth.users (id) values (${leaderUser})`;
+      await tx`insert into app_users (id) values (${leaderUser})`;
+      await enterUserContext(tx, leaderUser);
+
+      // The oldest-first FIFO allocator (RF-82), replicated inline against this transaction's own
+      // connection: it links each fully-covered line to the payment in due order, subtracting its amount
+      // from a running remainder, and stops at the first line the remainder cannot cover in full. A line
+      // is never partially paid; the leftover remainder stays unassigned.
+      const allocate = async (planId: string, paymentId: string, amount: number) => {
+        const lines = await tx<{ id: string; amount_cents: string }[]>`
+          select id, amount_cents from installment_lines
+          where plan_id = ${planId} and paid_transaction_id is null
+          order by due_date, seq`;
+        let remainder = amount;
+        for (const line of lines) {
+          const owed = Number(line.amount_cents);
+          if (remainder < owed) break;
+          remainder -= owed;
+          await tx`update installment_lines set paid_transaction_id = ${paymentId} where id = ${line.id}`;
+        }
+      };
+
+      const [{ id: liability }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_cents, initial_balance_on)
+        values (${leaderUser}, 'rls installment card', 'liability', -900000, (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: cash }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_cents, initial_balance_on)
+        values (${leaderUser}, 'rls installment cash', 'asset', 1000000, (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: cashB }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_on)
+        values (${leaderUser}, 'rls installment cash B', 'asset', (now() at time zone 'America/Bogota')::date) returning id`;
+
+      // 71: a plan on the caller's liability lands with its three lines.
+      const [{ id: plan1 }] = await tx<{ id: string }[]>`
+        insert into installment_plans (account_id, principal_cents, n_installments, frequency, start_date)
+        values (${liability}, 300000, 3, 'monthly', (now() at time zone 'America/Bogota')::date) returning id`;
+      const plan1Lines = await tx<{ id: string }[]>`
+        insert into installment_lines (plan_id, seq, due_date, amount_cents) values
+          (${plan1}, 1, '2026-01-15', 100000),
+          (${plan1}, 2, '2026-02-15', 100000),
+          (${plan1}, 3, '2026-03-15', 100000) returning id`;
+      assert(labels[0], plan1Lines.length === 3, `line rows = ${plan1Lines.length}`);
+
+      // 72: the plan trigger refuses a plan on an asset account.
+      await tx
+        .savepoint(async (sp) => {
+          await sp`insert into installment_plans (account_id, principal_cents, n_installments, frequency, start_date)
+            values (${cash}, 300000, 3, 'monthly', (now() at time zone 'America/Bogota')::date)`;
+          assert(labels[1], false, "a plan on an asset stood, which it must not");
+        })
+        .catch((error: unknown) => {
+          assert(labels[1], pgCode(error) === "23514", `sqlstate ${pgCode(error) ?? "none"}`);
+        });
+
+      // 73: a settling movement must touch the plan's account. A cash→card transfer does; cash→cash does not.
+      const [{ id: touchingTxn }] = await tx<{ id: string }[]>`
+        insert into transactions (from_account_id, to_account_id, amount_cents, occurred_at)
+        values (${cash}, ${liability}, 50000, (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: nonTouchingTxn }] = await tx<{ id: string }[]>`
+        insert into transactions (from_account_id, to_account_id, amount_cents, occurred_at)
+        values (${cash}, ${cashB}, 50000, (now() at time zone 'America/Bogota')::date) returning id`;
+      const linkTouching = await tx`update installment_lines set paid_transaction_id = ${touchingTxn}
+        where plan_id = ${plan1} and seq = 1`;
+      let nonTouchCode: string | undefined;
+      await tx
+        .savepoint(async (sp) => {
+          await sp`update installment_lines set paid_transaction_id = ${nonTouchingTxn}
+            where plan_id = ${plan1} and seq = 2`;
+        })
+        .catch((error: unknown) => {
+          nonTouchCode = pgCode(error);
+        });
+      assert(
+        labels[2],
+        linkTouching.count === 1 && nonTouchCode === "23514",
+        `touching link rows = ${linkTouching.count}, non-touching sqlstate ${nonTouchCode ?? "none"}`,
+      );
+
+      // 74: a 200000 payment covers the two oldest 100000 lines in full and stops; the third stays unpaid.
+      const [{ id: plan2 }] = await tx<{ id: string }[]>`
+        insert into installment_plans (account_id, principal_cents, n_installments, frequency, start_date)
+        values (${liability}, 300000, 3, 'monthly', (now() at time zone 'America/Bogota')::date) returning id`;
+      await tx`insert into installment_lines (plan_id, seq, due_date, amount_cents) values
+        (${plan2}, 1, '2026-04-15', 100000),
+        (${plan2}, 2, '2026-05-15', 100000),
+        (${plan2}, 3, '2026-06-15', 100000)`;
+      const [{ id: paymentA }] = await tx<{ id: string }[]>`
+        insert into transactions (from_account_id, to_account_id, amount_cents, occurred_at)
+        values (${cash}, ${liability}, 200000, (now() at time zone 'America/Bogota')::date) returning id`;
+      await allocate(plan2, paymentA, 200000);
+      const paidA = await tx<{ seq: number; paid: boolean }[]>`
+        select seq, paid_transaction_id is not null as paid from installment_lines
+        where plan_id = ${plan2} order by seq`;
+      assert(
+        labels[3],
+        paidA.length === 3 && paidA[0].paid && paidA[1].paid && !paidA[2].paid,
+        `paid by seq = ${paidA.map((row) => `${row.seq}:${row.paid}`).join(", ")}`,
+      );
+
+      // 75: a 150000 payment covers only the first line; the 50000 remainder never touches the second.
+      const [{ id: plan3 }] = await tx<{ id: string }[]>`
+        insert into installment_plans (account_id, principal_cents, n_installments, frequency, start_date)
+        values (${liability}, 300000, 3, 'monthly', (now() at time zone 'America/Bogota')::date) returning id`;
+      await tx`insert into installment_lines (plan_id, seq, due_date, amount_cents) values
+        (${plan3}, 1, '2026-07-15', 100000),
+        (${plan3}, 2, '2026-08-15', 100000),
+        (${plan3}, 3, '2026-09-15', 100000)`;
+      const [{ id: paymentB }] = await tx<{ id: string }[]>`
+        insert into transactions (from_account_id, to_account_id, amount_cents, occurred_at)
+        values (${cash}, ${liability}, 150000, (now() at time zone 'America/Bogota')::date) returning id`;
+      await allocate(plan3, paymentB, 150000);
+      const paidB = await tx<{ seq: number; paid: boolean }[]>`
+        select seq, paid_transaction_id is not null as paid from installment_lines
+        where plan_id = ${plan3} order by seq`;
+      const [{ pending: pendingB }] = await tx<{ pending: string }[]>`
+        select coalesce(sum(amount_cents) filter (where paid_transaction_id is null), 0)::text as pending
+        from installment_lines where plan_id = ${plan3}`;
+      assert(
+        labels[4],
+        paidB[0].paid && !paidB[1].paid && !paidB[2].paid && pendingB === "200000",
+        `paid by seq = ${paidB.map((row) => `${row.seq}:${row.paid}`).join(", ")}, pending = ${pendingB}`,
+      );
+
+      // 76: deleting the paying movement (FK set null) unlinks every covered line and the pending returns
+      // to the full 300000 sum.
+      await tx`delete from transactions where id = ${paymentA}`;
+      const [afterDelete] = await tx<{ paid: string; pending: string }[]>`
+        select
+          count(*) filter (where paid_transaction_id is not null)::text as paid,
+          coalesce(sum(amount_cents) filter (where paid_transaction_id is null), 0)::text as pending
+        from installment_lines where plan_id = ${plan2}`;
+      assert(
+        labels[5],
+        afterDelete.paid === "0" && afterDelete.pending === "300000",
+        `linked lines after delete = ${afterDelete.paid}, pending = ${afterDelete.pending}`,
+      );
+
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`select current_user`;
+  const [{ count: probeCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from accounts where name like 'rls installment%'`;
+  assert(
+    tailLabel,
+    afterUser === "postgres" && probeCount === "0",
+    `current_user = ${afterUser}, rows named 'rls installment%' = ${probeCount}`,
+  );
+}
+
+// Assertions 78-79: the derived debt figures. No new policy ships — what is proved is that the overview's
+// arithmetic reads true. The monthly interest is the effective twelfth-root step of the annual rate, not
+// the linear annual/12; available credit nets the limit against the owed; and total owed is the sum of the
+// balances, which an installment plan (a schedule, never a movement) leaves untouched. The same SQL the
+// overview runs is replicated inline, and every fixture is seeded through the app's own policies and rolled
+// back.
+async function checkDebtDerivedFigures() {
+  console.log("");
+  const leaderUser = randomUUID();
+
+  const labels = [
+    "78. the monthly interest is the effective rate, matching the hand figure and unlike the linear one",
+    "79. available credit nets the limit against the owed, and a plan never double-counts the total owed",
+  ];
+  const tailLabel = "80. the rolled-back debt figures transaction leaves no trace";
+
+  const forcedRollback = Symbol("forced rollback");
+
+  // The liability is seeded at −1000000, so the owed magnitude is 1000000 at a 0.28 effective annual rate.
+  const owed = 1000000;
+  const rate = 0.28;
+  const expectedEffective = Math.round(owed * (Math.pow(1 + rate, 1 / 12) - 1));
+  const expectedLinear = Math.round((owed * rate) / 12);
+
+  await sql
+    .begin(async (tx) => {
+      await tx`insert into auth.users (id) values (${leaderUser})`;
+      await tx`insert into app_users (id) values (${leaderUser})`;
+      await enterUserContext(tx, leaderUser);
+
+      const [{ id: cardA }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_cents, initial_balance_on)
+        values (${leaderUser}, 'rls debt figures card A', 'liability', -1000000, (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: cardB }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_cents, initial_balance_on)
+        values (${leaderUser}, 'rls debt figures card B', 'liability', -500000, (now() at time zone 'America/Bogota')::date) returning id`;
+      await tx`insert into debt_terms (account_id, debt_kind, annual_rate, minimum_payment_pct, credit_limit_cents)
+        values (${cardA}, 'revolving', ${rate}, 0.05, 1500000)`;
+
+      // 78: the SQL effective estimate matches the hand figure and diverges from the linear one.
+      const [figures] = await tx<{ effective: string; linear: string }[]>`
+        select
+          round(abs(b.balance_cents) * (power(1 + dt.annual_rate, 1.0/12) - 1))::bigint as effective,
+          round(abs(b.balance_cents) * dt.annual_rate / 12)::bigint as linear
+        from account_balances b
+        join debt_terms dt on dt.account_id = b.id
+        where b.id = ${cardA}`;
+      assert(
+        labels[0],
+        Number(figures.effective) === expectedEffective &&
+          Number(figures.linear) === expectedLinear &&
+          figures.effective !== figures.linear,
+        `effective = ${figures.effective} (expected ${expectedEffective}), linear = ${figures.linear} (expected ${expectedLinear})`,
+      );
+
+      // 79: available credit = limit − owed; total owed is the sum of the two balances. Materialising an
+      // installment plan over one card adds a schedule, no movement, so the total owed does not budge.
+      const [before] = await tx<{ available: string; total_owed: string }[]>`
+        select
+          (dt.credit_limit_cents - abs(b.balance_cents))::text as available,
+          (select sum(balance_cents) from account_balances where id in (${cardA}, ${cardB}))::text as total_owed
+        from account_balances b
+        join debt_terms dt on dt.account_id = b.id
+        where b.id = ${cardA}`;
+      const [{ id: plan }] = await tx<{ id: string }[]>`
+        insert into installment_plans (account_id, principal_cents, n_installments, frequency, start_date)
+        values (${cardA}, 900000, 3, 'monthly', (now() at time zone 'America/Bogota')::date) returning id`;
+      await tx`insert into installment_lines (plan_id, seq, due_date, amount_cents) values
+        (${plan}, 1, '2026-01-15', 300000),
+        (${plan}, 2, '2026-02-15', 300000),
+        (${plan}, 3, '2026-03-15', 300000)`;
+      const [{ total_owed: totalAfter }] = await tx<{ total_owed: string }[]>`
+        select (select sum(balance_cents) from account_balances where id in (${cardA}, ${cardB}))::text as total_owed`;
+      assert(
+        labels[1],
+        before.available === "500000" &&
+          before.total_owed === "-1500000" &&
+          totalAfter === "-1500000",
+        `available = ${before.available} (expected 500000), total owed before = ${before.total_owed}, after plan = ${totalAfter} (expected -1500000)`,
+      );
+
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`select current_user`;
+  const [{ count: probeCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from accounts where name like 'rls debt figures%'`;
+  assert(
+    tailLabel,
+    afterUser === "postgres" && probeCount === "0",
+    `current_user = ${afterUser}, rows named 'rls debt figures%' = ${probeCount}`,
+  );
+}
+
+// Assertions 81-84: the debt_statements snapshots. The generator, replicated inline, freezes the balance
+// to the movements on or before a past cut-off; the unique key makes a re-run a no-op; and the snapshot is
+// immutable — no UPDATE grant — and gated by the account's scope, so an unrelated user can neither read nor
+// mint one. Every fixture is seeded through the app's own policies and rolled back.
+async function checkDebtStatementPolicies() {
+  console.log("");
+  const subject = randomUUID();
+  const otherUser = randomUUID();
+
+  const labels = [
+    "81. the statement balance counts only the movements on or before the cut-off",
+    "82. re-running the same insert under the unique key inserts nothing",
+    "83. an update of a statement by authenticated is refused",
+    "84. an unrelated member can neither read nor write a statement on the subject's liability",
+  ];
+  const tailLabel = "85. the rolled-back debt statement transaction leaves no trace";
+
+  const forcedRollback = Symbol("forced rollback");
+
+  await sql
+    .begin(async (tx) => {
+      await tx`insert into auth.users (id) values (${subject}), (${otherUser})`;
+      await tx`insert into app_users (id) values (${subject}), (${otherUser})`;
+      await enterUserContext(tx, subject);
+
+      const [{ id: card }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_cents, initial_balance_on)
+        values (${subject}, 'rls debt statement card', 'liability', -200000, (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: cash }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_cents, initial_balance_on)
+        values (${subject}, 'rls debt statement cash', 'asset', 1000000, (now() at time zone 'America/Bogota')::date) returning id`;
+      await tx`insert into debt_terms (account_id, debt_kind, annual_rate, minimum_payment_pct, statement_cut_off_day, payment_due_day)
+        values (${card}, 'revolving', 0.28, 0.05, 28, 15)`;
+
+      // A past cut-off in Bogotá and sane bounds around it: the previous month's last day as the cut-off,
+      // its month start as the period start, a due date a fortnight on. A payment lands before the cut-off,
+      // a purchase after it (RNF-06 — every bound is a YYYY-MM-DD string).
+      const [dates] = await tx<
+        {
+          cut_off: string;
+          period_start: string;
+          payment_due: string;
+          before_cut: string;
+          after_cut: string;
+        }[]
+      >`
+        select
+          to_char((date_trunc('month', now() at time zone 'America/Bogota') - interval '1 day'), 'YYYY-MM-DD') as cut_off,
+          to_char((date_trunc('month', now() at time zone 'America/Bogota') - interval '1 month'), 'YYYY-MM-DD') as period_start,
+          to_char((date_trunc('month', now() at time zone 'America/Bogota') - interval '1 day') + interval '15 days', 'YYYY-MM-DD') as payment_due,
+          to_char((date_trunc('month', now() at time zone 'America/Bogota') - interval '10 days'), 'YYYY-MM-DD') as before_cut,
+          to_char((date_trunc('month', now() at time zone 'America/Bogota') + interval '5 days'), 'YYYY-MM-DD') as after_cut`;
+
+      // A payment (cash→card, +30000) before the cut-off and a purchase (card→cash, −50000) after it.
+      await tx`insert into transactions (from_account_id, to_account_id, amount_cents, occurred_at)
+        values (${cash}, ${card}, 30000, ${dates.before_cut})`;
+      await tx`insert into transactions (from_account_id, to_account_id, amount_cents, occurred_at)
+        values (${card}, ${cash}, 50000, ${dates.after_cut})`;
+
+      // The statement generator, replicated inline: the balance is the opening figure plus the signed
+      // movement sum windowed to the cut-off (the same signed sum account_balances uses), the minimum a
+      // percentage of it, the interest the effective estimate. Guarded by the unique key so a re-run
+      // inserts nothing (RF-84).
+      const generate = () =>
+        tx<{ statement_balance_cents: string }[]>`
+          insert into debt_statements
+            (account_id, period_start, cut_off_date, payment_due_date, statement_balance_cents, minimum_payment_cents, interest_estimate_cents)
+          select ${card}, ${dates.period_start}, ${dates.cut_off}, ${dates.payment_due},
+            bal.statement_balance,
+            round(abs(bal.statement_balance) * dt.minimum_payment_pct)::bigint,
+            round(abs(bal.statement_balance) * (power(1 + dt.annual_rate, 1.0/12) - 1))::bigint
+          from debt_terms dt
+          join accounts a on a.id = dt.account_id
+          cross join lateral (
+            select a.initial_balance_cents
+              + coalesce((select sum(t.amount_cents) from transactions t where t.to_account_id = ${card} and t.occurred_at <= ${dates.cut_off}), 0)
+              - coalesce((select sum(t.amount_cents) from transactions t where t.from_account_id = ${card} and t.occurred_at <= ${dates.cut_off}), 0)
+              as statement_balance
+          ) bal
+          where dt.account_id = ${card}
+          on conflict (account_id, cut_off_date) do nothing
+          returning statement_balance_cents`;
+
+      // 81: the windowed balance is −200000 + 30000 = −170000; the post-cut −50000 purchase is excluded.
+      const first = await generate();
+      assert(
+        labels[0],
+        first.length === 1 && first[0].statement_balance_cents === "-170000",
+        `inserted rows = ${first.length}, statement balance = ${first[0]?.statement_balance_cents} (expected -170000)`,
+      );
+
+      // 82: the second run collides on (account_id, cut_off_date) and inserts nothing.
+      const second = await generate();
+      assert(labels[1], second.length === 0, `second-run inserted rows = ${second.length}`);
+
+      // 83: no UPDATE grant on debt_statements — a rewrite is refused outright (immutability).
+      const [{ id: statementId }] = await tx<{ id: string }[]>`
+        select id from debt_statements where account_id = ${card} and cut_off_date = ${dates.cut_off}`;
+      let updateCode: string | undefined;
+      await tx
+        .savepoint(async (sp) => {
+          await sp`update debt_statements set statement_balance_cents = 0 where id = ${statementId}`;
+        })
+        .catch((error: unknown) => {
+          updateCode = pgCode(error);
+        });
+      assert(labels[2], updateCode === "42501", `sqlstate ${updateCode ?? "none"}`);
+
+      // 84: an unrelated user (no shared group) sees no statement on the subject's liability and cannot
+      // mint one there. The distinct cut-off keeps the unique key clear, so only the write policy can reject.
+      await enterUserContext(tx, otherUser);
+      const [{ count: otherSees }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from debt_statements where id = ${statementId}`;
+      let otherInsertCode: string | undefined;
+      await tx
+        .savepoint(async (sp) => {
+          await sp`insert into debt_statements
+            (account_id, period_start, cut_off_date, payment_due_date, statement_balance_cents, minimum_payment_cents, interest_estimate_cents)
+            values (${card}, ${dates.period_start}, ${dates.before_cut}, ${dates.payment_due}, -100000, 5000, 2000)`;
+        })
+        .catch((error: unknown) => {
+          otherInsertCode = pgCode(error);
+        });
+      assert(
+        labels[3],
+        otherSees === "0" && otherInsertCode === "42501",
+        `unrelated read = ${otherSees}, unrelated insert sqlstate ${otherInsertCode ?? "none"}`,
+      );
+
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`select current_user`;
+  const [{ count: probeCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from accounts where name like 'rls debt statement%'`;
+  assert(
+    tailLabel,
+    afterUser === "postgres" && probeCount === "0",
+    `current_user = ${afterUser}, rows named 'rls debt statement%' = ${probeCount}`,
   );
 }
 
