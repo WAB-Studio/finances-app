@@ -1,0 +1,189 @@
+import "server-only";
+
+import { eq, sql } from "drizzle-orm";
+
+import { goalContributions, savingsGoals } from "@/db/schema";
+import { withUserDb } from "@/db/session";
+
+export type GoalProgress = {
+  id: string;
+  name: string;
+  targetAmountCents: number;
+  targetDate: string | null;
+  accountId: string | null;
+  savedCents: number;
+  remainingCents: number;
+  reachedTarget: boolean;
+};
+
+/**
+ * Every non-archived goal with its progress in ONE round trip (RF-77, RNF-09):
+ * `saved_cents` is read from the `goal_progress` view, which sums the earmarked
+ * movements — this never re-sums the contributions itself. Remaining floors at
+ * zero so an overshot goal reads as reached, not negative. Scope is the policy's
+ * job: `withUserDb` shows only the caller's readable goals.
+ */
+export async function listGoalsWithProgress(): Promise<GoalProgress[]> {
+  return withUserDb(async (tx) => {
+    const rows = await tx.execute<{
+      id: string;
+      name: string;
+      target_amount_cents: string;
+      target_date: string | null;
+      account_id: string | null;
+      saved_cents: string;
+    }>(sql`
+      select
+        g.id,
+        g.name,
+        g.target_amount_cents,
+        g.target_date,
+        g.account_id,
+        gp.saved_cents
+      from savings_goals g
+      join goal_progress gp on gp.goal_id = g.id
+      where g.archived_at is null
+      order by g.name
+    `);
+
+    return rows.map((row) => {
+      // A bigint sum arrives from the driver as a string; the ledger keeps cents a number.
+      const targetAmountCents = Number(row.target_amount_cents);
+      const savedCents = Number(row.saved_cents);
+
+      return {
+        id: row.id,
+        name: row.name,
+        targetAmountCents,
+        targetDate: row.target_date,
+        accountId: row.account_id,
+        savedCents,
+        remainingCents: Math.max(targetAmountCents - savedCents, 0),
+        reachedTarget: savedCents >= targetAmountCents,
+      };
+    });
+  });
+}
+
+// The scope is resolved by the caller (owner XOR group).
+export type CreateGoalArgs = {
+  ownerUserId: string | null;
+  groupId: string | null;
+  name: string;
+  targetAmountCents: number;
+  targetDate: string | null;
+  accountId: string | null;
+};
+
+export async function createGoal({
+  ownerUserId,
+  groupId,
+  name,
+  targetAmountCents,
+  targetDate,
+  accountId,
+}: CreateGoalArgs): Promise<{ goalId: string }> {
+  return withUserDb(async (tx) => {
+    const [row] = await tx
+      .insert(savingsGoals)
+      .values({ ownerUserId, groupId, name, targetAmountCents, targetDate, accountId })
+      .returning({ id: savingsGoals.id });
+
+    return { goalId: row.id };
+  });
+}
+
+// The scope is immutable and absent from the UPDATE grant, so an edit only
+// touches these fields; the boolean reports whether the policy admitted it.
+export type UpdateGoalArgs = {
+  goalId: string;
+  name: string;
+  targetAmountCents: number;
+  targetDate: string | null;
+  accountId: string | null;
+};
+
+export async function updateGoal({
+  goalId,
+  name,
+  targetAmountCents,
+  targetDate,
+  accountId,
+}: UpdateGoalArgs): Promise<boolean> {
+  return withUserDb(async (tx) => {
+    const rows = await tx
+      .update(savingsGoals)
+      .set({ name, targetAmountCents, targetDate, accountId })
+      .where(eq(savingsGoals.id, goalId))
+      .returning({ id: savingsGoals.id });
+
+    return rows.length > 0;
+  });
+}
+
+export async function archiveGoal({
+  goalId,
+}: {
+  goalId: string;
+}): Promise<boolean> {
+  return withUserDb(async (tx) => {
+    const rows = await tx
+      .update(savingsGoals)
+      .set({ archivedAt: sql`now()` })
+      .where(eq(savingsGoals.id, goalId))
+      .returning({ id: savingsGoals.id });
+
+    return rows.length > 0;
+  });
+}
+
+export async function deleteGoal({
+  goalId,
+}: {
+  goalId: string;
+}): Promise<boolean> {
+  return withUserDb(async (tx) => {
+    const rows = await tx
+      .delete(savingsGoals)
+      .where(eq(savingsGoals.id, goalId))
+      .returning({ id: savingsGoals.id });
+
+    return rows.length > 0;
+  });
+}
+
+// Earmarks a readable movement toward a goal (RF-77); the `assert_goal_contribution_scope`
+// trigger checks the movement shares the goal's scope.
+export async function addGoalContribution({
+  goalId,
+  transactionId,
+  amountCents,
+}: {
+  goalId: string;
+  transactionId: string;
+  amountCents: number;
+}): Promise<{ contributionId: string }> {
+  return withUserDb(async (tx) => {
+    const [row] = await tx
+      .insert(goalContributions)
+      .values({ goalId, transactionId, amountCents })
+      .returning({ id: goalContributions.id });
+
+    return { contributionId: row.id };
+  });
+}
+
+export async function removeGoalContribution({
+  contributionId,
+}: {
+  contributionId: string;
+}): Promise<boolean> {
+  return withUserDb(async (tx) => {
+    const rows = await tx
+      .delete(goalContributions)
+      .where(eq(goalContributions.id, contributionId))
+      .returning({ id: goalContributions.id });
+
+    return rows.length > 0;
+  });
+}
