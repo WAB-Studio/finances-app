@@ -73,12 +73,14 @@ alerts, accounting exports, native apps. None of this gets built or left
 - [ ] **RF-23** — Listing with filters by date range, member, account, category and type.
 - [ ] **RF-24** — Edit and delete transactions.
 - [ ] **RF-25** — Every transaction records which user created it.
+- [ ] **RF-69** — Every income or expense splits into one or more (category, amount_cents) rows summing to its amount; a single-category income or expense is one split. A transfer has no splits and no category.
 
 #### Categories
 
 - [ ] **RF-63** — CRUD for categories with one level of subcategories, scoped to a user (personal) or a group; a subcategory shares its parent's scope.
 - [x] **RF-27** — Each category is either expense or income.
 - [ ] **RF-64** — Creating a personal space or a group seeds an initial category set in the active language.
+- [ ] **RF-70** — Labels, independent of category, attach to transactions through a transaction_labels join; a group's labels are managed by its leader, a user's by their owner.
 
 #### Recurring
 
@@ -175,12 +177,15 @@ erDiagram
     groups ||--o{ group_members : "has"
     groups ||--o{ accounts : "holds (optional)"
     groups ||--o{ categories : "defines"
+    groups ||--o{ labels : "defines"
     groups ||--o{ transactions : "groups"
     groups ||--o{ recurring_rules : "groups"
     groups ||--o{ audit_log : "records"
 
     app_users ||--o{ categories : "defines (personal)"
+    app_users ||--o{ labels : "defines (personal)"
     app_users ||--o{ accounts : "owns (personal)"
+    app_users ||--o{ transactions : "owns (personal)"
 
     accounts ||--o| debt_terms : "if liability"
     accounts ||--o{ transactions : "source"
@@ -189,8 +194,12 @@ erDiagram
     accounts ||--o{ recurring_rules : "destination"
 
     categories ||--o{ categories : "parent of"
-    categories ||--o{ transactions : "classifies"
+    categories ||--o{ transaction_splits : "classifies"
     categories ||--o{ recurring_rules : "classifies"
+
+    transactions ||--o{ transaction_splits : "splits into"
+    transactions ||--o{ transaction_labels : "tagged by"
+    labels ||--o{ transaction_labels : "tags"
 
     recurring_rules ||--o{ transactions : "generates"
 
@@ -258,17 +267,39 @@ erDiagram
 
     transactions {
         uuid id PK
-        uuid fund_id FK
+        uuid owner_user_id FK "null = group movement"
+        uuid group_id FK "null = personal movement"
         uuid from_account_id FK "null if income"
         uuid to_account_id FK "null if expense"
         bigint amount_cents
-        text kind "income | expense | transfer"
+        text kind "income | expense | transfer (generated)"
         date occurred_at
-        uuid category_id FK
         text description
-        uuid recurring_rule_id FK "null if manual"
+        uuid recurring_rule_id FK "null if manual; lands with the recurring slice"
         text external_ref "import reference"
         uuid created_by FK
+    }
+
+    transaction_splits {
+        uuid id PK
+        uuid transaction_id FK
+        uuid category_id FK
+        bigint amount_cents
+    }
+
+    labels {
+        uuid id PK
+        uuid owner_user_id FK "null = group label"
+        uuid group_id FK "null = personal label"
+        text name
+        text color
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    transaction_labels {
+        uuid transaction_id PK,FK
+        uuid label_id PK,FK
     }
 
     recurring_rules {
@@ -323,14 +354,22 @@ Rules the model must always guarantee, regardless of how they are implemented:
 - Null `from` and `to` define the type: destination only is income, source only
   is expense, both is a transfer. Never both null.
 - The amount is always positive; direction supplies the sign.
+- A transaction's scope (`owner_user_id` XOR `group_id`) is derived from the
+  accounts it touches, never chosen by the user.
+- Every income or expense has at least one split, whose amounts sum to the
+  transaction's amount and whose category shares the transaction's scope and
+  kind. A transfer has no splits and no category.
 - A category belongs to exactly one of a user or a group (XOR), mirroring an
   account's owner: a personal category names its `owner_user_id`, a group
   category names its `group_id`. Never both, never neither.
+- A label is scoped like a category (user XOR group), and a transaction's labels
+  share the transaction's scope.
 - A group's `cash_mode` is `shared` (a single group cash account) or
   `per_member` (one cash account per member).
 - Money is an integer number of cents.
 - The audit log cannot be bypassed from any write path.
-- `external_ref` is unique within a fund.
+- `external_ref` is unique within a scope (a user's personal movements or a
+  group's movements).
 - `app_users` hangs off no fund: the language preference belongs to the
   user and follows them across every fund they belong to (RF-47).
 
