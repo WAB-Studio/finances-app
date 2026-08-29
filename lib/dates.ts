@@ -33,3 +33,41 @@ export function isCivilDate(value: string): boolean {
 export function civilDateToDate(value: string): Date {
   return new Date(`${value}T12:00:00Z`);
 }
+
+// Reads the midday-UTC instant back as its own calendar day, never a shifted one.
+function dateToCivilDate(date: Date): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "UTC" }).format(date);
+}
+
+// Shifts a `YYYY-MM-01` start by whole months, staying on day 1 so a rollover
+// past December carries the year without touching JS local time.
+function shiftMonthStart(monthStart: string, months: number): string {
+  const date = civilDateToDate(monthStart);
+  date.setUTCMonth(date.getUTCMonth() + months);
+  date.setUTCDate(1);
+  return dateToCivilDate(date);
+}
+
+// The current Bogotá day snapped back to its month's first day.
+function currentMonthStart(): string {
+  return `${todayInBogota().slice(0, 7)}-01`;
+}
+
+// Half-open `[first day, next month's first day)` for the current Bogotá month.
+export function currentMonthRange(): { start: string; endExclusive: string } {
+  return monthRange(currentMonthStart());
+}
+
+// Half-open `[monthStart, next month's first day)` for any `YYYY-MM-01`.
+export function monthRange(monthStart: string): {
+  start: string;
+  endExclusive: string;
+} {
+  return { start: monthStart, endExclusive: shiftMonthStart(monthStart, 1) };
+}
+
+// Six `YYYY-MM-01` starts, oldest first, ending in the current Bogotá month.
+export function lastSixMonthStarts(): string[] {
+  const current = currentMonthStart();
+  return [5, 4, 3, 2, 1, 0].map((back) => shiftMonthStart(current, -back));
+}
