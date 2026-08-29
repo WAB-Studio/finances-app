@@ -31,8 +31,8 @@ Default language: Spanish. Currency: COP. Time zone: `America/Bogota`.
 changes required: `external_ref` exists from phase 1 so that importing is
 idempotent from day one.
 
-**Out of scope:** bank synchronisation, receipt OCR, multi-currency, budgets with
-alerts, accounting exports, native apps. None of this gets built or left
+**Out of scope:** bank synchronisation, receipt OCR, multi-currency,
+accounting exports, native apps. None of this gets built or left
 "prepared for".
 
 ### Functional requirements
@@ -88,6 +88,16 @@ alerts, accounting exports, native apps. None of this gets built or left
 - [ ] **RF-30** — A daily process turns due rules into real transactions.
 - [ ] **RF-31** — Generated transactions are distinguishable from manual ones and are editable: the real amount of a utility bill varies.
 - [ ] **RF-32** — A rule can be paused or given an end date without erasing its history.
+
+#### Budgets, planned payments and goals
+
+- [ ] **RF-71** — CRUD for budgets: a spending limit on a category for a repeating period (monthly, weekly or yearly), scoped to a user or a group, optionally narrowed to one account and/or one label.
+- [ ] **RF-72** — A budget's spent and remaining amounts derive from the transaction splits that fall in the current period and match its category and any account or label narrowing; they are never stored.
+- [ ] **RF-73** — A budget carries an overspend alert threshold as a percentage of its limit; a budget is flagged once its derived spending crosses that threshold.
+- [ ] **RF-74** — CRUD for one-off planned payments: a future movement — its accounts, amount, category and due date — with an optional reminder date, kept distinct from recurring rules.
+- [ ] **RF-75** — Settling a planned payment records the transaction it planned, links the two, and marks the planned payment done; a settled or cancelled planned payment cannot be settled again.
+- [ ] **RF-76** — CRUD for savings goals: a target amount and an optional target date, scoped to a user or a group.
+- [ ] **RF-77** — A savings goal's progress — amount saved, amount remaining and whether it is on track for its target date — derives from the movements contributed to it; it is never stored.
 
 #### Reports
 
@@ -180,28 +190,46 @@ erDiagram
     groups ||--o{ labels : "defines"
     groups ||--o{ transactions : "groups"
     groups ||--o{ recurring_rules : "groups"
+    groups ||--o{ budgets : "groups"
+    groups ||--o{ planned_payments : "groups"
+    groups ||--o{ savings_goals : "groups"
     groups ||--o{ audit_log : "records"
 
     app_users ||--o{ categories : "defines (personal)"
     app_users ||--o{ labels : "defines (personal)"
     app_users ||--o{ accounts : "owns (personal)"
     app_users ||--o{ transactions : "owns (personal)"
+    app_users ||--o{ budgets : "owns (personal)"
+    app_users ||--o{ planned_payments : "owns (personal)"
+    app_users ||--o{ savings_goals : "owns (personal)"
 
     accounts ||--o| debt_terms : "if liability"
     accounts ||--o{ transactions : "source"
     accounts ||--o{ transactions : "destination"
     accounts ||--o{ recurring_rules : "source"
     accounts ||--o{ recurring_rules : "destination"
+    accounts ||--o{ budgets : "narrows (optional)"
+    accounts ||--o{ planned_payments : "source"
+    accounts ||--o{ planned_payments : "destination"
+    accounts ||--o{ savings_goals : "holds (display)"
 
     categories ||--o{ categories : "parent of"
     categories ||--o{ transaction_splits : "classifies"
     categories ||--o{ recurring_rules : "classifies"
+    categories ||--o{ budgets : "limits"
+    categories ||--o{ planned_payments : "classifies"
+
+    labels ||--o{ budgets : "narrows (optional)"
 
     transactions ||--o{ transaction_splits : "splits into"
     transactions ||--o{ transaction_labels : "tagged by"
+    transactions ||--o| planned_payments : "settles"
+    transactions ||--o{ goal_contributions : "contributes"
     labels ||--o{ transaction_labels : "tags"
 
     recurring_rules ||--o{ transactions : "generates"
+
+    savings_goals ||--o{ goal_contributions : "collects"
 
     app_users {
         uuid id PK
@@ -329,6 +357,60 @@ erDiagram
         jsonb after_data
         timestamptz occurred_at
     }
+
+    budgets {
+        uuid id PK
+        uuid owner_user_id FK "null = group budget"
+        uuid group_id FK "null = personal budget"
+        uuid category_id FK
+        uuid account_id FK "null = any account"
+        uuid label_id FK "null = any label"
+        text period "monthly | weekly | yearly"
+        bigint limit_cents
+        smallint threshold_pct "overspend alert, 1..100"
+        text name
+        timestamptz archived_at
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    planned_payments {
+        uuid id PK
+        uuid owner_user_id FK "null = group payment"
+        uuid group_id FK "null = personal payment"
+        uuid from_account_id FK "null if income"
+        uuid to_account_id FK "null if expense"
+        bigint amount_cents
+        uuid category_id FK
+        date due_date
+        date remind_on "null = no reminder"
+        text description
+        text status "pending | done | cancelled"
+        uuid settled_transaction_id FK "null until settled"
+        uuid created_by FK
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    savings_goals {
+        uuid id PK
+        uuid owner_user_id FK "null = group goal"
+        uuid group_id FK "null = personal goal"
+        text name
+        bigint target_amount_cents
+        date target_date "null = no deadline"
+        uuid account_id FK "display only"
+        timestamptz archived_at
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    goal_contributions {
+        uuid id PK
+        uuid goal_id FK
+        uuid transaction_id FK
+        bigint amount_cents
+    }
 ```
 
 ### Invariants
@@ -364,6 +446,17 @@ Rules the model must always guarantee, regardless of how they are implemented:
   category names its `group_id`. Never both, never neither.
 - A label is scoped like a category (user XOR group), and a transaction's labels
   share the transaction's scope.
+- A budget, a planned payment and a savings goal each belong to exactly one of a
+  user or a group (XOR): never both, never neither.
+- A budget limits an expense category that shares its scope. Its spent and
+  remaining derive from the splits in its current period window that match its
+  category and any account or label narrowing; they are never stored.
+- A planned payment's scope derives from the accounts it touches, never chosen by
+  the user. A settled planned payment links the transaction it recorded and is
+  never re-settled; a cancelled one is never settled.
+- A savings goal's progress derives from its contributions and is never stored.
+- A goal contribution shares its goal's scope with its transaction, and counts a
+  movement toward a goal at most once.
 - A group's `cash_mode` is `shared` (a single group cash account) or
   `per_member` (one cash account per member).
 - Money is an integer number of cents.
