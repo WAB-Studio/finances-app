@@ -43,13 +43,11 @@ type FormTarget = {
 type DeleteTarget = { id: string; childCount: number };
 
 export function CategoriesScreen({
-  fundId,
   kind,
   categories,
   parents,
   usedColors,
 }: {
-  fundId: string;
   kind: CategoryKind;
   categories: CategoryNode[];
   parents: { id: string; name: string }[];
@@ -253,7 +251,6 @@ export function CategoriesScreen({
       )}
       {/* Below Dialog.Content the form keys itself on the subject; closing unmounts it. */}
       <CategoryFormDialog
-        fundId={fundId}
         kind={kind}
         parents={parentOptions}
         usedColors={usedColors}
@@ -283,7 +280,7 @@ export function CategoriesScreen({
           cancelLabel={tKey("common.cancel")}
           pending={deleteAction.isPending}
           onConfirm={() =>
-            deleteAction.execute({ fundId, categoryId: deleteTarget.id })
+            deleteAction.execute({ categoryId: deleteTarget.id })
           }
         />
       )}

@@ -22,17 +22,15 @@ import {
 import { useActionErrorToast } from "@/lib/use-action-toast";
 import { createMemberSchema, updateMemberSchema } from "@/lib/validation/member";
 
-type FormValues = { fundId: string; memberId?: string; name: string };
+type FormValues = { memberId?: string; name: string };
 
 type Member = { id: string; name: string };
 
 export function MemberFormDialog({
-  fundId,
   open,
   onOpenChange,
   member,
 }: {
-  fundId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   member?: Member;
@@ -48,7 +46,6 @@ export function MemberFormDialog({
               subject, so the form below is always born with fresh defaults. */}
           <MemberForm
             key={member?.id ?? "create"}
-            fundId={fundId}
             member={member}
             onOpenChange={onOpenChange}
           />
@@ -59,11 +56,9 @@ export function MemberFormDialog({
 }
 
 function MemberForm({
-  fundId,
   member,
   onOpenChange,
 }: {
-  fundId: string;
   member?: Member;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -76,8 +71,8 @@ function MemberForm({
   const form = useForm<FormValues>({
     resolver: zodResolver(schema) as Resolver<FormValues>,
     defaultValues: member
-      ? { fundId, memberId: member.id, name: member.name }
-      : { fundId, name: "" },
+      ? { memberId: member.id, name: member.name }
+      : { name: "" },
   });
 
   function onActionSuccess() {
@@ -102,13 +97,9 @@ function MemberForm({
 
   function onSubmit(values: FormValues) {
     if (isEdit) {
-      update.execute({
-        fundId: values.fundId,
-        memberId: values.memberId!,
-        name: values.name,
-      });
+      update.execute({ memberId: values.memberId!, name: values.name });
     } else {
-      create.execute({ fundId: values.fundId, name: values.name });
+      create.execute({ name: values.name });
     }
   }
 

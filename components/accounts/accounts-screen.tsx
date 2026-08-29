@@ -31,7 +31,6 @@ import { civilDateToDate } from "@/lib/dates";
 import { centsToPesos } from "@/lib/money";
 import { useActionErrorToast } from "@/lib/use-action-toast";
 
-type Member = { id: string; name: string };
 type Group = { key: string; label: string; accounts: AccountRow[] };
 
 // The subject of a menu action, not a dialog's own field state: closing any
@@ -41,22 +40,25 @@ type RowAction =
   | { kind: "restore"; account: AccountRow }
   | { kind: "delete"; account: AccountRow };
 
-// `listAccounts` already orders fund accounts first, then by member name,
-// then by account name, so one pass that starts a new group on an owner
-// change reproduces that grouping without a second sort to keep in step.
-function groupByOwner(accounts: AccountRow[], fundLabel: string): Group[] {
+// `listAccounts` already orders personal accounts ahead of the group's, then by
+// name, so one pass that starts a new group on a placement change reproduces
+// that split without a second sort to keep in step (RF-60).
+function groupByPlacement(
+  accounts: AccountRow[],
+  personalLabel: string,
+  groupLabel: string,
+): Group[] {
   const groups: Group[] = [];
 
   for (const account of accounts) {
-    const key = account.memberId ?? "fund";
+    const key = account.ownerUserId ? "personal" : "group";
     const current = groups.at(-1);
     if (current && current.key === key) {
       current.accounts.push(account);
     } else {
       groups.push({
         key,
-        // The left join yields a name exactly when `memberId` is set.
-        label: account.memberName ?? fundLabel,
+        label: key === "personal" ? personalLabel : groupLabel,
         accounts: [account],
       });
     }
@@ -66,14 +68,12 @@ function groupByOwner(accounts: AccountRow[], fundLabel: string): Group[] {
 }
 
 export function AccountsScreen({
-  fundId,
   accounts,
-  members,
+  groupName,
   archived,
 }: {
-  fundId: string;
   accounts: AccountRow[];
-  members: Member[];
+  groupName: string | null;
   archived: boolean;
 }) {
   const t = useTranslations("accounts");
@@ -119,7 +119,11 @@ export function AccountsScreen({
     );
   }
 
-  const groups = groupByOwner(accounts, tKey("common.fund"));
+  const groups = groupByPlacement(
+    accounts,
+    t("ownerPersonal"),
+    groupName ?? tKey("common.fund"),
+  );
   const addButton = (
     <Button type="button" onClick={() => setFormTarget("new")}>
       <Plus size={16} />
@@ -185,8 +189,7 @@ export function AccountsScreen({
       )}
 
       <AccountFormDialog
-        fundId={fundId}
-        members={members}
+        hasGroup={groupName !== null}
         open={formTarget !== null}
         onOpenChange={(open) => {
           if (!open) setFormTarget(null);
@@ -205,7 +208,7 @@ export function AccountsScreen({
           tone="neutral"
           pending={archiveState.isPending}
           onConfirm={() =>
-            archiveState.execute({ fundId, accountId: rowAction.account.id })
+            archiveState.execute({ accountId: rowAction.account.id })
           }
         />
       )}
@@ -221,7 +224,7 @@ export function AccountsScreen({
           tone="neutral"
           pending={restoreState.isPending}
           onConfirm={() =>
-            restoreState.execute({ fundId, accountId: rowAction.account.id })
+            restoreState.execute({ accountId: rowAction.account.id })
           }
         />
       )}
@@ -236,7 +239,7 @@ export function AccountsScreen({
           cancelLabel={tKey("common.cancel")}
           pending={deleteState.isPending}
           onConfirm={() =>
-            deleteState.execute({ fundId, accountId: rowAction.account.id })
+            deleteState.execute({ accountId: rowAction.account.id })
           }
         />
       )}

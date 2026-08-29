@@ -34,9 +34,10 @@ function requireColorAtTopLevel(
   }
 }
 
+// The scope (personal or group) is resolved from the session (RF-63), so it
+// never travels in the payload.
 export const createCategorySchema = z
   .object({
-    fundId: z.uuid(),
     name: categoryNameSchema,
     kind: z.enum(CATEGORY_KINDS, { error: "categories.errors.kindInvalid" }),
     parentId: categoryParentIdSchema,
@@ -49,7 +50,6 @@ export type CreateCategoryInput = z.infer<typeof createCategorySchema>;
 // `kind` is immutable after creation, so it never appears in the update schema.
 export const updateCategorySchema = z
   .object({
-    fundId: z.uuid(),
     categoryId: z.uuid(),
     name: categoryNameSchema,
     parentId: categoryParentIdSchema,
@@ -60,7 +60,6 @@ export const updateCategorySchema = z
 export type UpdateCategoryInput = z.infer<typeof updateCategorySchema>;
 
 export const deleteCategorySchema = z.object({
-  fundId: z.uuid(),
   categoryId: z.uuid(),
 });
 

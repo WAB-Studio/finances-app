@@ -5,7 +5,7 @@ import { useTranslations } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
 import { Controller, useForm } from "react-hook-form";
 
-import { createFundAction } from "@/app/actions/fund";
+import { createGroupAction } from "@/app/actions/fund";
 import {
   Button,
   Field,
@@ -28,7 +28,7 @@ export function CreateFundForm() {
     defaultValues: { name: "", memberName: "" },
   });
 
-  const { execute, isPending } = useAction(createFundAction, {
+  const { execute, isPending } = useAction(createGroupAction, {
     onError: useActionErrorToast(),
   });
 

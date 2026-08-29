@@ -29,41 +29,34 @@ import { centsToPesos } from "@/lib/money";
 import { useActionErrorToast } from "@/lib/use-action-toast";
 import {
   ACCOUNT_KINDS,
+  ACCOUNT_PLACEMENTS,
   createAccountSchema,
   updateAccountSchema,
   type CreateAccountInput,
   type UpdateAccountInput,
 } from "@/lib/validation/account";
 
-type Member = { id: string; name: string };
-
-// Radix Select refuses an empty item value, so the fund option crosses the
-// wire under this sentinel; both directions convert it back to `null`.
-const FUND_OWNER = "fund";
-
 // A superset of both schemas' shapes: the resolver strips whichever key the
 // active schema does not declare, so only the fields that schema needs ever
 // reach the matching action.
 type AccountFormValues = {
-  fundId: string;
   accountId: string;
   name: string;
   kind: (typeof ACCOUNT_KINDS)[number];
-  memberId: string | null;
+  placement: (typeof ACCOUNT_PLACEMENTS)[number];
+  isShared: boolean;
   institution: string;
   amount: string;
   balanceOn: string;
 };
 
 export function AccountFormDialog({
-  fundId,
-  members,
+  hasGroup,
   open,
   onOpenChange,
   account,
 }: {
-  fundId: string;
-  members: Member[];
+  hasGroup: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   account?: AccountRow;
@@ -78,8 +71,7 @@ export function AccountFormDialog({
             subject, so the form below is always born with fresh defaults. */}
         <AccountForm
           key={account?.id ?? "create"}
-          fundId={fundId}
-          members={members}
+          hasGroup={hasGroup}
           account={account}
           onOpenChange={onOpenChange}
         />
@@ -89,13 +81,11 @@ export function AccountFormDialog({
 }
 
 function AccountForm({
-  fundId,
-  members,
+  hasGroup,
   account,
   onOpenChange,
 }: {
-  fundId: string;
-  members: Member[];
+  hasGroup: boolean;
   account?: AccountRow;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -111,21 +101,22 @@ function AccountForm({
       : zodResolver(createAccountSchema)) as unknown as Resolver<AccountFormValues>,
     defaultValues: account
       ? {
-          fundId,
           accountId: account.id,
           name: account.name,
           kind: account.kind,
-          memberId: account.memberId,
+          // A row names its owner XOR its group; the placement is fixed on edit.
+          placement: account.ownerUserId ? "personal" : "group",
+          isShared: account.isShared,
           institution: account.institution ?? "",
           amount: String(centsToPesos(Math.abs(account.initialBalanceCents))),
           balanceOn: account.initialBalanceOn,
         }
       : {
-          fundId,
           accountId: "",
           name: "",
           kind: "asset",
-          memberId: null,
+          placement: "personal",
+          isShared: false,
           institution: "",
           amount: "",
           balanceOn: todayInBogota(),
@@ -228,36 +219,37 @@ function AccountForm({
             )}
           />
         )}
-        <Controller
-          name="memberId"
-          control={form.control}
-          render={({ field, fieldState }) => (
-            <Field invalid={fieldState.invalid}>
-              <FieldLabel htmlFor="account-owner">{t("ownerLabel")}</FieldLabel>
-              <Select.Root
-                size="3"
-                value={field.value ?? FUND_OWNER}
-                onValueChange={(value) =>
-                  field.onChange(value === FUND_OWNER ? null : value)
-                }
-                disabled={isPending}
-              >
-                <FieldControl>
-                  <Select.Trigger id="account-owner" />
-                </FieldControl>
-                <Select.Content position="popper">
-                  <Select.Item value={FUND_OWNER}>{t("ownerFund")}</Select.Item>
-                  {members.map((member) => (
-                    <Select.Item key={member.id} value={member.id}>
-                      {member.name}
+        {/* Placement is set at creation and immutable after (RF-60): a personal
+            account is the caller's own; a group account is offered only when they
+            belong to one. On edit the picker is gone, like `kind`. */}
+        {!isEdit && hasGroup && (
+          <Controller
+            name="placement"
+            control={form.control}
+            render={({ field, fieldState }) => (
+              <Field invalid={fieldState.invalid}>
+                <FieldLabel htmlFor="account-owner">{t("ownerLabel")}</FieldLabel>
+                <Select.Root
+                  size="3"
+                  value={field.value}
+                  onValueChange={field.onChange}
+                  disabled={isPending}
+                >
+                  <FieldControl>
+                    <Select.Trigger id="account-owner" />
+                  </FieldControl>
+                  <Select.Content position="popper">
+                    <Select.Item value="personal">
+                      {t("ownerPersonal")}
                     </Select.Item>
-                  ))}
-                </Select.Content>
-              </Select.Root>
-              <FieldMessage error={fieldState.error} />
-            </Field>
-          )}
-        />
+                    <Select.Item value="group">{t("ownerFund")}</Select.Item>
+                  </Select.Content>
+                </Select.Root>
+                <FieldMessage error={fieldState.error} />
+              </Field>
+            )}
+          />
+        )}
         <Controller
           name="institution"
           control={form.control}

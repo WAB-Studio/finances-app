@@ -1,28 +1,52 @@
 import { hasLocale } from "next-intl";
-import { setRequestLocale } from "next-intl/server";
+import type { Metadata } from "next";
+import { getTranslations, setRequestLocale } from "next-intl/server";
 import { notFound } from "next/navigation";
 
-import { listUserFunds } from "@/db/queries/funds";
+import { EmptyState, Flex, Heading, Page, Text } from "@/components/ui";
+import { getUserGroup } from "@/db/queries/groups";
 import { requireUser } from "@/db/session";
-import { redirect } from "@/i18n/navigation";
 import { routing } from "@/i18n/routing";
-import { readLastFundId } from "@/lib/fund/last-fund";
 
-// Renders nothing: every path through here ends in a redirect.
+export async function generateMetadata(
+  props: PageProps<"/[locale]">,
+): Promise<Metadata> {
+  const { locale } = await props.params;
+  if (!hasLocale(routing.locales, locale)) notFound();
+
+  const group = await getUserGroup();
+  if (group) return { title: group.name };
+
+  const t = await getTranslations({ locale, namespace: "common" });
+  return { title: t("appName") };
+}
+
+// The signed-in landing. A user may run personal-only (RF-55), so an absent
+// group is expected, not a redirect to create one.
 export default async function HomePage(props: PageProps<"/[locale]">) {
   const { locale } = await props.params;
   if (!hasLocale(routing.locales, locale)) notFound();
 
   setRequestLocale(locale);
 
-  await requireUser();
+  const [user, group, t] = await Promise.all([
+    requireUser(),
+    getUserGroup(),
+    getTranslations(),
+  ]);
 
-  const funds = await listUserFunds();
-  if (funds.length === 0) redirect({ href: "/onboarding", locale });
-
-  // The cookie is a landing hint, not a grant: fall back when it names a fund the user left.
-  const lastFundId = await readLastFundId();
-  const target = funds.find((fund) => fund.id === lastFundId) ?? funds[0];
-
-  redirect({ href: `/f/${target.id}`, locale });
+  return (
+    <Page>
+      <Flex direction="column" gap="2">
+        <Text size="2" color="gray">
+          {t("common.greeting", { email: user.email })}
+        </Text>
+        <Heading size="6">{group?.name ?? t("common.appName")}</Heading>
+        <EmptyState
+          title={t("dashboard.emptyTitle")}
+          description={t("dashboard.emptyDescription")}
+        />
+      </Flex>
+    </Page>
+  );
 }

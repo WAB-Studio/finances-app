@@ -6,8 +6,11 @@ import { useAction } from "next-safe-action/hooks";
 import { useState } from "react";
 import { toast } from "sonner";
 
-import { deleteMemberAction, restoreMemberAction } from "@/app/actions/members";
-import { ArchiveMemberDialog } from "@/components/members/archive-member-dialog";
+import {
+  archiveMemberAction,
+  deleteMemberAction,
+  restoreMemberAction,
+} from "@/app/actions/members";
 import { MemberFormDialog } from "@/components/members/member-form-dialog";
 import {
   Badge,
@@ -23,32 +26,25 @@ import {
   SegmentedControl,
   Text,
 } from "@/components/ui";
-import type { MemberRow } from "@/db/queries/members";
+import type { MemberRow } from "@/db/queries/group-members";
 import { usePathname, useRouter } from "@/i18n/navigation";
 import { useActionErrorToast } from "@/lib/use-action-toast";
-
-type MemberAccount = { id: string; name: string; kind: "asset" | "liability" };
 
 // The subject of a menu action, not a dialog's own field state: closing any
 // of the dialogs below clears this, and reopening one always names a member.
 type RowAction =
   | { kind: "archive"; member: MemberRow }
   | { kind: "restore"; member: MemberRow }
-  | { kind: "delete"; member: MemberRow }
-  | { kind: "deleteBlocked"; member: MemberRow };
+  | { kind: "delete"; member: MemberRow };
 
 export function MembersScreen({
-  fundId,
   members,
   currentUserId,
   archived,
-  memberAccounts,
 }: {
-  fundId: string;
   members: MemberRow[];
   currentUserId: string;
   archived: boolean;
-  memberAccounts: Record<string, MemberAccount[]>;
 }) {
   const t = useTranslations("members");
   // Root-scoped: `common` is a full catalogue path, not this component's namespace.
@@ -61,6 +57,14 @@ export function MembersScreen({
   // "new" and a row share one dialog instance; its own key resets the form.
   const [formTarget, setFormTarget] = useState<MemberRow | "new" | null>(null);
   const [rowAction, setRowAction] = useState<RowAction | null>(null);
+
+  const archiveState = useAction(archiveMemberAction, {
+    onSuccess() {
+      toast.success(t("archived"));
+      setRowAction(null);
+    },
+    onError: onActionError,
+  });
 
   const restoreState = useAction(restoreMemberAction, {
     onSuccess() {
@@ -125,7 +129,7 @@ export function MembersScreen({
                       <Text weight="medium" truncate>
                         {member.name}
                       </Text>
-                      {member.role === "owner" && (
+                      {member.role === "leader" && (
                         <Badge color="blue">{t("ownerBadge")}</Badge>
                       )}
                       {isSelf && <Badge>{t("you")}</Badge>}
@@ -133,9 +137,6 @@ export function MembersScreen({
                         <Badge color="gray">{t("noLoginBadge")}</Badge>
                       )}
                     </Flex>
-                    <Text size="2" color="gray">
-                      {t("accountCount", { count: member.activeAccountCount })}
-                    </Text>
                   </Flex>
 
                   <Box flexShrink="0">
@@ -181,13 +182,7 @@ export function MembersScreen({
                             <DropdownMenu.Item
                               color="red"
                               onSelect={() =>
-                                setRowAction({
-                                  kind:
-                                    member.activeAccountCount > 0
-                                      ? "deleteBlocked"
-                                      : "delete",
-                                  member,
-                                })
+                                setRowAction({ kind: "delete", member })
                               }
                             >
                               {tKey("common.delete")}
@@ -205,7 +200,6 @@ export function MembersScreen({
       )}
 
       <MemberFormDialog
-        fundId={fundId}
         open={formTarget !== null}
         onOpenChange={(open) => {
           if (!open) setFormTarget(null);
@@ -218,14 +212,20 @@ export function MembersScreen({
       />
 
       {rowAction?.kind === "archive" && (
-        <ArchiveMemberDialog
-          fundId={fundId}
-          member={rowAction.member}
-          accounts={memberAccounts[rowAction.member.id] ?? []}
+        <ConfirmDialog
           open
           onOpenChange={(open) => {
             if (!open) setRowAction(null);
           }}
+          title={t("archiveTitle")}
+          description={t("archiveDescription")}
+          confirmLabel={tKey("common.archive")}
+          cancelLabel={tKey("common.cancel")}
+          pending={archiveState.isPending}
+          tone="neutral"
+          onConfirm={() =>
+            archiveState.execute({ memberId: rowAction.member.id })
+          }
         />
       )}
 
@@ -242,7 +242,7 @@ export function MembersScreen({
           pending={restoreState.isPending}
           tone="neutral"
           onConfirm={() =>
-            restoreState.execute({ fundId, memberId: rowAction.member.id })
+            restoreState.execute({ memberId: rowAction.member.id })
           }
         />
       )}
@@ -259,20 +259,8 @@ export function MembersScreen({
           cancelLabel={tKey("common.cancel")}
           pending={deleteState.isPending}
           onConfirm={() =>
-            deleteState.execute({ fundId, memberId: rowAction.member.id })
+            deleteState.execute({ memberId: rowAction.member.id })
           }
-        />
-      )}
-
-      {/* The foreign key would refuse this delete; nothing here calls the action. */}
-      {rowAction?.kind === "deleteBlocked" && (
-        <ConfirmDialog
-          open
-          onOpenChange={() => setRowAction(null)}
-          title={t("deleteTitle")}
-          description={t("deleteBlocked")}
-          cancelLabel={tKey("common.cancel")}
-          dismissOnly
         />
       )}
     </Flex>

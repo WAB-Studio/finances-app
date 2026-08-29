@@ -8,7 +8,8 @@ import {
   deleteMember,
   restoreMember,
   updateMember,
-} from "@/db/queries/members";
+} from "@/db/queries/group-members";
+import { getUserGroup } from "@/db/queries/groups";
 import { pgErrorCode } from "@/lib/db-error";
 import { ActionError } from "@/lib/errors";
 import { authActionClient } from "@/lib/safe-action";
@@ -20,10 +21,18 @@ import {
   updateMemberSchema,
 } from "@/lib/validation/member";
 
+// Members live inside a group; a caller who runs personal-only has none (RF-55).
+async function requireGroupId(): Promise<string> {
+  const group = await getUserGroup();
+  if (!group) throw new ActionError("errors.notFound");
+  return group.id;
+}
+
 export const createMemberAction = authActionClient
   .inputSchema(createMemberSchema)
-  .action(async ({ parsedInput: { fundId, name } }) => {
-    const { memberId } = await createMember({ fundId, name });
+  .action(async ({ parsedInput: { name } }) => {
+    const groupId = await requireGroupId();
+    const { memberId } = await createMember({ groupId, name });
 
     refresh();
     return { memberId };
@@ -31,44 +40,37 @@ export const createMemberAction = authActionClient
 
 export const updateMemberAction = authActionClient
   .inputSchema(updateMemberSchema)
-  .action(async ({ parsedInput: { fundId, memberId, name } }) => {
-    const updated = await updateMember({ fundId, memberId, name });
+  .action(async ({ parsedInput: { memberId, name } }) => {
+    const groupId = await requireGroupId();
+    const updated = await updateMember({ groupId, memberId, name });
     if (!updated) throw new ActionError("errors.notFound");
 
     refresh();
   });
 
-// RF-12: the caller has already decided, per account, whether it follows the
-// member into archive or moves to the fund — this action only forwards that.
+// RF-61: archiving a member leaves their accounts untouched — the flag is the
+// only write. `group_members_update_member` still refuses the caller's own row.
 export const archiveMemberAction = authActionClient
   .inputSchema(archiveMemberSchema)
-  .action(async ({ parsedInput: { fundId, memberId, accounts } }) => {
-    let result: Awaited<ReturnType<typeof archiveMember>>;
+  .action(async ({ parsedInput: { memberId } }) => {
+    const groupId = await requireGroupId();
+    let archived: boolean;
     try {
-      result = await archiveMember({ fundId, memberId, decisions: accounts });
+      archived = await archiveMember({ groupId, memberId });
     } catch (error) {
-      const code = pgErrorCode(error);
-      // The members update is the transaction's first write, so a 42501 here
-      // can only come from `members_update_member`'s WITH CHECK — the same
-      // caller already passed `accounts_update_member`'s fund-membership test.
-      if (code === "42501") throw new ActionError("errors.selfArchive");
-      // `members_keep_owner` is deferred to COMMIT, and `archiveMember` commits
-      // before it resolves: the check_violation lands here, not at the UPDATE.
-      if (code === "23514") throw new ActionError("errors.lastOwner");
+      if (pgErrorCode(error) === "42501") throw new ActionError("errors.selfArchive");
       throw error;
     }
-    if (result.status === "not-found") throw new ActionError("errors.notFound");
-    if (result.status === "incomplete") {
-      throw new ActionError("errors.accountDecisionsIncomplete");
-    }
+    if (!archived) throw new ActionError("errors.notFound");
 
     refresh();
   });
 
 export const restoreMemberAction = authActionClient
   .inputSchema(restoreMemberSchema)
-  .action(async ({ parsedInput: { fundId, memberId } }) => {
-    const restored = await restoreMember({ fundId, memberId });
+  .action(async ({ parsedInput: { memberId } }) => {
+    const groupId = await requireGroupId();
+    const restored = await restoreMember({ groupId, memberId });
     if (!restored) throw new ActionError("errors.notFound");
 
     refresh();
@@ -76,16 +78,9 @@ export const restoreMemberAction = authActionClient
 
 export const deleteMemberAction = authActionClient
   .inputSchema(deleteMemberSchema)
-  .action(async ({ parsedInput: { fundId, memberId } }) => {
-    let deleted: boolean;
-    try {
-      deleted = await deleteMember({ fundId, memberId });
-    } catch (error) {
-      const code = pgErrorCode(error);
-      if (code === "23503") throw new ActionError("errors.memberHasAccounts");
-      if (code === "23514") throw new ActionError("errors.lastOwner");
-      throw error;
-    }
+  .action(async ({ parsedInput: { memberId } }) => {
+    const groupId = await requireGroupId();
+    const deleted = await deleteMember({ groupId, memberId });
     if (!deleted) throw new ActionError("errors.notFound");
 
     refresh();

@@ -6,15 +6,15 @@ import { MAX_AMOUNT_PESOS, parsePesos } from "@/lib/money";
 // The list the screens and both sides of validation read for an account's kind (RF-09).
 export const ACCOUNT_KINDS = ["asset", "liability"] as const;
 
+// Where a new account lands: owned by the caller, or held by their group (RF-60).
+// The action turns this into the owner/group XOR the schema keeps off the wire.
+export const ACCOUNT_PLACEMENTS = ["personal", "group"] as const;
+
 const accountNameSchema = z
   .string()
   .trim()
   .min(1, { error: "accounts.errors.nameRequired" })
   .max(80, { error: "accounts.errors.nameTooLong" });
-
-const accountMemberIdSchema = z
-  .uuid({ error: "accounts.errors.memberInvalid" })
-  .nullable();
 
 const accountInstitutionSchema = z
   .string()
@@ -59,10 +59,10 @@ const accountBalanceOnSchema = z.string().superRefine((value, ctx) => {
 });
 
 export const createAccountSchema = z.object({
-  fundId: z.uuid(),
   name: accountNameSchema,
   kind: z.enum(ACCOUNT_KINDS, { error: "accounts.errors.kindInvalid" }),
-  memberId: accountMemberIdSchema,
+  // The owner or group is resolved from the session, so only the placement travels.
+  placement: z.enum(ACCOUNT_PLACEMENTS, { error: "accounts.errors.placementInvalid" }),
   institution: accountInstitutionSchema,
   amount: accountAmountSchema,
   balanceOn: accountBalanceOnSchema,
@@ -70,12 +70,12 @@ export const createAccountSchema = z.object({
 
 export type CreateAccountInput = z.infer<typeof createAccountSchema>;
 
-// `kind` is immutable after creation, so it never appears in the update schema.
+// `kind` and the placement are immutable after creation; only `is_shared` toggles
+// whether the group may write a group account.
 export const updateAccountSchema = z.object({
-  fundId: z.uuid(),
   accountId: z.uuid(),
   name: accountNameSchema,
-  memberId: accountMemberIdSchema,
+  isShared: z.boolean(),
   institution: accountInstitutionSchema,
   amount: accountAmountSchema,
   balanceOn: accountBalanceOnSchema,
@@ -84,21 +84,18 @@ export const updateAccountSchema = z.object({
 export type UpdateAccountInput = z.infer<typeof updateAccountSchema>;
 
 export const archiveAccountSchema = z.object({
-  fundId: z.uuid(),
   accountId: z.uuid(),
 });
 
 export type ArchiveAccountInput = z.infer<typeof archiveAccountSchema>;
 
 export const restoreAccountSchema = z.object({
-  fundId: z.uuid(),
   accountId: z.uuid(),
 });
 
 export type RestoreAccountInput = z.infer<typeof restoreAccountSchema>;
 
 export const deleteAccountSchema = z.object({
-  fundId: z.uuid(),
   accountId: z.uuid(),
 });
 
