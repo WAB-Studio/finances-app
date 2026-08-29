@@ -134,6 +134,7 @@ async function main() {
 
   await checkRepivotPolicies();
   await checkLedgerPolicies();
+  await checkAnalyticsAggregates();
 }
 
 // Assertions 9-26: the repivoted schema. A group holds accounts and categories a user XOR a group
@@ -654,6 +655,233 @@ async function checkLedgerPolicies() {
     tailLabel,
     afterUser === "postgres" && probeCount === "0",
     `current_user = ${afterUser}, rows named 'rls ledger' = ${probeCount}`,
+  );
+}
+
+// Assertions 38-42: the analytics aggregates and the Phase 1 RLS that bounds them. No new policy
+// ships — what is proved is query correctness under a member's context. The same window and the same
+// aggregate SQL the report queries run are replicated inside the transaction, never the query functions
+// themselves (they open their own `withUserDb`). Every fixture is seeded through the app's own policies
+// and rolled back.
+async function checkAnalyticsAggregates() {
+  console.log("");
+  const leaderUser = randomUUID();
+  const secondLeader = randomUUID();
+  const groupId = randomUUID();
+  const secondGroup = randomUUID();
+
+  const labels = [
+    "38. the flow window sums the income and the expense, not the transfer — net is income − expense",
+    "39. expense-by-category sums only the expense's splits; the transfer and income contribute no rows",
+    "40. contribution netting credits a personal→group transfer and debits a group→personal return",
+    "41. a second group's rows never enter the first member's flow or category aggregate",
+    "42. a movement dated in the previous month is excluded from the current window",
+  ];
+  const tailLabel = "43. the rolled-back analytics transaction leaves no trace";
+
+  // The exact aggregate SQL of the three report queries, replicated so the proof reads what ships.
+  const flowSums = (q: postgres.TransactionSql, start: string, endExclusive: string) =>
+    q<{ income_cents: string; expense_cents: string }[]>`
+      select
+        coalesce(sum(amount_cents) filter (where kind = 'income'), 0) as income_cents,
+        coalesce(sum(amount_cents) filter (where kind = 'expense'), 0) as expense_cents
+      from transactions
+      where occurred_at >= ${start} and occurred_at < ${endExclusive}`;
+
+  const categoryTotals = (q: postgres.TransactionSql, start: string, endExclusive: string) =>
+    q<{ category_id: string; total_cents: string }[]>`
+      select s.category_id, c.name, c.color, sum(s.amount_cents) as total_cents
+      from transaction_splits s
+      join transactions t on t.id = s.transaction_id
+      join categories c on c.id = s.category_id
+      where t.kind = 'expense'
+        and t.occurred_at >= ${start} and t.occurred_at < ${endExclusive}
+      group by s.category_id, c.name, c.color
+      order by sum(s.amount_cents) desc`;
+
+  const forcedRollback = Symbol("forced rollback");
+
+  await sql
+    .begin(async (tx) => {
+      // Base identities and the caller's group, seeded as the owner before any role switch.
+      await tx`insert into auth.users (id) values (${leaderUser}), (${secondLeader})`;
+      await tx`insert into app_users (id) values (${leaderUser}), (${secondLeader})`;
+
+      await enterUserContext(tx, leaderUser);
+      await tx`insert into groups (id, name, cash_mode) values (${groupId}, 'rls analytics', 'shared')`;
+      await tx`insert into group_members (group_id, user_id, name, role)
+        values (${groupId}, ${leaderUser}, 'rls analytics leader', 'leader')`;
+
+      // Mirrors `currentMonthRange()`: the first of the current Bogotá month and the first of the next,
+      // as YYYY-MM-DD strings — the very bounds the report queries receive.
+      const [{ start: winStart, end_exclusive: winEnd }] = await tx<
+        { start: string; end_exclusive: string }[]
+      >`select
+          to_char(date_trunc('month', now() at time zone 'America/Bogota'), 'YYYY-MM-DD') as start,
+          to_char(date_trunc('month', now() at time zone 'America/Bogota') + interval '1 month', 'YYYY-MM-DD') as end_exclusive`;
+
+      // The caller's personal account and the group's shared account: contribution flows between the two.
+      const [{ id: personalAccount }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_on)
+        values (${leaderUser}, 'rls analytics personal cash', 'asset', (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: groupAccount }] = await tx<{ id: string }[]>`
+        insert into accounts (group_id, is_shared, name, kind, initial_balance_on)
+        values (${groupId}, true, 'rls analytics group cash', 'asset', (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: incomeCat }] = await tx<{ id: string }[]>`
+        insert into categories (owner_user_id, name, kind)
+        values (${leaderUser}, 'rls analytics income', 'income') returning id`;
+      const [{ id: expenseCatA }] = await tx<{ id: string }[]>`
+        insert into categories (owner_user_id, name, kind)
+        values (${leaderUser}, 'rls analytics rent', 'expense') returning id`;
+      const [{ id: expenseCatB }] = await tx<{ id: string }[]>`
+        insert into categories (owner_user_id, name, kind)
+        values (${leaderUser}, 'rls analytics food', 'expense') returning id`;
+
+      // One income (10000, single split), one expense (6000, split across two categories),
+      // one contribution transfer (5000, personal→group) and its return (1500, group→personal).
+      const [{ id: incomeTxn }] = await tx<{ id: string }[]>`
+        insert into transactions (to_account_id, amount_cents, occurred_at)
+        values (${personalAccount}, 10000, (now() at time zone 'America/Bogota')::date) returning id`;
+      await tx`insert into transaction_splits (transaction_id, category_id, amount_cents)
+        values (${incomeTxn}, ${incomeCat}, 10000)`;
+
+      const [{ id: expenseTxn }] = await tx<{ id: string }[]>`
+        insert into transactions (from_account_id, amount_cents, occurred_at)
+        values (${personalAccount}, 6000, (now() at time zone 'America/Bogota')::date) returning id`;
+      await tx`insert into transaction_splits (transaction_id, category_id, amount_cents)
+        values (${expenseTxn}, ${expenseCatA}, 4000), (${expenseTxn}, ${expenseCatB}, 2000)`;
+
+      await tx`insert into transactions (from_account_id, to_account_id, amount_cents, occurred_at)
+        values (${personalAccount}, ${groupAccount}, 5000, (now() at time zone 'America/Bogota')::date)`;
+      await tx`insert into transactions (from_account_id, to_account_id, amount_cents, occurred_at)
+        values (${groupAccount}, ${personalAccount}, 1500, (now() at time zone 'America/Bogota')::date)`;
+
+      // 38: the flow window counts the income and the expense, never the transfer (RF-19, RF-65).
+      const [flow] = await flowSums(tx, winStart, winEnd);
+      const income = Number(flow.income_cents);
+      const expense = Number(flow.expense_cents);
+      assert(
+        labels[0],
+        income === 10000 && expense === 6000 && income - expense === 4000,
+        `income = ${income}, expense = ${expense}, net = ${income - expense}`,
+      );
+
+      // 39: the split-joined sum counts only the expense's two split rows; the transfer carries none (RF-34).
+      const catRows = await categoryTotals(tx, winStart, winEnd);
+      const catTotal = catRows.reduce((sum, row) => sum + Number(row.total_cents), 0);
+      assert(
+        labels[1],
+        catRows.length === 2 && catTotal === 6000,
+        `rows = ${catRows.length}, total = ${catTotal} (expected 2 rows, 6000)`,
+      );
+
+      // 40: the transfer netting credits the source owner for a contribution and debits it for a return (RF-66).
+      const contributions = await tx<{ user_id: string; contribution_cents: string }[]>`
+        select member.user_id, coalesce(sum(member.delta), 0) as contribution_cents
+        from (
+          select
+            case
+              when ta.group_id is not null and fa.owner_user_id is not null then fa.owner_user_id
+              when fa.group_id is not null and ta.owner_user_id is not null then ta.owner_user_id
+            end as user_id,
+            case
+              when ta.group_id is not null and fa.owner_user_id is not null then t.amount_cents
+              when fa.group_id is not null and ta.owner_user_id is not null then -t.amount_cents
+              else 0
+            end as delta
+          from transactions t
+          join accounts fa on fa.id = t.from_account_id
+          join accounts ta on ta.id = t.to_account_id
+          where t.kind = 'transfer'
+            and t.occurred_at >= ${winStart} and t.occurred_at < ${winEnd}
+        ) member
+        where member.user_id is not null
+        group by member.user_id`;
+      assert(
+        labels[2],
+        contributions.length === 1 &&
+          contributions[0].user_id === leaderUser &&
+          Number(contributions[0].contribution_cents) === 3500,
+        `rows = ${contributions.length}, ${contributions[0]?.user_id === leaderUser ? "leader" : "other"} net = ${contributions[0]?.contribution_cents} (expected 3500 = 5000 − 1500)`,
+      );
+
+      // A second group with its own leader, accounts, categories and movements, seeded through its own
+      // context. The first leader is no member of it, so Phase 1's SELECT policy hides every row.
+      await tx`reset role`;
+      await enterUserContext(tx, secondLeader);
+      await tx`insert into groups (id, name, cash_mode) values (${secondGroup}, 'rls analytics second', 'shared')`;
+      await tx`insert into group_members (group_id, user_id, name, role)
+        values (${secondGroup}, ${secondLeader}, 'rls analytics second leader', 'leader')`;
+      const [{ id: secondPersonal }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_on)
+        values (${secondLeader}, 'rls analytics second cash', 'asset', (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: secondGroupAccount }] = await tx<{ id: string }[]>`
+        insert into accounts (group_id, is_shared, name, kind, initial_balance_on)
+        values (${secondGroup}, true, 'rls analytics second group cash', 'asset', (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: secondExpenseCat }] = await tx<{ id: string }[]>`
+        insert into categories (owner_user_id, name, kind)
+        values (${secondLeader}, 'rls analytics second expense', 'expense') returning id`;
+      const [{ id: secondIncome }] = await tx<{ id: string }[]>`
+        insert into transactions (to_account_id, amount_cents, occurred_at)
+        values (${secondPersonal}, 77000, (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: secondIncomeCat }] = await tx<{ id: string }[]>`
+        insert into categories (owner_user_id, name, kind)
+        values (${secondLeader}, 'rls analytics second income', 'income') returning id`;
+      await tx`insert into transaction_splits (transaction_id, category_id, amount_cents)
+        values (${secondIncome}, ${secondIncomeCat}, 77000)`;
+      const [{ id: secondExpense }] = await tx<{ id: string }[]>`
+        insert into transactions (from_account_id, amount_cents, occurred_at)
+        values (${secondPersonal}, 33000, (now() at time zone 'America/Bogota')::date) returning id`;
+      await tx`insert into transaction_splits (transaction_id, category_id, amount_cents)
+        values (${secondExpense}, ${secondExpenseCat}, 33000)`;
+      await tx`insert into transactions (from_account_id, to_account_id, amount_cents, occurred_at)
+        values (${secondPersonal}, ${secondGroupAccount}, 22000, (now() at time zone 'America/Bogota')::date)`;
+
+      // 41: back under the first member, the aggregates hold their earlier totals — the second group is invisible.
+      await tx`reset role`;
+      await enterUserContext(tx, leaderUser);
+      const [isolatedFlow] = await flowSums(tx, winStart, winEnd);
+      const isolatedCat = await categoryTotals(tx, winStart, winEnd);
+      const isolatedCatTotal = isolatedCat.reduce((sum, row) => sum + Number(row.total_cents), 0);
+      assert(
+        labels[3],
+        Number(isolatedFlow.income_cents) === 10000 &&
+          Number(isolatedFlow.expense_cents) === 6000 &&
+          isolatedCat.length === 2 &&
+          isolatedCatTotal === 6000,
+        `income = ${isolatedFlow.income_cents}, expense = ${isolatedFlow.expense_cents}, category rows = ${isolatedCat.length}, category total = ${isolatedCatTotal}`,
+      );
+
+      // A first-group income dated in the previous month, otherwise valid. If the date-only window
+      // comparison holds, it never touches the current sum.
+      const [{ id: staleIncome }] = await tx<{ id: string }[]>`
+        insert into transactions (to_account_id, amount_cents, occurred_at)
+        values (${personalAccount}, 99999, (date_trunc('month', now() at time zone 'America/Bogota') - interval '1 day')::date) returning id`;
+      await tx`insert into transaction_splits (transaction_id, category_id, amount_cents)
+        values (${staleIncome}, ${incomeCat}, 99999)`;
+
+      // 42: the current window still reads 10000 of income — the previous-month row is filtered out (RNF-06).
+      const [windowedFlow] = await flowSums(tx, winStart, winEnd);
+      assert(
+        labels[4],
+        Number(windowedFlow.income_cents) === 10000,
+        `income in window = ${windowedFlow.income_cents} (expected 10000, the 99999 stale row excluded)`,
+      );
+
+      // Forces `sql.begin` to issue ROLLBACK: nothing this function wrote may survive it.
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`select current_user`;
+  const [{ count: probeCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from groups where name like 'rls analytics%'`;
+  assert(
+    tailLabel,
+    afterUser === "postgres" && probeCount === "0",
+    `current_user = ${afterUser}, rows named 'rls analytics%' = ${probeCount}`,
   );
 }
 
