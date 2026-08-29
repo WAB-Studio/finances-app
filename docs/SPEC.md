@@ -40,20 +40,20 @@ alerts, accounting exports, native apps. None of this gets built or left
 #### Authentication and fund
 
 - [x] **RF-01** — Passwordless email login.
-- [x] **RF-02** — A user can belong to several funds; they operate on one at a time and can switch.
-- [ ] **RF-03** — Only the `owner` invites members, edits the fund and manages categories.
-- [x] **RF-04** — All members of a fund see the same data. There are no partial-read roles.
-- [ ] **RF-05** — Whoever creates the fund becomes `owner`. The role is transferable, but a fund is never left without an owner.
+- [ ] **RF-57** — Only the group `leader` invites members, edits the group and manages the group's categories.
+- [ ] **RF-58** — Every member of a group can read all of its accounts (universal read); write is bounded per account — a personal account by its owner, a shared account by any member.
+- [ ] **RF-59** — Whoever creates a group becomes its `leader`. The role is transferable, but a group is never left without a leader.
 - [ ] **RF-06** — Accepting an invitation links the user to the member that already exists in the fund, if any; otherwise a member is created.
+- [ ] **RF-55** — By default a user's accounts are personal; a user may belong to at most one optional shared group. There is no multi-fund membership and no switching.
 
 #### Members and accounts
 
 - [x] **RF-07** — CRUD for members. A member need not have a user: you record on their behalf even if they never open the app.
-- [x] **RF-08** — CRUD for accounts. Every account belongs to the fund; linking it to a member is optional. Without a member it is a shared account.
+- [ ] **RF-60** — CRUD for accounts. An account is either personal (owned by a user) or a group account; a personal account can be marked shared so the group may write it.
 - [x] **RF-09** — An account is either an asset (savings, cash) or a liability (card, loan).
 - [x] **RF-10** — Creating an account captures its opening balance and the date that balance is true as of.
 - [ ] **RF-11** — Accounts and members that have movements are archived, not deleted.
-- [x] **RF-12** — Archiving a member does not archive their accounts. The user decides per account: archive it or hand it to the fund.
+- [ ] **RF-61** — Archiving a member does not archive their accounts. The owner decides per account: archive it or hand it to the group.
 
 #### Debts
 
@@ -68,7 +68,7 @@ alerts, accounting exports, native apps. None of this gets built or left
 - [ ] **RF-18** — The type is derived from the accounts involved; the user does not choose it.
 - [ ] **RF-19** — Transfers are excluded from every income and expense report.
 - [ ] **RF-20** — Every transaction has a positive amount and at least one account.
-- [ ] **RF-21** — Both accounts on a transaction always belong to the same fund.
+- [ ] **RF-62** — Both accounts on a transaction belong to the caller's writable scope: their personal accounts and their group's shared accounts.
 - [ ] **RF-22** — Quick entry: a single text field from which amount, category and description are inferred. Anything inferred stays editable before saving.
 - [ ] **RF-23** — Listing with filters by date range, member, account, category and type.
 - [ ] **RF-24** — Edit and delete transactions.
@@ -76,9 +76,9 @@ alerts, accounting exports, native apps. None of this gets built or left
 
 #### Categories
 
-- [x] **RF-26** — CRUD for categories with one level of subcategories. A subcategory belongs to the same fund as its parent.
+- [ ] **RF-63** — CRUD for categories with one level of subcategories, scoped to a user (personal) or a group; a subcategory shares its parent's scope.
 - [x] **RF-27** — Each category is either expense or income.
-- [x] **RF-28** — Creating a fund seeds an initial category set in the active language.
+- [ ] **RF-64** — Creating a personal space or a group seeds an initial category set in the active language.
 
 #### Recurring
 
@@ -89,19 +89,19 @@ alerts, accounting exports, native apps. None of this gets built or left
 
 #### Reports
 
-- [ ] **RF-33** — Dashboard: balance per account, net worth per member, and income, expense and net for the current month.
+- [ ] **RF-65** — Dashboard: balance per account, net worth per owner (personal and group), and income, expense and net for the current month.
 - [ ] **RF-34** — This month's expenses by category, largest first.
 - [ ] **RF-35** — Six-month comparison of income and expense.
-- [ ] **RF-36** — Each member's contribution for the month: net of transfers into fund accounts, less those flowing back to that member.
-- [ ] **RF-37** — In every report grouped by member, the fund appears as one more group. Shared accounts are not split across people.
+- [ ] **RF-66** — Each member's contribution for the month: net of transfers into the group's accounts, less those flowing back to that member.
+- [ ] **RF-67** — In every report grouped by member, the group's shared accounts appear as their own group. Shared accounts are not split across people.
 
 #### Cash
 
-- [x] **RF-38** — The fund has a shared cash account, created along with the fund.
-- [ ] **RF-39** — A cash withdrawal goes to the member's own cash account if they have one, and to the fund's if they do not. The app neither asks nor stores a mode: the rule is derived from which accounts exist.
+- [ ] **RF-68** — A cash withdrawal goes to the member's own cash account or the group's shared cash, per the group's `cash_mode`.
 - [ ] **RF-40** — Cash expenses come out of the matching cash account. By RF-19 the withdrawal is not an expense, so the amount is never counted twice.
 - [ ] **RF-41** — Handing physical cash between people is not recorded: it does not change accounts.
 - [ ] **RF-42** — Returning cash to a person is a transfer into one of their accounts and reduces their contribution.
+- [ ] **RF-56** — A group configures its cash (`cash_mode`): a single shared cash account, or one personal cash account per member.
 
 #### Audit
 
@@ -151,7 +151,20 @@ alerts, accounting exports, native apps. None of this gets built or left
 
 Dead codes. The number stays burned and the tick stays as it was.
 
-_None._
+- [x] **RF-02** — A user can belong to several funds; they operate on one at a time and can switch. _Retired 2026-08-28. Successor: RF-55 (one optional group per user, no switching)._
+- [x] **RF-38** — The fund has a shared cash account, created along with the fund. _Retired 2026-08-28. Successor: RF-56 (configurable `cash_mode`)._
+- [ ] **RF-03** — Only the `owner` invites members, edits the fund and manages categories. _Retired 2026-08-28. Successor: RF-57 (group leader manages the group)._
+- [x] **RF-04** — All members of a fund see the same data. There are no partial-read roles. _Retired 2026-08-28. Successor: RF-58 (universal read, bounded write)._
+- [ ] **RF-05** — Whoever creates the fund becomes `owner`. The role is transferable, but a fund is never left without an owner. _Retired 2026-08-28. Successor: RF-59 (group leader)._
+- [x] **RF-08** — CRUD for accounts. Every account belongs to the fund; linking it to a member is optional. Without a member it is a shared account. _Retired 2026-08-28. Successor: RF-60 (personal vs group account)._
+- [x] **RF-12** — Archiving a member does not archive their accounts. The user decides per account: archive it or hand it to the fund. _Retired 2026-08-28. Successor: RF-61 (hand to the group)._
+- [ ] **RF-21** — Both accounts on a transaction always belong to the same fund. _Retired 2026-08-28. Successor: RF-62 (same writable scope)._
+- [x] **RF-26** — CRUD for categories with one level of subcategories. A subcategory belongs to the same fund as its parent. _Retired 2026-08-28. Successor: RF-63 (scoped to user or group)._
+- [x] **RF-28** — Creating a fund seeds an initial category set in the active language. _Retired 2026-08-28. Successor: RF-64 (seed on personal space or group)._
+- [ ] **RF-33** — Dashboard: balance per account, net worth per member, and income, expense and net for the current month. _Retired 2026-08-28. Successor: RF-65 (net worth per owner)._
+- [ ] **RF-36** — Each member's contribution for the month: net of transfers into fund accounts, less those flowing back to that member. _Retired 2026-08-28. Successor: RF-66 (group accounts)._
+- [ ] **RF-37** — In every report grouped by member, the fund appears as one more group. Shared accounts are not split across people. _Retired 2026-08-28. Successor: RF-67 (shared accounts as a group)._
+- [ ] **RF-39** — A cash withdrawal goes to the member's own cash account if they have one, and to the fund's if they do not. The app neither asks nor stores a mode: the rule is derived from which accounts exist. _Retired 2026-08-28. Successor: RF-68 (per `cash_mode`)._
 
 ---
 
@@ -159,14 +172,16 @@ _None._
 
 ```mermaid
 erDiagram
-    funds ||--o{ members : "has"
-    funds ||--o{ accounts : "holds"
-    funds ||--o{ categories : "defines"
-    funds ||--o{ transactions : "groups"
-    funds ||--o{ recurring_rules : "groups"
-    funds ||--o{ audit_log : "records"
+    groups ||--o{ group_members : "has"
+    groups ||--o{ accounts : "holds (optional)"
+    groups ||--o{ categories : "defines"
+    groups ||--o{ transactions : "groups"
+    groups ||--o{ recurring_rules : "groups"
+    groups ||--o{ audit_log : "records"
 
-    members ||--o{ accounts : "owns (optional)"
+    app_users ||--o{ categories : "defines (personal)"
+    app_users ||--o{ accounts : "owns (personal)"
+
     accounts ||--o| debt_terms : "if liability"
     accounts ||--o{ transactions : "source"
     accounts ||--o{ transactions : "destination"
@@ -186,20 +201,21 @@ erDiagram
         timestamptz updated_at
     }
 
-    funds {
+    groups {
         uuid id PK
         text name
         text currency "default COP"
+        text cash_mode "shared | per_member"
         timestamptz created_at
         timestamptz updated_at
     }
 
-    members {
+    group_members {
         uuid id PK
-        uuid fund_id FK
+        uuid group_id FK
         uuid user_id FK "null if they never sign in"
         text name
-        text role "owner | member"
+        text role "leader | member"
         timestamptz archived_at
         timestamptz created_at
         timestamptz updated_at
@@ -207,8 +223,9 @@ erDiagram
 
     accounts {
         uuid id PK
-        uuid fund_id FK
-        uuid member_id FK "null = shared fund account"
+        uuid owner_user_id FK "null = group account"
+        uuid group_id FK "null = personal account"
+        boolean is_shared "group account any member may write"
         text name
         text kind "asset | liability"
         text institution
@@ -229,7 +246,8 @@ erDiagram
 
     categories {
         uuid id PK
-        uuid fund_id FK
+        uuid owner_user_id FK "null = group category"
+        uuid group_id FK "null = personal category"
         uuid parent_id FK
         text name
         text kind "expense | income"
@@ -286,11 +304,16 @@ erDiagram
 
 Rules the model must always guarantee, regardless of how they are implemented:
 
-- The fund is the root. Every entity belongs to exactly one fund.
-- An account belongs to the fund; the member is optional. Without a member it is
-  a shared account. There is no fictional member standing in for the fund.
+- An account belongs to exactly one of a user or a group (XOR): a personal
+  account names its `owner_user_id`, a group account names its `group_id`. Never
+  both, never neither.
+- A group account may be `is_shared` so any member can write it. A personal
+  account is written only by its owner and is never `is_shared`.
+- Read is universal inside a group: every member sees every group account and
+  every member's personal account. Write is bounded to own-or-shared: the owner
+  writes their own account, any member writes one marked shared.
 - A member is a person, with or without a login. Only a member with a user can
-  be `owner`.
+  be `leader`. A member with a user belongs to at most one group.
 - A debt is a liability account, not a separate entity. Its balance comes from
   the same calculation as a savings account's.
 - A balance is never stored: it derives from the opening balance plus movements.
@@ -299,8 +322,12 @@ Rules the model must always guarantee, regardless of how they are implemented:
   user.
 - Null `from` and `to` define the type: destination only is income, source only
   is expense, both is a transfer. Never both null.
-- Both accounts on a transaction belong to the same fund as the transaction.
 - The amount is always positive; direction supplies the sign.
+- A category belongs to exactly one of a user or a group (XOR), mirroring an
+  account's owner: a personal category names its `owner_user_id`, a group
+  category names its `group_id`. Never both, never neither.
+- A group's `cash_mode` is `shared` (a single group cash account) or
+  `per_member` (one cash account per member).
 - Money is an integer number of cents.
 - The audit log cannot be bypassed from any write path.
 - `external_ref` is unique within a fund.

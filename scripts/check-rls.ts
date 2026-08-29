@@ -13,11 +13,6 @@ function assert(label: string, ok: boolean, detail: string) {
   if (!ok) failed = true;
 }
 
-// A missing fixture is not a policy failure — it never touches `failed`.
-function skip(label: string, reason: string) {
-  console.log(`SKIP  ${label} — ${reason}`);
-}
-
 function pgCode(error: unknown): string | undefined {
   return (error as { code?: string }).code;
 }
@@ -137,171 +132,269 @@ async function main() {
     "REPORT  assertion 4 alone is worthless against an empty table; 2, 3 and 7 are what give it teeth.",
   );
 
-  await checkFundPolicies();
-  await checkColumnAndConstraintPolicies();
+  await checkRepivotPolicies();
 }
 
-// Assertions 9-20: funds, members, accounts, categories. A `postgres` read, since it carries
-// BYPASSRLS, is the only way to find a fixture without granting one through the app itself.
-async function checkFundPolicies() {
+// Assertions 9-26: the repivoted schema. A group holds accounts and categories a user XOR a group
+// owns; read is universal inside the group, write is bounded to own-or-shared, and the leader
+// manages the group's own categories. Fixtures are seeded through the app's own policies and rolled back.
+async function checkRepivotPolicies() {
   console.log("");
-  const [fixtureUser] = await sql<{ id: string }[]>`select id from app_users limit 1`;
-  const labels = [
-    "9. insert as owner: the trigger, not the caller, sets created_at",
-    "10. owner membership insert succeeds",
-    "11. a second membership insert into a claimed fund is rejected",
-    "12. a member inserts an account and a category into their own fund",
-    "13. a member's counts equal exactly what was written",
-    "14. an intruder's counts are all zero",
-    "15. an intruder cannot insert an account into the probe fund",
-    "16. an intruder cannot claim the probe fund",
-    "17. no role may update a fund — there is no UPDATE grant",
-    "18. removing the last owner is refused",
-    "19. removing the fund lifts the guard and cascades",
-    "20. the rolled-back transaction leaves no trace",
+  // Two fresh identities the section seeds itself, so it runs on an empty dev DB with no prior sign-in.
+  // Both `auth.users` and `app_users` rows are inserted as the owner inside the transaction below and
+  // roll back with it. Neither holds a live membership, so the one-group-per-user index leaves the
+  // leader claim free to land.
+  const leaderUser = randomUUID();
+  const memberUser = randomUUID();
+
+  const soloLabels = [
+    "9. an account with both an owner and a group is refused",
+    "10. an account with neither an owner nor a group is refused",
+    "11. a personal account marked shared is refused",
+    "12. a group whose cash_mode is neither value is refused",
+    "13. a second live membership for a claimed user is refused",
+    "14. a category with both an owner and a group is refused",
+    "15. a category with neither an owner nor a group is refused",
+    "16. deleting the sole leader while the group survives is refused",
   ];
+  const pairLabels = [
+    "17. a member reads another member's personal account",
+    "18. a member cannot mint an account owned by another user",
+    "19. a member's update and delete of another's personal account touch nothing",
+    "20. a member writes their own account and the shared group account",
+    "21. the leader reads a member's personal account",
+    "22. the leader's update and delete of that account touch nothing",
+    "23. a member reads a group category and the leader a member's personal one",
+    "24. a personal category yields to its owner and to no one else",
+    "25. a group category yields to the leader and to no plain member",
+  ];
+  const tailLabel = "26. the rolled-back transaction leaves no trace";
 
-  if (!fixtureUser) {
-    for (const label of labels) skip(label, "no `app_users` row: sign in once, then re-run");
-    return;
-  }
-
-  const realUser = fixtureUser.id;
-  const intruder = randomUUID();
-  let probeId = "";
-
+  const groupId = randomUUID();
   const forcedRollback = Symbol("forced rollback");
+
   await sql
     .begin(async (tx) => {
-      await enterUserContext(tx, realUser);
+      // Seed the two base identities as the owner before any role switch: `auth.users` is the FK target
+      // for `app_users`, and both are needed before the app's own policies can seed group fixtures.
+      await tx`insert into auth.users (id) values (${leaderUser}), (${memberUser})`;
+      await tx`insert into app_users (id) values (${leaderUser}), (${memberUser})`;
 
-      const counts = async () => {
-        const [row] = await tx<{ f: string; m: string; a: string; c: string }[]>`
-          select
-            (select count(*)::text from funds) as f,
-            (select count(*)::text from members) as m,
-            (select count(*)::text from accounts) as a,
-            (select count(*)::text from categories) as c`;
-        return row;
-      };
+      await enterUserContext(tx, leaderUser);
 
-      // Whatever this user already owns is the floor: the probe proves the delta, not an empty database.
-      const baseline = await counts();
+      // The group, its leader, one personal account, one shared group account and one group category:
+      // the id is supplied client-side because an unclaimed group fails its own SELECT policy.
+      await tx`insert into groups (id, name, cash_mode)
+        values (${groupId}, 'rls repivot', 'shared')`;
+      const [{ id: leaderMembership }] = await tx<{ id: string }[]>`
+        insert into group_members (group_id, user_id, name, role)
+        values (${groupId}, ${leaderUser}, 'rls repivot leader', 'leader') returning id`;
+      const [{ id: leaderAccount }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_on)
+        values (${leaderUser}, 'rls repivot leader cash', 'asset',
+          (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: sharedAccount }] = await tx<{ id: string }[]>`
+        insert into accounts (group_id, is_shared, name, kind, initial_balance_on)
+        values (${groupId}, true, 'rls repivot shared cash', 'asset',
+          (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: groupCategory }] = await tx<{ id: string }[]>`
+        insert into categories (group_id, name, kind)
+        values (${groupId}, 'rls repivot group category', 'expense') returning id`;
 
-      // No `returning` here: an unclaimed fund fails its own SELECT policy, and Postgres
-      // enforces that policy on a RETURNING row just as it would on a plain select. The id is
-      // ours to supply — `funds_insert_any`'s check is `true` — so membership can follow at once.
-      probeId = randomUUID();
-      await tx`insert into funds (id, name, created_at)
-        values (${probeId}, 'rls probe', timestamptz '2000-01-01T00:00:00Z')`;
-
-      await tx`insert into members (fund_id, user_id, name, role)
-        values (${probeId}, ${realUser}, 'rls probe owner', 'owner')`;
-
-      // Now a member, so the fund is visible: read back what the trigger actually stored.
-      const [fund] = await tx<
-        { created_at: Date; updated_at: Date }[]
-      >`select created_at, updated_at from funds where id = ${probeId}`;
-      const bornJustNow = Date.now() - fund.created_at.getTime() < 60_000;
-      assert(
-        labels[0],
-        bornJustNow && fund.created_at.getTime() === fund.updated_at.getTime(),
-        `created_at = ${fund.created_at.toISOString()}, updated_at = ${fund.updated_at.toISOString()}`,
-      );
-      assert(labels[1], true, "owner row inserted");
-
-      // A savepoint, not a bare `tx`, so the expected rejection doesn't poison the shared transaction.
+      // 9-11: the accounts check constraints. Each row is otherwise writable, so only the CHECK can reject it.
       await tx
         .savepoint(async (sp) => {
-          await sp`insert into members (fund_id, user_id, name, role)
-            values (${probeId}, ${realUser}, 'rls probe second owner', 'owner')`;
-          assert(labels[2], false, "the second insert succeeded, which it must not");
+          await sp`insert into accounts (owner_user_id, group_id, name, kind, initial_balance_on)
+            values (${leaderUser}, ${groupId}, 'rls repivot both', 'asset',
+              (now() at time zone 'America/Bogota')::date)`;
+          assert(soloLabels[0], false, "both an owner and a group landed, which it must not");
         })
         .catch((error: unknown) => {
-          assert(labels[2], pgCode(error) === "42501", `sqlstate ${pgCode(error) ?? "none"}`);
-        });
-
-      await tx`insert into accounts (fund_id, member_id, name, kind, initial_balance_on)
-        values (${probeId}, null, 'rls probe account', 'asset', (now() at time zone 'America/Bogota')::date)`;
-      await tx`insert into categories (fund_id, name, kind)
-        values (${probeId}, 'rls probe category', 'expense')`;
-      assert(labels[3], true, "account and category inserted as a member");
-
-      const memberCounts = await counts();
-      const grewByOne = (key: "f" | "m" | "a" | "c") =>
-        Number(memberCounts[key]) - Number(baseline[key]) === 1;
-      assert(
-        labels[4],
-        (["f", "m", "a", "c"] as const).every(grewByOne),
-        `funds=${memberCounts.f} members=${memberCounts.m} accounts=${memberCounts.a} categories=${memberCounts.c}` +
-          ` over baseline funds=${baseline.f} members=${baseline.m} accounts=${baseline.a} categories=${baseline.c}`,
-      );
-
-      await enterUserContext(tx, intruder);
-      const intruderCounts = await counts();
-      assert(
-        labels[5],
-        Object.values(intruderCounts).every((n) => n === "0"),
-        `funds=${intruderCounts.f} members=${intruderCounts.m} accounts=${intruderCounts.a} categories=${intruderCounts.c}`,
-      );
-
-      await tx
-        .savepoint(async (sp) => {
-          await sp`insert into accounts (fund_id, member_id, name, kind, initial_balance_on)
-            values (${probeId}, null, 'intruder probe account', 'asset', (now() at time zone 'America/Bogota')::date)`;
-          assert(labels[6], false, "the intruder's insert succeeded, which it must not");
-        })
-        .catch((error: unknown) => {
-          assert(labels[6], pgCode(error) === "42501", `sqlstate ${pgCode(error) ?? "none"}`);
+          assert(soloLabels[0], pgCode(error) === "23514", `sqlstate ${pgCode(error) ?? "none"}`);
         });
 
       await tx
         .savepoint(async (sp) => {
-          await sp`insert into members (fund_id, user_id, name, role)
-            values (${probeId}, ${intruder}, 'intruder probe', 'owner')`;
-          assert(labels[7], false, "the intruder's claim succeeded, which it must not");
+          await sp`insert into accounts (name, kind, initial_balance_on)
+            values ('rls repivot neither', 'asset', (now() at time zone 'America/Bogota')::date)`;
+          assert(soloLabels[1], false, "neither an owner nor a group landed, which it must not");
         })
         .catch((error: unknown) => {
-          assert(labels[7], pgCode(error) === "42501", `sqlstate ${pgCode(error) ?? "none"}`);
+          // 42501 = the INSERT WITH CHECK fires first, 23514 = the table CHECK; either bars the row.
+          const code = pgCode(error);
+          assert(soloLabels[1], code === "42501" || code === "23514", `sqlstate ${code ?? "none"}`);
         });
 
-      await enterUserContext(tx, realUser);
       await tx
         .savepoint(async (sp) => {
-          await sp`update funds set name = 'x' where id = ${probeId}`;
-          assert(labels[8], false, "the update succeeded, which it must not");
+          await sp`insert into accounts (owner_user_id, is_shared, name, kind, initial_balance_on)
+            values (${leaderUser}, true, 'rls repivot personal shared', 'asset',
+              (now() at time zone 'America/Bogota')::date)`;
+          assert(soloLabels[2], false, "a shared personal account landed, which it must not");
         })
         .catch((error: unknown) => {
-          assert(labels[8], pgCode(error) === "42501", `sqlstate ${pgCode(error) ?? "none"}`);
+          assert(soloLabels[2], pgCode(error) === "23514", `sqlstate ${pgCode(error) ?? "none"}`);
         });
 
-      // `RESET ROLE` reverts to the session user, `postgres`; unlike `SET ROLE` it needs no grant.
+      // 12: the cash_mode domain check on groups.
+      await tx
+        .savepoint(async (sp) => {
+          await sp`insert into groups (id, name, cash_mode)
+            values (${randomUUID()}, 'rls repivot bad mode', 'weekly')`;
+          assert(soloLabels[3], false, "an unknown cash_mode landed, which it must not");
+        })
+        .catch((error: unknown) => {
+          assert(soloLabels[3], pgCode(error) === "23514", `sqlstate ${pgCode(error) ?? "none"}`);
+        });
+
+      // 13: the one-group-per-user unique index. RLS admits the leader claim on a fresh group; the index refuses it.
+      await tx
+        .savepoint(async (sp) => {
+          const secondGroup = randomUUID();
+          await sp`insert into groups (id, name, cash_mode)
+            values (${secondGroup}, 'rls repivot second group', 'shared')`;
+          await sp`insert into group_members (group_id, user_id, name, role)
+            values (${secondGroup}, ${leaderUser}, 'rls repivot double claim', 'leader')`;
+          assert(soloLabels[4], false, "a second live membership landed, which it must not");
+        })
+        .catch((error: unknown) => {
+          assert(soloLabels[4], pgCode(error) === "23505", `sqlstate ${pgCode(error) ?? "none"}`);
+        });
+
+      // 14-15: the categories owner-XOR-group check, both rows otherwise writable by the leader.
+      await tx
+        .savepoint(async (sp) => {
+          await sp`insert into categories (owner_user_id, group_id, name, kind)
+            values (${leaderUser}, ${groupId}, 'rls repivot cat both', 'expense')`;
+          assert(soloLabels[5], false, "both an owner and a group landed, which it must not");
+        })
+        .catch((error: unknown) => {
+          assert(soloLabels[5], pgCode(error) === "23514", `sqlstate ${pgCode(error) ?? "none"}`);
+        });
+
+      await tx
+        .savepoint(async (sp) => {
+          await sp`insert into categories (name, kind) values ('rls repivot cat neither', 'expense')`;
+          assert(soloLabels[6], false, "neither an owner nor a group landed, which it must not");
+        })
+        .catch((error: unknown) => {
+          // 42501 = the INSERT WITH CHECK fires first, 23514 = the table CHECK; either bars the row.
+          const code = pgCode(error);
+          assert(soloLabels[6], code === "42501" || code === "23514", `sqlstate ${code ?? "none"}`);
+        });
+
+      // 16: the keep-leader guard. The write policies forbid dropping your own row, so this reaches past
+      // them as `postgres`; `set constraints all immediate` forces the deferred trigger to fire now.
+      await tx
+        .savepoint(async (sp) => {
+          await sp`reset role`;
+          await sp`delete from group_members where id = ${leaderMembership}`;
+          await sp`set constraints all immediate`;
+          assert(soloLabels[7], false, "the group kept no leader and the delete stood, which it must not");
+        })
+        .catch((error: unknown) => {
+          assert(soloLabels[7], pgCode(error) === "23514", `sqlstate ${pgCode(error) ?? "none"}`);
+        });
+      await enterUserContext(tx, leaderUser);
+
+      // A second member with a login: no policy lets one member hand another their login, so seed it as `postgres`.
       await tx`reset role`;
+      await tx`insert into group_members (group_id, user_id, name, role)
+        values (${groupId}, ${memberUser}, 'rls repivot member', 'member')`;
 
+      await enterUserContext(tx, memberUser);
+      const [{ id: memberAccount }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_on)
+        values (${memberUser}, 'rls repivot member cash', 'asset',
+          (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: memberCategory }] = await tx<{ id: string }[]>`
+        insert into categories (owner_user_id, name, kind)
+        values (${memberUser}, 'rls repivot member category', 'expense') returning id`;
+
+      // 17: universal read — a member sees another member's personal account through the group they share.
+      const [{ count: memberSeesLeader }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from accounts where id = ${leaderAccount}`;
+      assert(pairLabels[0], memberSeesLeader === "1", `visible rows = ${memberSeesLeader}`);
+
+      // 18: the bounded write — a member may not mint an account owned by someone else.
       await tx
         .savepoint(async (sp) => {
-          await sp`delete from members where fund_id = ${probeId}`;
-          await sp`set constraints all immediate`;
-          assert(labels[9], false, "removing the last owner succeeded, which it must not");
+          await sp`insert into accounts (owner_user_id, name, kind, initial_balance_on)
+            values (${leaderUser}, 'rls repivot forged', 'asset',
+              (now() at time zone 'America/Bogota')::date)`;
+          assert(pairLabels[1], false, "a member forged an account for the leader, which it must not");
         })
         .catch((error: unknown) => {
-          assert(labels[9], pgCode(error) === "23514", `sqlstate ${pgCode(error) ?? "none"}`);
+          assert(pairLabels[1], pgCode(error) === "42501", `sqlstate ${pgCode(error) ?? "none"}`);
         });
 
-      // The delete succeeds, so only a thrown sentinel makes the savepoint roll back too.
-      await tx
-        .savepoint(async (sp) => {
-          await sp`delete from funds where id = ${probeId}`;
-          await sp`set constraints all immediate`;
-          throw forcedRollback;
-        })
-        .then(
-          () => assert(labels[10], false, "the savepoint committed instead of rolling back"),
-          (error: unknown) => {
-            const ok = error === forcedRollback;
-            assert(labels[10], ok, ok ? "cascade removed the members; the guard stood down" : `unexpected error ${pgCode(error) ?? String(error)}`);
-          },
-        );
+      // 19: the same bound on update and delete — the row is filtered out, so both commands touch nothing.
+      const memberUpdate = await tx`update accounts set name = 'x' where id = ${leaderAccount}`;
+      const memberDelete = await tx`delete from accounts where id = ${leaderAccount}`;
+      assert(
+        pairLabels[2],
+        memberUpdate.count === 0 && memberDelete.count === 0,
+        `update rows = ${memberUpdate.count}, delete rows = ${memberDelete.count}`,
+      );
+
+      // 20: what a member may write — their own account, and any account the group marked shared.
+      const ownWrite = await tx`update accounts set name = 'rls repivot member cash, renamed'
+        where id = ${memberAccount}`;
+      const sharedWrite = await tx`update accounts set name = 'rls repivot shared cash, renamed'
+        where id = ${sharedAccount}`;
+      assert(
+        pairLabels[3],
+        ownWrite.count === 1 && sharedWrite.count === 1,
+        `own rows = ${ownWrite.count}, shared rows = ${sharedWrite.count}`,
+      );
+
+      // 21-22: the leader reads a member's account but holds no write exception over it.
+      await enterUserContext(tx, leaderUser);
+      const [{ count: leaderSeesMember }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from accounts where id = ${memberAccount}`;
+      assert(pairLabels[4], leaderSeesMember === "1", `visible rows = ${leaderSeesMember}`);
+      const leaderUpdate = await tx`update accounts set name = 'x' where id = ${memberAccount}`;
+      const leaderDelete = await tx`delete from accounts where id = ${memberAccount}`;
+      assert(
+        pairLabels[5],
+        leaderUpdate.count === 0 && leaderDelete.count === 0,
+        `update rows = ${leaderUpdate.count}, delete rows = ${leaderDelete.count}`,
+      );
+
+      // 23: universal read of categories, both directions — a member into the group's, the leader into a personal one.
+      await enterUserContext(tx, memberUser);
+      const [{ count: memberSeesGroupCat }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from categories where id = ${groupCategory}`;
+      await enterUserContext(tx, leaderUser);
+      const [{ count: leaderSeesMemberCat }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from categories where id = ${memberCategory}`;
+      assert(
+        pairLabels[6],
+        memberSeesGroupCat === "1" && leaderSeesMemberCat === "1",
+        `member→group = ${memberSeesGroupCat}, leader→personal = ${leaderSeesMemberCat}`,
+      );
+
+      // 24: a personal category bends to its owner, not to the leader of the group.
+      const leaderOnMemberCat = await tx`update categories set name = 'x' where id = ${memberCategory}`;
+      await enterUserContext(tx, memberUser);
+      const ownerOnMemberCat = await tx`update categories set name = 'rls repivot member category, renamed'
+        where id = ${memberCategory}`;
+      assert(
+        pairLabels[7],
+        leaderOnMemberCat.count === 0 && ownerOnMemberCat.count === 1,
+        `leader rows = ${leaderOnMemberCat.count}, owner rows = ${ownerOnMemberCat.count}`,
+      );
+
+      // 25: a group category bends to the leader, not to a plain member.
+      const memberOnGroupCat = await tx`update categories set name = 'x' where id = ${groupCategory}`;
+      await enterUserContext(tx, leaderUser);
+      const leaderOnGroupCat = await tx`update categories set name = 'rls repivot group category, renamed'
+        where id = ${groupCategory}`;
+      assert(
+        pairLabels[8],
+        memberOnGroupCat.count === 0 && leaderOnGroupCat.count === 1,
+        `member rows = ${memberOnGroupCat.count}, leader rows = ${leaderOnGroupCat.count}`,
+      );
 
       // Forces `sql.begin` to issue ROLLBACK: nothing this function wrote may survive it.
       throw forcedRollback;
@@ -310,309 +403,13 @@ async function checkFundPolicies() {
       if (error !== forcedRollback) throw error;
     });
 
-  const [{ current_user: afterFundUser }] = await sql<
-    { current_user: string }[]
-  >`select current_user`;
+  const [{ current_user: afterRepivotUser }] = await sql<{ current_user: string }[]>`select current_user`;
   const [{ count: probeCount }] = await sql<{ count: string }[]>`
-    select count(*)::text as count from funds where name = 'rls probe'`;
+    select count(*)::text as count from groups where name = 'rls repivot'`;
   assert(
-    labels[11],
-    afterFundUser === "postgres" && probeCount === "0",
-    `current_user = ${afterFundUser}, rows named 'rls probe' = ${probeCount}`,
-  );
-}
-
-// Assertions 21-40: the column grants and the two `plpgsql` triggers that 0003 added.
-// `.count` is the wire-protocol row count off the command tag — accurate with or without RETURNING.
-async function checkColumnAndConstraintPolicies() {
-  console.log("");
-  const [fixtureUser] = await sql<{ id: string }[]>`select id from app_users limit 1`;
-  const labels = [
-    "21. a member renames another member of their fund",
-    "22. a member writing members.role is refused",
-    "23. a member writing members.user_id is refused",
-    "24. a member archiving their own row is refused",
-    "25. a member deleting their own row deletes nothing",
-    "26. a member inserts a second member with no login",
-    "27. the same insert as an owner is refused",
-    "28. an intruder's update and delete of a probe-fund member affect nothing",
-    "29. a member archives one account and hands another to the fund",
-    "30. a member writing accounts.kind is refused",
-    "31. a member writing accounts.fund_id is refused",
-    "32. a positive liability opening balance is refused, a negative one lands",
-    "33. deleting a member who still owns an account is refused",
-    "34. a member writing categories.kind is refused",
-    "35. a category under a category that already has a parent is refused",
-    "36. a subcategory whose kind differs from its parent's is refused",
-    "37. giving a parent with children a parent of its own is refused",
-    "38. deleting a parent category cascades to its children",
-    "39. archiving the fund's only owner is refused once constraints are immediate",
-    "40. the rolled-back transaction leaves no trace",
-  ];
-
-  if (!fixtureUser) {
-    for (const label of labels) skip(label, "no `app_users` row: sign in once, then re-run");
-    return;
-  }
-
-  const realUser = fixtureUser.id;
-  const intruder = randomUUID();
-  // Assertion 39 needs a second real identity — RLS on `app_users` hides it from `authenticated`,
-  // so this too is a `postgres` read, taken before the role ever switches.
-  const [secondUser] = await sql<{ id: string }[]>`
-    select id from app_users where id <> ${realUser} limit 1`;
-  let probeId = "";
-
-  const forcedRollback = Symbol("forced rollback");
-  await sql
-    .begin(async (tx) => {
-      await enterUserContext(tx, realUser);
-
-      probeId = randomUUID();
-      await tx`insert into funds (id, name, created_at)
-        values (${probeId}, 'rls probe', timestamptz '2000-01-01T00:00:00Z')`;
-
-      // No `returning` here: the row being inserted is what makes the caller a member, and
-      // `is_fund_member`'s stable snapshot predates it — the id is ours to supply instead.
-      const ownerId = randomUUID();
-      await tx`insert into members (id, fund_id, user_id, name, role)
-        values (${ownerId}, ${probeId}, ${realUser}, 'rls probe owner', 'owner')`;
-      const [{ id: secondId }] = await tx<{ id: string }[]>`
-        insert into members (fund_id, user_id, name, role)
-        values (${probeId}, null, 'rls probe second member', 'member') returning id`;
-
-      const renamed = await tx`update members set name = 'rls probe second member, renamed'
-        where id = ${secondId}`;
-      assert(labels[0], renamed.count === 1, `rows updated = ${renamed.count}`);
-
-      await tx
-        .savepoint(async (sp) => {
-          await sp`update members set role = 'owner' where id = ${secondId}`;
-          assert(labels[1], false, "writing role succeeded, which it must not");
-        })
-        .catch((error: unknown) => {
-          assert(labels[1], pgCode(error) === "42501", `sqlstate ${pgCode(error) ?? "none"}`);
-        });
-
-      await tx
-        .savepoint(async (sp) => {
-          await sp`update members set user_id = ${realUser} where id = ${secondId}`;
-          assert(labels[2], false, "writing user_id succeeded, which it must not");
-        })
-        .catch((error: unknown) => {
-          assert(labels[2], pgCode(error) === "42501", `sqlstate ${pgCode(error) ?? "none"}`);
-        });
-
-      await tx
-        .savepoint(async (sp) => {
-          await sp`update members set archived_at = now() where id = ${ownerId}`;
-          assert(labels[3], false, "archiving the caller's own row succeeded, which it must not");
-        })
-        .catch((error: unknown) => {
-          assert(labels[3], pgCode(error) === "42501", `sqlstate ${pgCode(error) ?? "none"}`);
-        });
-
-      // Excluded by USING, not rejected: the delete matches nothing, and raises nothing either.
-      const deletedSelf = await tx`delete from members where id = ${ownerId}`;
-      const [{ count: ownerStill }] = await tx<{ count: string }[]>`
-        select count(*)::text as count from members where id = ${ownerId}`;
-      assert(
-        labels[4],
-        deletedSelf.count === 0 && ownerStill === "1",
-        `rows deleted = ${deletedSelf.count}, owner still present = ${ownerStill}`,
-      );
-
-      const thirdInsert = await tx<{ id: string }[]>`
-        insert into members (fund_id, user_id, name, role)
-        values (${probeId}, null, 'rls probe third member', 'member') returning id`;
-      const thirdId = thirdInsert[0].id;
-      assert(labels[5], thirdInsert.count === 1, "member row inserted with no login");
-
-      await tx
-        .savepoint(async (sp) => {
-          await sp`insert into members (fund_id, user_id, name, role)
-            values (${probeId}, null, 'rls probe fourth member', 'owner')`;
-          assert(labels[6], false, "inserting as owner succeeded, which it must not");
-        })
-        .catch((error: unknown) => {
-          assert(labels[6], pgCode(error) === "42501", `sqlstate ${pgCode(error) ?? "none"}`);
-        });
-
-      await enterUserContext(tx, intruder);
-      const intruderUpdate = await tx`update members set name = 'intruder rename'
-        where id = ${secondId}`;
-      const intruderDelete = await tx`delete from members where id = ${secondId}`;
-      assert(
-        labels[7],
-        intruderUpdate.count === 0 && intruderDelete.count === 0,
-        `update rows = ${intruderUpdate.count}, delete rows = ${intruderDelete.count}`,
-      );
-      await enterUserContext(tx, realUser);
-
-      const [{ id: accountA }] = await tx<{ id: string }[]>`
-        insert into accounts (fund_id, member_id, name, kind, initial_balance_on)
-        values (${probeId}, ${ownerId}, 'rls probe account a', 'asset',
-          (now() at time zone 'America/Bogota')::date) returning id`;
-      const [{ id: accountB }] = await tx<{ id: string }[]>`
-        insert into accounts (fund_id, member_id, name, kind, initial_balance_on)
-        values (${probeId}, ${ownerId}, 'rls probe account b', 'asset',
-          (now() at time zone 'America/Bogota')::date) returning id`;
-
-      const archived = await tx`update accounts set archived_at = now() where id = ${accountA}`;
-      const handedToFund = await tx`update accounts set member_id = null where id = ${accountB}`;
-      assert(
-        labels[8],
-        archived.count === 1 && handedToFund.count === 1,
-        `archived rows = ${archived.count}, handed-to-fund rows = ${handedToFund.count}`,
-      );
-
-      await tx
-        .savepoint(async (sp) => {
-          await sp`update accounts set kind = 'liability' where id = ${accountA}`;
-          assert(labels[9], false, "writing kind succeeded, which it must not");
-        })
-        .catch((error: unknown) => {
-          assert(labels[9], pgCode(error) === "42501", `sqlstate ${pgCode(error) ?? "none"}`);
-        });
-
-      await tx
-        .savepoint(async (sp) => {
-          await sp`update accounts set fund_id = ${probeId} where id = ${accountA}`;
-          assert(labels[10], false, "writing fund_id succeeded, which it must not");
-        })
-        .catch((error: unknown) => {
-          assert(labels[10], pgCode(error) === "42501", `sqlstate ${pgCode(error) ?? "none"}`);
-        });
-
-      let positiveRejectedAs23514 = false;
-      let positiveCode: string | undefined;
-      await tx
-        .savepoint(async (sp) => {
-          await sp`insert into accounts (fund_id, member_id, name, kind, initial_balance_cents, initial_balance_on)
-            values (${probeId}, null, 'rls probe positive liability', 'liability', 100,
-              (now() at time zone 'America/Bogota')::date)`;
-        })
-        .then(
-          () => {
-            positiveRejectedAs23514 = false;
-          },
-          (error: unknown) => {
-            positiveCode = pgCode(error);
-            positiveRejectedAs23514 = positiveCode === "23514";
-          },
-        );
-      const negativeInsert = await tx`
-        insert into accounts (fund_id, member_id, name, kind, initial_balance_cents, initial_balance_on)
-        values (${probeId}, null, 'rls probe negative liability', 'liability', -100,
-          (now() at time zone 'America/Bogota')::date)`;
-      assert(
-        labels[11],
-        positiveRejectedAs23514 && negativeInsert.count === 1,
-        `positive sqlstate = ${positiveCode ?? "none"}, negative rows inserted = ${negativeInsert.count}`,
-      );
-
-      await tx`insert into accounts (fund_id, member_id, name, kind, initial_balance_on)
-        values (${probeId}, ${thirdId}, 'rls probe account c', 'asset',
-          (now() at time zone 'America/Bogota')::date)`;
-      await tx
-        .savepoint(async (sp) => {
-          await sp`delete from members where id = ${thirdId}`;
-          assert(labels[12], false, "deleting a member who owns an account succeeded, which it must not");
-        })
-        .catch((error: unknown) => {
-          assert(labels[12], pgCode(error) === "23503", `sqlstate ${pgCode(error) ?? "none"}`);
-        });
-
-      const [{ id: catP }] = await tx<{ id: string }[]>`
-        insert into categories (fund_id, name, kind)
-        values (${probeId}, 'rls probe category p', 'expense') returning id`;
-      await tx
-        .savepoint(async (sp) => {
-          await sp`update categories set kind = 'income' where id = ${catP}`;
-          assert(labels[13], false, "writing kind succeeded, which it must not");
-        })
-        .catch((error: unknown) => {
-          assert(labels[13], pgCode(error) === "42501", `sqlstate ${pgCode(error) ?? "none"}`);
-        });
-
-      const [{ id: catC }] = await tx<{ id: string }[]>`
-        insert into categories (fund_id, parent_id, name, kind)
-        values (${probeId}, ${catP}, 'rls probe category c', 'expense') returning id`;
-      await tx
-        .savepoint(async (sp) => {
-          await sp`insert into categories (fund_id, parent_id, name, kind)
-            values (${probeId}, ${catC}, 'rls probe category d', 'expense')`;
-          assert(labels[14], false, "nesting two levels deep succeeded, which it must not");
-        })
-        .catch((error: unknown) => {
-          assert(labels[14], pgCode(error) === "23514", `sqlstate ${pgCode(error) ?? "none"}`);
-        });
-
-      await tx
-        .savepoint(async (sp) => {
-          await sp`insert into categories (fund_id, parent_id, name, kind)
-            values (${probeId}, ${catP}, 'rls probe category e', 'income')`;
-          assert(labels[15], false, "a mismatched kind landed, which it must not");
-        })
-        .catch((error: unknown) => {
-          assert(labels[15], pgCode(error) === "23514", `sqlstate ${pgCode(error) ?? "none"}`);
-        });
-
-      const [{ id: catQ }] = await tx<{ id: string }[]>`
-        insert into categories (fund_id, name, kind)
-        values (${probeId}, 'rls probe category q', 'expense') returning id`;
-      await tx
-        .savepoint(async (sp) => {
-          await sp`update categories set parent_id = ${catQ} where id = ${catP}`;
-          assert(labels[16], false, "giving a parent with children a parent succeeded, which it must not");
-        })
-        .catch((error: unknown) => {
-          assert(labels[16], pgCode(error) === "23514", `sqlstate ${pgCode(error) ?? "none"}`);
-        });
-
-      const deletedParent = await tx`delete from categories where id = ${catP}`;
-      const [{ count: survivingChild }] = await tx<{ count: string }[]>`
-        select count(*)::text as count from categories where id = ${catC}`;
-      assert(
-        labels[17],
-        deletedParent.count === 1 && survivingChild === "0",
-        `parent rows deleted = ${deletedParent.count}, surviving children = ${survivingChild}`,
-      );
-
-      if (secondUser) {
-        // Direct as `postgres`: no policy lets one member hand another a login of their own.
-        await tx`reset role`;
-        await tx`insert into members (fund_id, user_id, name, role)
-          values (${probeId}, ${secondUser.id}, 'rls probe co-owner', 'member')`;
-
-        await enterUserContext(tx, secondUser.id);
-        await tx
-          .savepoint(async (sp) => {
-            await sp`update members set archived_at = now() where id = ${ownerId}`;
-            await sp`set constraints all immediate`;
-            assert(labels[18], false, "archiving the only owner succeeded, which it must not");
-          })
-          .catch((error: unknown) => {
-            assert(labels[18], pgCode(error) === "23514", `sqlstate ${pgCode(error) ?? "none"}`);
-          });
-        await enterUserContext(tx, realUser);
-      } else {
-        skip(labels[18], "only one `app_users` row: sign in as a second user, then re-run");
-      }
-
-      throw forcedRollback;
-    })
-    .catch((error: unknown) => {
-      if (error !== forcedRollback) throw error;
-    });
-
-  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`select current_user`;
-  const [{ count: probeCount }] = await sql<{ count: string }[]>`
-    select count(*)::text as count from funds where name = 'rls probe'`;
-  assert(
-    labels[19],
-    afterUser === "postgres" && probeCount === "0",
-    `current_user = ${afterUser}, rows named 'rls probe' = ${probeCount}`,
+    tailLabel,
+    afterRepivotUser === "postgres" && probeCount === "0",
+    `current_user = ${afterRepivotUser}, rows named 'rls repivot' = ${probeCount}`,
   );
 }
 

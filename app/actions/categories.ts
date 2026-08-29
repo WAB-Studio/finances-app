@@ -3,6 +3,8 @@
 import { refresh } from "next/cache";
 
 import { createCategory, deleteCategory, updateCategory } from "@/db/queries/categories";
+import type { CategoryScope } from "@/db/queries/categories";
+import { getUserGroup } from "@/db/queries/groups";
 import { pgErrorCode } from "@/lib/db-error";
 import { ActionError } from "@/lib/errors";
 import { authActionClient } from "@/lib/safe-action";
@@ -21,16 +23,22 @@ function categoryConstraintErrorKey(parentId: string | null): string {
 }
 
 /**
- * Creates a category (RF-26, RF-27). Depth, kind agreement and same-fund
+ * Creates a category (RF-63, RF-27). Depth, kind agreement and same-scope
  * parentage are the trigger's and the composite foreign key's to enforce;
- * this action only turns their shared refusal code into a sentence.
+ * this action only turns their shared refusal code into a sentence. The scope
+ * is the caller's group when they belong to one, otherwise their personal set.
  */
 export const createCategoryAction = authActionClient
   .inputSchema(createCategorySchema)
-  .action(async ({ parsedInput }) => {
+  .action(async ({ parsedInput, ctx }) => {
+    const group = await getUserGroup();
+    const scope: CategoryScope = group
+      ? { groupId: group.id }
+      : { ownerUserId: ctx.user.id };
+
     let categoryId: string;
     try {
-      ({ categoryId } = await createCategory(parsedInput));
+      ({ categoryId } = await createCategory({ ...parsedInput, scope }));
     } catch (error) {
       if (pgErrorCode(error) === "23514") {
         throw new ActionError(categoryConstraintErrorKey(parsedInput.parentId));

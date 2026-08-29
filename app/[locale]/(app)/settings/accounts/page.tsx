@@ -2,16 +2,15 @@ import { hasLocale } from "next-intl";
 import type { Metadata } from "next";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { notFound } from "next/navigation";
-import { z } from "zod";
 
 import { AccountsScreen } from "@/components/accounts/accounts-screen";
 import { Page } from "@/components/ui";
-import { getFundForUser } from "@/db/queries/funds";
-import { listAccounts, listAssignableMembers } from "@/db/queries/accounts";
+import { listAccounts } from "@/db/queries/accounts";
+import { getUserGroup } from "@/db/queries/groups";
 import { routing } from "@/i18n/routing";
 
 export async function generateMetadata(
-  props: PageProps<"/[locale]/f/[fundId]/settings/accounts">,
+  props: PageProps<"/[locale]/settings/accounts">,
 ): Promise<Metadata> {
   const { locale } = await props.params;
   if (!hasLocale(routing.locales, locale)) notFound();
@@ -22,34 +21,28 @@ export async function generateMetadata(
 }
 
 export default async function AccountsPage(
-  props: PageProps<"/[locale]/f/[fundId]/settings/accounts">,
+  props: PageProps<"/[locale]/settings/accounts">,
 ) {
-  const { locale, fundId } = await props.params;
+  const { locale } = await props.params;
   if (!hasLocale(routing.locales, locale)) notFound();
 
   setRequestLocale(locale);
 
-  // An invalid uuid must never reach Postgres, which answers `22P02`.
-  if (!z.uuid().safeParse(fundId).success) notFound();
-
   const { tab } = await props.searchParams;
   const archived = tab === "archived";
 
-  // The fund check rides along instead of gating: the policies filter the rows
-  // below anyway, so a fund the user cannot see comes back empty and then 404s.
-  const [fund, accounts, members] = await Promise.all([
-    getFundForUser(fundId),
-    listAccounts(fundId, { archived }),
-    listAssignableMembers(fundId),
+  // The policies scope the rows: a personal-only caller sees only their own
+  // accounts, a group member sees the group's too (RF-58).
+  const [accounts, group] = await Promise.all([
+    listAccounts({ archived }),
+    getUserGroup(),
   ]);
-  if (!fund) notFound();
 
   return (
     <Page>
       <AccountsScreen
-        fundId={fundId}
         accounts={accounts}
-        members={members}
+        groupName={group?.name ?? null}
         archived={archived}
       />
     </Page>

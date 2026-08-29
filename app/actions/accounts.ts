@@ -9,6 +9,7 @@ import {
   restoreAccount,
   updateAccount,
 } from "@/db/queries/accounts";
+import { getUserGroup } from "@/db/queries/groups";
 import { pgErrorCode } from "@/lib/db-error";
 import { ActionError } from "@/lib/errors";
 import { parsePesos } from "@/lib/money";
@@ -22,24 +23,36 @@ import {
 } from "@/lib/validation/account";
 
 /**
- * Creates an account (RF-08, RF-09, RF-10). The amount arrives as a
- * Zod-validated peso string; parsing it here can only fail if the schema
- * let something through it should not have.
+ * Creates an account (RF-60, RF-09, RF-10). A personal account is owned by the
+ * caller; a group account is held by their group and shared so any member may
+ * write it. The amount arrives as a Zod-validated peso string; parsing it here
+ * can only fail if the schema let something through it should not have.
  */
 export const createAccountAction = authActionClient
   .inputSchema(createAccountSchema)
-  .action(async ({ parsedInput: { amount, ...account } }) => {
+  .action(async ({ parsedInput: { amount, placement, ...account }, ctx }) => {
     const pesos = parsePesos(amount);
     if (pesos === null) throw new ActionError("errors.unexpected");
 
-    const { accountId } = await createAccount({ ...account, pesos });
+    // The owner/group XOR is resolved from the session, never trusted from the
+    // form; a group placement without a group has nowhere to land.
+    let placementFields: { ownerUserId: string | null; groupId: string | null; isShared: boolean };
+    if (placement === "group") {
+      const group = await getUserGroup();
+      if (!group) throw new ActionError("errors.notFound");
+      placementFields = { ownerUserId: null, groupId: group.id, isShared: true };
+    } else {
+      placementFields = { ownerUserId: ctx.user.id, groupId: null, isShared: false };
+    }
+
+    const { accountId } = await createAccount({ ...account, ...placementFields, pesos });
     refresh();
     return { accountId };
   });
 
 /**
- * Updates an account's editable fields. `kind` is immutable, so it is never
- * part of this input (RF-09).
+ * Updates an account's editable fields. `kind` and the placement are immutable,
+ * so neither is part of this input (RF-09, RF-60).
  */
 export const updateAccountAction = authActionClient
   .inputSchema(updateAccountSchema)
@@ -55,8 +68,8 @@ export const updateAccountAction = authActionClient
 
 export const archiveAccountAction = authActionClient
   .inputSchema(archiveAccountSchema)
-  .action(async ({ parsedInput: { fundId, accountId } }) => {
-    const archived = await archiveAccount({ fundId, accountId });
+  .action(async ({ parsedInput: { accountId } }) => {
+    const archived = await archiveAccount({ accountId });
     if (!archived) throw new ActionError("errors.notFound");
 
     refresh();
@@ -64,8 +77,8 @@ export const archiveAccountAction = authActionClient
 
 export const restoreAccountAction = authActionClient
   .inputSchema(restoreAccountSchema)
-  .action(async ({ parsedInput: { fundId, accountId } }) => {
-    const restored = await restoreAccount({ fundId, accountId });
+  .action(async ({ parsedInput: { accountId } }) => {
+    const restored = await restoreAccount({ accountId });
     if (!restored) throw new ActionError("errors.notFound");
 
     refresh();
@@ -78,10 +91,10 @@ export const restoreAccountAction = authActionClient
  */
 export const deleteAccountAction = authActionClient
   .inputSchema(deleteAccountSchema)
-  .action(async ({ parsedInput: { fundId, accountId } }) => {
+  .action(async ({ parsedInput: { accountId } }) => {
     let deleted: boolean;
     try {
-      deleted = await deleteAccount({ fundId, accountId });
+      deleted = await deleteAccount({ accountId });
     } catch (error) {
       if (pgErrorCode(error) === "23503") throw new ActionError("errors.accountInUse");
       throw error;

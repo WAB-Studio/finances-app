@@ -42,7 +42,6 @@ const NO_PARENT_VALUE = "none";
 // active schema does not declare, so only the fields that schema needs ever
 // reach the matching action.
 type CategoryFormValues = {
-  fundId: string;
   categoryId: string;
   kind: "expense" | "income";
   name: string;
@@ -58,7 +57,6 @@ type Category = {
 };
 
 type CategoryFormProps = {
-  fundId: string;
   kind: "expense" | "income";
   parents: { id: string; name: string; hasChildren: boolean }[];
   usedColors: string[];
@@ -89,7 +87,6 @@ export function CategoryFormDialog({
 }
 
 function CategoryForm({
-  fundId,
   kind,
   parents,
   usedColors,
@@ -111,7 +108,6 @@ function CategoryForm({
     defaultValues: (() => {
       const parentId = category ? category.parentId : (defaultParentId ?? null);
       return {
-        fundId,
         categoryId: category?.id ?? "",
         kind,
         name: category?.name ?? "",

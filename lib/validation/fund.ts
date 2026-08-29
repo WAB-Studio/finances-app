@@ -16,9 +16,3 @@ export const createFundSchema = z.object({
 });
 
 export type CreateFundInput = z.infer<typeof createFundSchema>;
-
-export const switchFundSchema = z.object({
-  fundId: z.uuid({ error: "fund.errors.fundIdInvalid" }),
-});
-
-export type SwitchFundInput = z.infer<typeof switchFundSchema>;
