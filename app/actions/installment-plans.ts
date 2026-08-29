@@ -7,7 +7,7 @@ import {
   deleteInstallmentPlan,
   recordDebtPayment,
 } from "@/db/queries/installment-plans";
-import { civilDateToDate } from "@/lib/dates";
+import { addCivilDays, addCivilMonths } from "@/lib/dates";
 import { pgErrorCode } from "@/lib/db-error";
 import { ActionError } from "@/lib/errors";
 import { parsePesos, pesosToCents } from "@/lib/money";
@@ -27,29 +27,19 @@ function toCents(amount: string): number {
   return pesosToCents(pesos);
 }
 
-// Reads a midday-UTC instant back as its own calendar day, never a shifted one —
-// the same formatter `lib/dates` renders every civil date through.
-function toCivilDate(date: Date): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "UTC" }).format(date);
-}
-
 // Line `i` (1..n) falls `(i - 1)` steps after the start, a step being a whole
-// month (monthly) or 14 days (fortnightly), computed over the midday-UTC instant
-// so no local offset shifts the day (RF-81).
+// month (monthly, clamped to month-end so a 31 never rolls past a short month)
+// or 14 days (fortnightly) (RF-81).
 function scheduleDates(
   startDate: string,
   frequency: "monthly" | "fortnightly",
   count: number,
 ): string[] {
-  return Array.from({ length: count }, (_, index) => {
-    const date = civilDateToDate(startDate);
-    if (frequency === "monthly") {
-      date.setUTCMonth(date.getUTCMonth() + index);
-    } else {
-      date.setUTCDate(date.getUTCDate() + index * 14);
-    }
-    return toCivilDate(date);
-  });
+  return Array.from({ length: count }, (_, index) =>
+    frequency === "monthly"
+      ? addCivilMonths(startDate, index)
+      : addCivilDays(startDate, index * 14),
+  );
 }
 
 // Splits a cent total evenly into `count` lines, the remainder cents landing one

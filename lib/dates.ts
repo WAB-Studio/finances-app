@@ -122,6 +122,23 @@ export function nextDayOfMonthOnOrAfter(day: number, reference: string): string 
   return dateToCivilDate(candidate);
 }
 
+// `reference` advanced by `n` calendar months, its day-of-month clamped to the
+// target month's length so a 31 lands on the last day of a short month (Jan 31
+// +1 → Feb 28/29) instead of rolling into the next month.
+export function addCivilMonths(reference: string, n: number): string {
+  const date = civilDateToDate(reference);
+  const target = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + n, 1, 12));
+  return dateToCivilDate(dayOfMonthClamped(target, date.getUTCDate()));
+}
+
+// `reference` advanced by `n` days over the midday-UTC instant, so no local
+// offset shifts the day.
+export function addCivilDays(reference: string, n: number): string {
+  const date = civilDateToDate(reference);
+  date.setUTCDate(date.getUTCDate() + n);
+  return dateToCivilDate(date);
+}
+
 // Every cut-off date (day-of-month `cutOffDay`, clamped) in the half-open-below
 // window `(fromExclusive, toInclusive]`, oldest first — the past periods a
 // statement run must materialise (RF-84).
