@@ -2292,13 +2292,17 @@ async function checkImpersonationBounds() {
   );
 }
 
-try {
-  await main();
-} catch (error) {
-  console.error("FAIL  the check aborted —", error);
-  failed = true;
-} finally {
-  await sql.end();
-}
+// Wrapped in an async IIFE (not top-level await) so the runner can transpile
+// this to CJS and run it on any Node version, not only Node 22's native strip.
+void (async () => {
+  try {
+    await main();
+  } catch (error) {
+    console.error("FAIL  the check aborted —", error);
+    failed = true;
+  } finally {
+    await sql.end();
+  }
 
-process.exit(failed ? 1 : 0);
+  process.exit(failed ? 1 : 0);
+})();

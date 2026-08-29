@@ -23,7 +23,7 @@ export type IssueWebhookCredentialArgs = {
 };
 
 /**
- * Mint a credential and hand back its raw bearer once (RF-85). The token is a
+ * Mint a credential and hand back its raw bearer once (RF-86). The token is a
  * `whk_`-prefixed base64url of 32 random bytes; only its hash lands in the row,
  * so this return is the single moment the plaintext exists. One round trip; the
  * owner is trigger-stamped from the session, never named here.
