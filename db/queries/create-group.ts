@@ -1,0 +1,114 @@
+import "server-only";
+
+import { randomUUID } from "node:crypto";
+
+import { sql } from "drizzle-orm";
+
+import { accounts, categories, groupMembers, groups } from "@/db/schema";
+import type { Group } from "@/db/schema";
+import { getSessionUser, withUserDb } from "@/db/session";
+import {
+  GROUP_CASH_ACCOUNT_NAME,
+  PERSONAL_CASH_ACCOUNT_NAME,
+  SEED_CATEGORIES,
+} from "@/lib/fund/seed";
+import { TIME_ZONE } from "@/lib/locales";
+import type { Locale } from "@/lib/locales";
+
+type CashMode = Group["cashMode"];
+
+export type CreateGroupArgs = {
+  name: string;
+  leaderName: string;
+  cashMode: CashMode;
+  locale: Locale;
+};
+
+/**
+ * One transaction: the group, the caller as its leader, the group's cash and its
+ * seed categories. Order matters — the accounts and categories INSERT policies
+ * ask whether the caller leads the group, which only holds once the leader row
+ * lands. The group's own id is generated here, client-side: an unclaimed group
+ * fails its SELECT policy, so `returning` would hand back nothing.
+ */
+export async function createGroup({
+  name,
+  leaderName,
+  cashMode,
+  locale,
+}: CreateGroupArgs): Promise<{ groupId: string }> {
+  const user = await getSessionUser();
+  if (!user) throw new Error("createGroup called without a session");
+
+  const groupId = randomUUID();
+  const today = sql`(now() at time zone ${TIME_ZONE})::date`;
+
+  await withUserDb(async (tx) => {
+    await tx.insert(groups).values({ id: groupId, name, cashMode });
+
+    await tx.insert(groupMembers).values({
+      groupId,
+      userId: user.id,
+      name: leaderName,
+      role: "leader",
+    });
+
+    // 'shared' holds one group cash account any member may write; 'per_member'
+    // seeds the leader their own personal cash and leaves the rest to join.
+    if (cashMode === "shared") {
+      await tx.insert(accounts).values({
+        groupId,
+        ownerUserId: null,
+        isShared: true,
+        name: GROUP_CASH_ACCOUNT_NAME[locale],
+        kind: "asset",
+        initialBalanceCents: 0,
+        initialBalanceOn: today,
+      });
+    } else {
+      await tx.insert(accounts).values({
+        groupId: null,
+        ownerUserId: user.id,
+        isShared: false,
+        name: PERSONAL_CASH_ACCOUNT_NAME[locale],
+        kind: "asset",
+        initialBalanceCents: 0,
+        initialBalanceOn: today,
+      });
+    }
+
+    // Parents first, ids read back: the leader is already a member here, so the
+    // categories SELECT policy admits the row and `returning` hands back each id
+    // a child references. Row order out of a single INSERT matches the input.
+    const parentRows = await tx
+      .insert(categories)
+      .values(
+        SEED_CATEGORIES.map((category) => ({
+          groupId,
+          ownerUserId: null,
+          name: category.name[locale],
+          kind: category.kind,
+          color: category.color,
+        })),
+      )
+      .returning({ id: categories.id });
+
+    // A subcategory copies its parent's kind and colour — RF-63.
+    const childRows = SEED_CATEGORIES.flatMap((category, index) =>
+      (category.children ?? []).map((child) => ({
+        groupId,
+        ownerUserId: null,
+        parentId: parentRows[index].id,
+        name: child.name[locale],
+        kind: category.kind,
+        color: category.color,
+      })),
+    );
+
+    if (childRows.length > 0) {
+      await tx.insert(categories).values(childRows);
+    }
+  });
+
+  return { groupId };
+}

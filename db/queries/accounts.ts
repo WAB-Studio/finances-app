@@ -1,8 +1,8 @@
 import "server-only";
 
-import { and, asc, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
+import { asc, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 
-import { accounts, members } from "@/db/schema";
+import { accounts } from "@/db/schema";
 import type { Account } from "@/db/schema";
 import { withUserDb } from "@/db/session";
 import { pesosToCents } from "@/lib/money";
@@ -14,76 +14,61 @@ export type AccountRow = {
   name: string;
   kind: AccountKind;
   institution: string | null;
-  memberId: string | null;
-  memberName: string | null;
+  ownerUserId: string | null;
+  groupId: string | null;
+  isShared: boolean;
   initialBalanceCents: number;
   initialBalanceOn: string;
   archivedAt: Date | null;
 };
 
-// A fund account has no member row to join, so its rank column comes back
-// `true` and sorts first; a member account ranks `false` and then sorts by
-// its member's name — the two passes the screen needs to group by owner.
+// Every account the caller may read: their personal accounts and their group's
+// (RF-58, universal read). The policy scopes the rows; ordering only groups
+// personal accounts ahead of the group's, then by name.
 export async function listAccounts(
-  fundId: string,
   options: { archived: boolean },
 ): Promise<AccountRow[]> {
-  return withUserDb(async (tx) => {
-    const rows = await tx
+  return withUserDb(async (tx) =>
+    tx
       .select({
         id: accounts.id,
         name: accounts.name,
         kind: accounts.kind,
         institution: accounts.institution,
-        memberId: accounts.memberId,
-        memberName: members.name,
+        ownerUserId: accounts.ownerUserId,
+        groupId: accounts.groupId,
+        isShared: accounts.isShared,
         initialBalanceCents: accounts.initialBalanceCents,
         initialBalanceOn: accounts.initialBalanceOn,
         archivedAt: accounts.archivedAt,
       })
       .from(accounts)
-      .leftJoin(members, eq(members.id, accounts.memberId))
       .where(
-        and(
-          eq(accounts.fundId, fundId),
-          options.archived ? isNotNull(accounts.archivedAt) : isNull(accounts.archivedAt),
-        ),
+        options.archived ? isNotNull(accounts.archivedAt) : isNull(accounts.archivedAt),
       )
-      .orderBy(desc(sql`${accounts.memberId} is null`), asc(members.name), asc(accounts.name));
-
-    return rows;
-  });
+      .orderBy(desc(sql`${accounts.ownerUserId} is not null`), asc(accounts.name)),
+  );
 }
 
-export async function listAssignableMembers(
-  fundId: string,
-): Promise<{ id: string; name: string }[]> {
-  return withUserDb(async (tx) => {
-    const rows = await tx
-      .select({ id: members.id, name: members.name })
-      .from(members)
-      .where(and(eq(members.fundId, fundId), isNull(members.archivedAt)))
-      .orderBy(asc(members.name));
-
-    return rows;
-  });
-}
-
+// Placement is XOR, mirroring the schema check: a personal account names its
+// owner, a group account names its group and may be shared.
 export type CreateAccountArgs = {
-  fundId: string;
   name: string;
   kind: AccountKind;
-  memberId: string | null;
+  ownerUserId: string | null;
+  groupId: string | null;
+  isShared: boolean;
   institution: string | null;
   pesos: number;
   balanceOn: string;
 };
 
 export async function createAccount({
-  fundId,
   name,
   kind,
-  memberId,
+  ownerUserId,
+  groupId,
+  isShared,
   institution,
   pesos,
   balanceOn,
@@ -94,10 +79,11 @@ export async function createAccount({
     const [row] = await tx
       .insert(accounts)
       .values({
-        fundId,
         name,
         kind,
-        memberId,
+        ownerUserId,
+        groupId,
+        isShared,
         // A blank field means "no institution", the same as an absent one.
         institution: institution === "" ? null : institution,
         // A liability opens negative so net worth stays a plain sum (RNF-05).
@@ -112,21 +98,21 @@ export async function createAccount({
   });
 }
 
+// Neither `kind` nor the owner/group pivot is in the update grant, so an edit
+// only touches these fields; `is_shared` toggles whether the group may write it.
 export type UpdateAccountArgs = {
-  fundId: string;
   accountId: string;
   name: string;
-  memberId: string | null;
+  isShared: boolean;
   institution: string | null;
   pesos: number;
   balanceOn: string;
 };
 
 export async function updateAccount({
-  fundId,
   accountId,
   name,
-  memberId,
+  isShared,
   institution,
   pesos,
   balanceOn,
@@ -138,7 +124,7 @@ export async function updateAccount({
       .update(accounts)
       .set({
         name,
-        memberId,
+        isShared,
         institution: institution === "" ? null : institution,
         // `kind` is immutable and absent from the grant, so it is read from
         // the row itself rather than named in this `set`. `cents` is cast
@@ -146,7 +132,7 @@ export async function updateAccount({
         initialBalanceCents: sql`case when ${accounts.kind} = 'liability' then -${cents}::bigint else ${cents}::bigint end`,
         initialBalanceOn: balanceOn,
       })
-      .where(and(eq(accounts.id, accountId), eq(accounts.fundId, fundId)))
+      .where(eq(accounts.id, accountId))
       .returning({ id: accounts.id });
 
     return rows.length > 0;
@@ -154,17 +140,15 @@ export async function updateAccount({
 }
 
 export async function archiveAccount({
-  fundId,
   accountId,
 }: {
-  fundId: string;
   accountId: string;
 }): Promise<boolean> {
   return withUserDb(async (tx) => {
     const rows = await tx
       .update(accounts)
       .set({ archivedAt: sql`now()` })
-      .where(and(eq(accounts.id, accountId), eq(accounts.fundId, fundId)))
+      .where(eq(accounts.id, accountId))
       .returning({ id: accounts.id });
 
     return rows.length > 0;
@@ -172,17 +156,15 @@ export async function archiveAccount({
 }
 
 export async function restoreAccount({
-  fundId,
   accountId,
 }: {
-  fundId: string;
   accountId: string;
 }): Promise<boolean> {
   return withUserDb(async (tx) => {
     const rows = await tx
       .update(accounts)
       .set({ archivedAt: null })
-      .where(and(eq(accounts.id, accountId), eq(accounts.fundId, fundId)))
+      .where(eq(accounts.id, accountId))
       .returning({ id: accounts.id });
 
     return rows.length > 0;
@@ -190,16 +172,14 @@ export async function restoreAccount({
 }
 
 export async function deleteAccount({
-  fundId,
   accountId,
 }: {
-  fundId: string;
   accountId: string;
 }): Promise<boolean> {
   return withUserDb(async (tx) => {
     const rows = await tx
       .delete(accounts)
-      .where(and(eq(accounts.id, accountId), eq(accounts.fundId, fundId)))
+      .where(eq(accounts.id, accountId))
       .returning({ id: accounts.id });
 
     return rows.length > 0;
