@@ -10,7 +10,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export type SessionUser = { id: string; email: string };
 
-type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+export type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 // The verified JWT payload. It never leaves this module: callers get the two
 // fields below, so no policy decision can ever be made from a claim we control.
@@ -63,6 +63,39 @@ export async function withUserDb<T>(
     // One statement, not three: a round trip to the pooler costs more than the
     // query it precedes, and no statement runs between the claims and the role.
     // `true` is `is_local`: the pooler hands this connection on at commit.
+    await tx.execute(sql`select
+      set_config('request.jwt.claims', ${claims}, true),
+      set_config('statement_timeout', '8000', true),
+      set_config('role', 'authenticated', true)`);
+
+    return fn(tx);
+  });
+}
+
+/**
+ * `withUserDb` for a caller that has no Supabase session but has already resolved
+ * a user id from a verified credential — the webhook ingest, and it alone. The
+ * `userId` it passes is one it verified; it is NEVER a value read from a request
+ * payload. Like `withUserDb`, this never falls back to an unrestricted connection.
+ *
+ * The settle statement is identical to `withUserDb`'s: same single statement, same
+ * `authenticated` role, same `request.jwt.claims` key. The ONLY difference is that
+ * the claims are synthesised here rather than read from a Supabase session.
+ */
+export async function withImpersonatedDb<T>(
+  userId: string,
+  fn: (tx: Transaction) => Promise<T>,
+): Promise<T> {
+  // This helper must never run without a resolved user id: no fallback, no anon.
+  if (!userId) throw new Error("withImpersonatedDb called without a user id");
+
+  const claims = JSON.stringify({
+    sub: userId,
+    role: "authenticated",
+    aud: "authenticated",
+  });
+
+  return db.transaction(async (tx) => {
     await tx.execute(sql`select
       set_config('request.jwt.claims', ${claims}, true),
       set_config('statement_timeout', '8000', true),

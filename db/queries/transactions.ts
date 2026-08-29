@@ -4,6 +4,7 @@ import { and, desc, eq, gte, lte, or, sql } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 
 import { transactionLabels, transactionSplits, transactions } from "@/db/schema";
+import type { Transaction } from "@/db/session";
 import { withUserDb } from "@/db/session";
 
 export type TransactionSplitInput = { categoryId: string; amountCents: number };
@@ -62,51 +63,60 @@ export type TransactionListRow = {
  * sum and match triggers are DEFERRED, so the split set need not balance until
  * commit. A transfer carries no split, so the child inserts skip an empty set.
  */
-export async function createTransaction({
-  fromAccountId,
-  toAccountId,
-  amountCents,
-  occurredAt,
-  description,
-  externalRef,
-  splits,
-  labelIds,
-}: CreateTransactionArgs): Promise<{ transactionId: string }> {
-  return withUserDb(async (tx) => {
-    const [row] = await tx
-      .insert(transactions)
-      // `created_by` is stamped by the scope trigger and absent from the INSERT
-      // grant; drizzle types it required, so the payload is cast past it.
-      .values({
-        fromAccountId,
-        toAccountId,
-        amountCents,
-        occurredAt,
-        description,
-        externalRef,
-      } as typeof transactions.$inferInsert)
-      .returning({ id: transactions.id });
+export async function createTransaction(
+  args: CreateTransactionArgs,
+): Promise<{ transactionId: string }> {
+  return withUserDb((tx) => insertTransaction(tx, args));
+}
 
-    const transactionId = row.id;
+// The insert body of `createTransaction`, against a caller-supplied transaction:
+// the webhook ingest runs it inside `withImpersonatedDb`, screens via `withUserDb`.
+export async function insertTransaction(
+  tx: Transaction,
+  {
+    fromAccountId,
+    toAccountId,
+    amountCents,
+    occurredAt,
+    description,
+    externalRef,
+    splits,
+    labelIds,
+  }: CreateTransactionArgs,
+): Promise<{ transactionId: string }> {
+  const [row] = await tx
+    .insert(transactions)
+    // `created_by` is stamped by the scope trigger and absent from the INSERT
+    // grant; drizzle types it required, so the payload is cast past it.
+    .values({
+      fromAccountId,
+      toAccountId,
+      amountCents,
+      occurredAt,
+      description,
+      externalRef,
+    } as typeof transactions.$inferInsert)
+    .returning({ id: transactions.id });
 
-    if (splits.length > 0) {
-      await tx.insert(transactionSplits).values(
-        splits.map((split) => ({
-          transactionId,
-          categoryId: split.categoryId,
-          amountCents: split.amountCents,
-        })),
-      );
-    }
+  const transactionId = row.id;
 
-    if (labelIds.length > 0) {
-      await tx
-        .insert(transactionLabels)
-        .values(labelIds.map((labelId) => ({ transactionId, labelId })));
-    }
+  if (splits.length > 0) {
+    await tx.insert(transactionSplits).values(
+      splits.map((split) => ({
+        transactionId,
+        categoryId: split.categoryId,
+        amountCents: split.amountCents,
+      })),
+    );
+  }
 
-    return { transactionId };
-  });
+  if (labelIds.length > 0) {
+    await tx
+      .insert(transactionLabels)
+      .values(labelIds.map((labelId) => ({ transactionId, labelId })));
+  }
+
+  return { transactionId };
 }
 
 /**
