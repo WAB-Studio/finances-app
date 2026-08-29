@@ -38,7 +38,7 @@ Ask nothing when nothing qualifies.
 
 # Verify
 
-Run `npx tsc --noEmit` and `npm run lint`. Fix what you broke.
+Run `npm run typecheck` (tsgo) and `npm run lint` (eslint cache). Fix what you broke.
 Run the assignment's done criterion.
 
 # Commit
