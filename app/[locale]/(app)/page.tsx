@@ -8,6 +8,7 @@ import {
 } from "next-intl/server";
 import { notFound } from "next/navigation";
 
+import { DashboardSummary } from "@/components/reports/dashboard-summary";
 import { QuickEntryPill } from "@/components/transactions/quick-entry-pill";
 import {
   Button,
@@ -22,6 +23,7 @@ import {
   TapTarget,
 } from "@/components/ui";
 import { getUserGroup } from "@/db/queries/groups";
+import { getDashboardData } from "@/db/queries/reports/dashboard";
 import { getTransactionFormOptions } from "@/db/queries/transaction-form";
 import { listTransactions } from "@/db/queries/transactions";
 import type { TransactionListRow } from "@/db/queries/transactions";
@@ -48,10 +50,10 @@ export async function generateMetadata(
 type KindLabels = { transfer: string; income: string; expense: string };
 
 // The signed-in landing. A user may run personal-only (RF-55), so an absent
-// group is expected, not a redirect to create one. With no movement yet the
-// create-first-account guide stands; the first one turns the screen into the
-// quick-entry pill over the three most recent lines (RF-23, no balance — RF-65
-// is deferred to the reports slice).
+// group is expected, not a redirect to create one. With no account yet the
+// create-first-account guide stands (FLOWS §9); once an account exists the screen
+// leads with the net-worth-and-month summary (RF-65, RF-67) over the quick-entry
+// pill and the three most recent lines (RF-23).
 export default async function HomePage(props: PageProps<"/[locale]">) {
   const { locale } = await props.params;
   if (!hasLocale(routing.locales, locale)) notFound();
@@ -61,17 +63,19 @@ export default async function HomePage(props: PageProps<"/[locale]">) {
   // requireUser stays the auth guard. The form options carry the account and
   // category names a row reads for its title and subtitle, the same pairing the
   // movements list fans out (RF-23); the amount is formatted for display only.
-  const [, group, rows, options, t, td, format] = await Promise.all([
-    requireUser(),
-    getUserGroup(),
-    listTransactions({}, { limit: 3 }),
-    getTransactionFormOptions(),
-    getTranslations("transactions"),
-    getTranslations("dashboard"),
-    getFormatter(),
-  ]);
+  const [, group, dashboardData, rows, options, t, td, format] =
+    await Promise.all([
+      requireUser(),
+      getUserGroup(),
+      getDashboardData(),
+      listTransactions({}, { limit: 3 }),
+      getTransactionFormOptions(),
+      getTranslations("transactions"),
+      getTranslations("dashboard"),
+      getFormatter(),
+    ]);
 
-  if (rows.length === 0) {
+  if (dashboardData.hasAccounts === false) {
     return (
       <Page>
         <EmptyState
@@ -124,6 +128,8 @@ export default async function HomePage(props: PageProps<"/[locale]">) {
   return (
     <Page>
       <Flex direction="column" gap="4">
+        <DashboardSummary data={dashboardData} />
+
         <QuickEntryPill />
 
         <Flex justify="between" align="baseline" gap="3">
