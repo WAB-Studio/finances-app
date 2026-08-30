@@ -12,3 +12,7 @@ export * from "./budgets";
 export * from "./planned-payments";
 export * from "./savings-goals";
 export * from "./goal-contributions";
+export * from "./debt-terms";
+export * from "./installment-plans";
+export * from "./installment-lines";
+export * from "./debt-statements";

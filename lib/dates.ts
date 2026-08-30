@@ -99,6 +99,71 @@ export function yearRange(reference: string): {
   return { start, endExclusive: dateToCivilDate(jan) };
 }
 
+// The `day`-of-month instant in the month `anchor` sits in, at midday UTC and
+// clamped to that month's length so a 31 lands on the last day of a short month.
+function dayOfMonthClamped(anchor: Date, day: number): Date {
+  const year = anchor.getUTCFullYear();
+  const month = anchor.getUTCMonth();
+  // Day 0 of the next month reads back as the last day of this one.
+  const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(year, month, Math.min(day, lastDay), 12));
+}
+
+// The next Bogotá `YYYY-MM-DD` on or after `reference` whose day-of-month is
+// `day`, clamped to the month length. A cut-off or due day lands here (RF-84).
+export function nextDayOfMonthOnOrAfter(day: number, reference: string): string {
+  const ref = civilDateToDate(reference);
+  let candidate = dayOfMonthClamped(ref, day);
+  // The clamped day already passed this month, so roll to the next.
+  if (candidate < ref) {
+    const next = new Date(Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth() + 1, 1, 12));
+    candidate = dayOfMonthClamped(next, day);
+  }
+  return dateToCivilDate(candidate);
+}
+
+// `reference` advanced by `n` calendar months, its day-of-month clamped to the
+// target month's length so a 31 lands on the last day of a short month (Jan 31
+// +1 → Feb 28/29) instead of rolling into the next month.
+export function addCivilMonths(reference: string, n: number): string {
+  const date = civilDateToDate(reference);
+  const target = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + n, 1, 12));
+  return dateToCivilDate(dayOfMonthClamped(target, date.getUTCDate()));
+}
+
+// `reference` advanced by `n` days over the midday-UTC instant, so no local
+// offset shifts the day.
+export function addCivilDays(reference: string, n: number): string {
+  const date = civilDateToDate(reference);
+  date.setUTCDate(date.getUTCDate() + n);
+  return dateToCivilDate(date);
+}
+
+// Every cut-off date (day-of-month `cutOffDay`, clamped) in the half-open-below
+// window `(fromExclusive, toInclusive]`, oldest first — the past periods a
+// statement run must materialise (RF-84).
+export function priorCutOffDates(
+  cutOffDay: number,
+  fromExclusive: string,
+  toInclusive: string,
+): string[] {
+  const from = civilDateToDate(fromExclusive);
+  const to = civilDateToDate(toInclusive);
+  const results: string[] = [];
+
+  // Walk month by month from the month `fromExclusive` sits in; the clamped day
+  // rises monotonically, so the first candidate past `toInclusive` ends the walk.
+  let anchor = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), 1, 12));
+  for (;;) {
+    const candidate = dayOfMonthClamped(anchor, cutOffDay);
+    if (candidate > to) break;
+    if (candidate > from) results.push(dateToCivilDate(candidate));
+    anchor = new Date(Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth() + 1, 1, 12));
+  }
+
+  return results;
+}
+
 // The half-open window a budget's period spans around `reference` (RF-72).
 export function periodRange(
   period: "monthly" | "weekly" | "yearly",
