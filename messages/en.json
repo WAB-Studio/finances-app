@@ -87,7 +87,27 @@
     "emptyTitle": "No movements yet",
     "emptyDescription": "This is where the fund's balances and movements will appear.",
     "createAccount": "Create account",
-    "createFund": "Create a fund"
+    "createFund": "Create a fund",
+    "netWorthTitle": "Net worth",
+    "ownerChip": "{name} · {amount}",
+    "groupLabel": "The group",
+    "selfLabel": "You",
+    "monthIncome": "Income this month",
+    "monthExpense": "Expenses this month",
+    "monthNet": "Net this month",
+    "viewReports": "View reports"
+  },
+  "reports": {
+    "title": "Reports",
+    "nav": "Reports",
+    "byCategoryTitle": "Expenses by category",
+    "byCategoryEmpty": "No expenses this month.",
+    "comparisonTitle": "Last 6 months",
+    "legendIncome": "Income",
+    "legendExpense": "Expenses",
+    "contributionsTitle": "Contributions this month",
+    "contributionsEmpty": "No contributions this month.",
+    "noGroup": "Contributions are a group figure. You have no group yet."
   },
   "nav": {
     "openLabel": "Open navigation",

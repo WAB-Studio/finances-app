@@ -87,7 +87,27 @@
     "emptyTitle": "Todavía no hay movimientos",
     "emptyDescription": "Aquí vas a ver los saldos y los movimientos del fondo.",
     "createAccount": "Crear cuenta",
-    "createFund": "Crear un fondo"
+    "createFund": "Crear un fondo",
+    "netWorthTitle": "Patrimonio del fondo",
+    "ownerChip": "{name} · {amount}",
+    "groupLabel": "El grupo",
+    "selfLabel": "Tú",
+    "monthIncome": "Ingresos del mes",
+    "monthExpense": "Gastos del mes",
+    "monthNet": "Neto del mes",
+    "viewReports": "Ver reportes"
+  },
+  "reports": {
+    "title": "Reportes",
+    "nav": "Reportes",
+    "byCategoryTitle": "Gastos por categoría",
+    "byCategoryEmpty": "Sin gastos este mes.",
+    "comparisonTitle": "Últimos 6 meses",
+    "legendIncome": "Ingresos",
+    "legendExpense": "Gastos",
+    "contributionsTitle": "Aportes del mes",
+    "contributionsEmpty": "Sin aportes este mes.",
+    "noGroup": "Los aportes son una cifra del grupo. Todavía no tienes grupo."
   },
   "nav": {
     "openLabel": "Abrir la navegación",
