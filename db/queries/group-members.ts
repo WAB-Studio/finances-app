@@ -5,6 +5,7 @@ import { and, asc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { groupMembers } from "@/db/schema";
 import type { GroupMember } from "@/db/schema";
 import { withUserDb } from "@/db/session";
+import { pgErrorCode } from "@/lib/db-error";
 
 type GroupMemberRole = GroupMember["role"];
 
@@ -13,6 +14,7 @@ export type MemberRow = {
   name: string;
   role: GroupMemberRole;
   userId: string | null;
+  inviteEmail: string | null;
   archivedAt: Date | null;
 };
 
@@ -28,6 +30,7 @@ export async function listMembers(
         name: groupMembers.name,
         role: groupMembers.role,
         userId: groupMembers.userId,
+        inviteEmail: groupMembers.inviteEmail,
         archivedAt: groupMembers.archivedAt,
       })
       .from(groupMembers)
@@ -45,20 +48,54 @@ export async function listMembers(
 
 // `user_id` stays null and `role` stays at its default — the only shape
 // `group_members_insert_member` accepts (RF-07: a member need not have a login).
+// An `inviteEmail` pends on the row until the invited person signs in (RF-06).
 export async function createMember({
   groupId,
   name,
+  inviteEmail,
 }: {
   groupId: string;
   name: string;
+  inviteEmail?: string;
 }): Promise<{ memberId: string }> {
   return withUserDb(async (tx) => {
     const [row] = await tx
       .insert(groupMembers)
-      .values({ groupId, name })
+      .values({ groupId, name, inviteEmail: inviteEmail ?? null })
       .returning({ id: groupMembers.id });
 
     return { memberId: row.id };
+  });
+}
+
+// RF-06: the invited person claims their pending row on first sign-in. The
+// UPDATE carries no WHERE — `group_members_update_claim` scopes it to the one
+// unclaimed row whose invite_email matches the caller's auth.email(), and the
+// SELECT policy hides that row, so a targeted WHERE would match nothing. Runs
+// under the caller's verified session so auth.email() reads their own address.
+export async function claimInviteForUser({
+  userId,
+  email,
+}: {
+  userId: string;
+  email: string;
+}): Promise<"claimed" | "none" | "already-in-group"> {
+  if (!email) return "none";
+
+  return withUserDb(async (tx) => {
+    try {
+      const rows = await tx
+        .update(groupMembers)
+        .set({ userId, inviteEmail: null })
+        .returning({ id: groupMembers.id });
+
+      return rows.length > 0 ? "claimed" : "none";
+    } catch (error) {
+      // `group_members_user_unique` rejects a caller who already holds a live
+      // membership: they cannot be claimed into a second group (RF-55).
+      if (pgErrorCode(error) === "23505") return "already-in-group";
+      throw error;
+    }
   });
 }
 

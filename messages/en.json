@@ -80,6 +80,7 @@
     "you": "You",
     "ownerBadge": "Owner",
     "noLoginBadge": "No login",
+    "pendingBadge": "Invite pending",
     "accountCount": "{count, plural, one {# account} other {# accounts}}",
     "archivedEmpty": "No archived members.",
     "archiveTitle": "Archive member",
@@ -100,8 +101,14 @@
     "deleted": "Member deleted.",
     "errors": {
       "nameRequired": "Enter the member's name.",
-      "nameTooLong": "The name cannot exceed 80 characters."
+      "nameTooLong": "The name cannot exceed 80 characters.",
+      "emailInvalid": "Enter a valid email."
     }
+  },
+  "bienvenida": {
+    "title": "You joined {fund}",
+    "subtitle": "You can now see and record the shared fund's movements.",
+    "enter": "Enter the fund"
   },
   "accounts": {
     "title": "Accounts",

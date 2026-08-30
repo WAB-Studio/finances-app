@@ -136,6 +136,9 @@ export function MembersScreen({
                       {member.userId === null && (
                         <Badge color="gray">{t("noLoginBadge")}</Badge>
                       )}
+                      {member.userId === null && member.inviteEmail && (
+                        <Badge color="amber">{t("pendingBadge")}</Badge>
+                      )}
                     </Flex>
                   </Flex>
 

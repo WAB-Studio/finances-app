@@ -80,6 +80,7 @@
     "you": "Tú",
     "ownerBadge": "Propietario",
     "noLoginBadge": "Sin acceso",
+    "pendingBadge": "Invitación pendiente",
     "accountCount": "{count, plural, one {# cuenta} other {# cuentas}}",
     "archivedEmpty": "No hay miembros archivados.",
     "archiveTitle": "Archivar miembro",
@@ -100,8 +101,14 @@
     "deleted": "Miembro eliminado.",
     "errors": {
       "nameRequired": "Escribe el nombre del miembro.",
-      "nameTooLong": "El nombre no puede pasar de 80 caracteres."
+      "nameTooLong": "El nombre no puede pasar de 80 caracteres.",
+      "emailInvalid": "Escribe un correo válido."
     }
+  },
+  "bienvenida": {
+    "title": "Te uniste a {fund}",
+    "subtitle": "Ya puedes ver y registrar los movimientos del fondo compartido.",
+    "enter": "Entrar al fondo"
   },
   "accounts": {
     "title": "Cuentas",
