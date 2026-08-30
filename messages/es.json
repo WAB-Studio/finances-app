@@ -242,6 +242,7 @@
     "kindTransfer": "Traspaso",
     "kindDerivedHint": "Solo destino = ingreso · solo origen = gasto · ambas = traspaso. El tipo se deduce, no se elige.",
     "saveMovement": "Guardar movimiento",
+    "amountLabel": "Monto",
     "categoryLabel": "Categoría",
     "accountLabel": "Cuenta",
     "dateLabel": "Fecha",

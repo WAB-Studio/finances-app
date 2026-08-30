@@ -1,0 +1,174 @@
+"use client";
+
+import { PlusIcon, XIcon } from "lucide-react";
+import { useFormatter, useTranslations } from "next-intl";
+import { useMemo } from "react";
+
+import {
+  Button,
+  CategoryTile,
+  Flex,
+  IconButton,
+  Select,
+  Text,
+  TextField,
+} from "@/components/ui";
+import type { ScopedCategory } from "@/db/queries/transaction-form";
+import { centsToPesos, parsePesos, pesosToCents } from "@/lib/money";
+
+// A split as the form owns it: a category and a peso string, cents only under
+// the hood. Kept identical to the form's `splits` element so `value`/`onChange`
+// hand straight to a React Hook Form field.
+type Split = { categoryId: string; amount: string };
+
+// A row's peso string in cents, or zero while it is empty or half-typed: the
+// remainder must read as the whole total until a figure lands, never as NaN.
+function toCents(pesos: string): number {
+  const parsed = parsePesos(pesos);
+  return parsed === null ? 0 : pesosToCents(parsed);
+}
+
+/**
+ * Assigns an income or expense across categories of its own scope and kind
+ * (RF-62). It mirrors `refineSplits` on screen — one or more rows summing to the
+ * total (RF-69) — and shows the live remainder the form's schema enforces; a
+ * transfer never mounts it. Money is integer cents throughout.
+ */
+export function SplitEditor({
+  totalPesos,
+  scope,
+  kind,
+  categories,
+  value,
+  onChange,
+}: {
+  totalPesos: string;
+  scope: "personal" | "group";
+  kind: "expense" | "income";
+  categories: ScopedCategory[];
+  value: Split[];
+  onChange: (splits: Split[]) => void;
+}) {
+  const t = useTranslations("transactions");
+  const tKey = useTranslations();
+  const format = useFormatter();
+
+  // Only the movement's scope and kind, parents and their children flattened
+  // into one pickable list (a child wears its parent's colour already).
+  const options = useMemo(
+    () =>
+      categories
+        .filter((category) => category.scope === scope && category.kind === kind)
+        .flatMap((category) => [
+          { id: category.id, name: category.name, color: category.color },
+          ...category.children.map((child) => ({
+            id: child.id,
+            name: child.name,
+            color: child.color,
+          })),
+        ]),
+    [categories, scope, kind],
+  );
+
+  const remainderCents =
+    toCents(totalPesos) -
+    value.reduce((sum, split) => sum + toCents(split.amount), 0);
+
+  function updateSplit(index: number, patch: Partial<Split>) {
+    onChange(
+      value.map((split, at) => (at === index ? { ...split, ...patch } : split)),
+    );
+  }
+
+  function removeSplit(index: number) {
+    onChange(value.filter((_, at) => at !== index));
+  }
+
+  function addSplit() {
+    onChange([...value, { categoryId: "", amount: "" }]);
+  }
+
+  return (
+    <Flex direction="column" gap="3" width="100%">
+      {value.map((split, index) => {
+        const color =
+          options.find((option) => option.id === split.categoryId)?.color ??
+          null;
+
+        return (
+          <Flex key={index} align="center" gap="3">
+            <CategoryTile color={color} size={14} />
+            <Select.Root
+              value={split.categoryId || undefined}
+              onValueChange={(categoryId) => updateSplit(index, { categoryId })}
+            >
+              <Select.Trigger
+                placeholder={t("categoryLabel")}
+                aria-label={t("categoryLabel")}
+                style={{ flex: 1 }}
+              />
+              <Select.Content position="popper">
+                {options.map((option) => (
+                  <Select.Item key={option.id} value={option.id}>
+                    {option.name}
+                  </Select.Item>
+                ))}
+              </Select.Content>
+            </Select.Root>
+            <TextField.Root
+              value={split.amount}
+              onChange={(event) =>
+                updateSplit(index, { amount: event.target.value })
+              }
+              inputMode="numeric"
+              aria-label={t("amountLabel")}
+              style={{ width: 110, fontVariantNumeric: "tabular-nums" }}
+            />
+            <IconButton
+              type="button"
+              variant="ghost"
+              color="gray"
+              aria-label={tKey("common.delete")}
+              onClick={() => removeSplit(index)}
+            >
+              <XIcon size={16} />
+            </IconButton>
+          </Flex>
+        );
+      })}
+
+      <Flex justify="center">
+        <Button type="button" variant="ghost" onClick={addSplit}>
+          <PlusIcon size={16} />
+          {t("splitAddCategory")}
+        </Button>
+      </Flex>
+
+      {/* The live gap the schema refuses to let through: green at rest, red the
+          moment the rows stop summing to the total. */}
+      <Flex
+        align="center"
+        justify="between"
+        px="3"
+        py="2"
+        style={{
+          borderRadius: "var(--radius-3)",
+          background:
+            remainderCents === 0 ? "var(--grass-a3)" : "var(--red-a3)",
+        }}
+      >
+        <Text size="2" weight="medium" color={remainderCents === 0 ? "grass" : "red"}>
+          {t("splitUnassigned")}
+        </Text>
+        <Text
+          size="2"
+          weight="bold"
+          color={remainderCents === 0 ? "grass" : "red"}
+          style={{ fontVariantNumeric: "tabular-nums" }}
+        >
+          {format.number(centsToPesos(remainderCents), "currency")}
+        </Text>
+      </Flex>
+    </Flex>
+  );
+}

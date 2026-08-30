@@ -242,6 +242,7 @@
     "kindTransfer": "Transfer",
     "kindDerivedHint": "Destination only = income · source only = expense · both = transfer. The type is derived, not chosen.",
     "saveMovement": "Save movement",
+    "amountLabel": "Amount",
     "categoryLabel": "Category",
     "accountLabel": "Account",
     "dateLabel": "Date",
