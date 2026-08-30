@@ -65,7 +65,13 @@
     "seedNote": "When you create it we will prepare your categories and a fund cash account.",
     "submit": "Create fund",
     "continue": "Continue",
-    "submitting": "Creating the fund"
+    "submitting": "Creating the fund",
+    "accountsStep": {
+      "title": "Add your accounts",
+      "subtitle": "Each with its opening balance and the date it is true as of.",
+      "added": "Already added",
+      "continue": "Continue"
+    }
   },
   "dashboard": {
     "emptyTitle": "No movements yet",

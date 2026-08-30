@@ -65,7 +65,13 @@
     "seedNote": "Al crearlo prepararemos tus categorías y una cuenta de efectivo del fondo.",
     "submit": "Crear fondo",
     "continue": "Continuar",
-    "submitting": "Creando el fondo"
+    "submitting": "Creando el fondo",
+    "accountsStep": {
+      "title": "Agrega tus cuentas",
+      "subtitle": "Cada una con su saldo de partida y desde qué fecha cuenta.",
+      "added": "Ya agregadas",
+      "continue": "Continuar"
+    }
   },
   "dashboard": {
     "emptyTitle": "Todavía no hay movimientos",
