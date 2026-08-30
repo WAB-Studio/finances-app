@@ -30,14 +30,17 @@ export type BudgetStatus = {
  * category's expense splits over the budget's own period window, optionally
  * narrowed to the movements touching its account and/or carrying its label; a
  * correlated subselect picks each row's window by its period. The window bounds
- * come from `periodRange` for today, so a stored spent column never exists.
+ * come from `periodRange` around `anchorDate` (today by default), so a stored
+ * spent column never exists; the anchor only slides the window the split sum
+ * derives over, never a budget's period or threshold (RF-72).
  * Scope is the policy's job: `withUserDb` shows only the caller's readable rows.
  */
-export async function listBudgetsWithStatus(): Promise<BudgetStatus[]> {
-  const today = todayInBogota();
-  const monthly = periodRange("monthly", today);
-  const weekly = periodRange("weekly", today);
-  const yearly = periodRange("yearly", today);
+export async function listBudgetsWithStatus(
+  anchorDate: string = todayInBogota(),
+): Promise<BudgetStatus[]> {
+  const monthly = periodRange("monthly", anchorDate);
+  const weekly = periodRange("weekly", anchorDate);
+  const yearly = periodRange("yearly", anchorDate);
 
   return withUserDb(async (tx) => {
     const rows = await tx.execute<{

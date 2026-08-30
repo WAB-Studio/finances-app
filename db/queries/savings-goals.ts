@@ -73,6 +73,8 @@ export type CreateGoalArgs = {
   targetAmountCents: number;
   targetDate: string | null;
   accountId: string | null;
+  // An opening virtual aporte, seeded in the same transaction as the goal.
+  initialContributionCents?: number | null;
 };
 
 export async function createGoal({
@@ -82,12 +84,21 @@ export async function createGoal({
   targetAmountCents,
   targetDate,
   accountId,
+  initialContributionCents = null,
 }: CreateGoalArgs): Promise<{ goalId: string }> {
   return withUserDb(async (tx) => {
     const [row] = await tx
       .insert(savingsGoals)
       .values({ ownerUserId, groupId, name, targetAmountCents, targetDate, accountId })
       .returning({ id: savingsGoals.id });
+
+    // The opening aporte rides the goal's own transaction (RNF-09): one round
+    // trip to the pooler, and a virtual entry so no movement is earmarked.
+    if (initialContributionCents != null) {
+      await tx
+        .insert(goalContributions)
+        .values({ goalId: row.id, transactionId: null, amountCents: initialContributionCents });
+    }
 
     return { goalId: row.id };
   });
@@ -152,15 +163,16 @@ export async function deleteGoal({
   });
 }
 
-// Earmarks a readable movement toward a goal (RF-77); the `assert_goal_contribution_scope`
-// trigger checks the movement shares the goal's scope.
+// Adds an aporte toward a goal (RF-77). A null `transactionId` is a virtual
+// envelope entry; a movement id earmarks it, and the `assert_goal_contribution_scope`
+// trigger checks that movement shares the goal's scope.
 export async function addGoalContribution({
   goalId,
-  transactionId,
+  transactionId = null,
   amountCents,
 }: {
   goalId: string;
-  transactionId: string;
+  transactionId?: string | null;
   amountCents: number;
 }): Promise<{ contributionId: string }> {
   return withUserDb(async (tx) => {
