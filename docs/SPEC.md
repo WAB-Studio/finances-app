@@ -113,11 +113,11 @@ accounting exports, native apps. None of this gets built or left
 
 #### Cash
 
-- [ ] **RF-68** — A cash withdrawal goes to the member's own cash account or the group's shared cash, per the group's `cash_mode`.
-- [ ] **RF-40** — Cash expenses come out of the matching cash account. By RF-19 the withdrawal is not an expense, so the amount is never counted twice.
-- [ ] **RF-41** — Handing physical cash between people is not recorded: it does not change accounts.
-- [ ] **RF-42** — Returning cash to a person is a transfer into one of their accounts and reduces their contribution.
-- [ ] **RF-56** — A group configures its cash (`cash_mode`): a single shared cash account, or one personal cash account per member.
+- [x] **RF-68** — A cash withdrawal goes to the member's own cash account or the group's shared cash, per the group's `cash_mode`.
+- [x] **RF-40** — Cash expenses come out of the matching cash account. By RF-19 the withdrawal is not an expense, so the amount is never counted twice.
+- [x] **RF-41** — Handing physical cash between people is not recorded: it does not change accounts.
+- [x] **RF-42** — Returning cash to a person is a transfer into one of their accounts and reduces their contribution.
+- [x] **RF-56** — A group configures its cash (`cash_mode`): a single shared cash account, or one personal cash account per member.
 
 #### Audit
 

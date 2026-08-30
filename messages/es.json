@@ -331,7 +331,8 @@
       "labelInvalid": "Elige una etiqueta válida.",
       "splitsForbidden": "Un traspaso no lleva categorías.",
       "splitsRequired": "Asigna al menos una categoría.",
-      "splitsSumMismatch": "Las categorías deben sumar el monto del movimiento."
+      "splitsSumMismatch": "Las categorías deben sumar el monto del movimiento.",
+      "splitsScopeViolation": "La cuenta o la categoría no pertenecen al mismo ámbito."
     }
   },
   "cash": {

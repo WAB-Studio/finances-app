@@ -331,7 +331,8 @@
       "labelInvalid": "Choose a valid label.",
       "splitsForbidden": "A transfer carries no categories.",
       "splitsRequired": "Assign at least one category.",
-      "splitsSumMismatch": "The categories must add up to the movement's amount."
+      "splitsSumMismatch": "The categories must add up to the movement's amount.",
+      "splitsScopeViolation": "The account or category isn't in the same scope."
     }
   },
   "cash": {
