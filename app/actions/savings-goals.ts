@@ -48,30 +48,38 @@ function mapGoalError(error: unknown): never {
  */
 export const createGoalAction = authActionClient
   .inputSchema(createGoalSchema)
-  .action(async ({ parsedInput: { targetAmount, targetDate, accountId, ...goal }, ctx }) => {
-    const targetAmountCents = toCents(targetAmount);
+  .action(
+    async ({
+      parsedInput: { targetAmount, targetDate, accountId, initialContribution, ...goal },
+      ctx,
+    }) => {
+      const targetAmountCents = toCents(targetAmount);
+      const initialContributionCents =
+        initialContribution != null ? toCents(initialContribution) : null;
 
-    const group = await getUserGroup();
-    const scope = group
-      ? { ownerUserId: null, groupId: group.id }
-      : { ownerUserId: ctx.user.id, groupId: null };
+      const group = await getUserGroup();
+      const scope = group
+        ? { ownerUserId: null, groupId: group.id }
+        : { ownerUserId: ctx.user.id, groupId: null };
 
-    let goalId: string;
-    try {
-      ({ goalId } = await createGoal({
-        ...goal,
-        ...scope,
-        targetAmountCents,
-        targetDate: targetDate ?? null,
-        accountId: accountId ?? null,
-      }));
-    } catch (error) {
-      mapGoalError(error);
-    }
+      let goalId: string;
+      try {
+        ({ goalId } = await createGoal({
+          ...goal,
+          ...scope,
+          targetAmountCents,
+          targetDate: targetDate ?? null,
+          accountId: accountId ?? null,
+          initialContributionCents,
+        }));
+      } catch (error) {
+        mapGoalError(error);
+      }
 
-    refresh();
-    return { goalId };
-  });
+      refresh();
+      return { goalId };
+    },
+  );
 
 /**
  * Rewrites a goal's editable fields (RF-76). The scope is immutable and never
@@ -109,18 +117,17 @@ export const deleteGoalAction = authActionClient
   });
 
 /**
- * Earmarks part of an existing movement toward a goal (RF-77). The movement
- * must share the goal's scope, which the `assert_goal_contribution_scope`
- * trigger checks; the amount arrives as a peso string.
+ * Adds a typed virtual aporte toward a goal (RF-77). The entry earmarks no
+ * movement, so only the amount crosses, as a peso string.
  */
 export const contributeGoalAction = authActionClient
   .inputSchema(contributeGoalSchema)
-  .action(async ({ parsedInput: { goalId, transactionId, amount } }) => {
+  .action(async ({ parsedInput: { goalId, amount } }) => {
     const amountCents = toCents(amount);
 
     let contributionId: string;
     try {
-      ({ contributionId } = await addGoalContribution({ goalId, transactionId, amountCents }));
+      ({ contributionId } = await addGoalContribution({ goalId, amountCents }));
     } catch (error) {
       mapGoalError(error);
     }

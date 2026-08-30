@@ -1288,10 +1288,11 @@ async function checkPlannedPaymentPolicies() {
   );
 }
 
-// Assertions 58-61: the savings_goals and goal_contributions tables. A contribution earmarks a movement
-// of the goal's scope and `goal_progress` derives the saved figure from it; the scope trigger refuses a
-// foreign-scope movement; any group member writes a group goal and attaches a contribution; and a second
-// group's goals stay invisible. Every fixture is seeded through the app's own policies and rolled back.
+// Assertions 58-61, 103-104: the savings_goals and goal_contributions tables. A contribution earmarks a
+// movement of the goal's scope and `goal_progress` derives the saved figure from it; a virtual contribution
+// earmarks no movement yet still counts; the scope trigger refuses a foreign-scope movement; any group
+// member writes a group goal and attaches a contribution while an intruder's virtual insert is barred; and a
+// second group's goals stay invisible. Every fixture is seeded through the app's own policies and rolled back.
 async function checkSavingsGoalPolicies() {
   console.log("");
   const leaderUser = randomUUID();
@@ -1305,6 +1306,8 @@ async function checkSavingsGoalPolicies() {
     "59. a contribution earmarking a movement of another scope is refused",
     "60. a plain member inserts, updates and deletes a group goal and attaches a contribution",
     "61. a member reads the group goal while a second group's goal stays invisible",
+    "103. a virtual contribution earmarking no movement lands and goal_progress sums it",
+    "104. an intruder outside the goal's scope cannot insert even a virtual contribution",
   ];
   const tailLabel = "62. the rolled-back savings goal transaction leaves no trace";
 
@@ -1354,6 +1357,20 @@ async function checkSavingsGoalPolicies() {
         `inserted rows = ${contribution.length}, goal_progress.saved_cents = ${saved} (expected 5000)`,
       );
 
+      // 103: a virtual contribution earmarks no movement (RF-77); it still lands and goal_progress sums it.
+      const [{ saved_cents: beforeVirtual }] = await tx<{ saved_cents: string }[]>`
+        select saved_cents from goal_progress where goal_id = ${personalGoal}`;
+      const virtualContribution = await tx<{ id: string }[]>`
+        insert into goal_contributions (goal_id, transaction_id, amount_cents)
+        values (${personalGoal}, null, 7000) returning id`;
+      const [{ saved_cents: afterVirtual }] = await tx<{ saved_cents: string }[]>`
+        select saved_cents from goal_progress where goal_id = ${personalGoal}`;
+      assert(
+        labels[4],
+        virtualContribution.length === 1 && Number(afterVirtual) - Number(beforeVirtual) === 7000,
+        `inserted rows = ${virtualContribution.length}, saved_cents ${beforeVirtual} → ${afterVirtual} (expected +7000)`,
+      );
+
       // 59: the scope trigger refuses a movement of another scope on the personal goal.
       await tx
         .savepoint(async (sp) => {
@@ -1383,6 +1400,17 @@ async function checkSavingsGoalPolicies() {
       const [{ id: secondGoal }] = await tx<{ id: string }[]>`
         insert into savings_goals (group_id, name, target_amount_cents)
         values (${secondGroup}, 'rls goals second goal', 300000) returning id`;
+
+      // 104: the intruder's identical virtual insert on the leader's personal goal is barred by the write policy.
+      await tx
+        .savepoint(async (sp) => {
+          await sp`insert into goal_contributions (goal_id, transaction_id, amount_cents)
+            values (${personalGoal}, null, 7000)`;
+          assert(labels[5], false, "an intruder's virtual contribution stood, which it must not");
+        })
+        .catch((error: unknown) => {
+          assert(labels[5], pgCode(error) === "42501", `sqlstate ${pgCode(error) ?? "none"}`);
+        });
 
       // 60: a plain member writes a group goal — insert, update, contribute and delete all land.
       await enterUserContext(tx, memberUser);
