@@ -28,6 +28,10 @@ export const accounts = pgTable(
     isShared: boolean().notNull().default(false),
     name: text().notNull(),
     kind: text({ enum: ["asset", "liability"] }).notNull(),
+    // The durable marker of what the account is: a bank account, physical cash, or a card. A cash
+    // account (RF-56) is `subtype = 'efectivo'`. `bancaria`/`tarjeta` follow the kind, so a caller
+    // that names neither has one derived by `set_account_subtype`; the default lets it be omitted.
+    subtype: text({ enum: ["bancaria", "efectivo", "tarjeta"] }).notNull().default("bancaria"),
     institution: text(),
     // The opening balance only (RNF-05). No running balance column exists anywhere (RNF-07).
     initialBalanceCents: bigint({ mode: "number" }).notNull().default(0),
@@ -39,6 +43,12 @@ export const accounts = pgTable(
   (table) => [
     check("accounts_name_length", sql`length(btrim(${table.name})) between 1 and 80`),
     check("accounts_kind_valid", sql`${table.kind} in ('asset', 'liability')`),
+    check("accounts_subtype_valid", sql`${table.subtype} in ('bancaria', 'efectivo', 'tarjeta')`),
+    // Cash and bank hold value (asset); a card is money owed (liability). The subtype pins the kind.
+    check(
+      "accounts_subtype_kind",
+      sql`(${table.subtype} in ('efectivo', 'bancaria') and ${table.kind} = 'asset') or (${table.subtype} = 'tarjeta' and ${table.kind} = 'liability')`,
+    ),
     // A liability's opening balance is stored negative; an asset's is stored non-negative.
     check(
       "accounts_initial_balance_sign",

@@ -6,6 +6,7 @@ import { createHash, randomUUID } from "node:crypto";
 import postgres from "postgres";
 
 import { pgErrorCode } from "@/lib/db-error";
+import { GROUP_CASH_ACCOUNT_NAME } from "@/lib/fund/seed";
 
 const sql = postgres(process.env.DATABASE_URL!, { prepare: false, max: 1 });
 
@@ -149,6 +150,7 @@ async function main() {
   await checkInviteClaimPolicies();
   await checkRecurringRulePolicies();
   await checkAuditLogPolicies();
+  await checkAccountSubtypeBackfill();
 }
 
 // Assertions 9-26: the repivoted schema. A group holds accounts and categories a user XOR a group
@@ -2821,6 +2823,128 @@ async function checkAuditLogPolicies() {
     tailLabel,
     afterUser === "postgres" && probeCount === "0",
     `current_user = ${afterUser}, rows named 'rls audit%' = ${probeCount}`,
+  );
+}
+
+// Assertions 117-121: the durable account `subtype` (RF-56). The 0009 backfill classified every prior
+// row — seeded cash to 'efectivo', any other liability to 'tarjeta', any other asset to 'bancaria' —
+// and no row is left null; the subtype↔kind CHECK refuses a mismatch; the owner-run derive trigger fills
+// the caller-ungranted column so an authenticated insert still lands; and the widened column changed no
+// read policy, so a non-member still cannot SELECT another group's cash account. Fixtures roll back.
+async function checkAccountSubtypeBackfill() {
+  console.log("");
+  const leaderUser = randomUUID();
+  const memberUser = randomUUID();
+  const outsiderUser = randomUUID();
+  const groupId = randomUUID();
+
+  const labels = [
+    "117. the backfill's three outcomes hold: a seeded cash account is 'efectivo', a card 'tarjeta', a bank 'bancaria'",
+    "118. no accounts row across the whole table carries a null subtype",
+    "119. the subtype↔kind check refuses a liability marked efectivo — the one subtype the trigger keeps",
+    "120. the derive trigger fills the caller-ungranted column, so an authenticated insert omitting subtype lands",
+    "121. a non-member cannot SELECT another group's efectivo account — the widened column changed no read policy",
+  ];
+  const tailLabel = "122. the rolled-back subtype transaction leaves no trace";
+
+  // The exact CASE the 0009 backfill applied, replicated so the proof reads what the migration ran.
+  const backfillSubtype = (name: string, kind: string) =>
+    ["Efectivo del grupo", "Group cash", "Mi efectivo", "My cash"].includes(name)
+      ? "efectivo"
+      : kind === "liability"
+        ? "tarjeta"
+        : "bancaria";
+
+  const forcedRollback = Symbol("forced rollback");
+
+  // 118: a table-wide read outside any role switch — the applied migration left every existing row set.
+  const [{ count: nullCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from accounts where subtype is null`;
+
+  await sql
+    .begin(async (tx) => {
+      await tx`insert into auth.users (id) values (${leaderUser}), (${memberUser}), (${outsiderUser})`;
+      await tx`insert into app_users (id) values (${leaderUser}), (${memberUser}), (${outsiderUser})`;
+
+      await enterUserContext(tx, leaderUser);
+      await tx`insert into groups (id, name, cash_mode) values (${groupId}, 'rls subtype', 'shared')`;
+      await tx`insert into group_members (group_id, user_id, name, role)
+        values (${groupId}, ${leaderUser}, 'rls subtype leader', 'leader')`;
+
+      // The group's shared cash account. `efectivo` carries no INSERT grant, so it is seeded as the owner
+      // with the value the backfill would have written, exactly as a renamed-free seeded cash row holds it.
+      await tx`reset role`;
+      const cashName = GROUP_CASH_ACCOUNT_NAME.es;
+      const [{ id: cashAccount, subtype: cashSubtype }] = await tx<{ id: string; subtype: string }[]>`
+        insert into accounts (group_id, is_shared, name, kind, subtype, initial_balance_on)
+        values (${groupId}, true, ${cashName}, 'asset', 'efectivo', (now() at time zone 'America/Bogota')::date)
+        returning id, subtype`;
+
+      // A card and a bank, seeded through the leader's own context omitting subtype: the derive trigger
+      // sets 'tarjeta' for the liability and 'bancaria' for the asset — the backfill's other two outcomes.
+      await enterUserContext(tx, leaderUser);
+      const [{ subtype: cardSubtype }] = await tx<{ subtype: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_cents, initial_balance_on)
+        values (${leaderUser}, 'rls subtype leader card', 'liability', -100000, (now() at time zone 'America/Bogota')::date)
+        returning subtype`;
+      const [{ subtype: bankSubtype }] = await tx<{ subtype: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_on)
+        values (${leaderUser}, 'rls subtype leader bank', 'asset', (now() at time zone 'America/Bogota')::date)
+        returning subtype`;
+
+      assert(
+        labels[0],
+        cashSubtype === backfillSubtype(cashName, "asset") &&
+          cardSubtype === backfillSubtype("rls subtype leader card", "liability") &&
+          bankSubtype === backfillSubtype("rls subtype leader bank", "asset") &&
+          cashSubtype === "efectivo" && cardSubtype === "tarjeta" && bankSubtype === "bancaria",
+        `cash = ${cashSubtype}, card = ${cardSubtype}, bank = ${bankSubtype}`,
+      );
+
+      assert(labels[1], nullCount === "0", `rows with a null subtype = ${nullCount}`);
+
+      // 119: the subtype↔kind check. The trigger rewrites any non-'efectivo' value to follow the kind,
+      // so 'efectivo' is the sole value it preserves — and 'efectivo' on a liability is what the CHECK
+      // must reject. Seeded as the owner so the explicit value reaches the row untouched.
+      let checkBreach = "";
+      await tx
+        .savepoint(async (sp) => {
+          await sp`reset role`;
+          await sp`insert into accounts (owner_user_id, name, kind, subtype, initial_balance_cents, initial_balance_on)
+            values (${leaderUser}, 'rls subtype cash card', 'liability', 'efectivo', -100, (now() at time zone 'America/Bogota')::date)`;
+          assert(labels[2], false, "an efectivo liability landed, which the check must not allow");
+        })
+        .catch((error: unknown) => {
+          checkBreach = pgErrorCode(error) ?? "none";
+          assert(labels[2], checkBreach === "23514", `sqlstate ${checkBreach}`);
+        });
+
+      // 120: the derive trigger already carried the two inserts above; assert both landed non-null.
+      assert(
+        labels[3],
+        cardSubtype !== null && bankSubtype !== null,
+        `authenticated insert filled card = ${cardSubtype}, bank = ${bankSubtype}`,
+      );
+
+      // 121: an outsider in no shared group sees zero rows for the group's efectivo account.
+      await enterUserContext(tx, outsiderUser);
+      const [{ count: outsiderSees }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from accounts where id = ${cashAccount}`;
+      assert(labels[4], outsiderSees === "0", `visible rows = ${outsiderSees}`);
+
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`select current_user`;
+  const [{ count: probeCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from accounts where name like 'rls subtype%'`;
+  assert(
+    tailLabel,
+    afterUser === "postgres" && probeCount === "0",
+    `current_user = ${afterUser}, rows named 'rls subtype%' = ${probeCount}`,
   );
 }
 
