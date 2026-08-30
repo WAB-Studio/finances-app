@@ -105,8 +105,9 @@ export async function getLastUsedAccountId(): Promise<string | null> {
 
 /**
  * A display name per creator id (RF-25): a creator who is a group member reads as
- * that member's name; any other id is the caller's own, so it reads as their
- * email (Q2 — a personal movement is only ever recorded by the caller).
+ * that member's name, an archived member included, since a movement outlives the
+ * member who recorded it. The email is the caller's own affordance only — it
+ * stands in for their own id when it names no member, never for another user's.
  */
 export async function resolveCreatorNames(
   userIds: string[],
@@ -117,7 +118,15 @@ export async function resolveCreatorNames(
   if (unique.length === 0) return names;
 
   const [user, group] = await Promise.all([getSessionUser(), getUserGroup()]);
-  const members = group ? await listMembers(group.id, { archived: false }) : [];
+  // Archived members carry a name too, so both rosters feed the lookup.
+  const members = group
+    ? (
+        await Promise.all([
+          listMembers(group.id, { archived: false }),
+          listMembers(group.id, { archived: true }),
+        ])
+      ).flat()
+    : [];
 
   const memberNames = new Map(
     members.flatMap((member) =>
@@ -129,7 +138,7 @@ export async function resolveCreatorNames(
     const memberName = memberNames.get(id);
     if (memberName) {
       names.set(id, memberName);
-    } else if (user) {
+    } else if (user && id === user.id) {
       names.set(id, user.email);
     }
   }
