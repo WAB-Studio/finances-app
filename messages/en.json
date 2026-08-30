@@ -483,6 +483,7 @@
     "addTitle": "New debt",
     "completeTermsTitle": "Complete terms",
     "save": "Save debt",
+    "saved": "Debt saved",
     "nameLabel": "Name",
     "kindLabel": "Type",
     "annualRateLabel": "Annual rate",

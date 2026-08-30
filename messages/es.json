@@ -483,6 +483,7 @@
     "addTitle": "Nueva deuda",
     "completeTermsTitle": "Completar términos",
     "save": "Guardar deuda",
+    "saved": "Deuda guardada",
     "nameLabel": "Nombre",
     "kindLabel": "Tipo",
     "annualRateLabel": "Tasa anual",
