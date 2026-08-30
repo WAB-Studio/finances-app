@@ -14,19 +14,21 @@ import { Link as LocaleLink } from "@/i18n/navigation";
 
 /**
  * The Planeación hub: one card per area, each carrying a live one-line summary
- * derived on the server and a link into its screen. Deudas and Recurrentes have
- * no screen yet, so they read as muted "próximamente" placeholders with no href.
+ * derived on the server and a link into its screen. Recurrentes has no screen
+ * yet, so it reads as a muted "próximamente" placeholder with no href.
  */
 export async function PlanningHub({
   groupName,
   budgetsSummary,
   goalsSummary,
   paymentsSummary,
+  debtsSummary,
 }: {
   groupName: string | null;
   budgetsSummary: string;
   goalsSummary: string;
   paymentsSummary: string;
+  debtsSummary: string;
 }) {
   const t = await getTranslations("planning");
   const tKey = await getTranslations();
@@ -64,7 +66,8 @@ export async function PlanningHub({
           icon={CreditCard}
           tint="indigo"
           title={t("debtsTitle")}
-          summary={t("soon")}
+          summary={debtsSummary}
+          href="/planning/debts"
         />
         <HubCard
           icon={Repeat}
