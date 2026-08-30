@@ -38,16 +38,6 @@ export const createLabelSchema = z
 
 export type CreateLabelInput = z.infer<typeof createLabelSchema>;
 
-export const updateLabelSchema = z
-  .object({
-    labelId: z.uuid(),
-    name: labelNameSchema,
-    color: labelColorSchema,
-  })
-  .superRefine(requireColor);
-
-export type UpdateLabelInput = z.infer<typeof updateLabelSchema>;
-
 export const deleteLabelSchema = z.object({
   labelId: z.uuid(),
 });

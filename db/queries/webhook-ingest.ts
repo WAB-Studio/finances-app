@@ -48,9 +48,10 @@ export type IngestWebhookMovementArgs = {
 
 /**
  * Record one movement under a resolved credential's owner (RF-86), through the
- * same insert a screen uses (RF-45). The `ownerUserId` is one the caller
- * verified from a credential, never a payload value, so the whole body runs
- * inside `withImpersonatedDb` and every read and the write are RLS-bound.
+ * same insert path a screen uses, so the data-layer audit trigger records it
+ * like any other write (RF-45). The `ownerUserId` is one the caller verified
+ * from a credential, never a payload value, so the whole body runs inside
+ * `withImpersonatedDb` and every read and the write are RLS-bound.
  *
  * The interpreter (RF-22) proposes amount, category and description; explicit
  * payload fields win. A repeated `external_ref` trips the per-scope unique index
