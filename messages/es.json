@@ -71,6 +71,16 @@
       "subtitle": "Cada una con su saldo de partida y desde qué fecha cuenta.",
       "added": "Ya agregadas",
       "continue": "Continuar"
+    },
+    "inviteStep": {
+      "title": "Invita a los demás",
+      "subtitle": "Puedes crear a alguien y registrar por él antes de que entre a la app.",
+      "emailPlaceholder": "correo de la persona",
+      "sendInvite": "Invitar",
+      "addWithoutEmail": "Agregar sin correo",
+      "toDashboard": "Ir al panel",
+      "skip": "Omitir por ahora",
+      "emailFailed": "Añadimos a la persona, pero no pudimos enviar el correo de invitación."
     }
   },
   "dashboard": {

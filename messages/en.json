@@ -71,6 +71,16 @@
       "subtitle": "Each with its opening balance and the date it is true as of.",
       "added": "Already added",
       "continue": "Continue"
+    },
+    "inviteStep": {
+      "title": "Invite the others",
+      "subtitle": "You can create someone and record on their behalf before they join the app.",
+      "emailPlaceholder": "the person's email",
+      "sendInvite": "Invite",
+      "addWithoutEmail": "Add without email",
+      "toDashboard": "Go to dashboard",
+      "skip": "Skip for now",
+      "emailFailed": "We added the person, but could not send the invite email."
     }
   },
   "dashboard": {
