@@ -101,7 +101,7 @@ accounting exports, native apps. None of this gets built or left
 - [x] **RF-74** — CRUD for one-off planned payments: a future movement — its accounts, amount, category and due date — with an optional reminder date, kept distinct from recurring rules.
 - [x] **RF-75** — Settling a planned payment records the transaction it planned, links the two, and marks the planned payment done; a settled or cancelled planned payment cannot be settled again.
 - [x] **RF-76** — CRUD for savings goals: a target amount and an optional target date, scoped to a user or a group.
-- [ ] **RF-77** — A savings goal's progress — amount saved, amount remaining and whether it is on track for its target date — derives from the movements contributed to it; it is never stored.
+- [x] **RF-87** — A savings goal's progress — amount saved, amount remaining and whether it is on track for its target date — derives from its contributions (`goal_contributions`), each an amount set aside virtually with no movement required; it is never stored.
 
 #### Reports
 
@@ -191,6 +191,7 @@ Dead codes. The number stays burned and the tick stays as it was.
 - [ ] **RF-36** — Each member's contribution for the month: net of transfers into fund accounts, less those flowing back to that member. _Retired 2026-08-28. Successor: RF-66 (group accounts)._
 - [ ] **RF-37** — In every report grouped by member, the fund appears as one more group. Shared accounts are not split across people. _Retired 2026-08-28. Successor: RF-67 (shared accounts as a group)._
 - [ ] **RF-39** — A cash withdrawal goes to the member's own cash account if they have one, and to the fund's if they do not. The app neither asks nor stores a mode: the rule is derived from which accounts exist. _Retired 2026-08-28. Successor: RF-68 (per `cash_mode`)._
+- [ ] **RF-77** — A savings goal's progress — amount saved, amount remaining and whether it is on track for its target date — derives from the movements contributed to it; it is never stored. _Retired 2026-08-30. Successor: RF-87 (derives from contributions, which may be virtual amounts with no movement)._
 
 ---
 
