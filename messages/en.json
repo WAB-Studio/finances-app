@@ -85,7 +85,9 @@
   },
   "dashboard": {
     "emptyTitle": "No movements yet",
-    "emptyDescription": "This is where the fund's balances and movements will appear."
+    "emptyDescription": "This is where the fund's balances and movements will appear.",
+    "createAccount": "Create account",
+    "createFund": "Create a fund"
   },
   "nav": {
     "openLabel": "Open navigation",

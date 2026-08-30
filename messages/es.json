@@ -85,7 +85,9 @@
   },
   "dashboard": {
     "emptyTitle": "Todavía no hay movimientos",
-    "emptyDescription": "Aquí vas a ver los saldos y los movimientos del fondo."
+    "emptyDescription": "Aquí vas a ver los saldos y los movimientos del fondo.",
+    "createAccount": "Crear cuenta",
+    "createFund": "Crear un fondo"
   },
   "nav": {
     "openLabel": "Abrir la navegación",
