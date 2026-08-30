@@ -96,9 +96,8 @@ export async function createRecurringRule({
   });
 }
 
-// `is_active`, `next_run_on` and the end date are the pause/resume and generation
-// paths' to write, so a plain edit touches only the definition fields; the boolean
-// reports whether the policy admitted it.
+// A definition edit rewrites every field but `is_active`, which only the
+// pause/resume path owns; the boolean reports whether the policy admitted the row.
 export type UpdateRecurringRuleArgs = {
   id: string;
   fromAccountId: string | null;

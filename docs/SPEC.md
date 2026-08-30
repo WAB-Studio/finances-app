@@ -88,10 +88,10 @@ accounting exports, native apps. None of this gets built or left
 
 #### Recurring
 
-- [ ] **RF-29** — CRUD for recurring rules with monthly, weekly or yearly frequency, and the day that matches that frequency.
-- [ ] **RF-30** — A daily process turns due rules into real transactions.
-- [ ] **RF-31** — Generated transactions are distinguishable from manual ones and are editable: the real amount of a utility bill varies.
-- [ ] **RF-32** — A rule can be paused or given an end date without erasing its history.
+- [x] **RF-29** — CRUD for recurring rules with monthly, weekly or yearly frequency, and the day that matches that frequency.
+- [x] **RF-30** — A daily process turns due rules into real transactions.
+- [x] **RF-31** — Generated transactions are distinguishable from manual ones and are editable: the real amount of a utility bill varies.
+- [x] **RF-32** — A rule can be paused or given an end date without erasing its history.
 
 #### Budgets, planned payments and goals
 
