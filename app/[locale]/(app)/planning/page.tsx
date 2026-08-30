@@ -71,20 +71,22 @@ export default async function PlanningPage(
       })
     : t("paymentsEmpty");
 
-  // A summary reads only when there is a debt with a next payment to name: the
-  // one message here carries a date, so a fund with no debts — or none carrying a
-  // due date — falls back to the empty line rather than a dateless summary.
+  // Three states: no debts reads the empty line; a debt with a next payment names
+  // its total and date; a debt without a due date names its total alone, since the
+  // dated message cannot carry a missing date.
+  const total = format.number(centsToPesos(debts.totals.owedCents), "currency");
   const hasDebts = debts.withTerms.length > 0 || debts.withoutTerms.length > 0;
-  const debtsSummary =
-    hasDebts && debts.totals.nextPayment !== null
+  const debtsSummary = !hasDebts
+    ? t("debtsEmpty")
+    : debts.totals.nextPayment !== null
       ? t("debtsSummary", {
-          total: format.number(centsToPesos(debts.totals.owedCents), "currency"),
+          total,
           date: format.dateTime(
             civilDateToDate(debts.totals.nextPayment.date),
             { day: "numeric", month: "short" },
           ),
         })
-      : t("debtsEmpty");
+      : t("debtsSummaryNoDate", { total });
 
   return (
     <Page>

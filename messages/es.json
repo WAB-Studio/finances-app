@@ -316,6 +316,7 @@
     "noConcept": "Sin concepto",
     "debtsTitle": "Deudas",
     "debtsSummary": "{total} · próximo pago el {date}",
+    "debtsSummaryNoDate": "{total} en deudas",
     "debtsEmpty": "Sin deudas",
     "recurringTitle": "Recurrentes",
     "soon": "Próximamente"
