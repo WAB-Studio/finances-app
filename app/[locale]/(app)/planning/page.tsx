@@ -6,6 +6,7 @@ import { notFound } from "next/navigation";
 import { PlanningHub } from "@/components/planning/planning-hub";
 import { Page } from "@/components/ui";
 import { listBudgetsWithStatus } from "@/db/queries/budgets";
+import { getDebtsScreenData } from "@/db/queries/debts-screen";
 import { getUserGroup } from "@/db/queries/groups";
 import { listPlannedPayments } from "@/db/queries/planned-payments";
 import { listGoalsWithProgress } from "@/db/queries/savings-goals";
@@ -32,10 +33,11 @@ export default async function PlanningPage(
 
   setRequestLocale(locale);
 
-  const [budgets, goals, payments, group, t, format] = await Promise.all([
+  const [budgets, goals, payments, debts, group, t, format] = await Promise.all([
     listBudgetsWithStatus(),
     listGoalsWithProgress(),
     listPlannedPayments({ status: "pending" }),
+    getDebtsScreenData(),
     getUserGroup(),
     getTranslations({ locale, namespace: "planning" }),
     getFormatter({ locale }),
@@ -69,6 +71,21 @@ export default async function PlanningPage(
       })
     : t("paymentsEmpty");
 
+  // A summary reads only when there is a debt with a next payment to name: the
+  // one message here carries a date, so a fund with no debts — or none carrying a
+  // due date — falls back to the empty line rather than a dateless summary.
+  const hasDebts = debts.withTerms.length > 0 || debts.withoutTerms.length > 0;
+  const debtsSummary =
+    hasDebts && debts.totals.nextPayment !== null
+      ? t("debtsSummary", {
+          total: format.number(centsToPesos(debts.totals.owedCents), "currency"),
+          date: format.dateTime(
+            civilDateToDate(debts.totals.nextPayment.date),
+            { day: "numeric", month: "short" },
+          ),
+        })
+      : t("debtsEmpty");
+
   return (
     <Page>
       <PlanningHub
@@ -76,6 +93,7 @@ export default async function PlanningPage(
         budgetsSummary={budgetsSummary}
         goalsSummary={goalsSummary}
         paymentsSummary={paymentsSummary}
+        debtsSummary={debtsSummary}
       />
     </Page>
   );
