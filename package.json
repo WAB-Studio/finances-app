@@ -13,7 +13,7 @@
     "typecheck": "tsgo --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node --env-file=.env.local ./node_modules/drizzle-kit/bin.cjs migrate",
-    "db:check-rls": "node --env-file=.env.local scripts/check-rls.ts"
+    "db:check-rls": "node --import tsx --env-file=.env.local scripts/check-rls.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.9.1",
@@ -41,6 +41,7 @@
     "drizzle-kit": "^0.31.10",
     "eslint": "^9",
     "eslint-config-next": "16.3.3",
+    "tsx": "^4.23.12",
     "typescript": "^5"
   }
 }

@@ -16,3 +16,4 @@ export * from "./debt-terms";
 export * from "./installment-plans";
 export * from "./installment-lines";
 export * from "./debt-statements";
+export * from "./webhook-credentials";

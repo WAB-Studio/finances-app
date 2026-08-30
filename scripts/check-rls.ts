@@ -1,6 +1,6 @@
 // Proves the access policies actually fire. Runs outside Next.js under Node 22
 // type stripping, so it reads `process.env` and imports nothing from the app.
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import postgres from "postgres";
 
@@ -142,6 +142,8 @@ async function main() {
   await checkInstallmentPolicies();
   await checkDebtDerivedFigures();
   await checkDebtStatementPolicies();
+  await checkWebhookCredentialPolicies();
+  await checkImpersonationBounds();
 }
 
 // Assertions 9-26: the repivoted schema. A group holds accounts and categories a user XOR a group
@@ -2012,13 +2014,295 @@ async function checkDebtStatementPolicies() {
   );
 }
 
-try {
-  await main();
-} catch (error) {
-  console.error("FAIL  the check aborted —", error);
-  failed = true;
-} finally {
-  await sql.end();
+// Assertions 86-93: the webhook credentials. The owner-scoped policies isolate one user's credentials from
+// another; the owner-stamp trigger sets owner_user_id from auth.uid() on insert; the column grant hides
+// token_hash from authenticated; and the resolver — run on the base postgres connection outside any user
+// context, as the object owner the grant is revoked for everyone else — yields the owner, defaults and a
+// fixed-window throttle verdict only for a live, non-revoked token. Every fixture is seeded through the
+// app's own policies and rolled back.
+async function checkWebhookCredentialPolicies() {
+  console.log("");
+  const subject = randomUUID();
+  const intruder = randomUUID();
+
+  const labels = [
+    "86. an insert without owner_user_id comes back stamped with auth.uid()",
+    "87. a second user can neither read, update nor delete another's credential",
+    "88. token_hash is unreadable by authenticated while name and defaults read back",
+    "89. the resolver yields the owner, defaults and throttled=false for a live token and stamps last_used_at",
+    "90. the resolver yields no row for a revoked token and none for an unknown hash",
+    "91. the throttle admits calls up to the limit, each throttled=false",
+    "92. the over-limit call is throttled=true and is not counted",
+    "93. the throttle resets after the window expires and admits again",
+  ];
+  const tailLabel = "94. the rolled-back webhook credential transaction leaves no trace";
+
+  // 64 hex chars each: the token_hash length check demands exactly that, and the unique index keeps them apart.
+  const liveHash = createHash("sha256").update(randomUUID()).digest("hex");
+  const throttleHash = createHash("sha256").update(randomUUID()).digest("hex");
+  const unknownHash = createHash("sha256").update(randomUUID()).digest("hex");
+
+  const forcedRollback = Symbol("forced rollback");
+
+  await sql
+    .begin(async (tx) => {
+      await tx`insert into auth.users (id) values (${subject}), (${intruder})`;
+      await tx`insert into app_users (id) values (${subject}), (${intruder})`;
+
+      // The resolver executes as the object owner postgres; a helper keeps its four-column read in one place.
+      const resolve = (hash: string) =>
+        tx<
+          {
+            owner_user_id: string;
+            default_account_id: string | null;
+            default_category_id: string | null;
+            throttled: boolean;
+          }[]
+        >`select owner_user_id, default_account_id, default_category_id, throttled
+          from private.resolve_webhook_credential(${hash})`;
+
+      await enterUserContext(tx, subject);
+
+      // The defaults the ingest falls back to, both of the subject's own scope.
+      const [{ id: account }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_on)
+        values (${subject}, 'rls webhook cash', 'asset', (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: category }] = await tx<{ id: string }[]>`
+        insert into categories (owner_user_id, name, kind)
+        values (${subject}, 'rls webhook category', 'expense') returning id`;
+
+      // 86: the insert names no owner (it is absent from the grant); the trigger stamps it from auth.uid().
+      const [live] = await tx<
+        { id: string; owner_user_id: string; default_account_id: string | null; default_category_id: string | null }[]
+      >`insert into webhook_credentials (name, token_hash, default_account_id, default_category_id)
+        values ('rls webhook live', ${liveHash}, ${account}, ${category})
+        returning id, owner_user_id, default_account_id, default_category_id`;
+      assert(
+        labels[0],
+        live.owner_user_id === subject,
+        `owner_user_id = ${live.owner_user_id === subject ? "subject" : live.owner_user_id}`,
+      );
+
+      // A small-window credential the throttle assertions exercise below.
+      const [{ id: throttleCred }] = await tx<{ id: string }[]>`
+        insert into webhook_credentials (name, token_hash, rate_limit_per_min)
+        values ('rls webhook throttle', ${throttleHash}, 3) returning id`;
+
+      // 87: the intruder shares no scope with the subject — the row is invisible and its writes touch nothing.
+      await enterUserContext(tx, intruder);
+      const [{ count: intruderSees }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from webhook_credentials where id = ${live.id}`;
+      const intruderUpdate = await tx`update webhook_credentials set name = 'x' where id = ${live.id}`;
+      const intruderDelete = await tx`delete from webhook_credentials where id = ${live.id}`;
+      assert(
+        labels[1],
+        intruderSees === "0" && intruderUpdate.count === 0 && intruderDelete.count === 0,
+        `visible = ${intruderSees}, update rows = ${intruderUpdate.count}, delete rows = ${intruderDelete.count}`,
+      );
+
+      // 88: the SELECT grant lists name and the defaults but never token_hash; reading the hash is denied
+      // by the column privilege, even to the owner whose row is otherwise fully visible.
+      await enterUserContext(tx, subject);
+      const [{ name: readName }] = await tx<{ name: string }[]>`
+        select name from webhook_credentials where id = ${live.id}`;
+      let hashCode: string | undefined;
+      await tx
+        .savepoint(async (sp) => {
+          await sp`select token_hash from webhook_credentials where id = ${live.id}`;
+        })
+        .catch((error: unknown) => {
+          hashCode = pgCode(error);
+        });
+      assert(
+        labels[2],
+        readName === "rls webhook live" && hashCode === "42501",
+        `name = ${readName}, token_hash read sqlstate ${hashCode ?? "none"}`,
+      );
+
+      // 89: the resolver, on the base postgres connection, returns the owner, both defaults and a false
+      // throttle verdict for the live token, and stamps last_used_at.
+      await tx`reset role`;
+      const resolvedLive = await resolve(liveHash);
+      const [{ stamped }] = await tx<{ stamped: boolean }[]>`
+        select last_used_at is not null as stamped from webhook_credentials where id = ${live.id}`;
+      assert(
+        labels[3],
+        resolvedLive.length === 1 &&
+          resolvedLive[0].owner_user_id === subject &&
+          resolvedLive[0].default_account_id === account &&
+          resolvedLive[0].default_category_id === category &&
+          resolvedLive[0].throttled === false &&
+          stamped === true,
+        `rows = ${resolvedLive.length}, owner = ${resolvedLive[0]?.owner_user_id === subject}, account = ${resolvedLive[0]?.default_account_id === account}, category = ${resolvedLive[0]?.default_category_id === category}, throttled = ${resolvedLive[0]?.throttled}, last_used_at set = ${stamped}`,
+      );
+
+      // 90: a revoked token and an unknown hash each resolve to nothing — the route maps that to 401.
+      await tx`update webhook_credentials set revoked_at = now() where id = ${live.id}`;
+      const resolvedRevoked = await resolve(liveHash);
+      const resolvedUnknown = await resolve(unknownHash);
+      assert(
+        labels[4],
+        resolvedRevoked.length === 0 && resolvedUnknown.length === 0,
+        `revoked rows = ${resolvedRevoked.length}, unknown rows = ${resolvedUnknown.length}`,
+      );
+
+      // 91: the fixed window admits every call up to the limit; the limit-th call is still let through.
+      const throttleRuns = [
+        await resolve(throttleHash),
+        await resolve(throttleHash),
+        await resolve(throttleHash),
+      ];
+      assert(
+        labels[5],
+        throttleRuns.every((run) => run.length === 1 && run[0].throttled === false),
+        `throttled verdicts = ${throttleRuns.map((run) => run[0]?.throttled).join(", ")}`,
+      );
+
+      // 92: the next call within the window is a valid token but throttled, and it does not raise the count.
+      const overLimit = await resolve(throttleHash);
+      const [{ rate_count: heldCount }] = await tx<{ rate_count: string }[]>`
+        select rate_count::text as rate_count from webhook_credentials where id = ${throttleCred}`;
+      assert(
+        labels[6],
+        overLimit.length === 1 && overLimit[0].throttled === true && heldCount === "3",
+        `rows = ${overLimit.length}, throttled = ${overLimit[0]?.throttled}, rate_count = ${heldCount} (expected 3)`,
+      );
+
+      // 93: back-dating the window past a minute makes the next call reset it and admit again at count 1.
+      await tx`update webhook_credentials set rate_window_started_at = now() - interval '2 minutes'
+        where id = ${throttleCred}`;
+      const afterReset = await resolve(throttleHash);
+      const [{ rate_count: resetCount }] = await tx<{ rate_count: string }[]>`
+        select rate_count::text as rate_count from webhook_credentials where id = ${throttleCred}`;
+      assert(
+        labels[7],
+        afterReset.length === 1 && afterReset[0].throttled === false && resetCount === "1",
+        `rows = ${afterReset.length}, throttled = ${afterReset[0]?.throttled}, rate_count = ${resetCount} (expected 1)`,
+      );
+
+      // Forces `sql.begin` to issue ROLLBACK: nothing this function wrote may survive it.
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`select current_user`;
+  const [{ count: probeCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from webhook_credentials where name like 'rls webhook%'`;
+  assert(
+    tailLabel,
+    afterUser === "postgres" && probeCount === "0",
+    `current_user = ${afterUser}, rows named 'rls webhook%' = ${probeCount}`,
+  );
 }
 
-process.exit(failed ? 1 : 0);
+// Assertions 95-96: the load-bearing security proof. The webhook ingest opens its session by synthesising
+// `authenticated` claims from a resolved user id — never a Supabase login. Replicating `withImpersonatedDb`'s
+// settle INLINE (the harness cannot nest a `db.transaction`), the same claims key and the same authenticated
+// role are set transaction-local. Under that session user A writes A's own account, but a write to user B's
+// personal account is refused by the very RLS a browser session obeys. Every fixture is seeded through the
+// app's own policies and rolled back.
+async function checkImpersonationBounds() {
+  console.log("");
+  const userA = randomUUID();
+  const userB = randomUUID();
+
+  const labels = [
+    "95. an impersonated session writes user A's own account and stamps created_by = A",
+    "96. an impersonated session is refused on user B's personal account",
+  ];
+  const tailLabel = "97. the rolled-back impersonation transaction leaves no trace";
+
+  const forcedRollback = Symbol("forced rollback");
+
+  await sql
+    .begin(async (tx) => {
+      await tx`insert into auth.users (id) values (${userA}), (${userB})`;
+      await tx`insert into app_users (id) values (${userA}), (${userB})`;
+
+      // A's personal account and expense category, seeded under A's own scope.
+      await enterUserContext(tx, userA);
+      const [{ id: accountA }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_on)
+        values (${userA}, 'rls impersonation A cash', 'asset', (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: categoryA }] = await tx<{ id: string }[]>`
+        insert into categories (owner_user_id, name, kind)
+        values (${userA}, 'rls impersonation A expense', 'expense') returning id`;
+
+      // B's personal account, seeded under B's own scope. No group ties A to B, so A holds no write over it.
+      await tx`reset role`;
+      await enterUserContext(tx, userB);
+      const [{ id: accountB }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_on)
+        values (${userB}, 'rls impersonation B cash', 'asset', (now() at time zone 'America/Bogota')::date) returning id`;
+
+      // Synthesise A's authenticated claims inline, exactly as `withImpersonatedDb` does: the claims key
+      // built with json_build_object and the authenticated role, both transaction-local. This is the
+      // webhook ingest's session — a resolved user id, never a request payload — and it must obey RLS.
+      await tx`reset role`;
+      await tx`select set_config('request.jwt.claims',
+        json_build_object('sub', ${userA}::text, 'role', 'authenticated', 'aud', 'authenticated')::text, true)`;
+      await tx`select set_config('statement_timeout', '8000', true)`;
+      await tx`set local role authenticated`;
+
+      // 95: the impersonated session writes A's own account — a movement row plus its one split, the ledger's
+      // insert shape replicated inline. The scope trigger stamps created_by from the synthesised claims.
+      const [ownWrite] = await tx<{ id: string; created_by: string }[]>`
+        insert into transactions (from_account_id, amount_cents, occurred_at)
+        values (${accountA}, 5000, (now() at time zone 'America/Bogota')::date)
+        returning id, created_by`;
+      await tx`insert into transaction_splits (transaction_id, category_id, amount_cents)
+        values (${ownWrite.id}, ${categoryA}, 5000)`;
+      assert(
+        labels[0],
+        ownWrite.created_by === userA,
+        `created_by = ${ownWrite.created_by === userA ? "A" : ownWrite.created_by}`,
+      );
+
+      // 96: the same session may not touch B's personal account — can_write_transaction refuses it with
+      // 42501, proving the synthesised-claims path is bounded by the exact RLS a login is.
+      await tx
+        .savepoint(async (sp) => {
+          await sp`insert into transactions (from_account_id, amount_cents, occurred_at)
+            values (${accountB}, 5000, (now() at time zone 'America/Bogota')::date)`;
+          assert(labels[1], false, "the impersonated session wrote B's account, which it must not");
+        })
+        .catch((error: unknown) => {
+          assert(labels[1], pgCode(error) === "42501", `sqlstate ${pgCode(error) ?? "none"}`);
+        });
+
+      // Unwind the impersonated role before the rollback probe.
+      await tx`reset role`;
+
+      // Forces `sql.begin` to issue ROLLBACK: nothing this function wrote may survive it.
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`select current_user`;
+  const [{ count: probeCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from accounts where name like 'rls impersonation%'`;
+  assert(
+    tailLabel,
+    afterUser === "postgres" && probeCount === "0",
+    `current_user = ${afterUser}, rows named 'rls impersonation%' = ${probeCount}`,
+  );
+}
+
+// Wrapped in an async IIFE (not top-level await) so the runner can transpile
+// this to CJS and run it on any Node version, not only Node 22's native strip.
+void (async () => {
+  try {
+    await main();
+  } catch (error) {
+    console.error("FAIL  the check aborted —", error);
+    failed = true;
+  } finally {
+    await sql.end();
+  }
+
+  process.exit(failed ? 1 : 0);
+})();
