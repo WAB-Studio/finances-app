@@ -24,6 +24,8 @@
   "auth": {
     "signIn": "Iniciar sesión",
     "signOut": "Cerrar sesión",
+    "tagline": "Las cuentas de la casa, claras y compartidas.",
+    "passwordlessHint": "Te enviamos un enlace para entrar sin contraseña.",
     "loginDescription": "Escribe tu correo y te enviamos un enlace para entrar. No necesitas contraseña.",
     "emailLabel": "Correo electrónico",
     "emailPlaceholder": "tu@correo.com",
@@ -49,22 +51,54 @@
   },
   "onboarding": {
     "title": "Crea tu fondo",
+    "subtitle": "Un espacio para las cuentas que comparten. Serás su propietario.",
+    "back": "Atrás",
+    "steps": {
+      "fund": "Fondo",
+      "accounts": "Cuentas",
+      "invite": "Invitar"
+    },
     "fundNameLabel": "Nombre del fondo",
     "fundNamePlaceholder": "Casa",
     "memberNameLabel": "¿Cómo te llamas?",
     "memberNameDescription": "Así apareces en los informes por persona.",
+    "seedNote": "Al crearlo prepararemos tus categorías y una cuenta de efectivo del fondo.",
     "submit": "Crear fondo",
-    "submitting": "Creando el fondo"
+    "continue": "Continuar",
+    "submitting": "Creando el fondo",
+    "accountsStep": {
+      "title": "Agrega tus cuentas",
+      "subtitle": "Cada una con su saldo de partida y desde qué fecha cuenta.",
+      "added": "Ya agregadas",
+      "continue": "Continuar"
+    },
+    "inviteStep": {
+      "title": "Invita a los demás",
+      "subtitle": "Puedes crear a alguien y registrar por él antes de que entre a la app.",
+      "emailPlaceholder": "correo de la persona",
+      "sendInvite": "Invitar",
+      "addWithoutEmail": "Agregar sin correo",
+      "toDashboard": "Ir al panel",
+      "skip": "Omitir por ahora",
+      "emailFailed": "Añadimos a la persona, pero no pudimos enviar el correo de invitación."
+    }
   },
   "dashboard": {
     "emptyTitle": "Todavía no hay movimientos",
-    "emptyDescription": "Aquí vas a ver los saldos y los movimientos del fondo."
+    "emptyDescription": "Aquí vas a ver los saldos y los movimientos del fondo.",
+    "createAccount": "Crear cuenta",
+    "createFund": "Crear un fondo"
   },
   "nav": {
     "openLabel": "Abrir la navegación",
     "title": "Navegación",
     "close": "Cerrar",
     "dashboard": "Panel",
+    "home": "Inicio",
+    "movements": "Movimientos",
+    "planning": "Planeación",
+    "settings": "Ajustes",
+    "quickEntry": "Anotar un gasto",
     "members": "Miembros",
     "accounts": "Cuentas",
     "categories": "Categorías"
@@ -80,6 +114,7 @@
     "you": "Tú",
     "ownerBadge": "Propietario",
     "noLoginBadge": "Sin acceso",
+    "pendingBadge": "Invitación pendiente",
     "accountCount": "{count, plural, one {# cuenta} other {# cuentas}}",
     "archivedEmpty": "No hay miembros archivados.",
     "archiveTitle": "Archivar miembro",
@@ -100,8 +135,14 @@
     "deleted": "Miembro eliminado.",
     "errors": {
       "nameRequired": "Escribe el nombre del miembro.",
-      "nameTooLong": "El nombre no puede pasar de 80 caracteres."
+      "nameTooLong": "El nombre no puede pasar de 80 caracteres.",
+      "emailInvalid": "Escribe un correo válido."
     }
+  },
+  "bienvenida": {
+    "title": "Te uniste a {fund}",
+    "subtitle": "Ya puedes ver y registrar los movimientos del fondo compartido.",
+    "enter": "Entrar al fondo"
   },
   "accounts": {
     "title": "Cuentas",

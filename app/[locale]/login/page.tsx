@@ -1,10 +1,12 @@
 import { hasLocale } from "next-intl";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import type { Metadata } from "next";
-import { CircleAlertIcon } from "lucide-react";
+import { CircleAlertIcon, PiggyBank } from "lucide-react";
 import { notFound } from "next/navigation";
 
 import { LoginForm } from "@/components/auth/login-form";
+import { LanguageSwitcher } from "@/components/language-switcher";
+import { ThemeSwitcher } from "@/components/theme-switcher";
 import { Box, Callout, Card, Flex, Heading, Text } from "@/components/ui";
 import { routing } from "@/i18n/routing";
 
@@ -41,14 +43,38 @@ export default async function LoginPage(props: PageProps<"/[locale]/login">) {
   const linkInvalid = firstValue(searchParams.error) === "linkInvalid";
 
   return (
-    <Flex asChild flexGrow="1" align="center" justify="center" p="4">
+    <Flex asChild direction="column" flexGrow="1" p="4">
       <main>
-        <Box width="100%" maxWidth="24rem">
-          <Card>
+        {/* Language and theme both work signed out (FLOWS §8, §10). */}
+        <Flex justify="end" align="center" gap="2" py="2">
+          <LanguageSwitcher />
+          <ThemeSwitcher />
+        </Flex>
+        <Flex direction="column" flexGrow="1" align="center" justify="center">
+          <Box width="100%" maxWidth="24rem">
             <Flex direction="column" gap="4">
-              <Flex direction="column" gap="1">
-                <Heading size="5">{t("auth.signIn")}</Heading>
-                <Text color="gray">{t("auth.loginDescription")}</Text>
+              <Flex direction="column" gap="3">
+                <Flex
+                  align="center"
+                  justify="center"
+                  style={{
+                    width: 60,
+                    height: 60,
+                    borderRadius: 18,
+                    backgroundColor: "var(--accent-9)",
+                  }}
+                >
+                  <PiggyBank
+                    size={30}
+                    color="var(--accent-contrast)"
+                    strokeWidth={1.9}
+                    aria-hidden
+                  />
+                </Flex>
+                <Flex direction="column" gap="1">
+                  <Heading size="7">{t("common.appName")}</Heading>
+                  <Text color="gray">{t("auth.tagline")}</Text>
+                </Flex>
               </Flex>
               {linkInvalid && (
                 <Callout.Root color="red" role="alert">
@@ -58,10 +84,15 @@ export default async function LoginPage(props: PageProps<"/[locale]/login">) {
                   <Callout.Text>{t("errors.linkInvalid")}</Callout.Text>
                 </Callout.Root>
               )}
-              <LoginForm next={firstValue(searchParams.next)} />
+              <Card>
+                <LoginForm next={firstValue(searchParams.next)} />
+              </Card>
+              <Text size="2" color="gray" align="center">
+                {t("auth.passwordlessHint")}
+              </Text>
             </Flex>
-          </Card>
-        </Box>
+          </Box>
+        </Flex>
       </main>
     </Flex>
   );

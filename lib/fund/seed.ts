@@ -1,8 +1,8 @@
 import type { Locale } from "@/lib/locales";
 
 // Seeded names are data, not interface strings: they are written into rows in
-// the language active when the fund is created (RF-28) and renamed from then on
-// (RF-26). Keying them by locale makes a missing translation a typecheck error.
+// the language active when the fund is created (RF-64) and renamed from then on
+// (RF-63). Keying them by locale makes a missing translation a typecheck error.
 export type SeedName = Record<Locale, string>;
 
 export type SeedChild = {

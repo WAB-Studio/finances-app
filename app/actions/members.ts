@@ -11,8 +11,10 @@ import {
 } from "@/db/queries/group-members";
 import { getUserGroup } from "@/db/queries/groups";
 import { pgErrorCode } from "@/lib/db-error";
+import { env } from "@/lib/env";
 import { ActionError } from "@/lib/errors";
 import { authActionClient } from "@/lib/safe-action";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
   archiveMemberSchema,
   createMemberSchema,
@@ -28,14 +30,37 @@ async function requireGroupId(): Promise<string> {
   return group.id;
 }
 
+// RF-06: the same passwordless path as sign-in, so the invited person accepts by
+// clicking the link. `shouldCreateUser` provisions the address if it has none.
+// Returns false on failure so the create stays non-fatal — the member still lands.
+async function sendInviteEmail(email: string): Promise<boolean> {
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase.auth.signInWithOtp({
+    email,
+    options: {
+      shouldCreateUser: true,
+      emailRedirectTo: `${env.NEXT_PUBLIC_SITE_URL}/auth/confirm`,
+    },
+  });
+  if (error) {
+    console.error("invite email request failed", error);
+    return false;
+  }
+  return true;
+}
+
 export const createMemberAction = authActionClient
   .inputSchema(createMemberSchema)
-  .action(async ({ parsedInput: { name } }) => {
+  .action(async ({ parsedInput: { name, email } }) => {
     const groupId = await requireGroupId();
-    const { memberId } = await createMember({ groupId, name });
+    const { memberId } = await createMember({ groupId, name, inviteEmail: email });
+
+    // A failed send leaves the member pending rather than aborting the create;
+    // the caller surfaces it as a notice, not an error.
+    const inviteEmailFailed = email ? !(await sendInviteEmail(email)) : false;
 
     refresh();
-    return { memberId };
+    return { memberId, inviteEmailFailed };
   });
 
 export const updateMemberAction = authActionClient

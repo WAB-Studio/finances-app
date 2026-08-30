@@ -24,6 +24,8 @@
   "auth": {
     "signIn": "Sign in",
     "signOut": "Sign out",
+    "tagline": "The household's accounts, clear and shared.",
+    "passwordlessHint": "We send you a link to sign in without a password.",
     "loginDescription": "Enter your email and we will send you a link to sign in. No password needed.",
     "emailLabel": "Email address",
     "emailPlaceholder": "you@example.com",
@@ -49,22 +51,54 @@
   },
   "onboarding": {
     "title": "Create your fund",
+    "subtitle": "A space for the accounts you share. You will be its owner.",
+    "back": "Back",
+    "steps": {
+      "fund": "Fund",
+      "accounts": "Accounts",
+      "invite": "Invite"
+    },
     "fundNameLabel": "Fund name",
     "fundNamePlaceholder": "Household",
     "memberNameLabel": "What is your name?",
     "memberNameDescription": "This is how you appear in per-person reports.",
+    "seedNote": "When you create it we will prepare your categories and a fund cash account.",
     "submit": "Create fund",
-    "submitting": "Creating the fund"
+    "continue": "Continue",
+    "submitting": "Creating the fund",
+    "accountsStep": {
+      "title": "Add your accounts",
+      "subtitle": "Each with its opening balance and the date it is true as of.",
+      "added": "Already added",
+      "continue": "Continue"
+    },
+    "inviteStep": {
+      "title": "Invite the others",
+      "subtitle": "You can create someone and record on their behalf before they join the app.",
+      "emailPlaceholder": "the person's email",
+      "sendInvite": "Invite",
+      "addWithoutEmail": "Add without email",
+      "toDashboard": "Go to dashboard",
+      "skip": "Skip for now",
+      "emailFailed": "We added the person, but could not send the invite email."
+    }
   },
   "dashboard": {
     "emptyTitle": "No movements yet",
-    "emptyDescription": "This is where the fund's balances and movements will appear."
+    "emptyDescription": "This is where the fund's balances and movements will appear.",
+    "createAccount": "Create account",
+    "createFund": "Create a fund"
   },
   "nav": {
     "openLabel": "Open navigation",
     "title": "Navigation",
     "close": "Close",
     "dashboard": "Dashboard",
+    "home": "Home",
+    "movements": "Movements",
+    "planning": "Planning",
+    "settings": "Settings",
+    "quickEntry": "Record a movement",
     "members": "Members",
     "accounts": "Accounts",
     "categories": "Categories"
@@ -80,6 +114,7 @@
     "you": "You",
     "ownerBadge": "Owner",
     "noLoginBadge": "No login",
+    "pendingBadge": "Invite pending",
     "accountCount": "{count, plural, one {# account} other {# accounts}}",
     "archivedEmpty": "No archived members.",
     "archiveTitle": "Archive member",
@@ -100,8 +135,14 @@
     "deleted": "Member deleted.",
     "errors": {
       "nameRequired": "Enter the member's name.",
-      "nameTooLong": "The name cannot exceed 80 characters."
+      "nameTooLong": "The name cannot exceed 80 characters.",
+      "emailInvalid": "Enter a valid email."
     }
+  },
+  "bienvenida": {
+    "title": "You joined {fund}",
+    "subtitle": "You can now see and record the shared fund's movements.",
+    "enter": "Enter the fund"
   },
   "accounts": {
     "title": "Accounts",

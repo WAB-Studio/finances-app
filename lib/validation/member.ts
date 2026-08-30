@@ -9,8 +9,18 @@ const memberNameSchema = z
   .min(1, { error: "members.errors.nameRequired" })
   .max(80, { error: "members.errors.nameTooLong" });
 
+// RF-06: an optional invite email. Trimmed, and an empty field reads as absent,
+// so a blank input never fails the email check — only a non-empty malformed one.
+const inviteEmailSchema = z
+  .string()
+  .trim()
+  .optional()
+  .transform((value) => (value ? value : undefined))
+  .pipe(z.email({ error: "members.errors.emailInvalid" }).optional());
+
 export const createMemberSchema = z.object({
   name: memberNameSchema,
+  email: inviteEmailSchema,
 });
 
 export type CreateMemberInput = z.infer<typeof createMemberSchema>;

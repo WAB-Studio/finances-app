@@ -63,6 +63,8 @@ export { EmptyState } from "./empty-state";
 
 export { NavPanel } from "./nav-panel";
 
+export { BottomNav, BottomNavTrigger, type BottomNavTab } from "./bottom-nav";
+
 export { ColorSwatchPicker, ColorSwatch } from "./color-swatch-picker";
 
 export { StackedSegmentedControl } from "./stacked-segmented-control";

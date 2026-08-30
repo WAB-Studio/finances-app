@@ -1,11 +1,13 @@
+import { Wallet } from "lucide-react";
 import { hasLocale } from "next-intl";
 import type { Metadata } from "next";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { notFound } from "next/navigation";
 
-import { EmptyState, Flex, Heading, Page, Text } from "@/components/ui";
+import { Button, EmptyState, Flex, Link, Page, TapTarget } from "@/components/ui";
 import { getUserGroup } from "@/db/queries/groups";
 import { requireUser } from "@/db/session";
+import { Link as LocaleLink } from "@/i18n/navigation";
 import { routing } from "@/i18n/routing";
 
 export async function generateMetadata(
@@ -29,7 +31,9 @@ export default async function HomePage(props: PageProps<"/[locale]">) {
 
   setRequestLocale(locale);
 
-  const [user, group, t] = await Promise.all([
+  // requireUser stays the auth guard; its result is unused while the dashboard
+  // shows only the create-first-account guide (RF-65 balances deferred).
+  const [, group, t] = await Promise.all([
     requireUser(),
     getUserGroup(),
     getTranslations(),
@@ -37,16 +41,29 @@ export default async function HomePage(props: PageProps<"/[locale]">) {
 
   return (
     <Page>
-      <Flex direction="column" gap="2">
-        <Text size="2" color="gray">
-          {t("common.greeting", { email: user.email })}
-        </Text>
-        <Heading size="6">{group?.name ?? t("common.appName")}</Heading>
-        <EmptyState
-          title={t("dashboard.emptyTitle")}
-          description={t("dashboard.emptyDescription")}
-        />
-      </Flex>
+      <EmptyState
+        icon={<Wallet size={44} strokeWidth={1.6} />}
+        title={t("dashboard.emptyTitle")}
+        description={t("dashboard.emptyDescription")}
+        action={
+          <Flex direction="column" align="center" gap="3" mt="2">
+            <Button asChild size="3">
+              <LocaleLink href="/settings/accounts">
+                {t("dashboard.createAccount")}
+              </LocaleLink>
+            </Button>
+            {!group && (
+              <Link asChild>
+                <LocaleLink href="/onboarding">
+                  <TapTarget align="center" justify="center" px="2">
+                    {t("dashboard.createFund")}
+                  </TapTarget>
+                </LocaleLink>
+              </Link>
+            )}
+          </Flex>
+        }
+      />
     </Page>
   );
 }

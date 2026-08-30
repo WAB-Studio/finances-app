@@ -154,7 +154,7 @@ function CategoryForm({
     }
   }
 
-  // RF-26 caps nesting at one level: a category with children offers no
+  // RF-63 caps nesting at one level: a category with children offers no
   // parent at all, and a category that already has children never appears as
   // an option — except the option that is already this subcategory's parent,
   // kept selectable so an existing value is never orphaned mid-edit.

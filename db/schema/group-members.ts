@@ -23,6 +23,8 @@ export const groupMembers = pgTable(
       .notNull()
       .references(() => groups.id, { onDelete: "cascade" }),
     userId: uuid().references(() => appUsers.id, { onDelete: "set null" }),
+    // RF-06: the email an invite pends on until the invited person signs in and claims the row.
+    inviteEmail: text(),
     name: text().notNull(),
     role: text({ enum: ["leader", "member"] }).notNull().default("member"),
     archivedAt: timestamp({ withTimezone: true }),
@@ -34,10 +36,16 @@ export const groupMembers = pgTable(
     check("group_members_role_valid", sql`${table.role} in ('leader', 'member')`),
     // The §2 invariant "only a member with a user can be leader", as a constraint.
     check("group_members_leader_has_user", sql`${table.role} <> 'leader' or ${table.userId} is not null`),
+    // An invite only pends on an unclaimed row: claiming it (RF-06) clears the email as it sets the user.
+    check("group_members_invite_email_unclaimed", sql`${table.inviteEmail} is null or ${table.userId} is null`),
     // One group per user: a live claim on any group blocks a second, across the whole table.
     uniqueIndex("group_members_user_unique")
       .on(table.userId)
       .where(sql`${table.userId} is not null and ${table.archivedAt} is null`),
+    // One pending invite per email per group; case-folded so a re-invite under a different case is caught.
+    uniqueIndex("group_members_group_invite_email_unique")
+      .on(table.groupId, sql`lower(${table.inviteEmail})`)
+      .where(sql`${table.inviteEmail} is not null`),
     index("group_members_group_id_idx").on(table.groupId),
     index("group_members_user_id_idx").on(table.userId),
     // The self-disjunct mirrors the owner exception on accounts and categories:
@@ -65,6 +73,14 @@ export const groupMembers = pgTable(
       to: authenticatedRole,
       using: sql`(select private.is_group_member(${table.groupId}))`,
       withCheck: sql`(select private.is_group_member(${table.groupId})) and (${table.userId} is distinct from ${authUid} or ${table.archivedAt} is null)`,
+    }),
+    // RF-06: the invited person claims their own pending row. OR'd with the member-update policy above,
+    // this is the only path an outsider enters by — matched on the email their magic link proved.
+    pgPolicy("group_members_update_claim", {
+      for: "update",
+      to: authenticatedRole,
+      using: sql`${table.userId} is null and ${table.inviteEmail} is not null and lower(${table.inviteEmail}) = lower(auth.email())`,
+      withCheck: sql`${table.userId} = ${authUid} and ${table.role} = 'member'`,
     }),
     // RF-11: a member with movements is archived elsewhere; this policy only lets the row be dropped, never you.
     pgPolicy("group_members_delete_member", {

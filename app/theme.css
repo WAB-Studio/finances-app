@@ -15,3 +15,15 @@ body {
   --heading-font-family: var(--font-sans);
   --code-font-family: var(--font-geist-mono);
 }
+
+/* The page sits on a warm off-white so white cards read as raised, not flush.
+   Keyed off the class the pre-paint script already wrote, so the tone lands on
+   first paint with no flash. The doubled class outranks Radix's own token. */
+.light .radix-themes.radix-themes {
+  --color-background: #f5f3ef;
+  --gray-12: #1b1a16;
+}
+
+.dark .radix-themes.radix-themes {
+  --color-background: #141310;
+}

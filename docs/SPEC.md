@@ -43,7 +43,7 @@ accounting exports, native apps. None of this gets built or left
 - [ ] **RF-57** — Only the group `leader` invites members, edits the group and manages the group's categories.
 - [ ] **RF-58** — Every member of a group can read all of its accounts (universal read); write is bounded per account — a personal account by its owner, a shared account by any member.
 - [ ] **RF-59** — Whoever creates a group becomes its `leader`. The role is transferable, but a group is never left without a leader.
-- [ ] **RF-06** — Accepting an invitation links the user to the member that already exists in the fund, if any; otherwise a member is created.
+- [x] **RF-06** — Accepting an invitation links the user to the member that already exists in the fund, if any; otherwise a member is created.
 - [ ] **RF-55** — By default a user's accounts are personal; a user may belong to at most one optional shared group. There is no multi-fund membership and no switching.
 
 #### Members and accounts
@@ -83,7 +83,7 @@ accounting exports, native apps. None of this gets built or left
 
 - [ ] **RF-63** — CRUD for categories with one level of subcategories, scoped to a user (personal) or a group; a subcategory shares its parent's scope.
 - [x] **RF-27** — Each category is either expense or income.
-- [ ] **RF-64** — Creating a personal space or a group seeds an initial category set in the active language.
+- [x] **RF-64** — Creating a personal space or a group seeds an initial category set in the active language.
 - [ ] **RF-70** — Labels, independent of category, attach to transactions through a transaction_labels join; a group's labels are managed by its leader, a user's by their owner.
 
 #### Recurring

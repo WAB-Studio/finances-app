@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 
+import { claimInviteForUser } from "@/db/queries/group-members";
 import { appUsers } from "@/db/schema";
 import { withUserDb } from "@/db/session";
 import { routing } from "@/i18n/routing";
@@ -91,12 +92,24 @@ export async function GET(request: NextRequest) {
     return row?.locale ?? fallbackLocale;
   });
 
+  // RF-06: link this user to the pending member their magic link's email matches,
+  // if any. Runs under their now-verified session so the claim policy sees their
+  // own auth.email(); "none"/"already-in-group" fall through to the usual landing.
+  const claim = await claimInviteForUser({
+    userId,
+    email: data.user.email ?? "",
+  });
+
   const cookieStore = await cookies();
   const postLogin = cookieStore.get("post_login_redirect")?.value;
   cookieStore.delete("post_login_redirect");
 
   const target =
-    postLogin && isInternalPath(postLogin) ? postLogin : `/${locale}`;
+    claim === "claimed"
+      ? `/${locale}/bienvenida`
+      : postLogin && isInternalPath(postLogin)
+        ? postLogin
+        : `/${locale}`;
 
   const response = applyHeaders(
     NextResponse.redirect(new URL(target, request.url)),
