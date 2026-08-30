@@ -50,6 +50,13 @@
       "when": 1788065969731,
       "tag": "0006_fresh_sumo",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1788110119429,
+      "tag": "0007_harsh_sir_ram",
+      "breakpoints": true
     }
   ]
 }
