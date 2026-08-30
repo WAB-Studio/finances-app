@@ -1,7 +1,7 @@
 import { hasLocale, NextIntlClientProvider } from "next-intl";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist_Mono, Instrument_Sans } from "next/font/google";
 import { notFound } from "next/navigation";
 
 import { ThemeScript } from "@/components/theme-script";
@@ -10,7 +10,7 @@ import { routing } from "@/i18n/routing";
 import "@radix-ui/themes/styles.css";
 import "../theme.css";
 
-const geistSans = Geist({
+const sans = Instrument_Sans({
   // The name `AppTheme` reads for its sans stack.
   variable: "--font-sans",
   subsets: ["latin"],
@@ -55,7 +55,7 @@ export default async function LocaleLayout(props: LayoutProps<"/[locale]">) {
   return (
     <html
       lang={locale}
-      className={`${geistSans.variable} ${geistMono.variable}`}
+      className={`${sans.variable} ${geistMono.variable}`}
       // The inline script below writes the theme class here before hydration.
       suppressHydrationWarning
     >

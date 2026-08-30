@@ -24,6 +24,8 @@
   "auth": {
     "signIn": "Iniciar sesión",
     "signOut": "Cerrar sesión",
+    "tagline": "Las cuentas de la casa, claras y compartidas.",
+    "passwordlessHint": "Te enviamos un enlace para entrar sin contraseña.",
     "loginDescription": "Escribe tu correo y te enviamos un enlace para entrar. No necesitas contraseña.",
     "emailLabel": "Correo electrónico",
     "emailPlaceholder": "tu@correo.com",
@@ -65,6 +67,11 @@
     "title": "Navegación",
     "close": "Cerrar",
     "dashboard": "Panel",
+    "home": "Inicio",
+    "movements": "Movimientos",
+    "planning": "Planeación",
+    "settings": "Ajustes",
+    "quickEntry": "Anotar un gasto",
     "members": "Miembros",
     "accounts": "Cuentas",
     "categories": "Categorías"

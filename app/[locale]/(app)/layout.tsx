@@ -3,7 +3,8 @@ import { getTranslations, setRequestLocale } from "next-intl/server";
 import { notFound } from "next/navigation";
 
 import { AppNav } from "@/components/fund/app-nav";
-import { Flex, Separator, Text } from "@/components/ui";
+import { AppTabs } from "@/components/fund/app-tabs";
+import { Box, Flex, Separator, Text } from "@/components/ui";
 import { getUserGroup } from "@/db/queries/groups";
 import { requireUser } from "@/db/session";
 import { routing } from "@/i18n/routing";
@@ -36,7 +37,11 @@ export default async function AppLayout(props: LayoutProps<"/[locale]">) {
         py="2"
       >
         <header>
-          <AppNav groupName={group?.name ?? null} hasGroup={group !== null} />
+          {/* The bottom bar carries navigation on narrow; the hamburger is the
+              desktop pattern, so it appears only from `md` up. */}
+          <Box display={{ initial: "none", md: "block" }}>
+            <AppNav groupName={group?.name ?? null} hasGroup={group !== null} />
+          </Box>
           <Text weight="bold" truncate>
             {group?.name ?? t("appName")}
           </Text>
@@ -44,6 +49,9 @@ export default async function AppLayout(props: LayoutProps<"/[locale]">) {
       </Flex>
       <Separator size="4" />
       {props.children}
+      <Box display={{ initial: "block", md: "none" }}>
+        <AppTabs hasGroup={group !== null} />
+      </Box>
     </>
   );
 }

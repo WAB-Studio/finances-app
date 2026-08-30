@@ -5,8 +5,8 @@ import { Theme } from "@radix-ui/themes";
 export function AppTheme({ children }: { children?: ReactNode }) {
   return (
     <Theme
-      accentColor="teal"
-      grayColor="auto"
+      accentColor="jade"
+      grayColor="sand"
       radius="large"
       scaling="100%"
     >

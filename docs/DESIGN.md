@@ -23,9 +23,13 @@ RNF-08 sets the requirement. This is how it shows in the interface.
 
 ## Navigation
 
-- Keep one action reachable at all times. Everything else is found.
-- Put the frequent action within thumb reach. Keep navigation out of that zone.
-- Open the destinations from a panel.
+- Carry the mobile navigation on a fixed bottom tab bar. It is the primary pattern.
+- Compose the bar from `BottomNav` in `components/ui`. Wire its state in `AppTabs`.
+- Give the frequent tabs their own slots. Raise the frequent action at the center.
+- Disable a tab whose slice is not built. Keep it visible, keep it non-navigable.
+- Reach the secondary destinations and the preferences from the "Ajustes" panel the bar opens.
+- Hold language, theme and sign out inside that panel.
+- Keep the panel as the desktop pattern: on `md` up, open it from the header, hide the bar.
 - Keep the active fund visible wherever a write can happen.
 - Reserve the bottom gutter on every app page.
 - Compose it from `Page` in `components/ui`.

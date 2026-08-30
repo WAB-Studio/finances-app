@@ -24,6 +24,8 @@
   "auth": {
     "signIn": "Sign in",
     "signOut": "Sign out",
+    "tagline": "The household's accounts, clear and shared.",
+    "passwordlessHint": "We send you a link to sign in without a password.",
     "loginDescription": "Enter your email and we will send you a link to sign in. No password needed.",
     "emailLabel": "Email address",
     "emailPlaceholder": "you@example.com",
@@ -65,6 +67,11 @@
     "title": "Navigation",
     "close": "Close",
     "dashboard": "Dashboard",
+    "home": "Home",
+    "movements": "Movements",
+    "planning": "Planning",
+    "settings": "Settings",
+    "quickEntry": "Record a movement",
     "members": "Members",
     "accounts": "Accounts",
     "categories": "Categories"
