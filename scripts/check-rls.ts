@@ -133,6 +133,7 @@ async function main() {
   );
 
   await checkRepivotPolicies();
+  await checkLedgerPolicies();
 }
 
 // Assertions 9-26: the repivoted schema. A group holds accounts and categories a user XOR a group
@@ -410,6 +411,249 @@ async function checkRepivotPolicies() {
     tailLabel,
     afterRepivotUser === "postgres" && probeCount === "0",
     `current_user = ${afterRepivotUser}, rows named 'rls repivot' = ${probeCount}`,
+  );
+}
+
+// Assertions 27-36: the ledger. A movement's scope and `kind` are the trigger's, not the caller's;
+// write is bounded to own-or-shared accounts; income and expense carry splits that sum to the amount
+// while a transfer carries none; and `account_balances` derives the balance from the movements.
+// Every fixture is seeded through the app's own policies inside a transaction that rolls back.
+async function checkLedgerPolicies() {
+  console.log("");
+  const leaderUser = randomUUID();
+  const memberUser = randomUUID();
+  const groupId = randomUUID();
+
+  const labels = [
+    "27. a writable movement inserts and holds the trigger's scope and kind, not the caller's",
+    "28. a movement touching another member's personal account is refused",
+    "29. kind follows the null pattern of from/to",
+    "30. an income whose splits do not sum to its amount is refused at commit",
+    "31. an income committed with no split is refused at commit",
+    "32. a transfer carrying a split is refused",
+    "33. a split whose category sits in another scope is refused",
+    "34. a split whose category is of the wrong kind is refused",
+    "35. a member reads a group movement and another member's personal movement",
+    "36. account_balances returns the initial balance plus the net of movements",
+  ];
+  const tailLabel = "37. the rolled-back ledger transaction leaves no trace";
+
+  const forcedRollback = Symbol("forced rollback");
+  const kindRollback = Symbol("kind rollback");
+
+  await sql
+    .begin(async (tx) => {
+      // Base identities and group, seeded as the owner before any role switch.
+      await tx`insert into auth.users (id) values (${leaderUser}), (${memberUser})`;
+      await tx`insert into app_users (id) values (${leaderUser}), (${memberUser})`;
+
+      await enterUserContext(tx, leaderUser);
+      await tx`insert into groups (id, name, cash_mode) values (${groupId}, 'rls ledger', 'shared')`;
+      await tx`insert into group_members (group_id, user_id, name, role)
+        values (${groupId}, ${leaderUser}, 'rls ledger leader', 'leader')`;
+
+      const [{ id: leaderAccount }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_on)
+        values (${leaderUser}, 'rls ledger leader cash', 'asset', (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: leaderAccountB }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_on)
+        values (${leaderUser}, 'rls ledger leader savings', 'asset', (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: sharedAccount }] = await tx<{ id: string }[]>`
+        insert into accounts (group_id, is_shared, name, kind, initial_balance_on)
+        values (${groupId}, true, 'rls ledger shared cash', 'asset', (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: groupIncomeCat }] = await tx<{ id: string }[]>`
+        insert into categories (group_id, name, kind)
+        values (${groupId}, 'rls ledger group income', 'income') returning id`;
+
+      // A second member with a login: seed the membership as the owner, no policy hands one out.
+      await tx`reset role`;
+      await tx`insert into group_members (group_id, user_id, name, role)
+        values (${groupId}, ${memberUser}, 'rls ledger member', 'member')`;
+
+      await enterUserContext(tx, memberUser);
+      const [{ id: memberAccount }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_on)
+        values (${memberUser}, 'rls ledger member cash', 'asset', (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: balAccountA }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_cents, initial_balance_on)
+        values (${memberUser}, 'rls ledger balance A', 'asset', 100000, (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: balAccountB }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_on)
+        values (${memberUser}, 'rls ledger balance B', 'asset', (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: memberIncomeCat }] = await tx<{ id: string }[]>`
+        insert into categories (owner_user_id, name, kind)
+        values (${memberUser}, 'rls ledger member income', 'income') returning id`;
+      const [{ id: memberExpenseCat }] = await tx<{ id: string }[]>`
+        insert into categories (owner_user_id, name, kind)
+        values (${memberUser}, 'rls ledger member expense', 'expense') returning id`;
+
+      // 27: a movement whose from/to are both writable inserts; the trigger, not the caller, owns
+      // scope and kind. A transfer touching the shared account is group-scoped (group wins).
+      await enterUserContext(tx, leaderUser);
+      const [txnGroup] = await tx<
+        { id: string; owner_user_id: string | null; group_id: string | null; kind: string; created_by: string }[]
+      >`insert into transactions (from_account_id, to_account_id, amount_cents, occurred_at)
+        values (${leaderAccount}, ${sharedAccount}, 5000, (now() at time zone 'America/Bogota')::date)
+        returning id, owner_user_id, group_id, kind, created_by`;
+      assert(
+        labels[0],
+        txnGroup.group_id === groupId &&
+          txnGroup.owner_user_id === null &&
+          txnGroup.kind === "transfer" &&
+          txnGroup.created_by === leaderUser,
+        `group_id = ${txnGroup.group_id}, owner = ${txnGroup.owner_user_id}, kind = ${txnGroup.kind}, created_by = ${txnGroup.created_by === leaderUser}`,
+      );
+
+      // A personal-scope movement of the leader, kept for the read test below.
+      const [{ id: txnLeaderPersonal }] = await tx<{ id: string }[]>`
+        insert into transactions (from_account_id, to_account_id, amount_cents, occurred_at)
+        values (${leaderAccountB}, ${leaderAccount}, 2000, (now() at time zone 'America/Bogota')::date) returning id`;
+
+      // 28: the bounded write — a member may not book a movement out of the leader's personal account.
+      await enterUserContext(tx, memberUser);
+      await tx
+        .savepoint(async (sp) => {
+          await sp`insert into transactions (from_account_id, amount_cents, occurred_at)
+            values (${leaderAccount}, 5000, (now() at time zone 'America/Bogota')::date)`;
+          assert(labels[1], false, "a member booked against the leader's account, which it must not");
+        })
+        .catch((error: unknown) => {
+          assert(labels[1], pgCode(error) === "42501", `sqlstate ${pgCode(error) ?? "none"}`);
+        });
+
+      // 29: kind is generated from which side is null. Rolled back so its splitless rows never reach commit.
+      const kinds: { income?: string; expense?: string; transfer?: string } = {};
+      await tx
+        .savepoint(async (sp) => {
+          const [inc] = await sp<{ kind: string }[]>`insert into transactions (to_account_id, amount_cents, occurred_at)
+            values (${memberAccount}, 5000, (now() at time zone 'America/Bogota')::date) returning kind`;
+          const [exp] = await sp<{ kind: string }[]>`insert into transactions (from_account_id, amount_cents, occurred_at)
+            values (${memberAccount}, 5000, (now() at time zone 'America/Bogota')::date) returning kind`;
+          const [xfer] = await sp<{ kind: string }[]>`insert into transactions (from_account_id, to_account_id, amount_cents, occurred_at)
+            values (${memberAccount}, ${balAccountA}, 5000, (now() at time zone 'America/Bogota')::date) returning kind`;
+          kinds.income = inc.kind;
+          kinds.expense = exp.kind;
+          kinds.transfer = xfer.kind;
+          throw kindRollback;
+        })
+        .catch((error: unknown) => {
+          if (error !== kindRollback) throw error;
+        });
+      assert(
+        labels[2],
+        kinds.income === "income" && kinds.expense === "expense" && kinds.transfer === "transfer",
+        `income = ${kinds.income}, expense = ${kinds.expense}, transfer = ${kinds.transfer}`,
+      );
+
+      // 30: the deferred sum check. The split matches scope and kind, so only the total can reject it,
+      // and `set constraints all immediate` forces the deferred trigger to fire now.
+      await tx
+        .savepoint(async (sp) => {
+          const [{ id: txn }] = await sp<{ id: string }[]>`
+            insert into transactions (to_account_id, amount_cents, occurred_at)
+            values (${memberAccount}, 5000, (now() at time zone 'America/Bogota')::date) returning id`;
+          await sp`insert into transaction_splits (transaction_id, category_id, amount_cents)
+            values (${txn}, ${memberIncomeCat}, 3000)`;
+          await sp`set constraints all immediate`;
+          assert(labels[3], false, "splits that miss the amount stood, which they must not");
+        })
+        .catch((error: unknown) => {
+          assert(labels[3], pgCode(error) === "23514", `sqlstate ${pgCode(error) ?? "none"}`);
+        });
+
+      // 31: an income with no split at all is equally refused at commit.
+      await tx
+        .savepoint(async (sp) => {
+          await sp`insert into transactions (to_account_id, amount_cents, occurred_at)
+            values (${memberAccount}, 5000, (now() at time zone 'America/Bogota')::date)`;
+          await sp`set constraints all immediate`;
+          assert(labels[4], false, "a splitless income stood, which it must not");
+        })
+        .catch((error: unknown) => {
+          assert(labels[4], pgCode(error) === "23514", `sqlstate ${pgCode(error) ?? "none"}`);
+        });
+
+      // 32: a transfer names no category, so any split on it is rejected the moment it lands.
+      await tx
+        .savepoint(async (sp) => {
+          const [{ id: txn }] = await sp<{ id: string }[]>`
+            insert into transactions (from_account_id, to_account_id, amount_cents, occurred_at)
+            values (${memberAccount}, ${balAccountA}, 5000, (now() at time zone 'America/Bogota')::date) returning id`;
+          await sp`insert into transaction_splits (transaction_id, category_id, amount_cents)
+            values (${txn}, ${memberExpenseCat}, 5000)`;
+          assert(labels[5], false, "a transfer took a split, which it must not");
+        })
+        .catch((error: unknown) => {
+          assert(labels[5], pgCode(error) === "23514", `sqlstate ${pgCode(error) ?? "none"}`);
+        });
+
+      // 33-34: a split's category must share the movement's scope and kind. A group expense is the anchor.
+      await enterUserContext(tx, leaderUser);
+      await tx
+        .savepoint(async (sp) => {
+          const [{ id: txn }] = await sp<{ id: string }[]>`
+            insert into transactions (from_account_id, amount_cents, occurred_at)
+            values (${sharedAccount}, 5000, (now() at time zone 'America/Bogota')::date) returning id`;
+          await sp`insert into transaction_splits (transaction_id, category_id, amount_cents)
+            values (${txn}, ${memberExpenseCat}, 5000)`;
+          assert(labels[6], false, "a foreign-scope split stood, which it must not");
+        })
+        .catch((error: unknown) => {
+          assert(labels[6], pgCode(error) === "23514", `sqlstate ${pgCode(error) ?? "none"}`);
+        });
+
+      await tx
+        .savepoint(async (sp) => {
+          const [{ id: txn }] = await sp<{ id: string }[]>`
+            insert into transactions (from_account_id, amount_cents, occurred_at)
+            values (${sharedAccount}, 5000, (now() at time zone 'America/Bogota')::date) returning id`;
+          await sp`insert into transaction_splits (transaction_id, category_id, amount_cents)
+            values (${txn}, ${groupIncomeCat}, 5000)`;
+          assert(labels[7], false, "an income category on an expense stood, which it must not");
+        })
+        .catch((error: unknown) => {
+          assert(labels[7], pgCode(error) === "23514", `sqlstate ${pgCode(error) ?? "none"}`);
+        });
+
+      // 35: universal read — a member sees the group movement and the leader's personal one.
+      await enterUserContext(tx, memberUser);
+      const [{ count: seesGroup }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from transactions where id = ${txnGroup.id}`;
+      const [{ count: seesPersonal }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from transactions where id = ${txnLeaderPersonal}`;
+      assert(
+        labels[8],
+        seesGroup === "1" && seesPersonal === "1",
+        `member→group = ${seesGroup}, member→leader personal = ${seesPersonal}`,
+      );
+
+      // 36: the derived balance is the opening figure plus what flowed in, less what flowed out.
+      await tx`insert into transactions (from_account_id, to_account_id, amount_cents, occurred_at)
+        values (${balAccountB}, ${balAccountA}, 3000, (now() at time zone 'America/Bogota')::date)`;
+      await tx`insert into transactions (from_account_id, to_account_id, amount_cents, occurred_at)
+        values (${balAccountA}, ${balAccountB}, 1000, (now() at time zone 'America/Bogota')::date)`;
+      const [{ balance_cents: balance }] = await tx<{ balance_cents: string }[]>`
+        select balance_cents from account_balances where id = ${balAccountA}`;
+      assert(
+        labels[9],
+        balance === "102000",
+        `balance_cents = ${balance}, expected 102000 (100000 + 3000 − 1000)`,
+      );
+
+      // Forces `sql.begin` to issue ROLLBACK: nothing this function wrote may survive it.
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`select current_user`;
+  const [{ count: probeCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from groups where name = 'rls ledger'`;
+  assert(
+    tailLabel,
+    afterUser === "postgres" && probeCount === "0",
+    `current_user = ${afterUser}, rows named 'rls ledger' = ${probeCount}`,
   );
 }
 

@@ -4,3 +4,7 @@ export * from "./groups";
 export * from "./group-members";
 export * from "./accounts";
 export * from "./categories";
+export * from "./transactions";
+export * from "./transaction-splits";
+export * from "./labels";
+export * from "./transaction-labels";
