@@ -4,8 +4,12 @@ import { and, asc, desc, eq, isNull, ne, or, sql } from "drizzle-orm";
 
 import type { AccountRow } from "@/db/queries/accounts";
 import { getUserGroup } from "@/db/queries/groups";
+import { insertTransaction } from "@/db/queries/transactions";
 import { accounts } from "@/db/schema";
+import type { Transaction } from "@/db/session";
 import { requireUser, withUserDb } from "@/db/session";
+import { todayInBogota } from "@/lib/dates";
+import { TIME_ZONE } from "@/lib/locales";
 
 // Where a cash withdrawal lands and what it may draw from (RF-68). The target is
 // the sole `subtype = 'efectivo'` account the mode points at; `sourceAccounts`
@@ -67,15 +71,99 @@ export async function resolveWithdrawalTarget(): Promise<WithdrawalTarget> {
 async function findCashAccountId(
   scope: ReturnType<typeof eq>,
 ): Promise<string | null> {
-  return withUserDb(async (tx) => {
-    const [row] = await tx
-      .select({ id: accounts.id })
-      .from(accounts)
-      .where(and(scope, eq(accounts.subtype, "efectivo"), isNull(accounts.archivedAt)))
-      .orderBy(asc(accounts.createdAt))
-      .limit(1);
+  return withUserDb((tx) => findCashAccountIdTx(tx, scope));
+}
 
-    return row?.id ?? null;
+// The same lookup against a caller-supplied transaction, so the withdrawal write
+// can resolve, create and insert in one atomic round.
+async function findCashAccountIdTx(
+  tx: Transaction,
+  scope: ReturnType<typeof eq>,
+): Promise<string | null> {
+  const [row] = await tx
+    .select({ id: accounts.id })
+    .from(accounts)
+    .where(and(scope, eq(accounts.subtype, "efectivo"), isNull(accounts.archivedAt)))
+    .orderBy(asc(accounts.createdAt))
+    .limit(1);
+
+  return row?.id ?? null;
+}
+
+export type WithdrawCashArgs = {
+  sourceAccountId: string;
+  amountCents: number;
+  // The name a create-on-demand cash account takes, in the caller's locale (RF-64);
+  // read only when none exists yet.
+  cashAccountName: string;
+};
+
+export type WithdrawCashResult = {
+  transactionId: string;
+  targetCashAccountId: string;
+  createdCashAccount: boolean;
+};
+
+/**
+ * Writes a cash withdrawal as a transfer source→cash, in one transaction (RF-68,
+ * RF-40). The target is the caller's cash by `cash_mode`: the group's under
+ * 'shared', their own otherwise. A per-member or personal caller with no cash yet
+ * has it created here, seeded at zero like the fund's own (RF-56), so the resolve,
+ * the create and the transfer commit or roll back together. The movement names
+ * both accounts and carries no split and no category — a transfer's type is the
+ * DB's to derive (RF-18, RF-19).
+ */
+export async function withdrawCash({
+  sourceAccountId,
+  amountCents,
+  cashAccountName,
+}: WithdrawCashArgs): Promise<WithdrawCashResult> {
+  const user = await requireUser();
+  const group = await getUserGroup();
+
+  const targetScope =
+    group?.cashMode === "shared"
+      ? eq(accounts.groupId, group.id)
+      : eq(accounts.ownerUserId, user.id);
+
+  return withUserDb(async (tx) => {
+    let targetCashAccountId = await findCashAccountIdTx(tx, targetScope);
+    let createdCashAccount = false;
+
+    // No cash under the caller's scope: create their personal `efectivo` account
+    // and draw into it. 'shared' always has the group's cash, so this only ever
+    // fires for a per-member or personal caller (RF-55, RF-56).
+    if (targetCashAccountId === null) {
+      const [row] = await tx
+        .insert(accounts)
+        .values({
+          groupId: null,
+          ownerUserId: user.id,
+          isShared: false,
+          name: cashAccountName,
+          kind: "asset",
+          subtype: "efectivo",
+          initialBalanceCents: 0,
+          initialBalanceOn: sql`(now() at time zone ${TIME_ZONE})::date`,
+        })
+        .returning({ id: accounts.id });
+
+      targetCashAccountId = row.id;
+      createdCashAccount = true;
+    }
+
+    const { transactionId } = await insertTransaction(tx, {
+      fromAccountId: sourceAccountId,
+      toAccountId: targetCashAccountId,
+      amountCents,
+      occurredAt: todayInBogota(),
+      description: null,
+      externalRef: null,
+      splits: [],
+      labelIds: [],
+    });
+
+    return { transactionId, targetCashAccountId, createdCashAccount };
   });
 }
 

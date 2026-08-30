@@ -8,6 +8,7 @@ import {
 } from "next-intl/server";
 import { notFound } from "next/navigation";
 
+import { WithdrawCashCard } from "@/components/cash/withdraw-dialog";
 import { DashboardSummary } from "@/components/reports/dashboard-summary";
 import { QuickEntryPill } from "@/components/transactions/quick-entry-pill";
 import {
@@ -22,6 +23,7 @@ import {
   Page,
   TapTarget,
 } from "@/components/ui";
+import { resolveWithdrawalTarget } from "@/db/queries/cash";
 import { getUserGroup } from "@/db/queries/groups";
 import { getDashboardData } from "@/db/queries/reports/dashboard";
 import { getTransactionFormOptions } from "@/db/queries/transaction-form";
@@ -30,6 +32,7 @@ import type { TransactionListRow } from "@/db/queries/transactions";
 import { requireUser } from "@/db/session";
 import { Link as LocaleLink } from "@/i18n/navigation";
 import { routing } from "@/i18n/routing";
+import { PERSONAL_CASH_ACCOUNT_NAME } from "@/lib/fund/seed";
 import { centsToPesos } from "@/lib/money";
 
 export async function generateMetadata(
@@ -64,13 +67,14 @@ export default async function HomePage(props: PageProps<"/[locale]">) {
   // requireUser stays the auth guard. The form options carry the account and
   // category names a row reads for its title and subtitle, the same pairing the
   // movements list fans out (RF-23); the amount is formatted for display only.
-  const [, group, dashboardData, rows, options, t, td, format] =
+  const [, group, dashboardData, rows, options, withdrawal, t, td, format] =
     await Promise.all([
       requireUser(),
       getUserGroup(),
       getDashboardData(),
       listTransactions({}, { limit: 3 }),
       getTransactionFormOptions(),
+      resolveWithdrawalTarget(),
       getTranslations("transactions"),
       getTranslations("dashboard"),
       getFormatter(),
@@ -126,12 +130,26 @@ export default async function HomePage(props: PageProps<"/[locale]">) {
     expense: t("kindExpense"),
   };
 
+  // The withdrawal's destination read-only: the caller's resolved cash by name,
+  // or the personal cash create-on-demand will open when they have none (RF-68).
+  const willCreateCash = withdrawal.reason === "no-cash-account";
+  const withdrawDestinationName =
+    (withdrawal.targetCashAccountId &&
+      accountNames.get(withdrawal.targetCashAccountId)) ||
+    PERSONAL_CASH_ACCOUNT_NAME[locale];
+
   return (
     <Page>
       <Flex direction="column" gap="4">
         <DashboardSummary data={dashboardData} />
 
         <QuickEntryPill />
+
+        <WithdrawCashCard
+          sources={withdrawal.sourceAccounts}
+          destinationName={withdrawDestinationName}
+          willCreate={willCreateCash}
+        />
 
         <Flex justify="between" align="baseline" gap="3">
           <Heading size="4">{t("listTitle")}</Heading>

@@ -334,6 +334,23 @@
       "splitsSumMismatch": "Las categorías deben sumar el monto del movimiento."
     }
   },
+  "cash": {
+    "withdrawAction": "Retirar efectivo",
+    "withdrawTitle": "Retirar efectivo",
+    "sourceLabel": "Desde",
+    "amountLabel": "Monto",
+    "destinationLabel": "A efectivo",
+    "willCreateHint": "Se creará tu cuenta de efectivo.",
+    "noSource": "No tienes una cuenta de la que retirar. Crea una cuenta primero.",
+    "withdrawSave": "Retirar",
+    "withdrawSaved": "Retiro registrado.",
+    "errors": {
+      "sourceInvalid": "Elige una cuenta válida.",
+      "amountRequired": "Escribe un monto.",
+      "amountInvalid": "Escribe un monto válido.",
+      "amountTooLarge": "El monto es demasiado alto."
+    }
+  },
   "planning": {
     "title": "Planeación",
     "budgetsTitle": "Presupuestos",

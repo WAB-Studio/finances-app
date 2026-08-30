@@ -334,6 +334,23 @@
       "splitsSumMismatch": "The categories must add up to the movement's amount."
     }
   },
+  "cash": {
+    "withdrawAction": "Withdraw cash",
+    "withdrawTitle": "Withdraw cash",
+    "sourceLabel": "From",
+    "amountLabel": "Amount",
+    "destinationLabel": "To cash",
+    "willCreateHint": "Your cash account will be created.",
+    "noSource": "You have no account to withdraw from. Create an account first.",
+    "withdrawSave": "Withdraw",
+    "withdrawSaved": "Withdrawal recorded.",
+    "errors": {
+      "sourceInvalid": "Choose a valid account.",
+      "amountRequired": "Enter an amount.",
+      "amountInvalid": "Enter a valid amount.",
+      "amountTooLarge": "The amount is too large."
+    }
+  },
   "planning": {
     "title": "Planning",
     "budgetsTitle": "Budgets",
