@@ -149,6 +149,7 @@ async function main() {
   await checkImpersonationBounds();
   await checkInviteClaimPolicies();
   await checkRecurringRulePolicies();
+  await checkAuditLogPolicies();
 }
 
 // Assertions 9-26: the repivoted schema. A group holds accounts and categories a user XOR a group
@@ -2643,6 +2644,184 @@ async function checkRecurringRulePolicies() {
     tailLabel,
     afterUser === "postgres" && probeCount === "0",
     `current_user = ${afterUser}, rows named 'rls recurring%' = ${probeCount}`,
+  );
+}
+
+// Assertions 111-116: the audit log. The definer trigger captures every write on an audited table
+// (RF-43); the log itself is locked to every user role, readable and writable by none (RF-44); the
+// recurring generator's own writes are captured with a null actor, marking a system write (RF-45); no
+// RLS-enabled table save the log escapes the trigger (RF-45); and the daily purge drops rows past the
+// 24-month horizon while sparing the recent (RNF-14). Fixtures roll back with their transaction.
+async function checkAuditLogPolicies() {
+  console.log("");
+  const subject = randomUUID();
+
+  const labels = [
+    "111. an authenticated insert, update and delete of a category each land one audit row with the right action, before/after and the caller as actor",
+    "112. an authenticated insert, update, delete and select against the log are each refused",
+    "113. the recurring generator's transaction and its split are captured with a null actor",
+    "114. every RLS-enabled table save the log itself carries the capture trigger",
+    "115. the purge drops a row past 24 months and keeps a recent one",
+  ];
+  const tailLabel = "116. the rolled-back audit transaction leaves no trace";
+
+  const forcedRollback = Symbol("forced rollback");
+
+  await sql
+    .begin(async (tx) => {
+      await tx`insert into auth.users (id) values (${subject})`;
+      await tx`insert into app_users (id) values (${subject})`;
+
+      // 111: the caller's own category, changed then removed; the definer trigger lands one row per op.
+      await enterUserContext(tx, subject);
+      const [{ id: catId }] = await tx<{ id: string }[]>`
+        insert into categories (owner_user_id, name, kind)
+        values (${subject}, 'rls audit category', 'expense') returning id`;
+      await tx`update categories set name = 'rls audit category renamed' where id = ${catId}`;
+      await tx`delete from categories where id = ${catId}`;
+
+      await tx`reset role`;
+      const capRows = await tx<
+        { action: string; actor_user_id: string | null; before_null: boolean; after_null: boolean }[]
+      >`select action, actor_user_id, before_data is null as before_null, after_data is null as after_null
+        from audit_log where entity = 'categories' and record_id = ${catId} order by id`;
+      const capOk =
+        capRows.length === 3 &&
+        capRows[0].action === "INSERT" && capRows[0].before_null && !capRows[0].after_null &&
+        capRows[1].action === "UPDATE" && !capRows[1].before_null && !capRows[1].after_null &&
+        capRows[2].action === "DELETE" && !capRows[2].before_null && capRows[2].after_null &&
+        capRows.every((row) => row.actor_user_id === subject);
+      assert(
+        labels[0],
+        capOk,
+        `rows = ${capRows.length}, actions = ${capRows.map((r) => r.action).join(",")}, actor = ${capRows.every((r) => r.actor_user_id === subject) ? "caller" : "other"}`,
+      );
+
+      // 112: the log holds no privilege for any user role, so every direct command is denied (42501).
+      await enterUserContext(tx, subject);
+      const barred = { insert: "", update: "", delete: "", select: "" };
+      await tx
+        .savepoint(async (sp) => {
+          await sp`insert into audit_log (entity, record_id, action) values ('categories', ${catId}, 'INSERT')`;
+        })
+        .catch((error: unknown) => {
+          barred.insert = pgCode(error) ?? "none";
+        });
+      await tx
+        .savepoint(async (sp) => {
+          await sp`update audit_log set action = 'DELETE' where entity = 'categories'`;
+        })
+        .catch((error: unknown) => {
+          barred.update = pgCode(error) ?? "none";
+        });
+      await tx
+        .savepoint(async (sp) => {
+          await sp`delete from audit_log where entity = 'categories'`;
+        })
+        .catch((error: unknown) => {
+          barred.delete = pgCode(error) ?? "none";
+        });
+      await tx
+        .savepoint(async (sp) => {
+          await sp`select id from audit_log limit 1`;
+        })
+        .catch((error: unknown) => {
+          barred.select = pgCode(error) ?? "none";
+        });
+      assert(
+        labels[1],
+        barred.insert === "42501" && barred.update === "42501" &&
+          barred.delete === "42501" && barred.select === "42501",
+        `insert = ${barred.insert}, update = ${barred.update}, delete = ${barred.delete}, select = ${barred.select}`,
+      );
+
+      // 113: a rule one period overdue, generated with the JWT cleared the way the daily cron runs it.
+      // Both the movement and its split are captured with a null actor — the mark of a system write.
+      await enterUserContext(tx, subject);
+      const [{ id: dueAccount }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_on)
+        values (${subject}, 'rls audit account', 'asset', (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: dueCat }] = await tx<{ id: string }[]>`
+        insert into categories (owner_user_id, name, kind)
+        values (${subject}, 'rls audit expense', 'expense') returning id`;
+      const [{ id: dueRule }] = await tx<{ id: string }[]>`
+        insert into recurring_rules (from_account_id, amount_cents, category_id, frequency, interval_n, next_run_on)
+        values (${dueAccount}, 4000, ${dueCat}, 'weekly', 1, (now() at time zone 'America/Bogota')::date - 7) returning id`;
+
+      await tx`reset role`;
+      await tx`select set_config('request.jwt.claims', '', true)`;
+      await tx`select private.run_due_recurring_rules()`;
+      await tx`set constraints all immediate`;
+
+      const [{ id: genTxn }] = await tx<{ id: string }[]>`
+        select id from transactions where recurring_rule_id = ${dueRule} limit 1`;
+      const [{ id: genSplit }] = await tx<{ id: string }[]>`
+        select id from transaction_splits where transaction_id = ${genTxn} limit 1`;
+      const [txnAudit] = await tx<{ actor_user_id: string | null }[]>`
+        select actor_user_id from audit_log where entity = 'transactions' and record_id = ${genTxn}`;
+      const [splitAudit] = await tx<{ actor_user_id: string | null }[]>`
+        select actor_user_id from audit_log where entity = 'transaction_splits' and record_id = ${genSplit}`;
+      assert(
+        labels[2],
+        txnAudit?.actor_user_id === null && splitAudit?.actor_user_id === null,
+        `transaction actor = ${txnAudit?.actor_user_id ?? "null"}, split actor = ${splitAudit?.actor_user_id ?? "null"}`,
+      );
+
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  // 114: no audited write path skips capture — every RLS-enabled public table but the log itself
+  // carries a `capture_audit` trigger. Runs outside any role switch; it reads only the catalog.
+  const uncovered = await sql<{ tablename: string }[]>`
+    select c.relname as tablename
+    from pg_class c
+    join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public' and c.relkind = 'r' and c.relrowsecurity
+      and c.relname <> 'audit_log'
+      and not exists (
+        select 1 from pg_trigger t
+        where t.tgrelid = c.oid and t.tgname = 'capture_audit' and not t.tgisinternal)`;
+  assert(
+    labels[3],
+    uncovered.length === 0,
+    `RLS tables missing the trigger = ${uncovered.length}${uncovered.length ? " (" + uncovered.map((r) => r.tablename).join(", ") + ")" : ""}`,
+  );
+
+  // 115: the purge is age-bounded. Seed one row past the horizon and one fresh, purge, and read back.
+  await sql
+    .begin(async (tx) => {
+      const agedId = randomUUID();
+      const freshId = randomUUID();
+      await tx`insert into audit_log (entity, record_id, action, occurred_at)
+        values ('categories', ${agedId}, 'INSERT', now() - interval '25 months')`;
+      await tx`insert into audit_log (entity, record_id, action, occurred_at)
+        values ('categories', ${freshId}, 'INSERT', now())`;
+      await tx`select private.purge_audit_log()`;
+      const [{ count: agedLeft }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from audit_log where record_id = ${agedId}`;
+      const [{ count: freshLeft }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from audit_log where record_id = ${freshId}`;
+      assert(
+        labels[4],
+        agedLeft === "0" && freshLeft === "1",
+        `aged rows left = ${agedLeft} (expected 0), recent rows left = ${freshLeft} (expected 1)`,
+      );
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`select current_user`;
+  const [{ count: probeCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from categories where name like 'rls audit%'`;
+  assert(
+    tailLabel,
+    afterUser === "postgres" && probeCount === "0",
+    `current_user = ${afterUser}, rows named 'rls audit%' = ${probeCount}`,
   );
 }
 
