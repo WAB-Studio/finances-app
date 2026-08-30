@@ -84,3 +84,9 @@ export { CategoryTile } from "./category-tile";
 export { AppMark } from "./app-mark";
 
 export { FundChip } from "./fund-chip";
+
+export {
+  BarChart,
+  type BarChartDatum,
+  type BarChartSeries,
+} from "./bar-chart";

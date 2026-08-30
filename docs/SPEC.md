@@ -606,7 +606,7 @@ Principles, not recipes:
 | Server actions | **next-safe-action** | Validation, typed errors and loading state on every mutation. |
 | Forms | **React Hook Form**, with **@hookform/resolvers** | State, errors and submission wired to the validation schema; the resolver binds Zod to React Hook Form. |
 | Table | **TanStack Table** | Sorting, filtering, pagination and selection for the transaction list. |
-| Charts | to evaluate | Open: the reports slice (RF-33 to RF-37) picks the library when it builds the first chart. |
+| Charts | **Recharts** | Declarative React charts with full React 19 and App Router SSR support. |
 | Dates | **date-fns** | Date arithmetic and time zones, tree-shakeable. |
 | Toasts | **sonner** | Notifications; Radix Themes ships no toast. |
 | Icons | **lucide-react** | An icon set, chosen independently of the component library. |
