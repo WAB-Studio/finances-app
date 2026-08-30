@@ -304,6 +304,20 @@
       "splitsSumMismatch": "The categories must add up to the movement's amount."
     }
   },
+  "planning": {
+    "title": "Planning",
+    "budgetsTitle": "Budgets",
+    "budgetsSummary": "{count, plural, =0 {No active budgets} one {# active · {spent} of {limit} this month} other {# active · {spent} of {limit} this month}}",
+    "goalsTitle": "Savings goals",
+    "goalsSummary": "{count, plural, =0 {No goals} one {# goal · {saved} set aside} other {# goals · {saved} set aside}}",
+    "paymentsTitle": "Planned payments",
+    "paymentsSummary": "Next · {concept} on {date}",
+    "paymentsEmpty": "No pending payments",
+    "noConcept": "No concept",
+    "debtsTitle": "Debts",
+    "recurringTitle": "Recurring",
+    "soon": "Coming soon"
+  },
   "budgets": {
     "title": "Budgets",
     "add": "New budget",

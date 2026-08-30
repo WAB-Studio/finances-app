@@ -304,6 +304,20 @@
       "splitsSumMismatch": "Las categorías deben sumar el monto del movimiento."
     }
   },
+  "planning": {
+    "title": "Planeación",
+    "budgetsTitle": "Presupuestos",
+    "budgetsSummary": "{count, plural, =0 {Sin presupuestos activos} one {# activo · {spent} de {limit} este mes} other {# activos · {spent} de {limit} este mes}}",
+    "goalsTitle": "Metas de ahorro",
+    "goalsSummary": "{count, plural, =0 {Sin metas} one {# meta · {saved} apartado} other {# metas · {saved} apartado}}",
+    "paymentsTitle": "Pagos planificados",
+    "paymentsSummary": "Próximo · {concept} el {date}",
+    "paymentsEmpty": "Sin pagos pendientes",
+    "noConcept": "Sin concepto",
+    "debtsTitle": "Deudas",
+    "recurringTitle": "Recurrentes",
+    "soon": "Próximamente"
+  },
   "budgets": {
     "title": "Presupuestos",
     "add": "Nuevo presupuesto",

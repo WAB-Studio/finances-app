@@ -1,7 +1,7 @@
 "use client";
 
 import type { LucideIcon } from "lucide-react";
-import { LayoutDashboard, Menu, Tags, Users, Wallet } from "lucide-react";
+import { LayoutDashboard, Menu, Tags, Target, Users, Wallet } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
 
@@ -11,7 +11,12 @@ import { ThemeSwitcher } from "@/components/theme-switcher";
 import { Flex, IconButton, Link, NavPanel, TapTarget } from "@/components/ui";
 import { Link as LocaleLink, usePathname } from "@/i18n/navigation";
 
-type DestinationKey = "dashboard" | "members" | "accounts" | "categories";
+type DestinationKey =
+  | "dashboard"
+  | "planning"
+  | "members"
+  | "accounts"
+  | "categories";
 
 // One group per user with no switching (RF-55), so every destination is a fixed
 // path. Members only exist inside a group, so that link appears only with one.
@@ -20,6 +25,7 @@ function destinations(
 ): { key: DestinationKey; href: string; icon: LucideIcon }[] {
   return [
     { key: "dashboard", href: "/", icon: LayoutDashboard },
+    { key: "planning", href: "/planning", icon: Target },
     ...(hasGroup
       ? [{ key: "members" as const, href: "/settings/members", icon: Users }]
       : []),

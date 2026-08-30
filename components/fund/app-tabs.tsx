@@ -59,7 +59,6 @@ export function AppTabs({ hasGroup }: { hasGroup: boolean }) {
     setOpen(false);
   }
 
-  // Planeación waits for its own slice, so it shows but does not lead anywhere yet.
   const tabs: BottomNavTab[] = [
     {
       key: "home",
@@ -77,7 +76,8 @@ export function AppTabs({ hasGroup }: { hasGroup: boolean }) {
     },
     {
       key: "planning",
-      disabled: true,
+      href: "/planning",
+      active: pathname.startsWith("/planning"),
       icon: <Target size={22} />,
       label: t("planning"),
     },
