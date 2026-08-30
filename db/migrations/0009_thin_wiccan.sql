@@ -14,11 +14,10 @@ ALTER TABLE "accounts" ADD CONSTRAINT "accounts_subtype_valid" CHECK ("accounts"
 -- Cash and bank hold value (asset); a card is money owed (liability). The backfill left zero rows
 -- in violation, so the invariant is enforced, not merely documented.
 ALTER TABLE "accounts" ADD CONSTRAINT "accounts_subtype_kind" CHECK (("accounts"."subtype" in ('efectivo', 'bancaria') and "accounts"."kind" = 'asset') or ("accounts"."subtype" = 'tarjeta' and "accounts"."kind" = 'liability'));--> statement-breakpoint
--- `subtype` carries no column-level INSERT grant, so an authenticated caller cannot set it; a new
--- account arrives on the 'bancaria' default. `bancaria` and `tarjeta` are fully fixed by the kind — a
--- bank for an asset, a card for a liability — so the owner-run trigger derives them and only an
--- explicit `efectivo` (a cash account, RF-56) survives untouched. A later slice that lets a member
--- create cash grants the column and passes 'efectivo', which this trigger already keeps.
+-- `bancaria` and `tarjeta` are fully fixed by the kind — a bank for an asset, a card for a liability
+-- — so the owner-run trigger derives them, and only an explicit `efectivo` (a cash account, RF-56)
+-- survives untouched. The caller may pass `subtype` (the column grant below) or leave it: an omitted
+-- value lands on the 'bancaria' default and the trigger then follows the kind.
 create or replace function private.set_account_subtype() returns trigger
 language plpgsql security definer set search_path = '' as $$
 begin
@@ -32,4 +31,10 @@ revoke all on function private.set_account_subtype() from public, anon, authenti
 CREATE TRIGGER accounts_set_subtype BEFORE INSERT ON "accounts"
   FOR EACH ROW EXECUTE FUNCTION private.set_account_subtype();--> statement-breakpoint
 ALTER TABLE "accounts" ALTER COLUMN "subtype" SET DEFAULT 'bancaria';--> statement-breakpoint
-ALTER TABLE "accounts" ALTER COLUMN "subtype" SET NOT NULL;
+ALTER TABLE "accounts" ALTER COLUMN "subtype" SET NOT NULL;--> statement-breakpoint
+-- Column-scoped writes so a member can pick a cash account and change it (RF-56): the seed passes
+-- 'efectivo' at group creation, the account form offers the choice. Separate grants, narrower than
+-- 0000's — RLS and the `can_write_*`/scope policies still bound which rows, the subtype↔kind CHECK
+-- the value. The derive trigger stays the fallback for an insert that names no subtype.
+GRANT INSERT (subtype) ON TABLE "accounts" TO authenticated;--> statement-breakpoint
+GRANT UPDATE (subtype) ON TABLE "accounts" TO authenticated;

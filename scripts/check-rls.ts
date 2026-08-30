@@ -2826,11 +2826,12 @@ async function checkAuditLogPolicies() {
   );
 }
 
-// Assertions 117-121: the durable account `subtype` (RF-56). The 0009 backfill classified every prior
+// Assertions 117-122: the durable account `subtype` (RF-56). The 0009 backfill classified every prior
 // row — seeded cash to 'efectivo', any other liability to 'tarjeta', any other asset to 'bancaria' —
-// and no row is left null; the subtype↔kind CHECK refuses a mismatch; the owner-run derive trigger fills
-// the caller-ungranted column so an authenticated insert still lands; and the widened column changed no
-// read policy, so a non-member still cannot SELECT another group's cash account. Fixtures roll back.
+// and no row is left null; the subtype↔kind CHECK refuses a mismatch; the derive trigger fills an
+// omitted subtype while the column grant lets a member pass and later change one; and the widened
+// column changed no read policy, so a non-member still cannot SELECT another group's cash account.
+// Fixtures roll back.
 async function checkAccountSubtypeBackfill() {
   console.log("");
   const leaderUser = randomUUID();
@@ -2844,8 +2845,9 @@ async function checkAccountSubtypeBackfill() {
     "119. the subtype↔kind check refuses a liability marked efectivo — the one subtype the trigger keeps",
     "120. the derive trigger fills the caller-ungranted column, so an authenticated insert omitting subtype lands",
     "121. a non-member cannot SELECT another group's efectivo account — the widened column changed no read policy",
+    "122. the column grant lets a member insert an explicit efectivo and later change it to bancaria; an efectivo liability is still refused",
   ];
-  const tailLabel = "122. the rolled-back subtype transaction leaves no trace";
+  const tailLabel = "123. the rolled-back subtype transaction leaves no trace";
 
   // The exact CASE the 0009 backfill applied, replicated so the proof reads what the migration ran.
   const backfillSubtype = (name: string, kind: string) =>
@@ -2931,6 +2933,37 @@ async function checkAccountSubtypeBackfill() {
       const [{ count: outsiderSees }] = await tx<{ count: string }[]>`
         select count(*)::text as count from accounts where id = ${cashAccount}`;
       assert(labels[4], outsiderSees === "0", `visible rows = ${outsiderSees}`);
+
+      // 122: the column grant, exercised as an authenticated member in scope. A member creates a cash
+      // account by passing 'efectivo' — the trigger keeps the explicit value — then changes it to
+      // 'bancaria'; but an 'efectivo' on a liability is still barred by the subtype↔kind CHECK.
+      await enterUserContext(tx, memberUser);
+      await tx`reset role`;
+      await tx`insert into group_members (group_id, user_id, name, role)
+        values (${groupId}, ${memberUser}, 'rls subtype member', 'member')`;
+      await enterUserContext(tx, memberUser);
+      const [{ subtype: pickedSubtype, id: pickedAccount }] = await tx<{ subtype: string; id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, subtype, initial_balance_on)
+        values (${memberUser}, 'rls subtype member cash', 'asset', 'efectivo', (now() at time zone 'America/Bogota')::date)
+        returning subtype, id`;
+      const changed = await tx`update accounts set subtype = 'bancaria' where id = ${pickedAccount}`;
+      const [{ subtype: changedSubtype }] = await tx<{ subtype: string }[]>`
+        select subtype from accounts where id = ${pickedAccount}`;
+      let liabilityBreach = "";
+      await tx
+        .savepoint(async (sp) => {
+          await sp`insert into accounts (owner_user_id, name, kind, subtype, initial_balance_cents, initial_balance_on)
+            values (${memberUser}, 'rls subtype member card', 'liability', 'efectivo', -100, (now() at time zone 'America/Bogota')::date)`;
+        })
+        .catch((error: unknown) => {
+          liabilityBreach = pgErrorCode(error) ?? "none";
+        });
+      assert(
+        labels[5],
+        pickedSubtype === "efectivo" && changed.count === 1 && changedSubtype === "bancaria" &&
+          liabilityBreach === "23514",
+        `inserted = ${pickedSubtype}, updated rows = ${changed.count}, now = ${changedSubtype}, efectivo-liability sqlstate = ${liabilityBreach}`,
+      );
 
       throw forcedRollback;
     })
