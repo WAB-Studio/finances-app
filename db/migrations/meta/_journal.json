@@ -57,6 +57,13 @@
       "when": 1788110119429,
       "tag": "0007_harsh_sir_ram",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1788117730262,
+      "tag": "0008_dashing_stature",
+      "breakpoints": true
     }
   ]
 }

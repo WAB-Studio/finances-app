@@ -124,8 +124,3 @@ export const SEED_CATEGORIES: readonly SeedCategory[] = [
     name: { es: "Otros ingresos", en: "Other income" },
   },
 ];
-
-export const SEED_CATEGORY_COUNT: number = SEED_CATEGORIES.reduce(
-  (total, category) => total + 1 + (category.children?.length ?? 0),
-  0,
-);

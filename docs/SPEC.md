@@ -121,9 +121,9 @@ accounting exports, native apps. None of this gets built or left
 
 #### Audit
 
-- [ ] **RF-43** — Every creation, change and deletion of fund data is logged with what was touched, by whom, when, and the before and after values.
-- [ ] **RF-44** — No user can edit or delete the log. The only permitted removal is the automatic purge in RNF-14.
-- [ ] **RF-45** — Capture is automatic and no write can bypass it, including those from the recurring process, which are marked as system writes.
+- [x] **RF-43** — Every creation, change and deletion of fund data is logged with what was touched, by whom, when, and the before and after values.
+- [x] **RF-44** — No user can edit or delete the log. The only permitted removal is the automatic purge in RNF-14.
+- [x] **RF-45** — Capture is automatic and no write can bypass it, including those from the recurring process, which are marked as system writes.
 
 #### Language
 
@@ -211,6 +211,7 @@ erDiagram
     groups ||--o{ savings_goals : "groups"
     groups ||--o{ audit_log : "records"
 
+    app_users ||--o{ audit_log : "acts"
     app_users ||--o{ categories : "defines (personal)"
     app_users ||--o{ labels : "defines (personal)"
     app_users ||--o{ accounts : "owns (personal)"
@@ -422,11 +423,12 @@ erDiagram
 
     audit_log {
         bigint id PK
-        uuid fund_id FK
         text entity
-        uuid record_id
+        text record_id
         text action "INSERT | UPDATE | DELETE"
         uuid actor_user_id "null = system"
+        uuid owner_user_id "null = group or unscoped"
+        uuid group_id "null = personal or unscoped"
         jsonb before_data
         jsonb after_data
         timestamptz occurred_at
@@ -569,6 +571,8 @@ Rules the model must always guarantee, regardless of how they are implemented:
   `per_member` (one cash account per member).
 - Money is an integer number of cents.
 - The audit log cannot be bypassed from any write path.
+- The audit log is append-only: no write path bypasses capture, and only the
+  RNF-14 purge ever removes rows.
 - `external_ref` is unique within a scope (a user's personal movements or a
   group's movements).
 - `app_users` hangs off no fund: the language preference belongs to the

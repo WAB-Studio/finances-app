@@ -1,8 +1,11 @@
 // Proves the access policies actually fire. Runs outside Next.js under Node 22
-// type stripping, so it reads `process.env` and imports nothing from the app.
+// type stripping, so it reads `process.env` directly and pulls only
+// `pgErrorCode` from the app.
 import { createHash, randomUUID } from "node:crypto";
 
 import postgres from "postgres";
+
+import { pgErrorCode } from "@/lib/db-error";
 
 const sql = postgres(process.env.DATABASE_URL!, { prepare: false, max: 1 });
 
@@ -11,10 +14,6 @@ let failed = false;
 function assert(label: string, ok: boolean, detail: string) {
   console.log(`${ok ? "PASS" : "FAIL"}  ${label} — ${detail}`);
   if (!ok) failed = true;
-}
-
-function pgCode(error: unknown): string | undefined {
-  return (error as { code?: string }).code;
 }
 
 // Mirrors `withUserDb`: claims first, then the role switch, both transaction-local.
@@ -149,6 +148,7 @@ async function main() {
   await checkImpersonationBounds();
   await checkInviteClaimPolicies();
   await checkRecurringRulePolicies();
+  await checkAuditLogPolicies();
 }
 
 // Assertions 9-26: the repivoted schema. A group holds accounts and categories a user XOR a group
@@ -226,7 +226,7 @@ async function checkRepivotPolicies() {
           assert(soloLabels[0], false, "both an owner and a group landed, which it must not");
         })
         .catch((error: unknown) => {
-          assert(soloLabels[0], pgCode(error) === "23514", `sqlstate ${pgCode(error) ?? "none"}`);
+          assert(soloLabels[0], pgErrorCode(error) === "23514", `sqlstate ${pgErrorCode(error) ?? "none"}`);
         });
 
       await tx
@@ -237,7 +237,7 @@ async function checkRepivotPolicies() {
         })
         .catch((error: unknown) => {
           // 42501 = the INSERT WITH CHECK fires first, 23514 = the table CHECK; either bars the row.
-          const code = pgCode(error);
+          const code = pgErrorCode(error);
           assert(soloLabels[1], code === "42501" || code === "23514", `sqlstate ${code ?? "none"}`);
         });
 
@@ -249,7 +249,7 @@ async function checkRepivotPolicies() {
           assert(soloLabels[2], false, "a shared personal account landed, which it must not");
         })
         .catch((error: unknown) => {
-          assert(soloLabels[2], pgCode(error) === "23514", `sqlstate ${pgCode(error) ?? "none"}`);
+          assert(soloLabels[2], pgErrorCode(error) === "23514", `sqlstate ${pgErrorCode(error) ?? "none"}`);
         });
 
       // 12: the cash_mode domain check on groups.
@@ -260,7 +260,7 @@ async function checkRepivotPolicies() {
           assert(soloLabels[3], false, "an unknown cash_mode landed, which it must not");
         })
         .catch((error: unknown) => {
-          assert(soloLabels[3], pgCode(error) === "23514", `sqlstate ${pgCode(error) ?? "none"}`);
+          assert(soloLabels[3], pgErrorCode(error) === "23514", `sqlstate ${pgErrorCode(error) ?? "none"}`);
         });
 
       // 13: the one-group-per-user unique index. RLS admits the leader claim on a fresh group; the index refuses it.
@@ -274,7 +274,7 @@ async function checkRepivotPolicies() {
           assert(soloLabels[4], false, "a second live membership landed, which it must not");
         })
         .catch((error: unknown) => {
-          assert(soloLabels[4], pgCode(error) === "23505", `sqlstate ${pgCode(error) ?? "none"}`);
+          assert(soloLabels[4], pgErrorCode(error) === "23505", `sqlstate ${pgErrorCode(error) ?? "none"}`);
         });
 
       // 14-15: the categories owner-XOR-group check, both rows otherwise writable by the leader.
@@ -285,7 +285,7 @@ async function checkRepivotPolicies() {
           assert(soloLabels[5], false, "both an owner and a group landed, which it must not");
         })
         .catch((error: unknown) => {
-          assert(soloLabels[5], pgCode(error) === "23514", `sqlstate ${pgCode(error) ?? "none"}`);
+          assert(soloLabels[5], pgErrorCode(error) === "23514", `sqlstate ${pgErrorCode(error) ?? "none"}`);
         });
 
       await tx
@@ -295,7 +295,7 @@ async function checkRepivotPolicies() {
         })
         .catch((error: unknown) => {
           // 42501 = the INSERT WITH CHECK fires first, 23514 = the table CHECK; either bars the row.
-          const code = pgCode(error);
+          const code = pgErrorCode(error);
           assert(soloLabels[6], code === "42501" || code === "23514", `sqlstate ${code ?? "none"}`);
         });
 
@@ -309,7 +309,7 @@ async function checkRepivotPolicies() {
           assert(soloLabels[7], false, "the group kept no leader and the delete stood, which it must not");
         })
         .catch((error: unknown) => {
-          assert(soloLabels[7], pgCode(error) === "23514", `sqlstate ${pgCode(error) ?? "none"}`);
+          assert(soloLabels[7], pgErrorCode(error) === "23514", `sqlstate ${pgErrorCode(error) ?? "none"}`);
         });
       await enterUserContext(tx, leaderUser);
 
@@ -341,7 +341,7 @@ async function checkRepivotPolicies() {
           assert(pairLabels[1], false, "a member forged an account for the leader, which it must not");
         })
         .catch((error: unknown) => {
-          assert(pairLabels[1], pgCode(error) === "42501", `sqlstate ${pgCode(error) ?? "none"}`);
+          assert(pairLabels[1], pgErrorCode(error) === "42501", `sqlstate ${pgErrorCode(error) ?? "none"}`);
         });
 
       // 19: the same bound on update and delete — the row is filtered out, so both commands touch nothing.
@@ -533,7 +533,7 @@ async function checkLedgerPolicies() {
           assert(labels[1], false, "a member booked against the leader's account, which it must not");
         })
         .catch((error: unknown) => {
-          assert(labels[1], pgCode(error) === "42501", `sqlstate ${pgCode(error) ?? "none"}`);
+          assert(labels[1], pgErrorCode(error) === "42501", `sqlstate ${pgErrorCode(error) ?? "none"}`);
         });
 
       // 29: kind is generated from which side is null. Rolled back so its splitless rows never reach commit.
@@ -573,7 +573,7 @@ async function checkLedgerPolicies() {
           assert(labels[3], false, "splits that miss the amount stood, which they must not");
         })
         .catch((error: unknown) => {
-          assert(labels[3], pgCode(error) === "23514", `sqlstate ${pgCode(error) ?? "none"}`);
+          assert(labels[3], pgErrorCode(error) === "23514", `sqlstate ${pgErrorCode(error) ?? "none"}`);
         });
 
       // 31: an income with no split at all is equally refused at commit.
@@ -585,7 +585,7 @@ async function checkLedgerPolicies() {
           assert(labels[4], false, "a splitless income stood, which it must not");
         })
         .catch((error: unknown) => {
-          assert(labels[4], pgCode(error) === "23514", `sqlstate ${pgCode(error) ?? "none"}`);
+          assert(labels[4], pgErrorCode(error) === "23514", `sqlstate ${pgErrorCode(error) ?? "none"}`);
         });
 
       // 32: a transfer names no category, so any split on it is rejected the moment it lands.
@@ -599,7 +599,7 @@ async function checkLedgerPolicies() {
           assert(labels[5], false, "a transfer took a split, which it must not");
         })
         .catch((error: unknown) => {
-          assert(labels[5], pgCode(error) === "23514", `sqlstate ${pgCode(error) ?? "none"}`);
+          assert(labels[5], pgErrorCode(error) === "23514", `sqlstate ${pgErrorCode(error) ?? "none"}`);
         });
 
       // 33-34: a split's category must share the movement's scope and kind. A group expense is the anchor.
@@ -614,7 +614,7 @@ async function checkLedgerPolicies() {
           assert(labels[6], false, "a foreign-scope split stood, which it must not");
         })
         .catch((error: unknown) => {
-          assert(labels[6], pgCode(error) === "23514", `sqlstate ${pgCode(error) ?? "none"}`);
+          assert(labels[6], pgErrorCode(error) === "23514", `sqlstate ${pgErrorCode(error) ?? "none"}`);
         });
 
       await tx
@@ -627,7 +627,7 @@ async function checkLedgerPolicies() {
           assert(labels[7], false, "an income category on an expense stood, which it must not");
         })
         .catch((error: unknown) => {
-          assert(labels[7], pgCode(error) === "23514", `sqlstate ${pgCode(error) ?? "none"}`);
+          assert(labels[7], pgErrorCode(error) === "23514", `sqlstate ${pgErrorCode(error) ?? "none"}`);
         });
 
       // 35: universal read — a member sees the group movement and the leader's personal one.
@@ -997,7 +997,7 @@ async function checkBudgetPolicies() {
           assert(labels[1], false, "a foreign-scope category stood, which it must not");
         })
         .catch((error: unknown) => {
-          assert(labels[1], pgCode(error) === "23514", `sqlstate ${pgCode(error) ?? "none"}`);
+          assert(labels[1], pgErrorCode(error) === "23514", `sqlstate ${pgErrorCode(error) ?? "none"}`);
         });
 
       // 46: the scope trigger refuses an income category — a budget caps spending (RF-71).
@@ -1008,7 +1008,7 @@ async function checkBudgetPolicies() {
           assert(labels[2], false, "an income category stood, which it must not");
         })
         .catch((error: unknown) => {
-          assert(labels[2], pgCode(error) === "23514", `sqlstate ${pgCode(error) ?? "none"}`);
+          assert(labels[2], pgErrorCode(error) === "23514", `sqlstate ${pgErrorCode(error) ?? "none"}`);
         });
 
       // 47: one expense on the budget's category (7000), one transfer, one expense on another category (3000).
@@ -1205,7 +1205,7 @@ async function checkPlannedPaymentPolicies() {
           assert(labels[1], false, "a payment on another's account stood, which it must not");
         })
         .catch((error: unknown) => {
-          assert(labels[1], pgCode(error) === "42501", `sqlstate ${pgCode(error) ?? "none"}`);
+          assert(labels[1], pgErrorCode(error) === "42501", `sqlstate ${pgErrorCode(error) ?? "none"}`);
         });
 
       // 54: the settle is a one-shot guarded by the status. The first stamps and links, the second no-ops.
@@ -1232,7 +1232,7 @@ async function checkPlannedPaymentPolicies() {
           assert(labels[3], false, "the settled link was rewritten, which it must not be");
         })
         .catch((error: unknown) => {
-          rewriteCode = pgCode(error);
+          rewriteCode = pgErrorCode(error);
         });
       await tx
         .savepoint(async (sp) => {
@@ -1240,7 +1240,7 @@ async function checkPlannedPaymentPolicies() {
           assert(labels[3], false, "a done payment returned to pending, which it must not");
         })
         .catch((error: unknown) => {
-          revertCode = pgCode(error);
+          revertCode = pgErrorCode(error);
         });
       assert(
         labels[3],
@@ -1380,7 +1380,7 @@ async function checkSavingsGoalPolicies() {
           assert(labels[1], false, "a foreign-scope movement was earmarked, which it must not be");
         })
         .catch((error: unknown) => {
-          assert(labels[1], pgCode(error) === "23514", `sqlstate ${pgCode(error) ?? "none"}`);
+          assert(labels[1], pgErrorCode(error) === "23514", `sqlstate ${pgErrorCode(error) ?? "none"}`);
         });
 
       // A group goal the plain member reads below, seeded by the leader.
@@ -1410,7 +1410,7 @@ async function checkSavingsGoalPolicies() {
           assert(labels[5], false, "an intruder's virtual contribution stood, which it must not");
         })
         .catch((error: unknown) => {
-          assert(labels[5], pgCode(error) === "42501", `sqlstate ${pgCode(error) ?? "none"}`);
+          assert(labels[5], pgErrorCode(error) === "42501", `sqlstate ${pgErrorCode(error) ?? "none"}`);
         });
 
       // 60: a plain member writes a group goal — insert, update, contribute and delete all land.
@@ -1531,7 +1531,7 @@ async function checkDebtTermsPolicies() {
           assert(labels[1], false, "a profile on an asset stood, which it must not");
         })
         .catch((error: unknown) => {
-          assert(labels[1], pgCode(error) === "23514", `sqlstate ${pgCode(error) ?? "none"}`);
+          assert(labels[1], pgErrorCode(error) === "23514", `sqlstate ${pgErrorCode(error) ?? "none"}`);
         });
 
       // 65: the minimum is a fixed amount XOR a percentage — both at once is refused.
@@ -1542,7 +1542,7 @@ async function checkDebtTermsPolicies() {
           assert(labels[2], false, "both an amount and a percentage stood, which they must not");
         })
         .catch((error: unknown) => {
-          assert(labels[2], pgCode(error) === "23514", `sqlstate ${pgCode(error) ?? "none"}`);
+          assert(labels[2], pgErrorCode(error) === "23514", `sqlstate ${pgErrorCode(error) ?? "none"}`);
         });
 
       // 66: the payment due day is a real day of month — 0 and 32 are both refused.
@@ -1554,7 +1554,7 @@ async function checkDebtTermsPolicies() {
             values (${liabilityB}, 'revolving', 0.28, 0)`;
         })
         .catch((error: unknown) => {
-          dueZeroCode = pgCode(error);
+          dueZeroCode = pgErrorCode(error);
         });
       await tx
         .savepoint(async (sp) => {
@@ -1562,7 +1562,7 @@ async function checkDebtTermsPolicies() {
             values (${liabilityB}, 'revolving', 0.28, 32)`;
         })
         .catch((error: unknown) => {
-          dueOverCode = pgCode(error);
+          dueOverCode = pgErrorCode(error);
         });
       assert(
         labels[3],
@@ -1610,7 +1610,7 @@ async function checkDebtTermsPolicies() {
           assert(labels[6], false, "a non-writer minted terms, which it must not");
         })
         .catch((error: unknown) => {
-          assert(labels[6], pgCode(error) === "42501", `sqlstate ${pgCode(error) ?? "none"}`);
+          assert(labels[6], pgErrorCode(error) === "42501", `sqlstate ${pgErrorCode(error) ?? "none"}`);
         });
 
       throw forcedRollback;
@@ -1703,7 +1703,7 @@ async function checkInstallmentPolicies() {
           assert(labels[1], false, "a plan on an asset stood, which it must not");
         })
         .catch((error: unknown) => {
-          assert(labels[1], pgCode(error) === "23514", `sqlstate ${pgCode(error) ?? "none"}`);
+          assert(labels[1], pgErrorCode(error) === "23514", `sqlstate ${pgErrorCode(error) ?? "none"}`);
         });
 
       // 73: a settling movement must touch the plan's account. A cash→card transfer does; cash→cash does not.
@@ -1722,7 +1722,7 @@ async function checkInstallmentPolicies() {
             where plan_id = ${plan1} and seq = 2`;
         })
         .catch((error: unknown) => {
-          nonTouchCode = pgCode(error);
+          nonTouchCode = pgErrorCode(error);
         });
       assert(
         labels[2],
@@ -2006,7 +2006,7 @@ async function checkDebtStatementPolicies() {
           await sp`update debt_statements set statement_balance_cents = 0 where id = ${statementId}`;
         })
         .catch((error: unknown) => {
-          updateCode = pgCode(error);
+          updateCode = pgErrorCode(error);
         });
       assert(labels[2], updateCode === "42501", `sqlstate ${updateCode ?? "none"}`);
 
@@ -2023,7 +2023,7 @@ async function checkDebtStatementPolicies() {
             values (${card}, ${dates.period_start}, ${dates.before_cut}, ${dates.payment_due}, -100000, 5000, 2000)`;
         })
         .catch((error: unknown) => {
-          otherInsertCode = pgCode(error);
+          otherInsertCode = pgErrorCode(error);
         });
       assert(
         labels[3],
@@ -2144,7 +2144,7 @@ async function checkWebhookCredentialPolicies() {
           await sp`select token_hash from webhook_credentials where id = ${live.id}`;
         })
         .catch((error: unknown) => {
-          hashCode = pgCode(error);
+          hashCode = pgErrorCode(error);
         });
       assert(
         labels[2],
@@ -2302,7 +2302,7 @@ async function checkImpersonationBounds() {
           assert(labels[1], false, "the impersonated session wrote B's account, which it must not");
         })
         .catch((error: unknown) => {
-          assert(labels[1], pgCode(error) === "42501", `sqlstate ${pgCode(error) ?? "none"}`);
+          assert(labels[1], pgErrorCode(error) === "42501", `sqlstate ${pgErrorCode(error) ?? "none"}`);
         });
 
       // Unwind the impersonated role before the rollback probe.
@@ -2425,7 +2425,7 @@ async function checkInviteClaimPolicies() {
           assert(labels[2], false, "a second live membership landed, which it must not");
         })
         .catch((error: unknown) => {
-          assert(labels[2], pgCode(error) === "23505", `sqlstate ${pgCode(error) ?? "none"}`);
+          assert(labels[2], pgErrorCode(error) === "23505", `sqlstate ${pgErrorCode(error) ?? "none"}`);
         });
 
       // Forces `sql.begin` to issue ROLLBACK: nothing this function wrote may survive it.
@@ -2531,7 +2531,7 @@ async function checkRecurringRulePolicies() {
           assert(labels[1], false, "a rule on another's account stood, which it must not");
         })
         .catch((error: unknown) => {
-          assert(labels[1], pgCode(error) === "42501", `sqlstate ${pgCode(error) ?? "none"}`);
+          assert(labels[1], pgErrorCode(error) === "42501", `sqlstate ${pgErrorCode(error) ?? "none"}`);
         });
 
       // An outsider who leads a group of their own and shares nothing with the member.
@@ -2643,6 +2643,184 @@ async function checkRecurringRulePolicies() {
     tailLabel,
     afterUser === "postgres" && probeCount === "0",
     `current_user = ${afterUser}, rows named 'rls recurring%' = ${probeCount}`,
+  );
+}
+
+// Assertions 111-116: the audit log. The definer trigger captures every write on an audited table
+// (RF-43); the log itself is locked to every user role, readable and writable by none (RF-44); the
+// recurring generator's own writes are captured with a null actor, marking a system write (RF-45); no
+// RLS-enabled table save the log escapes the trigger (RF-45); and the daily purge drops rows past the
+// 24-month horizon while sparing the recent (RNF-14). Fixtures roll back with their transaction.
+async function checkAuditLogPolicies() {
+  console.log("");
+  const subject = randomUUID();
+
+  const labels = [
+    "111. an authenticated insert, update and delete of a category each land one audit row with the right action, before/after and the caller as actor",
+    "112. an authenticated insert, update, delete and select against the log are each refused",
+    "113. the recurring generator's transaction and its split are captured with a null actor",
+    "114. every RLS-enabled table save the log itself carries the capture trigger",
+    "115. the purge drops a row past 24 months and keeps a recent one",
+  ];
+  const tailLabel = "116. the rolled-back audit transaction leaves no trace";
+
+  const forcedRollback = Symbol("forced rollback");
+
+  await sql
+    .begin(async (tx) => {
+      await tx`insert into auth.users (id) values (${subject})`;
+      await tx`insert into app_users (id) values (${subject})`;
+
+      // 111: the caller's own category, changed then removed; the definer trigger lands one row per op.
+      await enterUserContext(tx, subject);
+      const [{ id: catId }] = await tx<{ id: string }[]>`
+        insert into categories (owner_user_id, name, kind)
+        values (${subject}, 'rls audit category', 'expense') returning id`;
+      await tx`update categories set name = 'rls audit category renamed' where id = ${catId}`;
+      await tx`delete from categories where id = ${catId}`;
+
+      await tx`reset role`;
+      const capRows = await tx<
+        { action: string; actor_user_id: string | null; before_null: boolean; after_null: boolean }[]
+      >`select action, actor_user_id, before_data is null as before_null, after_data is null as after_null
+        from audit_log where entity = 'categories' and record_id = ${catId} order by id`;
+      const capOk =
+        capRows.length === 3 &&
+        capRows[0].action === "INSERT" && capRows[0].before_null && !capRows[0].after_null &&
+        capRows[1].action === "UPDATE" && !capRows[1].before_null && !capRows[1].after_null &&
+        capRows[2].action === "DELETE" && !capRows[2].before_null && capRows[2].after_null &&
+        capRows.every((row) => row.actor_user_id === subject);
+      assert(
+        labels[0],
+        capOk,
+        `rows = ${capRows.length}, actions = ${capRows.map((r) => r.action).join(",")}, actor = ${capRows.every((r) => r.actor_user_id === subject) ? "caller" : "other"}`,
+      );
+
+      // 112: the log holds no privilege for any user role, so every direct command is denied (42501).
+      await enterUserContext(tx, subject);
+      const barred = { insert: "", update: "", delete: "", select: "" };
+      await tx
+        .savepoint(async (sp) => {
+          await sp`insert into audit_log (entity, record_id, action) values ('categories', ${catId}, 'INSERT')`;
+        })
+        .catch((error: unknown) => {
+          barred.insert = pgErrorCode(error) ?? "none";
+        });
+      await tx
+        .savepoint(async (sp) => {
+          await sp`update audit_log set action = 'DELETE' where entity = 'categories'`;
+        })
+        .catch((error: unknown) => {
+          barred.update = pgErrorCode(error) ?? "none";
+        });
+      await tx
+        .savepoint(async (sp) => {
+          await sp`delete from audit_log where entity = 'categories'`;
+        })
+        .catch((error: unknown) => {
+          barred.delete = pgErrorCode(error) ?? "none";
+        });
+      await tx
+        .savepoint(async (sp) => {
+          await sp`select id from audit_log limit 1`;
+        })
+        .catch((error: unknown) => {
+          barred.select = pgErrorCode(error) ?? "none";
+        });
+      assert(
+        labels[1],
+        barred.insert === "42501" && barred.update === "42501" &&
+          barred.delete === "42501" && barred.select === "42501",
+        `insert = ${barred.insert}, update = ${barred.update}, delete = ${barred.delete}, select = ${barred.select}`,
+      );
+
+      // 113: a rule one period overdue, generated with the JWT cleared the way the daily cron runs it.
+      // Both the movement and its split are captured with a null actor — the mark of a system write.
+      await enterUserContext(tx, subject);
+      const [{ id: dueAccount }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_on)
+        values (${subject}, 'rls audit account', 'asset', (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: dueCat }] = await tx<{ id: string }[]>`
+        insert into categories (owner_user_id, name, kind)
+        values (${subject}, 'rls audit expense', 'expense') returning id`;
+      const [{ id: dueRule }] = await tx<{ id: string }[]>`
+        insert into recurring_rules (from_account_id, amount_cents, category_id, frequency, interval_n, next_run_on)
+        values (${dueAccount}, 4000, ${dueCat}, 'weekly', 1, (now() at time zone 'America/Bogota')::date - 7) returning id`;
+
+      await tx`reset role`;
+      await tx`select set_config('request.jwt.claims', '', true)`;
+      await tx`select private.run_due_recurring_rules()`;
+      await tx`set constraints all immediate`;
+
+      const [{ id: genTxn }] = await tx<{ id: string }[]>`
+        select id from transactions where recurring_rule_id = ${dueRule} limit 1`;
+      const [{ id: genSplit }] = await tx<{ id: string }[]>`
+        select id from transaction_splits where transaction_id = ${genTxn} limit 1`;
+      const [txnAudit] = await tx<{ actor_user_id: string | null }[]>`
+        select actor_user_id from audit_log where entity = 'transactions' and record_id = ${genTxn}`;
+      const [splitAudit] = await tx<{ actor_user_id: string | null }[]>`
+        select actor_user_id from audit_log where entity = 'transaction_splits' and record_id = ${genSplit}`;
+      assert(
+        labels[2],
+        txnAudit?.actor_user_id === null && splitAudit?.actor_user_id === null,
+        `transaction actor = ${txnAudit?.actor_user_id ?? "null"}, split actor = ${splitAudit?.actor_user_id ?? "null"}`,
+      );
+
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  // 114: no audited write path skips capture — every RLS-enabled public table but the log itself
+  // carries a `capture_audit` trigger. Runs outside any role switch; it reads only the catalog.
+  const uncovered = await sql<{ tablename: string }[]>`
+    select c.relname as tablename
+    from pg_class c
+    join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public' and c.relkind = 'r' and c.relrowsecurity
+      and c.relname <> 'audit_log'
+      and not exists (
+        select 1 from pg_trigger t
+        where t.tgrelid = c.oid and t.tgname = 'capture_audit' and not t.tgisinternal)`;
+  assert(
+    labels[3],
+    uncovered.length === 0,
+    `RLS tables missing the trigger = ${uncovered.length}${uncovered.length ? " (" + uncovered.map((r) => r.tablename).join(", ") + ")" : ""}`,
+  );
+
+  // 115: the purge is age-bounded. Seed one row past the horizon and one fresh, purge, and read back.
+  await sql
+    .begin(async (tx) => {
+      const agedId = randomUUID();
+      const freshId = randomUUID();
+      await tx`insert into audit_log (entity, record_id, action, occurred_at)
+        values ('categories', ${agedId}, 'INSERT', now() - interval '25 months')`;
+      await tx`insert into audit_log (entity, record_id, action, occurred_at)
+        values ('categories', ${freshId}, 'INSERT', now())`;
+      await tx`select private.purge_audit_log()`;
+      const [{ count: agedLeft }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from audit_log where record_id = ${agedId}`;
+      const [{ count: freshLeft }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from audit_log where record_id = ${freshId}`;
+      assert(
+        labels[4],
+        agedLeft === "0" && freshLeft === "1",
+        `aged rows left = ${agedLeft} (expected 0), recent rows left = ${freshLeft} (expected 1)`,
+      );
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`select current_user`;
+  const [{ count: probeCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from categories where name like 'rls audit%'`;
+  assert(
+    tailLabel,
+    afterUser === "postgres" && probeCount === "0",
+    `current_user = ${afterUser}, rows named 'rls audit%' = ${probeCount}`,
   );
 }
 
