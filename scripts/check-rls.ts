@@ -150,6 +150,7 @@ async function main() {
   await checkInviteClaimPolicies();
   await checkRecurringRulePolicies();
   await checkAuditLogPolicies();
+  await checkAuditViewerPolicy();
   await checkAccountSubtypeBackfill();
   await checkCashReportInvariants();
 }
@@ -2660,7 +2661,7 @@ async function checkAuditLogPolicies() {
 
   const labels = [
     "111. an authenticated insert, update and delete of a category each land one audit row with the right action, before/after and the caller as actor",
-    "112. an authenticated insert, update, delete and select against the log are each refused",
+    "112. an authenticated insert, update and delete against the log are each refused",
     "113. the recurring generator's transaction and its split are captured with a null actor",
     "114. every RLS-enabled table save the log itself carries the capture trigger",
     "115. the purge drops a row past 24 months and keeps a recent one",
@@ -2699,9 +2700,10 @@ async function checkAuditLogPolicies() {
         `rows = ${capRows.length}, actions = ${capRows.map((r) => r.action).join(",")}, actor = ${capRows.every((r) => r.actor_user_id === subject) ? "caller" : "other"}`,
       );
 
-      // 112: the log holds no privilege for any user role, so every direct command is denied (42501).
+      // 112: the log grants no write to any user role (RF-44), so each direct mutation is denied (42501).
+      // SELECT is now the sole user privilege — its bound is proved in checkAuditViewerPolicy below.
       await enterUserContext(tx, subject);
-      const barred = { insert: "", update: "", delete: "", select: "" };
+      const barred = { insert: "", update: "", delete: "" };
       await tx
         .savepoint(async (sp) => {
           await sp`insert into audit_log (entity, record_id, action) values ('categories', ${catId}, 'INSERT')`;
@@ -2723,18 +2725,10 @@ async function checkAuditLogPolicies() {
         .catch((error: unknown) => {
           barred.delete = pgErrorCode(error) ?? "none";
         });
-      await tx
-        .savepoint(async (sp) => {
-          await sp`select id from audit_log limit 1`;
-        })
-        .catch((error: unknown) => {
-          barred.select = pgErrorCode(error) ?? "none";
-        });
       assert(
         labels[1],
-        barred.insert === "42501" && barred.update === "42501" &&
-          barred.delete === "42501" && barred.select === "42501",
-        `insert = ${barred.insert}, update = ${barred.update}, delete = ${barred.delete}, select = ${barred.select}`,
+        barred.insert === "42501" && barred.update === "42501" && barred.delete === "42501",
+        `insert = ${barred.insert}, update = ${barred.update}, delete = ${barred.delete}`,
       );
 
       // 113: a rule one period overdue, generated with the JWT cleared the way the daily cron runs it.
@@ -2824,6 +2818,145 @@ async function checkAuditLogPolicies() {
     tailLabel,
     afterUser === "postgres" && probeCount === "0",
     `current_user = ${afterUser}, rows named 'rls audit%' = ${probeCount}`,
+  );
+}
+
+// Assertions 129-132: the read-only audit viewer (RF-53). The 0010 policy admits three kinds of row —
+// one scoped to the reader personally, one scoped to a group they belong to, and one they themselves
+// caused (the last surfaces the unscoped child rows to their actor alone) — and nothing else. A row of
+// another user's personal scope or caused only by them stays hidden. The write ban (RF-44) holds: the
+// reader's own INSERT, UPDATE and DELETE on the log are each refused. Fixtures roll back.
+async function checkAuditViewerPolicy() {
+  console.log("");
+  const readerUser = randomUUID();
+  const strangerUser = randomUUID();
+  const groupId = randomUUID();
+
+  const labels = [
+    "129. the reader sees its own-scope row, its group-scope row and the unscoped row it caused",
+    "130. the reader sees neither a stranger's personal-scope row nor the unscoped row the stranger caused",
+    "131. the reader's insert, update and delete against the log are each refused",
+  ];
+  const tailLabel = "132. the rolled-back audit-viewer transaction leaves no trace";
+
+  const forcedRollback = Symbol("forced rollback");
+
+  await sql
+    .begin(async (tx) => {
+      await tx`insert into auth.users (id) values (${readerUser}), (${strangerUser})`;
+      await tx`insert into app_users (id) values (${readerUser}), (${strangerUser})`;
+
+      // The reader, its group and its leadership: the personal category stamps an owner-scoped audit row,
+      // the group category a group-scoped one, and the income's split an unscoped one the reader caused.
+      await enterUserContext(tx, readerUser);
+      await tx`insert into groups (id, name, cash_mode) values (${groupId}, 'rls audit viewer', 'shared')`;
+      await tx`insert into group_members (group_id, user_id, name, role)
+        values (${groupId}, ${readerUser}, 'rls audit viewer reader', 'leader')`;
+      const [{ id: readerCat }] = await tx<{ id: string }[]>`
+        insert into categories (owner_user_id, name, kind)
+        values (${readerUser}, 'rls audit viewer personal', 'expense') returning id`;
+      const [{ id: readerGroupCat }] = await tx<{ id: string }[]>`
+        insert into categories (group_id, name, kind)
+        values (${groupId}, 'rls audit viewer group', 'expense') returning id`;
+      const [{ id: readerAccount }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_on)
+        values (${readerUser}, 'rls audit viewer cash', 'asset', (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: readerIncomeCat }] = await tx<{ id: string }[]>`
+        insert into categories (owner_user_id, name, kind)
+        values (${readerUser}, 'rls audit viewer income', 'income') returning id`;
+      const [{ id: readerTxn }] = await tx<{ id: string }[]>`
+        insert into transactions (to_account_id, amount_cents, occurred_at)
+        values (${readerAccount}, 5000, (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: readerSplit }] = await tx<{ id: string }[]>`
+        insert into transaction_splits (transaction_id, category_id, amount_cents)
+        values (${readerTxn}, ${readerIncomeCat}, 5000) returning id`;
+
+      // The stranger, in a scope of their own and no shared group: a personal category and the split of
+      // their own income — an owner-scoped row and an unscoped row the stranger, not the reader, caused.
+      await enterUserContext(tx, strangerUser);
+      const [{ id: strangerCat }] = await tx<{ id: string }[]>`
+        insert into categories (owner_user_id, name, kind)
+        values (${strangerUser}, 'rls audit viewer stranger', 'expense') returning id`;
+      const [{ id: strangerAccount }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_on)
+        values (${strangerUser}, 'rls audit viewer stranger cash', 'asset', (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: strangerIncomeCat }] = await tx<{ id: string }[]>`
+        insert into categories (owner_user_id, name, kind)
+        values (${strangerUser}, 'rls audit viewer stranger income', 'income') returning id`;
+      const [{ id: strangerTxn }] = await tx<{ id: string }[]>`
+        insert into transactions (to_account_id, amount_cents, occurred_at)
+        values (${strangerAccount}, 5000, (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: strangerSplit }] = await tx<{ id: string }[]>`
+        insert into transaction_splits (transaction_id, category_id, amount_cents)
+        values (${strangerTxn}, ${strangerIncomeCat}, 5000) returning id`;
+
+      // 129: back under the reader, each branch of the predicate yields its row.
+      await enterUserContext(tx, readerUser);
+      const [{ count: ownScope }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from audit_log where entity = 'categories' and record_id = ${readerCat}`;
+      const [{ count: groupScope }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from audit_log where entity = 'categories' and record_id = ${readerGroupCat}`;
+      const [{ count: selfCaused }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from audit_log where entity = 'transaction_splits' and record_id = ${readerSplit}`;
+      assert(
+        labels[0],
+        ownScope === "1" && groupScope === "1" && selfCaused === "1",
+        `own-scope = ${ownScope}, group-scope = ${groupScope}, self-caused unscoped = ${selfCaused}`,
+      );
+
+      // 130: no branch reaches the stranger's personal row or the unscoped row only the stranger caused.
+      const [{ count: strangerScope }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from audit_log where entity = 'categories' and record_id = ${strangerCat}`;
+      const [{ count: strangerCaused }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from audit_log where entity = 'transaction_splits' and record_id = ${strangerSplit}`;
+      assert(
+        labels[1],
+        strangerScope === "0" && strangerCaused === "0",
+        `stranger personal-scope = ${strangerScope}, stranger-caused unscoped = ${strangerCaused}`,
+      );
+
+      // 131: the viewer grant is SELECT only (RF-44) — every direct mutation is still denied (42501).
+      const barred = { insert: "", update: "", delete: "" };
+      await tx
+        .savepoint(async (sp) => {
+          await sp`insert into audit_log (entity, record_id, action) values ('categories', ${readerCat}, 'INSERT')`;
+        })
+        .catch((error: unknown) => {
+          barred.insert = pgErrorCode(error) ?? "none";
+        });
+      await tx
+        .savepoint(async (sp) => {
+          await sp`update audit_log set action = 'DELETE' where record_id = ${readerCat}`;
+        })
+        .catch((error: unknown) => {
+          barred.update = pgErrorCode(error) ?? "none";
+        });
+      await tx
+        .savepoint(async (sp) => {
+          await sp`delete from audit_log where record_id = ${readerCat}`;
+        })
+        .catch((error: unknown) => {
+          barred.delete = pgErrorCode(error) ?? "none";
+        });
+      assert(
+        labels[2],
+        barred.insert === "42501" && barred.update === "42501" && barred.delete === "42501",
+        `insert = ${barred.insert}, update = ${barred.update}, delete = ${barred.delete}`,
+      );
+
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`select current_user`;
+  const [{ count: probeCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from groups where name = 'rls audit viewer'`;
+  assert(
+    tailLabel,
+    afterUser === "postgres" && probeCount === "0",
+    `current_user = ${afterUser}, rows named 'rls audit viewer' = ${probeCount}`,
   );
 }
 
