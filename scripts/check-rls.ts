@@ -2463,8 +2463,9 @@ async function checkRecurringRulePolicies() {
     "106. a rule naming an account outside the caller's writable scope is refused",
     "107. a rule on an own account lands with the trigger's derived scope, not a supplied one",
     "108. the generator back-fills one unreviewed single-split transaction per missed period and advances the rule",
+    "109. the member stamps reviewed_at on their generated row and it drops the unreviewed predicate; an outsider cannot",
   ];
-  const tailLabel = "109. the rolled-back recurring rule transaction leaves no trace";
+  const tailLabel = "110. the rolled-back recurring rule transaction leaves no trace";
 
   const forcedRollback = Symbol("forced rollback");
 
@@ -2573,9 +2574,9 @@ async function checkRecurringRulePolicies() {
       await tx`set constraints all immediate`;
 
       const generated = await tx<
-        { occurred_at: string; recurring_rule_id: string | null; reviewed_at: string | null; splits: string }[]
+        { id: string; occurred_at: string; recurring_rule_id: string | null; reviewed_at: string | null; splits: string }[]
       >`
-        select t.occurred_at::text as occurred_at, t.recurring_rule_id, t.reviewed_at,
+        select t.id, t.occurred_at::text as occurred_at, t.recurring_rule_id, t.reviewed_at,
           (select count(*)::text from transaction_splits s where s.transaction_id = t.id) as splits
         from transactions t
         where t.recurring_rule_id = ${dueRule}
@@ -2609,6 +2610,24 @@ async function checkRecurringRulePolicies() {
           advanced.next_run_on === nextExpected &&
           advanced.is_active === true,
         `generated = ${generated.length} (expected ${expected.length}), dates match = ${datesMatch}, each marked+single-split = ${allMarked}, unreviewed = ${unreviewed}, next_run_on advanced = ${advanced.next_run_on === nextExpected}, is_active = ${advanced.is_active}`,
+      );
+
+      // 109: the review write. The row is the member's own, so as `authenticated` they stamp reviewed_at
+      // through the new column grant and it leaves the unreviewed set; the outsider's write is barred by RLS.
+      const reviewTarget = generated[0].id;
+      await enterUserContext(tx, memberUser);
+      const memberReview = await tx`update transactions set reviewed_at = now() where id = ${reviewTarget}`;
+      const [{ count: stillUnreviewed }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from transactions
+        where recurring_rule_id = ${dueRule} and recurring_rule_id is not null and reviewed_at is null`;
+      await enterUserContext(tx, intruderUser);
+      const outsiderReview = await tx`update transactions set reviewed_at = now() where id = ${reviewTarget}`;
+      assert(
+        labels[4],
+        memberReview.count === 1 &&
+          stillUnreviewed === String(expected.length - 1) &&
+          outsiderReview.count === 0,
+        `member review rows = ${memberReview.count}, remaining unreviewed = ${stillUnreviewed} (expected ${expected.length - 1}), outsider review rows = ${outsiderReview.count}`,
       );
 
       throw forcedRollback;

@@ -177,6 +177,9 @@ GRANT SELECT ON TABLE "recurring_rules" TO authenticated;--> statement-breakpoin
 GRANT INSERT (from_account_id, to_account_id, amount_cents, category_id, description, frequency, interval_n, day_of_month, next_run_on, ends_on) ON TABLE "recurring_rules" TO authenticated;--> statement-breakpoint
 GRANT UPDATE (from_account_id, to_account_id, amount_cents, category_id, description, frequency, interval_n, day_of_month, next_run_on, ends_on, is_active) ON TABLE "recurring_rules" TO authenticated;--> statement-breakpoint
 GRANT DELETE ON TABLE "recurring_rules" TO authenticated;--> statement-breakpoint
+-- The generator leaves `reviewed_at` null; the caller stamps it when they confirm the movement (RF-31).
+-- A separate column grant, narrower than 0001's UPDATE: RLS still bounds which rows can be touched.
+GRANT UPDATE (reviewed_at) ON TABLE "transactions" TO authenticated;--> statement-breakpoint
 CREATE TRIGGER recurring_rules_set_timestamps BEFORE INSERT OR UPDATE ON "recurring_rules"
   FOR EACH ROW EXECUTE FUNCTION private.set_row_timestamps();--> statement-breakpoint
 CREATE TRIGGER set_recurring_rule_scope BEFORE INSERT OR UPDATE ON "recurring_rules"
