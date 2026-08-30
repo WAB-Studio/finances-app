@@ -10,7 +10,7 @@ import { centsToPesos } from "@/lib/money";
 
 /**
  * The home dashboard's headline: the fund's total net worth over a pill per owner
- * (RF-65), the group counting as one bucket rather than split across its members
+ * (RF-88), the group counting as one bucket rather than split across its members
  * (RF-67), then this month's income, expense and net. Every figure arrives already
  * derived and stays integer cents; the peso reading is display only. No per-account
  * balance list lives here.

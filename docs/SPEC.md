@@ -105,7 +105,7 @@ accounting exports, native apps. None of this gets built or left
 
 #### Reports
 
-- [ ] **RF-65** — Dashboard: balance per account, net worth per owner (personal and group), and income, expense and net for the current month.
+- [x] **RF-88** — Dashboard: net worth per owner (personal and group), and income, expense and net for the current month.
 - [x] **RF-34** — This month's expenses by category, largest first.
 - [x] **RF-35** — Six-month comparison of income and expense.
 - [x] **RF-66** — Each member's contribution for the month: net of transfers into the group's accounts, less those flowing back to that member.
@@ -191,6 +191,7 @@ Dead codes. The number stays burned and the tick stays as it was.
 - [ ] **RF-36** — Each member's contribution for the month: net of transfers into fund accounts, less those flowing back to that member. _Retired 2026-08-28. Successor: RF-66 (group accounts)._
 - [ ] **RF-37** — In every report grouped by member, the fund appears as one more group. Shared accounts are not split across people. _Retired 2026-08-28. Successor: RF-67 (shared accounts as a group)._
 - [ ] **RF-39** — A cash withdrawal goes to the member's own cash account if they have one, and to the fund's if they do not. The app neither asks nor stores a mode: the rule is derived from which accounts exist. _Retired 2026-08-28. Successor: RF-68 (per `cash_mode`)._
+- [ ] **RF-65** — Dashboard: balance per account, net worth per owner (personal and group), and income, expense and net for the current month. _Retired 2026-08-30. Successor: RF-88 (net worth per owner, no balance per account on the dashboard)._
 - [ ] **RF-77** — A savings goal's progress — amount saved, amount remaining and whether it is on track for its target date — derives from the movements contributed to it; it is never stored. _Retired 2026-08-30. Successor: RF-87 (derives from contributions, which may be virtual amounts with no movement)._
 
 ---

@@ -769,7 +769,7 @@ async function checkAnalyticsAggregates() {
       await tx`insert into transactions (from_account_id, to_account_id, amount_cents, occurred_at)
         values (${groupAccount}, ${personalAccount}, 1500, (now() at time zone 'America/Bogota')::date)`;
 
-      // 38: the flow window counts the income and the expense, never the transfer (RF-19, RF-65).
+      // 38: the flow window counts the income and the expense, never the transfer (RF-19, RF-88).
       const [flow] = await flowSums(tx, winStart, winEnd);
       const income = Number(flow.income_cents);
       const expense = Number(flow.expense_cents);
