@@ -20,7 +20,7 @@ const categoryColorSchema = z
   .nullable();
 
 // A subcategory inherits its parent's colour and sends none of its own; a
-// top-level category has no parent to inherit from, so it must pick one (RF-26).
+// top-level category has no parent to inherit from, so it must pick one (RF-63).
 function requireColorAtTopLevel(
   data: { parentId: string | null; color: string | null },
   ctx: z.RefinementCtx,

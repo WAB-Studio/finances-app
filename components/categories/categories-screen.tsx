@@ -73,7 +73,7 @@ export function CategoriesScreen({
     onError: onActionError,
   });
 
-  // RF-26 caps nesting at one level: a would-be parent that already has
+  // RF-63 caps nesting at one level: a would-be parent that already has
   // children is marked here, so the dialog can keep it off the picker
   // without a second pass over `categories`.
   const parentOptions = parents.map((parent) => ({

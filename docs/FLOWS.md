@@ -50,7 +50,7 @@ sequenceDiagram
     A->>A: belongs to a fund?
     A-->>U: create fund
     U->>A: fund name
-    Note over A: becomes owner (RF-05)<br/>seeds categories (RF-28)<br/>creates the shared cash account (RF-38)
+    Note over A: becomes owner (RF-59)<br/>seeds categories (RF-64)<br/>creates the shared cash account (RF-56)
     U->>A: accounts and opening balances
     U->>A: invites the other members
     A-->>U: dashboard

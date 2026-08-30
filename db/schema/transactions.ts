@@ -66,7 +66,7 @@ export const transactions = pgTable(
     index("transactions_group_id_idx")
       .on(table.groupId)
       .where(sql`${table.groupId} is not null`),
-    // `external_ref` is unique within a scope, so re-importing the same row updates instead of duplicating (RF-52).
+    // `external_ref` is unique within a scope, so re-importing the same row updates instead of duplicating (RF-85).
     uniqueIndex("transactions_owner_external_ref_unique")
       .on(table.ownerUserId, table.externalRef)
       .where(sql`${table.externalRef} is not null`),
