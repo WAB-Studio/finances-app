@@ -175,6 +175,10 @@
     "kindAsset": "Asset",
     "kindLiability": "Liability",
     "kindLocked": "The kind cannot be changed after the account is created.",
+    "subtypeLabel": "Class",
+    "subtypeBancaria": "Bank",
+    "subtypeEfectivo": "Cash",
+    "subtypeTarjeta": "Card",
     "ownerLabel": "Owner",
     "ownerPersonal": "Personal",
     "ownerFund": "The group",
@@ -204,6 +208,8 @@
       "nameTooLong": "The name cannot exceed 80 characters.",
       "institutionTooLong": "The institution's name cannot exceed 80 characters.",
       "kindInvalid": "Choose a valid account kind.",
+      "subtypeInvalid": "Choose a valid account class.",
+      "subtypeKindMismatch": "This class does not match the account kind.",
       "placementInvalid": "Choose where the account belongs.",
       "memberInvalid": "Choose a valid member.",
       "amountRequired": "Enter an amount.",
@@ -325,7 +331,25 @@
       "labelInvalid": "Choose a valid label.",
       "splitsForbidden": "A transfer carries no categories.",
       "splitsRequired": "Assign at least one category.",
-      "splitsSumMismatch": "The categories must add up to the movement's amount."
+      "splitsSumMismatch": "The categories must add up to the movement's amount.",
+      "splitsScopeViolation": "The account or category isn't in the same scope."
+    }
+  },
+  "cash": {
+    "withdrawAction": "Withdraw cash",
+    "withdrawTitle": "Withdraw cash",
+    "sourceLabel": "From",
+    "amountLabel": "Amount",
+    "destinationLabel": "To cash",
+    "willCreateHint": "Your cash account will be created.",
+    "noSource": "You have no account to withdraw from. Create an account first.",
+    "withdrawSave": "Withdraw",
+    "withdrawSaved": "Withdrawal recorded.",
+    "errors": {
+      "sourceInvalid": "Choose a valid account.",
+      "amountRequired": "Enter an amount.",
+      "amountInvalid": "Enter a valid amount.",
+      "amountTooLarge": "The amount is too large."
     }
   },
   "planning": {

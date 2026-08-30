@@ -62,6 +62,7 @@ export async function createGroup({
         isShared: true,
         name: GROUP_CASH_ACCOUNT_NAME[locale],
         kind: "asset",
+        subtype: "efectivo",
         initialBalanceCents: 0,
         initialBalanceOn: today,
       });
@@ -72,6 +73,7 @@ export async function createGroup({
         isShared: false,
         name: PERSONAL_CASH_ACCOUNT_NAME[locale],
         kind: "asset",
+        subtype: "efectivo",
         initialBalanceCents: 0,
         initialBalanceOn: today,
       });
