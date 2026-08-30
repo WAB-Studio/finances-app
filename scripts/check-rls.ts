@@ -151,6 +151,7 @@ async function main() {
   await checkRecurringRulePolicies();
   await checkAuditLogPolicies();
   await checkAccountSubtypeBackfill();
+  await checkCashReportInvariants();
 }
 
 // Assertions 9-26: the repivoted schema. A group holds accounts and categories a user XOR a group
@@ -2978,6 +2979,182 @@ async function checkAccountSubtypeBackfill() {
     tailLabel,
     afterUser === "postgres" && probeCount === "0",
     `current_user = ${afterUser}, rows named 'rls subtype%' = ${probeCount}`,
+  );
+}
+
+// Assertions 124-127: the cash slice's report invariants. A withdrawal is a transfer bank→cash — the
+// member's contribution, settled on the way in; a cash expense flows out of the group's `efectivo`
+// account; a return is a transfer cash→bank that debits the contribution. What is proved is that the
+// two transfers never leak into income or expense (RF-40, RF-19), that the return nets down the
+// contribution (RF-42, RF-66), and that handing cash writes no row (RF-41). The very aggregate SQL of
+// the three report queries is replicated inside the transaction, never the query functions themselves
+// (they open their own `withUserDb`). Every fixture is seeded through the app's own policies and rolled back.
+async function checkCashReportInvariants() {
+  console.log("");
+  const memberUser = randomUUID();
+  const groupId = randomUUID();
+
+  const labels = [
+    "124. the withdrawal and the return are transfers — the flow window's expense is the cash expense alone (6000), income 0",
+    "125. expenses-by-category totals the cash expense's one split and no transfer — 6000 in the one category",
+    "126. the return debits the member's contribution: net = withdrawal − return = 7000, not 10000",
+    "127. no row records the physical hand-off — the withdrawal, the cash expense and the return are the only three movements",
+  ];
+  const tailLabel = "128. the rolled-back cash-report transaction leaves no trace";
+
+  // The exact aggregate SQL of the flow and category report queries, replicated so the proof reads what ships.
+  const flowSums = (q: postgres.TransactionSql, start: string, endExclusive: string) =>
+    q<{ income_cents: string; expense_cents: string }[]>`
+      select
+        coalesce(sum(amount_cents) filter (where kind = 'income'), 0) as income_cents,
+        coalesce(sum(amount_cents) filter (where kind = 'expense'), 0) as expense_cents
+      from transactions
+      where occurred_at >= ${start} and occurred_at < ${endExclusive}`;
+
+  const categoryTotals = (q: postgres.TransactionSql, start: string, endExclusive: string) =>
+    q<{ category_id: string; total_cents: string }[]>`
+      select s.category_id, c.name, c.color, sum(s.amount_cents) as total_cents
+      from transaction_splits s
+      join transactions t on t.id = s.transaction_id
+      join categories c on c.id = s.category_id
+      where t.kind = 'expense'
+        and t.occurred_at >= ${start} and t.occurred_at < ${endExclusive}
+      group by s.category_id, c.name, c.color
+      order by sum(s.amount_cents) desc`;
+
+  const forcedRollback = Symbol("forced rollback");
+
+  await sql
+    .begin(async (tx) => {
+      // One identity, its group and its leadership, seeded as the owner before any role switch.
+      await tx`insert into auth.users (id) values (${memberUser})`;
+      await tx`insert into app_users (id) values (${memberUser})`;
+
+      await enterUserContext(tx, memberUser);
+      await tx`insert into groups (id, name, cash_mode) values (${groupId}, 'rls cash report', 'shared')`;
+      await tx`insert into group_members (group_id, user_id, name, role)
+        values (${groupId}, ${memberUser}, 'rls cash report member', 'leader')`;
+
+      // Mirrors `currentMonthRange()`: the first of the current Bogotá month and the first of the next.
+      const [{ start: winStart, end_exclusive: winEnd }] = await tx<
+        { start: string; end_exclusive: string }[]
+      >`select
+          to_char(date_trunc('month', now() at time zone 'America/Bogota'), 'YYYY-MM-DD') as start,
+          to_char(date_trunc('month', now() at time zone 'America/Bogota') + interval '1 month', 'YYYY-MM-DD') as end_exclusive`;
+
+      // The member's personal bank account, the group's shared `efectivo` cash and one group expense
+      // category. `efectivo` carries no INSERT grant, so the cash row is seeded as the owner with the
+      // subtype a seeded cash account holds, exactly as the fund's own does.
+      const [{ id: bankAccount }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_on)
+        values (${memberUser}, 'rls cash report bank', 'asset', (now() at time zone 'America/Bogota')::date) returning id`;
+      await tx`reset role`;
+      const cashName = GROUP_CASH_ACCOUNT_NAME.es;
+      const [{ id: cashAccount }] = await tx<{ id: string }[]>`
+        insert into accounts (group_id, is_shared, name, kind, subtype, initial_balance_on)
+        values (${groupId}, true, ${cashName}, 'asset', 'efectivo', (now() at time zone 'America/Bogota')::date) returning id`;
+      await enterUserContext(tx, memberUser);
+      const [{ id: expenseCat }] = await tx<{ id: string }[]>`
+        insert into categories (group_id, name, kind)
+        values (${groupId}, 'rls cash report groceries', 'expense') returning id`;
+
+      // 1. Withdrawal: a transfer bank→cash of 10000 — the contribution, settled on the way in (FLOWS §4).
+      const [{ id: withdrawalTxn }] = await tx<{ id: string; kind: string }[]>`
+        insert into transactions (from_account_id, to_account_id, amount_cents, occurred_at)
+        values (${bankAccount}, ${cashAccount}, 10000, (now() at time zone 'America/Bogota')::date)
+        returning id, kind`;
+
+      // 2. Cash expense: 6000 out of the group `efectivo`, one split on the group category.
+      const [{ id: expenseTxn }] = await tx<{ id: string }[]>`
+        insert into transactions (from_account_id, amount_cents, occurred_at)
+        values (${cashAccount}, 6000, (now() at time zone 'America/Bogota')::date) returning id`;
+      await tx`insert into transaction_splits (transaction_id, category_id, amount_cents)
+        values (${expenseTxn}, ${expenseCat}, 6000)`;
+
+      // 3. Return: a transfer cash→bank of 3000 — debits the member's contribution (RF-42).
+      const [{ id: returnTxn }] = await tx<{ id: string }[]>`
+        insert into transactions (from_account_id, to_account_id, amount_cents, occurred_at)
+        values (${cashAccount}, ${bankAccount}, 3000, (now() at time zone 'America/Bogota')::date) returning id`;
+
+      // 124 (RF-40, RF-19): the flow window sums the cash expense alone. The two transfers count in
+      // neither total — the expense is 6000, never 16000, and there is no income at all.
+      const [flow] = await flowSums(tx, winStart, winEnd);
+      const income = Number(flow.income_cents);
+      const expense = Number(flow.expense_cents);
+      assert(
+        labels[0],
+        income === 0 && expense === 6000,
+        `income = ${income}, expense = ${expense} (expected 0 and 6000, not 16000)`,
+      );
+
+      // 125 (RF-34): expenses-by-category holds one row for the cash expense's split, 6000; the two
+      // transfers carry no split and add nothing.
+      const catRows = await categoryTotals(tx, winStart, winEnd);
+      const catTotal = catRows.reduce((sum, row) => sum + Number(row.total_cents), 0);
+      assert(
+        labels[1],
+        catRows.length === 1 && catRows[0].category_id === expenseCat && catTotal === 6000,
+        `rows = ${catRows.length}, total = ${catTotal} (expected 1 row, 6000)`,
+      );
+
+      // 126 (RF-42, RF-66): the contribution nets the withdrawal against the return. The exact SQL of
+      // `getMemberContributions`, replicated: 10000 credited on the way in, 3000 debited on the return.
+      const contributions = await tx<{ user_id: string; contribution_cents: string }[]>`
+        select member.user_id, coalesce(sum(member.delta), 0) as contribution_cents
+        from (
+          select
+            case
+              when ta.group_id is not null and fa.owner_user_id is not null then fa.owner_user_id
+              when fa.group_id is not null and ta.owner_user_id is not null then ta.owner_user_id
+            end as user_id,
+            case
+              when ta.group_id is not null and fa.owner_user_id is not null then t.amount_cents
+              when fa.group_id is not null and ta.owner_user_id is not null then -t.amount_cents
+              else 0
+            end as delta
+          from transactions t
+          join accounts fa on fa.id = t.from_account_id
+          join accounts ta on ta.id = t.to_account_id
+          where t.kind = 'transfer'
+            and t.occurred_at >= ${winStart} and t.occurred_at < ${winEnd}
+        ) member
+        where member.user_id is not null
+        group by member.user_id`;
+      assert(
+        labels[2],
+        contributions.length === 1 &&
+          contributions[0].user_id === memberUser &&
+          Number(contributions[0].contribution_cents) === 7000,
+        `rows = ${contributions.length}, net = ${contributions[0]?.contribution_cents} (expected 7000 = 10000 − 3000, not 10000)`,
+      );
+
+      // 127 (RF-41): handing cash over is not a transaction — the scenario writes no fourth row for it.
+      // Every movement touching the bank or the cash account is one of the three seeded above.
+      const [{ count: movementCount }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from transactions
+        where from_account_id in (${bankAccount}, ${cashAccount})
+           or to_account_id in (${bankAccount}, ${cashAccount})`;
+      assert(
+        labels[3],
+        movementCount === "3" &&
+          withdrawalTxn !== expenseTxn && expenseTxn !== returnTxn,
+        `movements touching bank or cash = ${movementCount} (expected 3: withdrawal, cash expense, return — no hand-off row)`,
+      );
+
+      // Forces `sql.begin` to issue ROLLBACK: nothing this function wrote may survive it.
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`select current_user`;
+  const [{ count: probeCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from groups where name = 'rls cash report'`;
+  assert(
+    tailLabel,
+    afterUser === "postgres" && probeCount === "0",
+    `current_user = ${afterUser}, rows named 'rls cash report' = ${probeCount}`,
   );
 }
 
