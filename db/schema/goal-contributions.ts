@@ -13,9 +13,7 @@ export const goalContributions = pgTable(
     goalId: uuid()
       .notNull()
       .references(() => savingsGoals.id, { onDelete: "cascade" }),
-    transactionId: uuid()
-      .notNull()
-      .references(() => transactions.id, { onDelete: "cascade" }),
+    transactionId: uuid().references(() => transactions.id, { onDelete: "cascade" }),
     amountCents: bigint({ mode: "number" }).notNull(),
   },
   (table) => [
