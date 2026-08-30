@@ -121,9 +121,9 @@ accounting exports, native apps. None of this gets built or left
 
 #### Audit
 
-- [ ] **RF-43** — Every creation, change and deletion of fund data is logged with what was touched, by whom, when, and the before and after values.
-- [ ] **RF-44** — No user can edit or delete the log. The only permitted removal is the automatic purge in RNF-14.
-- [ ] **RF-45** — Capture is automatic and no write can bypass it, including those from the recurring process, which are marked as system writes.
+- [x] **RF-43** — Every creation, change and deletion of fund data is logged with what was touched, by whom, when, and the before and after values.
+- [x] **RF-44** — No user can edit or delete the log. The only permitted removal is the automatic purge in RNF-14.
+- [x] **RF-45** — Capture is automatic and no write can bypass it, including those from the recurring process, which are marked as system writes.
 
 #### Language
 
