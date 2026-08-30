@@ -59,6 +59,7 @@ export {
   SegmentedControl,
   ScrollArea,
   Switch,
+  Table,
   VisuallyHidden,
 } from "@radix-ui/themes";
 
