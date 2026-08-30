@@ -148,6 +148,7 @@ async function main() {
   await checkWebhookCredentialPolicies();
   await checkImpersonationBounds();
   await checkInviteClaimPolicies();
+  await checkRecurringRulePolicies();
 }
 
 // Assertions 9-26: the repivoted schema. A group holds accounts and categories a user XOR a group
@@ -2441,6 +2442,207 @@ async function checkInviteClaimPolicies() {
     tailLabel,
     afterUser === "postgres" && probeCount === "0",
     `current_user = ${afterUser}, rows named 'rls invite%' = ${probeCount}`,
+  );
+}
+
+// Assertions 105-108: the recurring rules and their in-DB generator. Read is universal inside the group
+// and closed to an outsider; write is bounded to own-or-shared accounts and the scope is the trigger's,
+// not the caller's; and `private.run_due_recurring_rules()`, run with no JWT like the daily cron, back-fills
+// one unreviewed single-split transaction per missed period and advances the rule. Every fixture is seeded
+// through the app's own policies and rolled back.
+async function checkRecurringRulePolicies() {
+  console.log("");
+  const leaderUser = randomUUID();
+  const memberUser = randomUUID();
+  const intruderUser = randomUUID();
+  const groupId = randomUUID();
+  const intruderGroup = randomUUID();
+
+  const labels = [
+    "105. a member reads their own personal rule and the group's rule while an outsider reads neither",
+    "106. a rule naming an account outside the caller's writable scope is refused",
+    "107. a rule on an own account lands with the trigger's derived scope, not a supplied one",
+    "108. the generator back-fills one unreviewed single-split transaction per missed period and advances the rule",
+    "109. the member stamps reviewed_at on their generated row and it drops the unreviewed predicate; an outsider cannot",
+  ];
+  const tailLabel = "110. the rolled-back recurring rule transaction leaves no trace";
+
+  const forcedRollback = Symbol("forced rollback");
+
+  await sql
+    .begin(async (tx) => {
+      await tx`insert into auth.users (id) values (${leaderUser}), (${memberUser}), (${intruderUser})`;
+      await tx`insert into app_users (id) values (${leaderUser}), (${memberUser}), (${intruderUser})`;
+
+      // The group, its leader, a personal leader account, a shared group account and a group expense category.
+      await enterUserContext(tx, leaderUser);
+      await tx`insert into groups (id, name, cash_mode) values (${groupId}, 'rls recurring', 'shared')`;
+      await tx`insert into group_members (group_id, user_id, name, role)
+        values (${groupId}, ${leaderUser}, 'rls recurring leader', 'leader')`;
+      const [{ id: leaderAccount }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_on)
+        values (${leaderUser}, 'rls recurring leader cash', 'asset', (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: sharedAccount }] = await tx<{ id: string }[]>`
+        insert into accounts (group_id, is_shared, name, kind, initial_balance_on)
+        values (${groupId}, true, 'rls recurring shared cash', 'asset', (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: groupExpenseCat }] = await tx<{ id: string }[]>`
+        insert into categories (group_id, name, kind)
+        values (${groupId}, 'rls recurring group expense', 'expense') returning id`;
+
+      // A group-scoped rule on the shared account, due only in the future so the generator leaves it be.
+      const [{ id: groupRule }] = await tx<{ id: string }[]>`
+        insert into recurring_rules (from_account_id, amount_cents, category_id, frequency, interval_n, day_of_month, next_run_on)
+        values (${sharedAccount}, 6000, ${groupExpenseCat}, 'monthly', 1, 15,
+          (now() at time zone 'America/Bogota')::date + 30) returning id`;
+
+      // The plain member with their own account and expense category, seeded through their own context.
+      await tx`reset role`;
+      await tx`insert into group_members (group_id, user_id, name, role)
+        values (${groupId}, ${memberUser}, 'rls recurring member', 'member')`;
+      await enterUserContext(tx, memberUser);
+      const [{ id: memberAccount }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_on)
+        values (${memberUser}, 'rls recurring member cash', 'asset', (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: memberExpenseCat }] = await tx<{ id: string }[]>`
+        insert into categories (owner_user_id, name, kind)
+        values (${memberUser}, 'rls recurring member expense', 'expense') returning id`;
+
+      // 107: a rule on the member's own account lands personal, its scope and author the trigger's, not supplied.
+      const [personalRule] = await tx<
+        { id: string; owner_user_id: string | null; group_id: string | null; created_by: string }[]
+      >`insert into recurring_rules (from_account_id, amount_cents, category_id, frequency, interval_n, day_of_month, next_run_on)
+        values (${memberAccount}, 5000, ${memberExpenseCat}, 'monthly', 1, 15,
+          (now() at time zone 'America/Bogota')::date + 30)
+        returning id, owner_user_id, group_id, created_by`;
+      assert(
+        labels[2],
+        personalRule.owner_user_id === memberUser &&
+          personalRule.group_id === null &&
+          personalRule.created_by === memberUser,
+        `owner = ${personalRule.owner_user_id === memberUser ? "self" : personalRule.owner_user_id}, group = ${personalRule.group_id}, created_by = ${personalRule.created_by === memberUser}`,
+      );
+
+      // 106: the bounded write — the member may not book a rule out of the leader's personal account.
+      await tx
+        .savepoint(async (sp) => {
+          await sp`insert into recurring_rules (from_account_id, amount_cents, category_id, frequency, interval_n, day_of_month, next_run_on)
+            values (${leaderAccount}, 5000, ${memberExpenseCat}, 'monthly', 1, 15,
+              (now() at time zone 'America/Bogota')::date + 30)`;
+          assert(labels[1], false, "a rule on another's account stood, which it must not");
+        })
+        .catch((error: unknown) => {
+          assert(labels[1], pgCode(error) === "42501", `sqlstate ${pgCode(error) ?? "none"}`);
+        });
+
+      // An outsider who leads a group of their own and shares nothing with the member.
+      await tx`reset role`;
+      await enterUserContext(tx, intruderUser);
+      await tx`insert into groups (id, name, cash_mode) values (${intruderGroup}, 'rls recurring intruder', 'shared')`;
+      await tx`insert into group_members (group_id, user_id, name, role)
+        values (${intruderGroup}, ${intruderUser}, 'rls recurring intruder leader', 'leader')`;
+
+      // 105: universal read inside the group, closed outside it.
+      const [{ count: outsiderSeesPersonal }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from recurring_rules where id = ${personalRule.id}`;
+      const [{ count: outsiderSeesGroup }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from recurring_rules where id = ${groupRule}`;
+      await enterUserContext(tx, memberUser);
+      const [{ count: memberSeesPersonal }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from recurring_rules where id = ${personalRule.id}`;
+      const [{ count: memberSeesGroup }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from recurring_rules where id = ${groupRule}`;
+      assert(
+        labels[0],
+        memberSeesPersonal === "1" &&
+          memberSeesGroup === "1" &&
+          outsiderSeesPersonal === "0" &&
+          outsiderSeesGroup === "0",
+        `member→own = ${memberSeesPersonal}, member→group = ${memberSeesGroup}, outsider→own = ${outsiderSeesPersonal}, outsider→group = ${outsiderSeesGroup}`,
+      );
+
+      // 108: a weekly rule three weeks overdue, generated with no JWT the way the daily cron runs it.
+      const [{ id: dueRule }] = await tx<{ id: string }[]>`
+        insert into recurring_rules (from_account_id, amount_cents, category_id, frequency, interval_n, next_run_on)
+        values (${memberAccount}, 4000, ${memberExpenseCat}, 'weekly', 1,
+          (now() at time zone 'America/Bogota')::date - 21) returning id`;
+
+      // The generator runs as the owner with the JWT claims cleared, so `auth.uid()` is null like the cron's.
+      await tx`reset role`;
+      await tx`select set_config('request.jwt.claims', '', true)`;
+      await tx`select private.run_due_recurring_rules()`;
+      // Force the deferred split-sum triggers now, proving every generated movement balances its one split.
+      await tx`set constraints all immediate`;
+
+      const generated = await tx<
+        { id: string; occurred_at: string; recurring_rule_id: string | null; reviewed_at: string | null; splits: string }[]
+      >`
+        select t.id, t.occurred_at::text as occurred_at, t.recurring_rule_id, t.reviewed_at,
+          (select count(*)::text from transaction_splits s where s.transaction_id = t.id) as splits
+        from transactions t
+        where t.recurring_rule_id = ${dueRule}
+        order by t.occurred_at`;
+      const [{ expected }] = await tx<{ expected: string[] }[]>`
+        select array[
+          ((now() at time zone 'America/Bogota')::date - 21)::text,
+          ((now() at time zone 'America/Bogota')::date - 14)::text,
+          ((now() at time zone 'America/Bogota')::date - 7)::text,
+          ((now() at time zone 'America/Bogota')::date)::text
+        ] as expected`;
+      const [{ count: unreviewed }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from transactions
+        where recurring_rule_id = ${dueRule} and recurring_rule_id is not null and reviewed_at is null`;
+      const [advanced] = await tx<{ next_run_on: string; is_active: boolean }[]>`
+        select next_run_on::text, is_active from recurring_rules where id = ${dueRule}`;
+      const [{ next_expected: nextExpected }] = await tx<{ next_expected: string }[]>`
+        select ((now() at time zone 'America/Bogota')::date + 7)::text as next_expected`;
+
+      const datesMatch =
+        generated.length === expected.length &&
+        generated.every((row, i) => row.occurred_at === expected[i]);
+      const allMarked = generated.every(
+        (row) => row.recurring_rule_id === dueRule && row.reviewed_at === null && row.splits === "1",
+      );
+      assert(
+        labels[3],
+        datesMatch &&
+          allMarked &&
+          unreviewed === String(expected.length) &&
+          advanced.next_run_on === nextExpected &&
+          advanced.is_active === true,
+        `generated = ${generated.length} (expected ${expected.length}), dates match = ${datesMatch}, each marked+single-split = ${allMarked}, unreviewed = ${unreviewed}, next_run_on advanced = ${advanced.next_run_on === nextExpected}, is_active = ${advanced.is_active}`,
+      );
+
+      // 109: the review write. The row is the member's own, so as `authenticated` they stamp reviewed_at
+      // through the new column grant and it leaves the unreviewed set; the outsider's write is barred by RLS.
+      const reviewTarget = generated[0].id;
+      await enterUserContext(tx, memberUser);
+      const memberReview = await tx`update transactions set reviewed_at = now() where id = ${reviewTarget}`;
+      const [{ count: stillUnreviewed }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from transactions
+        where recurring_rule_id = ${dueRule} and recurring_rule_id is not null and reviewed_at is null`;
+      await enterUserContext(tx, intruderUser);
+      const outsiderReview = await tx`update transactions set reviewed_at = now() where id = ${reviewTarget}`;
+      assert(
+        labels[4],
+        memberReview.count === 1 &&
+          stillUnreviewed === String(expected.length - 1) &&
+          outsiderReview.count === 0,
+        `member review rows = ${memberReview.count}, remaining unreviewed = ${stillUnreviewed} (expected ${expected.length - 1}), outsider review rows = ${outsiderReview.count}`,
+      );
+
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`select current_user`;
+  const [{ count: probeCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from groups where name like 'rls recurring%'`;
+  assert(
+    tailLabel,
+    afterUser === "postgres" && probeCount === "0",
+    `current_user = ${afterUser}, rows named 'rls recurring%' = ${probeCount}`,
   );
 }
 

@@ -10,6 +10,7 @@ export * from "./labels";
 export * from "./transaction-labels";
 export * from "./budgets";
 export * from "./planned-payments";
+export * from "./recurring-rules";
 export * from "./savings-goals";
 export * from "./goal-contributions";
 export * from "./debt-terms";

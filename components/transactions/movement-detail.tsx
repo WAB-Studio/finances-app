@@ -1,10 +1,12 @@
 "use client";
 
-import { ChevronLeftIcon, PencilIcon, Trash2Icon } from "lucide-react";
+import { CheckIcon, ChevronLeftIcon, PencilIcon, Trash2Icon } from "lucide-react";
 import { useFormatter, useTranslations } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
 import { useState, type ReactNode } from "react";
+import { toast } from "sonner";
 
+import { markMovementReviewedAction } from "@/app/actions/recurring-rules";
 import { deleteTransactionAction } from "@/app/actions/transactions";
 import { MovementForm } from "@/components/transactions/movement-form";
 import {
@@ -58,6 +60,19 @@ export function MovementDetail({
     onSuccess: () => router.push("/movements"),
     onError: onActionError,
   });
+
+  // Confirming stamps `reviewed_at`, dropping the movement from the count, banner
+  // and badge (RF-31); the action's refresh re-reads this detail, so the affordance
+  // then disappears on its own.
+  const confirm = useAction(markMovementReviewedAction, {
+    onSuccess: () => toast.success(t("confirmedToast")),
+    onError: onActionError,
+  });
+
+  // Only a generated movement still awaiting review offers Confirmar; a manual or
+  // already-reviewed one shows none.
+  const isUnreviewedGenerated =
+    movement.recurringRuleId !== null && movement.reviewedAt === null;
 
   // A name and colour per account and per category id — children included — so
   // the detail reads its subtitle, account and tile without a second lookup.
@@ -172,6 +187,18 @@ export function MovementDetail({
           )}
         </Flex>
       </Card>
+
+      {isUnreviewedGenerated && (
+        <Button
+          type="button"
+          size="3"
+          disabled={confirm.isPending}
+          onClick={() => confirm.execute({ transactionId: movement.id })}
+        >
+          <CheckIcon size={16} />
+          {t("confirm")}
+        </Button>
+      )}
 
       <Flex gap="3">
         <Button

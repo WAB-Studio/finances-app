@@ -88,10 +88,10 @@ accounting exports, native apps. None of this gets built or left
 
 #### Recurring
 
-- [ ] **RF-29** — CRUD for recurring rules with monthly, weekly or yearly frequency, and the day that matches that frequency.
-- [ ] **RF-30** — A daily process turns due rules into real transactions.
-- [ ] **RF-31** — Generated transactions are distinguishable from manual ones and are editable: the real amount of a utility bill varies.
-- [ ] **RF-32** — A rule can be paused or given an end date without erasing its history.
+- [x] **RF-29** — CRUD for recurring rules with monthly, weekly or yearly frequency, and the day that matches that frequency.
+- [x] **RF-30** — A daily process turns due rules into real transactions.
+- [x] **RF-31** — Generated transactions are distinguishable from manual ones and are editable: the real amount of a utility bill varies.
+- [x] **RF-32** — A rule can be paused or given an end date without erasing its history.
 
 #### Budgets, planned payments and goals
 
@@ -215,6 +215,7 @@ erDiagram
     app_users ||--o{ labels : "defines (personal)"
     app_users ||--o{ accounts : "owns (personal)"
     app_users ||--o{ transactions : "owns (personal)"
+    app_users ||--o{ recurring_rules : "owns (personal)"
     app_users ||--o{ budgets : "owns (personal)"
     app_users ||--o{ planned_payments : "owns (personal)"
     app_users ||--o{ savings_goals : "owns (personal)"
@@ -371,7 +372,8 @@ erDiagram
         text kind "income | expense | transfer (generated)"
         date occurred_at
         text description
-        uuid recurring_rule_id FK "null if manual; lands with the recurring slice"
+        uuid recurring_rule_id FK "null if manual"
+        timestamptz reviewed_at "null until a generated movement is reviewed"
         text external_ref "import reference"
         uuid created_by FK
     }
@@ -400,18 +402,22 @@ erDiagram
 
     recurring_rules {
         uuid id PK
-        uuid fund_id FK
-        uuid from_account_id FK
-        uuid to_account_id FK
-        uuid category_id FK
+        uuid owner_user_id FK "null = group rule"
+        uuid group_id FK "null = personal rule"
+        uuid from_account_id FK "null if income"
+        uuid to_account_id FK "null if expense"
         bigint amount_cents
+        uuid category_id FK
+        text description
         text frequency "monthly | weekly | yearly"
-        smallint interval_n
-        smallint day_of_month
-        smallint day_of_week
+        smallint interval_n "every N periods"
+        smallint day_of_month "null for weekly"
         date next_run_on
-        date ends_on
+        date ends_on "null = open-ended"
         boolean is_active
+        uuid created_by FK
+        timestamptz created_at
+        timestamptz updated_at
     }
 
     audit_log {
@@ -538,6 +544,10 @@ Rules the model must always guarantee, regardless of how they are implemented:
 - A planned payment's scope derives from the accounts it touches, never chosen by
   the user. A settled planned payment links the transaction it recorded and is
   never re-settled; a cancelled one is never settled.
+- A recurring rule belongs to exactly one of a user or a group (XOR), derived
+  from the accounts it touches, never chosen by the user — mirroring transactions.
+- A recurring rule names exactly one account and exactly one category and is
+  always an income or an expense, never a transfer.
 - A savings goal's progress derives from its contributions and is never stored.
 - A goal contribution shares its goal's scope with its transaction, and counts a
   movement toward a goal at most once.

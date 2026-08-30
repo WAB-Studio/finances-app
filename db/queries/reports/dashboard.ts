@@ -8,6 +8,7 @@ import { getMonthlyFlow } from "@/db/queries/reports/monthly-flow";
 import type { MonthlyFlow } from "@/db/queries/reports/monthly-flow";
 import { netWorthByOwner } from "@/db/queries/reports/net-worth";
 import type { OwnerNetWorth } from "@/db/queries/reports/net-worth";
+import { countUnreviewedGenerated } from "@/db/queries/recurring-rules";
 import { getSessionUser } from "@/db/session";
 import { currentMonthRange } from "@/lib/dates";
 
@@ -24,6 +25,8 @@ export type DashboardData = {
   netWorth: OwnerNetWorthNamed[];
   totalNetWorthCents: number;
   monthFlow: MonthlyFlow;
+  // Generated movements still awaiting review — the "N sin revisar" badge (RF-31).
+  unreviewedCount: number;
 };
 
 /**
@@ -34,13 +37,15 @@ export type DashboardData = {
  * conditional second trip, taken only once a group is known.
  */
 export async function getDashboardData(): Promise<DashboardData> {
-  const [accounts, balances, monthFlow, group, sessionUser] = await Promise.all([
-    listAccounts({ archived: false }),
-    getAccountBalances(),
-    getMonthlyFlow(currentMonthRange()),
-    getUserGroup(),
-    getSessionUser(),
-  ]);
+  const [accounts, balances, monthFlow, group, sessionUser, unreviewedCount] =
+    await Promise.all([
+      listAccounts({ archived: false }),
+      getAccountBalances(),
+      getMonthlyFlow(currentMonthRange()),
+      getUserGroup(),
+      getSessionUser(),
+      countUnreviewedGenerated(),
+    ]);
 
   // Only a grouped caller has a roster to name member buckets against; a
   // personal-only caller falls back to the `isSelf` label with no round trip.
@@ -78,5 +83,6 @@ export async function getDashboardData(): Promise<DashboardData> {
     netWorth,
     totalNetWorthCents,
     monthFlow,
+    unreviewedCount,
   };
 }
