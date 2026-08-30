@@ -58,6 +58,7 @@ export {
   type BadgeProps,
   SegmentedControl,
   ScrollArea,
+  Switch,
   VisuallyHidden,
 } from "@radix-ui/themes";
 

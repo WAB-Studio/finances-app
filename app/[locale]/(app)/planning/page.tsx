@@ -9,6 +9,7 @@ import { listBudgetsWithStatus } from "@/db/queries/budgets";
 import { getDebtsScreenData } from "@/db/queries/debts-screen";
 import { getUserGroup } from "@/db/queries/groups";
 import { listPlannedPayments } from "@/db/queries/planned-payments";
+import { listRecurringRules } from "@/db/queries/recurring-rules";
 import { listGoalsWithProgress } from "@/db/queries/savings-goals";
 import { civilDateToDate } from "@/lib/dates";
 import { centsToPesos } from "@/lib/money";
@@ -33,15 +34,17 @@ export default async function PlanningPage(
 
   setRequestLocale(locale);
 
-  const [budgets, goals, payments, debts, group, t, format] = await Promise.all([
-    listBudgetsWithStatus(),
-    listGoalsWithProgress(),
-    listPlannedPayments({ status: "pending" }),
-    getDebtsScreenData(),
-    getUserGroup(),
-    getTranslations({ locale, namespace: "planning" }),
-    getFormatter({ locale }),
-  ]);
+  const [budgets, goals, payments, debts, rules, group, t, format] =
+    await Promise.all([
+      listBudgetsWithStatus(),
+      listGoalsWithProgress(),
+      listPlannedPayments({ status: "pending" }),
+      getDebtsScreenData(),
+      listRecurringRules(),
+      getUserGroup(),
+      getTranslations({ locale, namespace: "planning" }),
+      getFormatter({ locale }),
+    ]);
 
   // Every summary is derived here from the same reads the areas use; money is
   // formatted for display only, never re-stored, and cents stay integer.
@@ -88,6 +91,19 @@ export default async function PlanningPage(
         })
       : t("debtsSummaryNoDate", { total });
 
+  // The list arrives soonest next run first, so the head names the nearest rule.
+  const nextRule = rules[0];
+  const recurringSummary = nextRule
+    ? t("recurringSummary", {
+        count: rules.length,
+        concept: nextRule.description ?? t("noConcept"),
+        date: format.dateTime(civilDateToDate(nextRule.nextRunOn), {
+          day: "numeric",
+          month: "short",
+        }),
+      })
+    : t("recurringEmpty");
+
   return (
     <Page>
       <PlanningHub
@@ -96,6 +112,7 @@ export default async function PlanningPage(
         goalsSummary={goalsSummary}
         paymentsSummary={paymentsSummary}
         debtsSummary={debtsSummary}
+        recurringSummary={recurringSummary}
       />
     </Page>
   );

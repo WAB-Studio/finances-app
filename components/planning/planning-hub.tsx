@@ -14,8 +14,7 @@ import { Link as LocaleLink } from "@/i18n/navigation";
 
 /**
  * The Planeación hub: one card per area, each carrying a live one-line summary
- * derived on the server and a link into its screen. Recurrentes has no screen
- * yet, so it reads as a muted "próximamente" placeholder with no href.
+ * derived on the server and a link into its screen.
  */
 export async function PlanningHub({
   groupName,
@@ -23,12 +22,14 @@ export async function PlanningHub({
   goalsSummary,
   paymentsSummary,
   debtsSummary,
+  recurringSummary,
 }: {
   groupName: string | null;
   budgetsSummary: string;
   goalsSummary: string;
   paymentsSummary: string;
   debtsSummary: string;
+  recurringSummary: string;
 }) {
   const t = await getTranslations("planning");
   const tKey = await getTranslations();
@@ -73,7 +74,8 @@ export async function PlanningHub({
           icon={Repeat}
           tint="violet"
           title={t("recurringTitle")}
-          summary={t("soon")}
+          summary={recurringSummary}
+          href="/planning/recurring"
         />
       </Flex>
     </Flex>
