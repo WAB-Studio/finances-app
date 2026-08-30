@@ -28,7 +28,7 @@ export type DashboardData = {
 
 /**
  * The home dashboard's read-model: net worth per owner and this month's flow
- * (RF-65). Scope is never a parameter — every underlying query runs inside
+ * (RF-88). Scope is never a parameter — every underlying query runs inside
  * `withUserDb`, so RLS restricts the rows to the caller and their one group.
  * The five independent reads fan out in one `Promise.all`; the roster is a
  * conditional second trip, taken only once a group is known.

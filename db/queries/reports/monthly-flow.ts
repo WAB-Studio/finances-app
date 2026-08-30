@@ -19,7 +19,7 @@ export type MonthFlow = {
 
 /**
  * Income, expense and net for one half-open window in ONE aggregate read
- * (RF-65, RNF-09). A transfer is never summed (RF-19): only the `income` and
+ * (RF-88, RNF-09). A transfer is never summed (RF-19): only the `income` and
  * `expense` generated kinds feed the two totals. `occurred_at` is compared as a
  * `YYYY-MM-DD` string against string bounds, never a JS Date. A window with no
  * rows leaves each sum null, which `coalesce` and `Number` carry to 0.

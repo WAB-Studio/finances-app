@@ -10,7 +10,7 @@ export type OwnerNetWorth = {
 /**
  * Net worth per owner, folded from the already-fanned `listAccounts` and
  * `getAccountBalances` outputs — a PURE reducer, no round trip of its own
- * (RF-65, RNF-09). A personal account sums into its member's bucket, a group
+ * (RF-88, RNF-09). A personal account sums into its member's bucket, a group
  * account into the single group bucket, and the group's accounts are never
  * split across members (RF-67). Each balance is derived from movements upstream
  * (RNF-07), and a liability's is already negative, so this signed sum IS net
