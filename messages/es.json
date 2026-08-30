@@ -51,11 +51,20 @@
   },
   "onboarding": {
     "title": "Crea tu fondo",
+    "subtitle": "Un espacio para las cuentas que comparten. Serás su propietario.",
+    "back": "Atrás",
+    "steps": {
+      "fund": "Fondo",
+      "accounts": "Cuentas",
+      "invite": "Invitar"
+    },
     "fundNameLabel": "Nombre del fondo",
     "fundNamePlaceholder": "Casa",
     "memberNameLabel": "¿Cómo te llamas?",
     "memberNameDescription": "Así apareces en los informes por persona.",
+    "seedNote": "Al crearlo prepararemos tus categorías y una cuenta de efectivo del fondo.",
     "submit": "Crear fondo",
+    "continue": "Continuar",
     "submitting": "Creando el fondo"
   },
   "dashboard": {

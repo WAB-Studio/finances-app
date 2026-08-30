@@ -51,11 +51,20 @@
   },
   "onboarding": {
     "title": "Create your fund",
+    "subtitle": "A space for the accounts you share. You will be its owner.",
+    "back": "Back",
+    "steps": {
+      "fund": "Fund",
+      "accounts": "Accounts",
+      "invite": "Invite"
+    },
     "fundNameLabel": "Fund name",
     "fundNamePlaceholder": "Household",
     "memberNameLabel": "What is your name?",
     "memberNameDescription": "This is how you appear in per-person reports.",
+    "seedNote": "When you create it we will prepare your categories and a fund cash account.",
     "submit": "Create fund",
+    "continue": "Continue",
     "submitting": "Creating the fund"
   },
   "dashboard": {

@@ -4,8 +4,11 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 import { CreateFundForm } from "@/components/fund/create-fund-form";
-import { Box, Card, Flex, Heading } from "@/components/ui";
+import { OnboardingStepper } from "@/components/onboarding/onboarding-stepper";
+import { Flex, Heading, Text } from "@/components/ui";
+import { getUserGroup } from "@/db/queries/groups";
 import { requireUser } from "@/db/session";
+import { redirect } from "@/i18n/navigation";
 import { routing } from "@/i18n/routing";
 
 export async function generateMetadata(
@@ -22,7 +25,6 @@ export async function generateMetadata(
   };
 }
 
-// Also reached by someone who already has a fund: it is how a second one gets created.
 export default async function OnboardingPage(
   props: PageProps<"/[locale]/onboarding">,
 ) {
@@ -31,21 +33,25 @@ export default async function OnboardingPage(
 
   setRequestLocale(locale);
 
-  await requireUser();
+  const [, group, t] = await Promise.all([
+    requireUser(),
+    getUserGroup(),
+    getTranslations("onboarding"),
+  ]);
 
-  const t = await getTranslations("onboarding");
+  // RF-55: one group per user. A returning leader resumes the flow at the next
+  // step; they never fork a second group.
+  if (group) redirect({ href: "/onboarding/accounts", locale });
 
   return (
-    <Flex asChild flexGrow="1" align="center" justify="center" p="4">
+    <Flex asChild direction="column" gap="5">
       <main>
-        <Box width="100%" maxWidth="24rem">
-          <Card>
-            <Flex direction="column" gap="4">
-              <Heading size="5">{t("title")}</Heading>
-              <CreateFundForm />
-            </Flex>
-          </Card>
-        </Box>
+        <OnboardingStepper current={1} />
+        <Flex direction="column" gap="2">
+          <Heading size="7">{t("title")}</Heading>
+          <Text color="gray">{t("subtitle")}</Text>
+        </Flex>
+        <CreateFundForm />
       </main>
     </Flex>
   );

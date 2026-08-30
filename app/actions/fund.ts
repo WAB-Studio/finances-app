@@ -19,5 +19,5 @@ export const createGroupAction = authActionClient
     const locale = await getLocale();
     await createGroup({ name, leaderName: memberName, cashMode: "shared", locale });
 
-    redirect({ href: "/", locale });
+    redirect({ href: "/onboarding/accounts", locale });
   });
