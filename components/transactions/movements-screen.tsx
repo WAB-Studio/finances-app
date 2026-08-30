@@ -42,6 +42,9 @@ type MovementsFilters = {
   member: string | null;
   account: string | null;
   category: string | null;
+  // The deep-link flag: kept through any chip change so the filtered view stays
+  // put until the user clears the filters (RF-31).
+  unreviewed: boolean;
 };
 
 // A Radix Select item may not carry an empty value, so the "any" option rides
@@ -141,6 +144,7 @@ export function MovementsScreen({
 
   const filtersActive =
     filters.type !== "all" ||
+    filters.unreviewed ||
     Boolean(
       filters.from ||
         filters.to ||
@@ -159,6 +163,7 @@ export function MovementsScreen({
     if (next.member) query.member = next.member;
     if (next.account) query.account = next.account;
     if (next.category) query.category = next.category;
+    if (next.unreviewed) query.unreviewed = "1";
     return query;
   }
 
@@ -331,6 +336,7 @@ export function MovementsScreen({
                     subtitle={rowSubtitle(row, accountNames)}
                     color={rowColor(row, categoryColors)}
                     amount={rowAmount(row, format)}
+                    badge={row.recurringRuleId !== null ? t("autoBadge") : undefined}
                   />
                 ))}
               </Flex>
@@ -426,12 +432,14 @@ function MovementCard({
   subtitle,
   color,
   amount,
+  badge,
 }: {
   row: TransactionListRow;
   title: string;
   subtitle?: string;
   color: string | null;
   amount: string;
+  badge?: string;
 }) {
   const tone =
     row.kind === "income"
@@ -449,6 +457,7 @@ function MovementCard({
           subtitle={subtitle}
           amount={amount}
           tone={tone}
+          badge={badge}
         />
       </LocaleLink>
     </Card>

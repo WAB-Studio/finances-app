@@ -77,7 +77,7 @@ export function RecurringScreen({
       {/* Generated movements land marked automatic until confirmed (RF-31); the
           banner leads to the ledger to review them, and stays hidden at zero. */}
       {unreviewedCount > 0 && (
-        <LocaleLink href="/movements" style={{ textDecoration: "none" }}>
+        <LocaleLink href="/movements?unreviewed=1" style={{ textDecoration: "none" }}>
           <Callout.Root color="amber" variant="soft">
             <Callout.Icon>
               <TriangleAlert size={16} aria-hidden />

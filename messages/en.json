@@ -95,6 +95,7 @@
     "monthIncome": "Income this month",
     "monthExpense": "Expenses this month",
     "monthNet": "Net this month",
+    "unreviewedBadge": "{count, plural, one {# to review} other {# to review}}",
     "viewReports": "View reports"
   },
   "reports": {
@@ -294,6 +295,9 @@
     "labels": "Labels",
     "edit": "Edit",
     "delete": "Delete",
+    "autoBadge": "Auto",
+    "confirm": "Confirm",
+    "confirmedToast": "Movement confirmed.",
     "deleteTitle": "Delete movement",
     "deleteDescription": "This action cannot be undone.",
     "splitTitle": "Split movement",

@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, desc, eq, gte, lte, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 
 import { transactionLabels, transactionSplits, transactions } from "@/db/schema";
@@ -43,6 +43,9 @@ export type TransactionListFilters = {
   accountId?: string;
   categoryId?: string;
   kind?: string;
+  // The deep-link target: keep only generated movements still awaiting review
+  // (`recurring_rule_id is not null and reviewed_at is null`), RF-31.
+  unreviewed?: boolean;
 };
 
 export type TransactionListRow = {
@@ -54,6 +57,10 @@ export type TransactionListRow = {
   fromAccountId: string | null;
   toAccountId: string | null;
   createdBy: string;
+  // A generated movement carries its rule id; a manual one has none. The review
+  // stamp is null until it is confirmed or its amount corrected (RF-31).
+  recurringRuleId: string | null;
+  reviewedAt: Date | null;
   splits: { categoryId: string; amountCents: number }[];
   labels: { id: string; name: string; color: string | null }[];
 };
@@ -232,6 +239,14 @@ export async function listTransactions(
     );
   }
   if (filters.kind) conditions.push(eq(transactions.kind, filters.kind));
+  if (filters.unreviewed) {
+    conditions.push(
+      and(
+        isNotNull(transactions.recurringRuleId),
+        isNull(transactions.reviewedAt),
+      ) as SQL,
+    );
+  }
 
   const splitsJson = sql<{ categoryId: string; amountCents: number }[]>`coalesce((
     select jsonb_agg(jsonb_build_object('categoryId', s.category_id, 'amountCents', s.amount_cents))
@@ -256,6 +271,8 @@ export async function listTransactions(
         fromAccountId: transactions.fromAccountId,
         toAccountId: transactions.toAccountId,
         createdBy: transactions.createdBy,
+        recurringRuleId: transactions.recurringRuleId,
+        reviewedAt: transactions.reviewedAt,
         splits: splitsJson,
         labels: labelsJson,
       })

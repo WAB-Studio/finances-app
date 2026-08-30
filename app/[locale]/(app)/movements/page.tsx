@@ -27,6 +27,13 @@ const nonEmpty = z
   .catch(() => undefined as unknown as string)
   .optional();
 
+// The banner and the dashboard badge deep-link here with `?unreviewed=1`; any
+// other value drops the flag, so the ledger stays unfiltered.
+const flag = z
+  .literal("1")
+  .transform(() => true)
+  .catch(() => false);
+
 const searchParamsSchema = z.object({
   type: z.enum(["all", "expense", "income", "transfer"]).catch("all"),
   from: civilDate,
@@ -34,6 +41,7 @@ const searchParamsSchema = z.object({
   member: nonEmpty,
   account: nonEmpty,
   category: nonEmpty,
+  unreviewed: flag,
 });
 
 export async function generateMetadata(
@@ -67,6 +75,7 @@ export default async function MovementsPage(
     memberUserId: parsed.member,
     accountId: parsed.account,
     categoryId: parsed.category,
+    unreviewed: parsed.unreviewed,
   };
 
   const [rows, options] = await Promise.all([
@@ -86,6 +95,7 @@ export default async function MovementsPage(
           member: parsed.member ?? null,
           account: parsed.account ?? null,
           category: parsed.category ?? null,
+          unreviewed: parsed.unreviewed,
         }}
       />
     </Page>

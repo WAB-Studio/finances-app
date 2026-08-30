@@ -95,6 +95,7 @@
     "monthIncome": "Ingresos del mes",
     "monthExpense": "Gastos del mes",
     "monthNet": "Neto del mes",
+    "unreviewedBadge": "{count, plural, one {# sin revisar} other {# sin revisar}}",
     "viewReports": "Ver reportes"
   },
   "reports": {
@@ -294,6 +295,9 @@
     "labels": "Etiquetas",
     "edit": "Editar",
     "delete": "Eliminar",
+    "autoBadge": "Auto",
+    "confirm": "Confirmar",
+    "confirmedToast": "Movimiento confirmado.",
     "deleteTitle": "Eliminar movimiento",
     "deleteDescription": "Esta acción no se puede deshacer.",
     "splitTitle": "Dividir movimiento",
