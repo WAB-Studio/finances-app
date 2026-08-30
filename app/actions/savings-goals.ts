@@ -1,0 +1,140 @@
+"use server";
+
+import { refresh } from "next/cache";
+
+import { getUserGroup } from "@/db/queries/groups";
+import {
+  addGoalContribution,
+  createGoal,
+  deleteGoal,
+  removeGoalContribution,
+  updateGoal,
+} from "@/db/queries/savings-goals";
+import { pgErrorCode } from "@/lib/db-error";
+import { ActionError } from "@/lib/errors";
+import { parsePesos, pesosToCents } from "@/lib/money";
+import { authActionClient } from "@/lib/safe-action";
+import {
+  contributeGoalSchema,
+  createGoalSchema,
+  deleteGoalSchema,
+  removeGoalContributionSchema,
+  updateGoalSchema,
+} from "@/lib/validation/savings-goal";
+
+// The amount arrives as a Zod-validated peso string; parsing it into cents here
+// can only fail if the schema let something through it should not have.
+function toCents(amount: string): number {
+  const pesos = parsePesos(amount);
+  if (pesos === null) throw new ActionError("errors.unexpected");
+  return pesosToCents(pesos);
+}
+
+// A scope mismatch on the goal's account, or on a contributed movement, raises
+// 23514; a missing account or movement trips a foreign key; a denied write
+// reads the same as a goal that was never there.
+function mapGoalError(error: unknown): never {
+  const code = pgErrorCode(error);
+  if (code === "42501") throw new ActionError("errors.notFound");
+  if (code === "23514") throw new ActionError("goals.errors.scopeViolation");
+  if (code === "23503") throw new ActionError("errors.notFound");
+  throw error;
+}
+
+/**
+ * Creates a savings goal (RF-76). The scope follows the named account when the
+ * caller belongs to a group, otherwise their personal set; the account, when
+ * given, must share it.
+ */
+export const createGoalAction = authActionClient
+  .inputSchema(createGoalSchema)
+  .action(async ({ parsedInput: { targetAmount, targetDate, accountId, ...goal }, ctx }) => {
+    const targetAmountCents = toCents(targetAmount);
+
+    const group = await getUserGroup();
+    const scope = group
+      ? { ownerUserId: null, groupId: group.id }
+      : { ownerUserId: ctx.user.id, groupId: null };
+
+    let goalId: string;
+    try {
+      ({ goalId } = await createGoal({
+        ...goal,
+        ...scope,
+        targetAmountCents,
+        targetDate: targetDate ?? null,
+        accountId: accountId ?? null,
+      }));
+    } catch (error) {
+      mapGoalError(error);
+    }
+
+    refresh();
+    return { goalId };
+  });
+
+/**
+ * Rewrites a goal's editable fields (RF-76). The scope is immutable and never
+ * travels in the payload, so a denied edit reports as no row.
+ */
+export const updateGoalAction = authActionClient
+  .inputSchema(updateGoalSchema)
+  .action(async ({ parsedInput: { targetAmount, targetDate, accountId, ...goal } }) => {
+    const targetAmountCents = toCents(targetAmount);
+
+    let updated: boolean;
+    try {
+      updated = await updateGoal({
+        ...goal,
+        targetAmountCents,
+        targetDate: targetDate ?? null,
+        accountId: accountId ?? null,
+      });
+    } catch (error) {
+      mapGoalError(error);
+    }
+
+    if (!updated) throw new ActionError("errors.notFound");
+
+    refresh();
+  });
+
+export const deleteGoalAction = authActionClient
+  .inputSchema(deleteGoalSchema)
+  .action(async ({ parsedInput: { goalId } }) => {
+    const deleted = await deleteGoal({ goalId });
+    if (!deleted) throw new ActionError("errors.notFound");
+
+    refresh();
+  });
+
+/**
+ * Earmarks part of an existing movement toward a goal (RF-77). The movement
+ * must share the goal's scope, which the `assert_goal_contribution_scope`
+ * trigger checks; the amount arrives as a peso string.
+ */
+export const contributeGoalAction = authActionClient
+  .inputSchema(contributeGoalSchema)
+  .action(async ({ parsedInput: { goalId, transactionId, amount } }) => {
+    const amountCents = toCents(amount);
+
+    let contributionId: string;
+    try {
+      ({ contributionId } = await addGoalContribution({ goalId, transactionId, amountCents }));
+    } catch (error) {
+      mapGoalError(error);
+    }
+
+    refresh();
+    return { contributionId };
+  });
+
+// A false row count is a contribution that was denied or already gone (RF-77).
+export const removeGoalContributionAction = authActionClient
+  .inputSchema(removeGoalContributionSchema)
+  .action(async ({ parsedInput: { contributionId } }) => {
+    const removed = await removeGoalContribution({ contributionId });
+    if (!removed) throw new ActionError("errors.notFound");
+
+    refresh();
+  });

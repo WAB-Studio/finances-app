@@ -71,3 +71,46 @@ export function lastSixMonthStarts(): string[] {
   const current = currentMonthStart();
   return [5, 4, 3, 2, 1, 0].map((back) => shiftMonthStart(current, -back));
 }
+
+// Half-open `[Monday, next Monday)` for the Bogotá week around `reference`. The
+// day-of-week is read from the midday-UTC instant, so no local offset shifts it.
+export function weekRange(reference: string): {
+  start: string;
+  endExclusive: string;
+} {
+  const monday = civilDateToDate(reference);
+  // `getUTCDay` is 0 for Sunday; `+ 6 mod 7` counts the days back to Monday.
+  monday.setUTCDate(monday.getUTCDate() - ((monday.getUTCDay() + 6) % 7));
+  const start = dateToCivilDate(monday);
+  monday.setUTCDate(monday.getUTCDate() + 7);
+  return { start, endExclusive: dateToCivilDate(monday) };
+}
+
+// Half-open `[Jan 01 of that year, next Jan 01)` for the year `reference` sits in.
+export function yearRange(reference: string): {
+  start: string;
+  endExclusive: string;
+} {
+  const jan = civilDateToDate(reference);
+  jan.setUTCMonth(0);
+  jan.setUTCDate(1);
+  const start = dateToCivilDate(jan);
+  jan.setUTCFullYear(jan.getUTCFullYear() + 1);
+  return { start, endExclusive: dateToCivilDate(jan) };
+}
+
+// The half-open window a budget's period spans around `reference` (RF-72).
+export function periodRange(
+  period: "monthly" | "weekly" | "yearly",
+  reference: string,
+): { start: string; endExclusive: string } {
+  switch (period) {
+    case "weekly":
+      return weekRange(reference);
+    case "yearly":
+      return yearRange(reference);
+    default:
+      // The month `reference` sits in, snapped to its first day.
+      return monthRange(`${reference.slice(0, 7)}-01`);
+  }
+}

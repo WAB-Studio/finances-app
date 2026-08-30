@@ -135,6 +135,9 @@ async function main() {
   await checkRepivotPolicies();
   await checkLedgerPolicies();
   await checkAnalyticsAggregates();
+  await checkBudgetPolicies();
+  await checkPlannedPaymentPolicies();
+  await checkSavingsGoalPolicies();
 }
 
 // Assertions 9-26: the repivoted schema. A group holds accounts and categories a user XOR a group
@@ -882,6 +885,546 @@ async function checkAnalyticsAggregates() {
     tailLabel,
     afterUser === "postgres" && probeCount === "0",
     `current_user = ${afterUser}, rows named 'rls analytics%' = ${probeCount}`,
+  );
+}
+
+// Assertions 44-50: the budgets table. A budget names an expense category of its own scope; the scope
+// trigger refuses a foreign or income category; spent derives from the category's expense splits in the
+// window, narrowed to one account when the budget names it; any group member writes a group budget and
+// a second group's budgets stay invisible. Every fixture is seeded through the app's own policies and
+// rolled back.
+async function checkBudgetPolicies() {
+  console.log("");
+  const leaderUser = randomUUID();
+  const memberUser = randomUUID();
+  const secondLeader = randomUUID();
+  const groupId = randomUUID();
+  const secondGroup = randomUUID();
+
+  const labels = [
+    "44. a personal budget on an expense category of the caller's scope inserts",
+    "45. a budget whose category sits in another scope is refused",
+    "46. a budget on an income category is refused",
+    "47. spent sums the category's expense splits in the window; a transfer and a foreign-category expense add nothing",
+    "48. an account-scoped budget counts only splits whose movement touches that account",
+    "49. a plain member inserts, updates and deletes a group budget",
+    "50. a member reads the group budget while a second group's budget stays invisible",
+  ];
+  const tailLabel = "51. the rolled-back budget transaction leaves no trace";
+
+  // Spent derives from the splits on the budget's category, over the window's expenses, optionally
+  // narrowed to the movements touching one account (RF-72).
+  const spentSum = (
+    q: postgres.TransactionSql,
+    categoryId: string,
+    start: string,
+    endExclusive: string,
+    accountId: string | null,
+  ) =>
+    q<{ spent_cents: string }[]>`
+      select coalesce(sum(s.amount_cents), 0) as spent_cents
+      from transaction_splits s
+      join transactions t on t.id = s.transaction_id
+      where s.category_id = ${categoryId}
+        and t.kind = 'expense'
+        and t.occurred_at >= ${start} and t.occurred_at < ${endExclusive}
+        and (${accountId}::uuid is null
+          or t.from_account_id = ${accountId} or t.to_account_id = ${accountId})`;
+
+  const forcedRollback = Symbol("forced rollback");
+
+  await sql
+    .begin(async (tx) => {
+      await tx`insert into auth.users (id) values (${leaderUser}), (${memberUser}), (${secondLeader})`;
+      await tx`insert into app_users (id) values (${leaderUser}), (${memberUser}), (${secondLeader})`;
+
+      await enterUserContext(tx, leaderUser);
+      await tx`insert into groups (id, name, cash_mode) values (${groupId}, 'rls budgets', 'shared')`;
+      await tx`insert into group_members (group_id, user_id, name, role)
+        values (${groupId}, ${leaderUser}, 'rls budgets leader', 'leader')`;
+
+      // The window bounds the report receives: the first of the current Bogotá month and the next.
+      const [{ start: winStart, end_exclusive: winEnd }] = await tx<
+        { start: string; end_exclusive: string }[]
+      >`select
+          to_char(date_trunc('month', now() at time zone 'America/Bogota'), 'YYYY-MM-DD') as start,
+          to_char(date_trunc('month', now() at time zone 'America/Bogota') + interval '1 month', 'YYYY-MM-DD') as end_exclusive`;
+
+      const [{ id: leaderAccountA }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_on)
+        values (${leaderUser}, 'rls budgets leader cash A', 'asset', (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: leaderAccountB }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_on)
+        values (${leaderUser}, 'rls budgets leader cash B', 'asset', (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: budgetCat }] = await tx<{ id: string }[]>`
+        insert into categories (owner_user_id, name, kind)
+        values (${leaderUser}, 'rls budgets category', 'expense') returning id`;
+      const [{ id: otherCat }] = await tx<{ id: string }[]>`
+        insert into categories (owner_user_id, name, kind)
+        values (${leaderUser}, 'rls budgets other category', 'expense') returning id`;
+      const [{ id: accountCat }] = await tx<{ id: string }[]>`
+        insert into categories (owner_user_id, name, kind)
+        values (${leaderUser}, 'rls budgets account category', 'expense') returning id`;
+      const [{ id: incomeCat }] = await tx<{ id: string }[]>`
+        insert into categories (owner_user_id, name, kind)
+        values (${leaderUser}, 'rls budgets income category', 'income') returning id`;
+      const [{ id: groupExpenseCat }] = await tx<{ id: string }[]>`
+        insert into categories (group_id, name, kind)
+        values (${groupId}, 'rls budgets group category', 'expense') returning id`;
+
+      // 44: a budget on an expense category of the caller's own scope lands.
+      const inserted = await tx<{ id: string }[]>`
+        insert into budgets (owner_user_id, category_id, period, limit_cents, threshold_pct, name)
+        values (${leaderUser}, ${budgetCat}, 'monthly', 50000, 80, 'rls budgets personal') returning id`;
+      assert(labels[0], inserted.length === 1, `inserted rows = ${inserted.length}`);
+
+      // 45: the scope trigger refuses a category from another scope (a group category on a personal budget).
+      await tx
+        .savepoint(async (sp) => {
+          await sp`insert into budgets (owner_user_id, category_id, period, limit_cents, threshold_pct)
+            values (${leaderUser}, ${groupExpenseCat}, 'monthly', 50000, 80)`;
+          assert(labels[1], false, "a foreign-scope category stood, which it must not");
+        })
+        .catch((error: unknown) => {
+          assert(labels[1], pgCode(error) === "23514", `sqlstate ${pgCode(error) ?? "none"}`);
+        });
+
+      // 46: the scope trigger refuses an income category — a budget caps spending (RF-71).
+      await tx
+        .savepoint(async (sp) => {
+          await sp`insert into budgets (owner_user_id, category_id, period, limit_cents, threshold_pct)
+            values (${leaderUser}, ${incomeCat}, 'monthly', 50000, 80)`;
+          assert(labels[2], false, "an income category stood, which it must not");
+        })
+        .catch((error: unknown) => {
+          assert(labels[2], pgCode(error) === "23514", `sqlstate ${pgCode(error) ?? "none"}`);
+        });
+
+      // 47: one expense on the budget's category (7000), one transfer, one expense on another category (3000).
+      const [{ id: budgetExpense }] = await tx<{ id: string }[]>`
+        insert into transactions (from_account_id, amount_cents, occurred_at)
+        values (${leaderAccountA}, 7000, (now() at time zone 'America/Bogota')::date) returning id`;
+      await tx`insert into transaction_splits (transaction_id, category_id, amount_cents)
+        values (${budgetExpense}, ${budgetCat}, 7000)`;
+      await tx`insert into transactions (from_account_id, to_account_id, amount_cents, occurred_at)
+        values (${leaderAccountA}, ${leaderAccountB}, 2000, (now() at time zone 'America/Bogota')::date)`;
+      const [{ id: otherExpense }] = await tx<{ id: string }[]>`
+        insert into transactions (from_account_id, amount_cents, occurred_at)
+        values (${leaderAccountA}, 3000, (now() at time zone 'America/Bogota')::date) returning id`;
+      await tx`insert into transaction_splits (transaction_id, category_id, amount_cents)
+        values (${otherExpense}, ${otherCat}, 3000)`;
+      const [{ spent_cents: budgetSpent }] = await spentSum(tx, budgetCat, winStart, winEnd, null);
+      assert(
+        labels[3],
+        Number(budgetSpent) === 7000,
+        `spent = ${budgetSpent} (expected 7000, the transfer and the 3000 other-category expense excluded)`,
+      );
+
+      // 48: an account-scoped budget. Two expenses on one category, from two accounts, only one named.
+      const [{ id: accountBudget }] = await tx<{ id: string }[]>`
+        insert into budgets (owner_user_id, category_id, account_id, period, limit_cents, threshold_pct)
+        values (${leaderUser}, ${accountCat}, ${leaderAccountA}, 'monthly', 100000, 90) returning id`;
+      const [{ id: onAccount }] = await tx<{ id: string }[]>`
+        insert into transactions (from_account_id, amount_cents, occurred_at)
+        values (${leaderAccountA}, 4000, (now() at time zone 'America/Bogota')::date) returning id`;
+      await tx`insert into transaction_splits (transaction_id, category_id, amount_cents)
+        values (${onAccount}, ${accountCat}, 4000)`;
+      const [{ id: offAccount }] = await tx<{ id: string }[]>`
+        insert into transactions (from_account_id, amount_cents, occurred_at)
+        values (${leaderAccountB}, 2000, (now() at time zone 'America/Bogota')::date) returning id`;
+      await tx`insert into transaction_splits (transaction_id, category_id, amount_cents)
+        values (${offAccount}, ${accountCat}, 2000)`;
+      const [{ spent_cents: narrowed }] = await spentSum(tx, accountCat, winStart, winEnd, leaderAccountA);
+      const [{ spent_cents: unnarrowed }] = await spentSum(tx, accountCat, winStart, winEnd, null);
+      assert(
+        labels[4],
+        Number(narrowed) === 4000 && Number(unnarrowed) === 6000,
+        `narrowed to the account = ${narrowed} (expected 4000), across accounts = ${unnarrowed} (expected 6000), budget ${accountBudget !== null}`,
+      );
+
+      // A group budget the plain member reads below, and a second group's budget it must never see.
+      const [{ id: groupBudget }] = await tx<{ id: string }[]>`
+        insert into budgets (group_id, category_id, period, limit_cents, threshold_pct, name)
+        values (${groupId}, ${groupExpenseCat}, 'monthly', 80000, 70, 'rls budgets group') returning id`;
+
+      // The plain member: seed the membership as the owner, no policy hands one out.
+      await tx`reset role`;
+      await tx`insert into group_members (group_id, user_id, name, role)
+        values (${groupId}, ${memberUser}, 'rls budgets member', 'member')`;
+
+      // The second group, seeded through its own leader's context.
+      await enterUserContext(tx, secondLeader);
+      await tx`insert into groups (id, name, cash_mode) values (${secondGroup}, 'rls budgets second', 'shared')`;
+      await tx`insert into group_members (group_id, user_id, name, role)
+        values (${secondGroup}, ${secondLeader}, 'rls budgets second leader', 'leader')`;
+      const [{ id: secondCat }] = await tx<{ id: string }[]>`
+        insert into categories (group_id, name, kind)
+        values (${secondGroup}, 'rls budgets second category', 'expense') returning id`;
+      const [{ id: secondBudget }] = await tx<{ id: string }[]>`
+        insert into budgets (group_id, category_id, period, limit_cents, threshold_pct)
+        values (${secondGroup}, ${secondCat}, 'monthly', 90000, 60) returning id`;
+
+      // 49: a plain member writes a group budget — insert, update and delete all land (any-member rule).
+      await enterUserContext(tx, memberUser);
+      const memberInsert = await tx<{ id: string }[]>`
+        insert into budgets (group_id, category_id, period, limit_cents, threshold_pct, name)
+        values (${groupId}, ${groupExpenseCat}, 'weekly', 20000, 50, 'rls budgets member owned') returning id`;
+      const memberBudget = memberInsert[0]?.id;
+      const memberUpdate = await tx`update budgets set limit_cents = 25000 where id = ${memberBudget}`;
+      const memberDelete = await tx`delete from budgets where id = ${memberBudget}`;
+      assert(
+        labels[5],
+        memberInsert.length === 1 && memberUpdate.count === 1 && memberDelete.count === 1,
+        `insert rows = ${memberInsert.length}, update rows = ${memberUpdate.count}, delete rows = ${memberDelete.count}`,
+      );
+
+      // 50: the member reads the group budget through the universal read; the second group's stays hidden.
+      const [{ count: seesGroup }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from budgets where id = ${groupBudget}`;
+      const [{ count: seesSecond }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from budgets where id = ${secondBudget}`;
+      assert(
+        labels[6],
+        seesGroup === "1" && seesSecond === "0",
+        `member→group budget = ${seesGroup}, member→second group budget = ${seesSecond}`,
+      );
+
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`select current_user`;
+  const [{ count: probeCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from groups where name like 'rls budgets%'`;
+  assert(
+    tailLabel,
+    afterUser === "postgres" && probeCount === "0",
+    `current_user = ${afterUser}, rows named 'rls budgets%' = ${probeCount}`,
+  );
+}
+
+// Assertions 52-56: the planned_payments table. The scope and `created_by` are the trigger's, not the
+// caller's; write is bounded to own-or-shared accounts; settling from pending is a one-shot idempotent
+// link; the settled link is permanent and a done row never returns to pending; and a second group's
+// payments stay invisible. Every fixture is seeded through the app's own policies and rolled back.
+async function checkPlannedPaymentPolicies() {
+  console.log("");
+  const leaderUser = randomUUID();
+  const memberUser = randomUUID();
+  const secondLeader = randomUUID();
+  const groupId = randomUUID();
+  const secondGroup = randomUUID();
+
+  const labels = [
+    "52. a planned payment holds the trigger's derived scope and created_by, not the caller's",
+    "53. a payment touching another member's personal account is refused",
+    "54. settling from pending links the transaction once; the second settle touches nothing",
+    "55. rewriting the settled transaction is refused, and a done payment cannot return to pending",
+    "56. a member reads the group payment while a second group's payment stays invisible",
+  ];
+  const tailLabel = "57. the rolled-back planned payment transaction leaves no trace";
+
+  const forcedRollback = Symbol("forced rollback");
+
+  await sql
+    .begin(async (tx) => {
+      await tx`insert into auth.users (id) values (${leaderUser}), (${memberUser}), (${secondLeader})`;
+      await tx`insert into app_users (id) values (${leaderUser}), (${memberUser}), (${secondLeader})`;
+
+      await enterUserContext(tx, leaderUser);
+      await tx`insert into groups (id, name, cash_mode) values (${groupId}, 'rls payments', 'shared')`;
+      await tx`insert into group_members (group_id, user_id, name, role)
+        values (${groupId}, ${leaderUser}, 'rls payments leader', 'leader')`;
+
+      const [{ id: leaderAccountA }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_on)
+        values (${leaderUser}, 'rls payments leader cash A', 'asset', (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: leaderAccountB }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_on)
+        values (${leaderUser}, 'rls payments leader cash B', 'asset', (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: sharedAccount }] = await tx<{ id: string }[]>`
+        insert into accounts (group_id, is_shared, name, kind, initial_balance_on)
+        values (${groupId}, true, 'rls payments shared cash', 'asset', (now() at time zone 'America/Bogota')::date) returning id`;
+
+      // Two real movements the payments settle into.
+      const [{ id: settleTxn }] = await tx<{ id: string }[]>`
+        insert into transactions (from_account_id, to_account_id, amount_cents, occurred_at)
+        values (${leaderAccountA}, ${leaderAccountB}, 4000, (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: otherTxn }] = await tx<{ id: string }[]>`
+        insert into transactions (from_account_id, to_account_id, amount_cents, occurred_at)
+        values (${leaderAccountB}, ${leaderAccountA}, 1000, (now() at time zone 'America/Bogota')::date) returning id`;
+
+      // 52: a payment touching the shared account is group-scoped, its creator stamped — both by the trigger.
+      const [groupPayment] = await tx<
+        { id: string; owner_user_id: string | null; group_id: string | null; created_by: string; status: string }[]
+      >`insert into planned_payments (from_account_id, to_account_id, amount_cents, due_date)
+        values (${leaderAccountA}, ${sharedAccount}, 6000, (now() at time zone 'America/Bogota')::date)
+        returning id, owner_user_id, group_id, created_by, status`;
+      assert(
+        labels[0],
+        groupPayment.group_id === groupId &&
+          groupPayment.owner_user_id === null &&
+          groupPayment.created_by === leaderUser &&
+          groupPayment.status === "pending",
+        `group_id = ${groupPayment.group_id === groupId}, owner = ${groupPayment.owner_user_id}, created_by = ${groupPayment.created_by === leaderUser}, status = ${groupPayment.status}`,
+      );
+
+      // A personal pending payment to settle below.
+      const [{ id: settlePayment }] = await tx<{ id: string }[]>`
+        insert into planned_payments (from_account_id, amount_cents, due_date)
+        values (${leaderAccountA}, 3000, (now() at time zone 'America/Bogota')::date) returning id`;
+
+      // The plain member and their personal account, seeded through their own context.
+      await tx`reset role`;
+      await tx`insert into group_members (group_id, user_id, name, role)
+        values (${groupId}, ${memberUser}, 'rls payments member', 'member')`;
+      await enterUserContext(tx, memberUser);
+      const [{ id: memberAccount }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_on)
+        values (${memberUser}, 'rls payments member cash', 'asset', (now() at time zone 'America/Bogota')::date) returning id`;
+
+      // 53: the bounded write — the leader may not plan a payment out of the member's personal account.
+      await enterUserContext(tx, leaderUser);
+      await tx
+        .savepoint(async (sp) => {
+          await sp`insert into planned_payments (from_account_id, amount_cents, due_date)
+            values (${memberAccount}, 3000, (now() at time zone 'America/Bogota')::date)`;
+          assert(labels[1], false, "a payment on another's account stood, which it must not");
+        })
+        .catch((error: unknown) => {
+          assert(labels[1], pgCode(error) === "42501", `sqlstate ${pgCode(error) ?? "none"}`);
+        });
+
+      // 54: the settle is a one-shot guarded by the status. The first stamps and links, the second no-ops.
+      const firstSettle = await tx<{ settled_transaction_id: string | null }[]>`
+        update planned_payments set status = 'done', settled_transaction_id = ${settleTxn}
+        where id = ${settlePayment} and status = 'pending'
+        returning settled_transaction_id`;
+      const secondSettle = await tx`update planned_payments set status = 'done', settled_transaction_id = ${settleTxn}
+        where id = ${settlePayment} and status = 'pending'`;
+      assert(
+        labels[2],
+        firstSettle.count === 1 &&
+          firstSettle[0].settled_transaction_id === settleTxn &&
+          secondSettle.count === 0,
+        `first settle rows = ${firstSettle.count}, linked = ${firstSettle[0]?.settled_transaction_id === settleTxn}, second settle rows = ${secondSettle.count}`,
+      );
+
+      // 55: the settled link is permanent, and a done payment never returns to pending (RF-75).
+      let rewriteCode: string | undefined;
+      let revertCode: string | undefined;
+      await tx
+        .savepoint(async (sp) => {
+          await sp`update planned_payments set settled_transaction_id = ${otherTxn} where id = ${settlePayment}`;
+          assert(labels[3], false, "the settled link was rewritten, which it must not be");
+        })
+        .catch((error: unknown) => {
+          rewriteCode = pgCode(error);
+        });
+      await tx
+        .savepoint(async (sp) => {
+          await sp`update planned_payments set status = 'pending' where id = ${settlePayment}`;
+          assert(labels[3], false, "a done payment returned to pending, which it must not");
+        })
+        .catch((error: unknown) => {
+          revertCode = pgCode(error);
+        });
+      assert(
+        labels[3],
+        rewriteCode === "23514" && revertCode === "23514",
+        `rewrite sqlstate ${rewriteCode ?? "none"}, revert sqlstate ${revertCode ?? "none"}`,
+      );
+
+      // A second group whose payments the first member must never see, seeded through its own leader.
+      await tx`reset role`;
+      await enterUserContext(tx, secondLeader);
+      await tx`insert into groups (id, name, cash_mode) values (${secondGroup}, 'rls payments second', 'shared')`;
+      await tx`insert into group_members (group_id, user_id, name, role)
+        values (${secondGroup}, ${secondLeader}, 'rls payments second leader', 'leader')`;
+      const [{ id: secondAccount }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_on)
+        values (${secondLeader}, 'rls payments second cash', 'asset', (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: secondPayment }] = await tx<{ id: string }[]>`
+        insert into planned_payments (from_account_id, amount_cents, due_date)
+        values (${secondAccount}, 5000, (now() at time zone 'America/Bogota')::date) returning id`;
+
+      // 56: the member reads the group payment through the universal read; the second group's stays hidden.
+      await enterUserContext(tx, memberUser);
+      const [{ count: seesGroup }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from planned_payments where id = ${groupPayment.id}`;
+      const [{ count: seesSecond }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from planned_payments where id = ${secondPayment}`;
+      assert(
+        labels[4],
+        seesGroup === "1" && seesSecond === "0",
+        `member→group payment = ${seesGroup}, member→second group payment = ${seesSecond}`,
+      );
+
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`select current_user`;
+  const [{ count: probeCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from groups where name like 'rls payments%'`;
+  assert(
+    tailLabel,
+    afterUser === "postgres" && probeCount === "0",
+    `current_user = ${afterUser}, rows named 'rls payments%' = ${probeCount}`,
+  );
+}
+
+// Assertions 58-61: the savings_goals and goal_contributions tables. A contribution earmarks a movement
+// of the goal's scope and `goal_progress` derives the saved figure from it; the scope trigger refuses a
+// foreign-scope movement; any group member writes a group goal and attaches a contribution; and a second
+// group's goals stay invisible. Every fixture is seeded through the app's own policies and rolled back.
+async function checkSavingsGoalPolicies() {
+  console.log("");
+  const leaderUser = randomUUID();
+  const memberUser = randomUUID();
+  const secondLeader = randomUUID();
+  const groupId = randomUUID();
+  const secondGroup = randomUUID();
+
+  const labels = [
+    "58. a contribution of the goal's scope inserts and goal_progress derives the saved figure",
+    "59. a contribution earmarking a movement of another scope is refused",
+    "60. a plain member inserts, updates and deletes a group goal and attaches a contribution",
+    "61. a member reads the group goal while a second group's goal stays invisible",
+  ];
+  const tailLabel = "62. the rolled-back savings goal transaction leaves no trace";
+
+  const forcedRollback = Symbol("forced rollback");
+
+  await sql
+    .begin(async (tx) => {
+      await tx`insert into auth.users (id) values (${leaderUser}), (${memberUser}), (${secondLeader})`;
+      await tx`insert into app_users (id) values (${leaderUser}), (${memberUser}), (${secondLeader})`;
+
+      await enterUserContext(tx, leaderUser);
+      await tx`insert into groups (id, name, cash_mode) values (${groupId}, 'rls goals', 'shared')`;
+      await tx`insert into group_members (group_id, user_id, name, role)
+        values (${groupId}, ${leaderUser}, 'rls goals leader', 'leader')`;
+
+      const [{ id: leaderAccountA }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_on)
+        values (${leaderUser}, 'rls goals leader cash A', 'asset', (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: leaderAccountB }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_on)
+        values (${leaderUser}, 'rls goals leader cash B', 'asset', (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: sharedAccount }] = await tx<{ id: string }[]>`
+        insert into accounts (group_id, is_shared, name, kind, initial_balance_on)
+        values (${groupId}, true, 'rls goals shared cash', 'asset', (now() at time zone 'America/Bogota')::date) returning id`;
+
+      // A personal goal and a personal movement that shares its scope.
+      const [{ id: personalGoal }] = await tx<{ id: string }[]>`
+        insert into savings_goals (owner_user_id, name, target_amount_cents)
+        values (${leaderUser}, 'rls goals personal', 200000) returning id`;
+      const [{ id: personalTxn }] = await tx<{ id: string }[]>`
+        insert into transactions (from_account_id, to_account_id, amount_cents, occurred_at)
+        values (${leaderAccountA}, ${leaderAccountB}, 5000, (now() at time zone 'America/Bogota')::date) returning id`;
+      // A group movement, of a different scope, seeded here for the refusal below.
+      const [{ id: groupTxn }] = await tx<{ id: string }[]>`
+        insert into transactions (from_account_id, to_account_id, amount_cents, occurred_at)
+        values (${leaderAccountA}, ${sharedAccount}, 5000, (now() at time zone 'America/Bogota')::date) returning id`;
+
+      // 58: the contribution lands and the derived progress equals it.
+      const contribution = await tx<{ id: string }[]>`
+        insert into goal_contributions (goal_id, transaction_id, amount_cents)
+        values (${personalGoal}, ${personalTxn}, 5000) returning id`;
+      const [{ saved_cents: saved }] = await tx<{ saved_cents: string }[]>`
+        select saved_cents from goal_progress where goal_id = ${personalGoal}`;
+      assert(
+        labels[0],
+        contribution.length === 1 && Number(saved) === 5000,
+        `inserted rows = ${contribution.length}, goal_progress.saved_cents = ${saved} (expected 5000)`,
+      );
+
+      // 59: the scope trigger refuses a movement of another scope on the personal goal.
+      await tx
+        .savepoint(async (sp) => {
+          await sp`insert into goal_contributions (goal_id, transaction_id, amount_cents)
+            values (${personalGoal}, ${groupTxn}, 5000)`;
+          assert(labels[1], false, "a foreign-scope movement was earmarked, which it must not be");
+        })
+        .catch((error: unknown) => {
+          assert(labels[1], pgCode(error) === "23514", `sqlstate ${pgCode(error) ?? "none"}`);
+        });
+
+      // A group goal the plain member reads below, seeded by the leader.
+      const [{ id: groupGoal }] = await tx<{ id: string }[]>`
+        insert into savings_goals (group_id, name, target_amount_cents)
+        values (${groupId}, 'rls goals group', 400000) returning id`;
+
+      // The plain member, seeded through their own context.
+      await tx`reset role`;
+      await tx`insert into group_members (group_id, user_id, name, role)
+        values (${groupId}, ${memberUser}, 'rls goals member', 'member')`;
+
+      // The second group, seeded through its own leader.
+      await enterUserContext(tx, secondLeader);
+      await tx`insert into groups (id, name, cash_mode) values (${secondGroup}, 'rls goals second', 'shared')`;
+      await tx`insert into group_members (group_id, user_id, name, role)
+        values (${secondGroup}, ${secondLeader}, 'rls goals second leader', 'leader')`;
+      const [{ id: secondGoal }] = await tx<{ id: string }[]>`
+        insert into savings_goals (group_id, name, target_amount_cents)
+        values (${secondGroup}, 'rls goals second goal', 300000) returning id`;
+
+      // 60: a plain member writes a group goal — insert, update, contribute and delete all land.
+      await enterUserContext(tx, memberUser);
+      const [{ id: memberAccount }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_on)
+        values (${memberUser}, 'rls goals member cash', 'asset', (now() at time zone 'America/Bogota')::date) returning id`;
+      const memberInsert = await tx<{ id: string }[]>`
+        insert into savings_goals (group_id, name, target_amount_cents)
+        values (${groupId}, 'rls goals member owned', 150000) returning id`;
+      const memberGoal = memberInsert[0]?.id;
+      const memberUpdate = await tx`update savings_goals set name = 'rls goals member renamed' where id = ${memberGoal}`;
+      // A group movement the member may write: their own account into the shared account.
+      const [{ id: memberGroupTxn }] = await tx<{ id: string }[]>`
+        insert into transactions (from_account_id, to_account_id, amount_cents, occurred_at)
+        values (${memberAccount}, ${sharedAccount}, 2500, (now() at time zone 'America/Bogota')::date) returning id`;
+      const memberContribution = await tx<{ id: string }[]>`
+        insert into goal_contributions (goal_id, transaction_id, amount_cents)
+        values (${memberGoal}, ${memberGroupTxn}, 2500) returning id`;
+      const memberDelete = await tx`delete from savings_goals where id = ${memberGoal}`;
+      assert(
+        labels[2],
+        memberInsert.length === 1 &&
+          memberUpdate.count === 1 &&
+          memberContribution.length === 1 &&
+          memberDelete.count === 1,
+        `insert rows = ${memberInsert.length}, update rows = ${memberUpdate.count}, contribution rows = ${memberContribution.length}, delete rows = ${memberDelete.count}`,
+      );
+
+      // 61: the member reads the group goal through the universal read; the second group's stays hidden.
+      const [{ count: seesGroup }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from savings_goals where id = ${groupGoal}`;
+      const [{ count: seesSecond }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from savings_goals where id = ${secondGoal}`;
+      assert(
+        labels[3],
+        seesGroup === "1" && seesSecond === "0",
+        `member→group goal = ${seesGroup}, member→second group goal = ${seesSecond}`,
+      );
+
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`select current_user`;
+  const [{ count: probeCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from groups where name like 'rls goals%'`;
+  assert(
+    tailLabel,
+    afterUser === "postgres" && probeCount === "0",
+    `current_user = ${afterUser}, rows named 'rls goals%' = ${probeCount}`,
   );
 }
 
