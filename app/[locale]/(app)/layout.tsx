@@ -4,8 +4,10 @@ import { notFound } from "next/navigation";
 
 import { AppNav } from "@/components/fund/app-nav";
 import { AppTabs } from "@/components/fund/app-tabs";
+import { QuickEntryProvider } from "@/components/transactions/quick-entry-provider";
 import { Box, Flex, Separator, Text } from "@/components/ui";
 import { getUserGroup } from "@/db/queries/groups";
+import { getTransactionFormOptions } from "@/db/queries/transaction-form";
 import { requireUser } from "@/db/session";
 import { routing } from "@/i18n/routing";
 
@@ -21,14 +23,17 @@ export default async function AppLayout(props: LayoutProps<"/[locale]">) {
   setRequestLocale(locale);
 
   // The proxy already redirected an anonymous visitor; this is what enforces it.
-  const [, group, t] = await Promise.all([
+  // Quick-entry options are fetched here so every route opens the sheet or form
+  // without a second round trip (RF-22).
+  const [, group, options, t] = await Promise.all([
     requireUser(),
     getUserGroup(),
+    getTransactionFormOptions(),
     getTranslations("common"),
   ]);
 
   return (
-    <>
+    <QuickEntryProvider options={options}>
       <Flex
         asChild
         align="center"
@@ -52,6 +57,6 @@ export default async function AppLayout(props: LayoutProps<"/[locale]">) {
       <Box display={{ initial: "block", md: "none" }}>
         <AppTabs hasGroup={group !== null} />
       </Box>
-    </>
+    </QuickEntryProvider>
   );
 }

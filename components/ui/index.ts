@@ -72,3 +72,11 @@ export { StackedSegmentedControl } from "./stacked-segmented-control";
 export { TapTarget } from "./tap-target";
 
 export { Page } from "./page";
+
+export { MovementRow } from "./movement-row";
+
+export { CategoryTile } from "./category-tile";
+
+export { AppMark } from "./app-mark";
+
+export { FundChip } from "./fund-chip";

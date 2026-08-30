@@ -68,16 +68,16 @@ accounting exports, native apps. None of this gets built or left
 
 #### Transactions
 
-- [ ] **RF-17** — Record income (destination account only), expense (source account only) or transfer (both).
-- [ ] **RF-18** — The type is derived from the accounts involved; the user does not choose it.
+- [x] **RF-17** — Record income (destination account only), expense (source account only) or transfer (both).
+- [x] **RF-18** — The type is derived from the accounts involved; the user does not choose it.
 - [ ] **RF-19** — Transfers are excluded from every income and expense report.
-- [ ] **RF-20** — Every transaction has a positive amount and at least one account.
-- [ ] **RF-62** — Both accounts on a transaction belong to the caller's writable scope: their personal accounts and their group's shared accounts.
-- [ ] **RF-22** — Quick entry: a single text field from which amount, category and description are inferred. Anything inferred stays editable before saving.
-- [ ] **RF-23** — Listing with filters by date range, member, account, category and type.
-- [ ] **RF-24** — Edit and delete transactions.
-- [ ] **RF-25** — Every transaction records which user created it.
-- [ ] **RF-69** — Every income or expense splits into one or more (category, amount_cents) rows summing to its amount; a single-category income or expense is one split. A transfer has no splits and no category.
+- [x] **RF-20** — Every transaction has a positive amount and at least one account.
+- [x] **RF-62** — Both accounts on a transaction belong to the caller's writable scope: their personal accounts and their group's shared accounts.
+- [x] **RF-22** — Quick entry: a single text field from which amount, category and description are inferred. Anything inferred stays editable before saving.
+- [x] **RF-23** — Listing with filters by date range, member, account, category and type.
+- [x] **RF-24** — Edit and delete transactions.
+- [x] **RF-25** — Every transaction records which user created it.
+- [x] **RF-69** — Every income or expense splits into one or more (category, amount_cents) rows summing to its amount; a single-category income or expense is one split. A transfer has no splits and no category.
 
 #### Categories
 

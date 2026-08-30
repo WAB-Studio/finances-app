@@ -36,6 +36,7 @@ export type UpdateTransactionArgs = {
 };
 
 export type TransactionListFilters = {
+  id?: string;
   from?: string;
   to?: string;
   memberUserId?: string;
@@ -191,13 +192,16 @@ export async function deleteTransaction({
  * Every matching movement with its splits and labels in ONE round trip: the two
  * child sets ride along as correlated jsonb subselects, never an N+1 follow-up
  * (RF-23). Filters compose in the WHERE; `occurredAt` stays a YYYY-MM-DD string
- * end to end, its bounds compared against the date column with no JS Date.
+ * end to end, its bounds compared against the date column with no JS Date. A
+ * `limit` caps the newest rows for a preview list; without it every match returns.
  */
 export async function listTransactions(
   filters: TransactionListFilters,
+  options?: { limit?: number },
 ): Promise<TransactionListRow[]> {
   const conditions: SQL[] = [];
 
+  if (filters.id) conditions.push(eq(transactions.id, filters.id));
   if (filters.from) conditions.push(gte(transactions.occurredAt, filters.from));
   if (filters.to) conditions.push(lte(transactions.occurredAt, filters.to));
   if (filters.memberUserId) {
@@ -230,8 +234,8 @@ export async function listTransactions(
     where tl.transaction_id = ${transactions.id}
   ), '[]'::jsonb)`;
 
-  return withUserDb(async (tx) =>
-    tx
+  return withUserDb(async (tx) => {
+    const query = tx
       .select({
         id: transactions.id,
         // The generated column never yields null, but its type is nullable; assert it.
@@ -247,6 +251,18 @@ export async function listTransactions(
       })
       .from(transactions)
       .where(conditions.length > 0 ? and(...conditions) : undefined)
-      .orderBy(desc(transactions.occurredAt), desc(transactions.createdAt)),
-  );
+      .orderBy(desc(transactions.occurredAt), desc(transactions.createdAt));
+
+    return options?.limit === undefined ? query : query.limit(options.limit);
+  });
+}
+
+// One movement in one round trip, its splits and labels along (RF-24). RLS scopes
+// the read, so an id the caller may not see returns null, the same as one that
+// was never there.
+export async function getTransactionById(
+  id: string,
+): Promise<TransactionListRow | null> {
+  const [row] = await listTransactions({ id }, { limit: 1 });
+  return row ?? null;
 }

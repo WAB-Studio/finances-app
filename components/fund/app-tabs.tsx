@@ -17,6 +17,7 @@ import { useState } from "react";
 import { SignOutButton } from "@/components/auth/sign-out-button";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { ThemeSwitcher } from "@/components/theme-switcher";
+import { useQuickEntry } from "@/components/transactions/quick-entry-provider";
 import {
   BottomNav,
   type BottomNavTab,
@@ -47,6 +48,7 @@ function settings(
 
 export function AppTabs({ hasGroup }: { hasGroup: boolean }) {
   const t = useTranslations("nav");
+  const { openQuick } = useQuickEntry();
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [renderedPathname, setRenderedPathname] = useState(pathname);
@@ -57,8 +59,7 @@ export function AppTabs({ hasGroup }: { hasGroup: boolean }) {
     setOpen(false);
   }
 
-  // Movs and Planeación wait for their own slices, so they show but do not lead
-  // anywhere yet.
+  // Planeación waits for its own slice, so it shows but does not lead anywhere yet.
   const tabs: BottomNavTab[] = [
     {
       key: "home",
@@ -69,7 +70,8 @@ export function AppTabs({ hasGroup }: { hasGroup: boolean }) {
     },
     {
       key: "movements",
-      disabled: true,
+      href: "/movements",
+      active: pathname.startsWith("/movements"),
       icon: <ArrowRightLeft size={22} />,
       label: t("movements"),
     },
@@ -81,14 +83,15 @@ export function AppTabs({ hasGroup }: { hasGroup: boolean }) {
     },
   ];
 
-  // Quick entry (RF-22) ships in a later slice; the raised action stands in for
-  // it so the bar's shape is settled.
+  // The raised action opens the expense quick sheet in place (RF-22): one tap, no
+  // route change. Income and transfer live behind the sheet's link.
   const centerAction = (
     <IconButton
       type="button"
       size="4"
       radius="full"
       aria-label={t("quickEntry")}
+      onClick={openQuick}
     >
       <Plus size={26} />
     </IconButton>
