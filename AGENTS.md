@@ -17,8 +17,8 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
 - Run the `orchestrator` skill to develop. It dispatches `planner`, `worker` and `validator`.
 - Keep plans in `private/`.
 - Ship one slice at a time.
-- Use the dev server already running. Never kill it.
-- Take `Another next dev server is already running` as the answer. Stop.
+- Start the dev server on :3000 yourself and keep it running. Restart it when you must.
+- Run one instance. Take `Another next dev server is already running` as: one is up, use it.
 
 ## Requirements
 
