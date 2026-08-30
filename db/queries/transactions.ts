@@ -36,6 +36,7 @@ export type UpdateTransactionArgs = {
 };
 
 export type TransactionListFilters = {
+  id?: string;
   from?: string;
   to?: string;
   memberUserId?: string;
@@ -200,6 +201,7 @@ export async function listTransactions(
 ): Promise<TransactionListRow[]> {
   const conditions: SQL[] = [];
 
+  if (filters.id) conditions.push(eq(transactions.id, filters.id));
   if (filters.from) conditions.push(gte(transactions.occurredAt, filters.from));
   if (filters.to) conditions.push(lte(transactions.occurredAt, filters.to));
   if (filters.memberUserId) {
@@ -253,4 +255,14 @@ export async function listTransactions(
 
     return options?.limit === undefined ? query : query.limit(options.limit);
   });
+}
+
+// One movement in one round trip, its splits and labels along (RF-24). RLS scopes
+// the read, so an id the caller may not see returns null, the same as one that
+// was never there.
+export async function getTransactionById(
+  id: string,
+): Promise<TransactionListRow | null> {
+  const [row] = await listTransactions({ id }, { limit: 1 });
+  return row ?? null;
 }

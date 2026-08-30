@@ -9,7 +9,7 @@ import {
   getTransactionFormOptions,
   resolveCreatorNames,
 } from "@/db/queries/transaction-form";
-import { listTransactions } from "@/db/queries/transactions";
+import { getTransactionById } from "@/db/queries/transactions";
 import { routing } from "@/i18n/routing";
 
 export async function generateMetadata(
@@ -31,15 +31,14 @@ export default async function MovementPage(
 
   setRequestLocale(locale);
 
-  // The ledger read is scoped by RLS, so a movement the caller may not see is
-  // simply absent from it; the form options ride the same fan-out for the edit
-  // dialog and the account/category names the detail reads.
-  const [rows, options] = await Promise.all([
-    listTransactions({}),
+  // The read is scoped by RLS, so a movement the caller may not see returns null;
+  // the form options ride the same fan-out for the edit dialog and the
+  // account/category names the detail reads.
+  const [movement, options] = await Promise.all([
+    getTransactionById(id),
     getTransactionFormOptions(),
   ]);
 
-  const movement = rows.find((row) => row.id === id);
   if (!movement) notFound();
 
   // The creator's id names the row; the map turns it into a member's name (an
