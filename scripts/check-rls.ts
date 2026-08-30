@@ -22,11 +22,14 @@ function pgCode(error: unknown): string | undefined {
 async function enterUserContext(
   tx: postgres.TransactionSql,
   subject: string,
+  email?: string,
 ): Promise<void> {
   const claims = JSON.stringify({
     sub: subject,
     role: "authenticated",
     aud: "authenticated",
+    // `auth.email()` reads this claim; the invite-claim policy matches it against `invite_email`.
+    ...(email ? { email } : {}),
   });
   await tx`select set_config('request.jwt.claims', ${claims}, true)`;
   await tx`select set_config('statement_timeout', '8000', true)`;
@@ -144,6 +147,7 @@ async function main() {
   await checkDebtStatementPolicies();
   await checkWebhookCredentialPolicies();
   await checkImpersonationBounds();
+  await checkInviteClaimPolicies();
 }
 
 // Assertions 9-26: the repivoted schema. A group holds accounts and categories a user XOR a group
@@ -2289,6 +2293,126 @@ async function checkImpersonationBounds() {
     tailLabel,
     afterUser === "postgres" && probeCount === "0",
     `current_user = ${afterUser}, rows named 'rls impersonation%' = ${probeCount}`,
+  );
+}
+
+// Assertions 98-102: the invite claim (RF-06). A group carries a pending member — `user_id` null,
+// `invite_email` set — that the invited person claims once their magic link proves that email. The
+// claim policy admits exactly the caller whose `auth.email()` matches the row's `invite_email`, setting
+// `user_id` to their own sub and clearing the invite; a different email is filtered out, and a caller
+// who already holds a live membership is stopped by the one-group index. Every fixture rolls back.
+async function checkInviteClaimPolicies() {
+  console.log("");
+  const leaderUser = randomUUID();
+  const invitedUser = randomUUID();
+  const strangerUser = randomUUID();
+  const busyUser = randomUUID();
+
+  const invitedEmail = `invited-${randomUUID()}@example.test`;
+  const busyEmail = `busy-${randomUUID()}@example.test`;
+  const strangerEmail = `stranger-${randomUUID()}@example.test`;
+
+  const groupId = randomUUID();
+  const busyGroupId = randomUUID();
+
+  const labels = [
+    "98. the invited caller claims their pending row, setting user_id and clearing the invite",
+    "99. a caller whose email does not match the invite claims nothing",
+    "100. a caller who already holds a live membership is refused a second by the one-group index",
+    "101. row security stays enabled and forced on group_members",
+  ];
+  const tailLabel = "102. the rolled-back invite transaction leaves no trace";
+
+  // 101: read the flags outside any transaction, so FORCE is proved on the committed catalog, not a local edit.
+  const [gmRel] = await sql<{ rowsecurity: boolean; forced: boolean }[]>`
+    select relrowsecurity as rowsecurity, relforcerowsecurity as forced
+    from pg_class where oid = 'public.group_members'::regclass`;
+  assert(
+    labels[3],
+    gmRel.rowsecurity === true && gmRel.forced === true,
+    `relrowsecurity = ${gmRel.rowsecurity}, relforcerowsecurity = ${gmRel.forced}`,
+  );
+
+  const forcedRollback = Symbol("forced rollback");
+
+  await sql
+    .begin(async (tx) => {
+      await tx`insert into auth.users (id) values (${leaderUser}), (${invitedUser}), (${strangerUser}), (${busyUser})`;
+      await tx`insert into app_users (id) values (${leaderUser}), (${invitedUser}), (${strangerUser}), (${busyUser})`;
+
+      // The target group and its leader, plus two pending members the leader records (RF-07): one invite
+      // waits on the plain invited caller, the other on the caller who already leads a group of their own.
+      await enterUserContext(tx, leaderUser);
+      await tx`insert into groups (id, name, cash_mode) values (${groupId}, 'rls invite', 'shared')`;
+      await tx`insert into group_members (group_id, user_id, name, role)
+        values (${groupId}, ${leaderUser}, 'rls invite leader', 'leader')`;
+      const [{ id: pendingInvited }] = await tx<{ id: string }[]>`
+        insert into group_members (group_id, name, role, invite_email)
+        values (${groupId}, 'rls invite pending', 'member', ${invitedEmail}) returning id`;
+      await tx`insert into group_members (group_id, name, role, invite_email)
+        values (${groupId}, 'rls invite pending busy', 'member', ${busyEmail})`;
+
+      // The busy caller leads a group of their own: a live membership that blocks any second claim.
+      await tx`reset role`;
+      await enterUserContext(tx, busyUser, busyEmail);
+      await tx`insert into groups (id, name, cash_mode) values (${busyGroupId}, 'rls invite busy', 'shared')`;
+      await tx`insert into group_members (group_id, user_id, name, role)
+        values (${busyGroupId}, ${busyUser}, 'rls invite busy leader', 'leader')`;
+
+      // 98: the invited caller claims their own pending row. The SELECT policy still hides an unclaimed
+      // row from the outsider, so a WHERE that reads a column would match nothing; the claim policy alone
+      // bounds the write, so it is issued unqualified and lands on exactly the row addressed to their email.
+      await tx`reset role`;
+      await enterUserContext(tx, invitedUser, invitedEmail);
+      const [{ count: preClaimVisible }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from group_members where id = ${pendingInvited}`;
+      const claim = await tx`update group_members set user_id = ${invitedUser}, invite_email = null`;
+      const [claimed] = await tx<{ user_id: string | null; invite_email: string | null; role: string }[]>`
+        select user_id, invite_email, role from group_members where id = ${pendingInvited}`;
+      assert(
+        labels[0],
+        preClaimVisible === "0" &&
+          claim.count === 1 &&
+          claimed.user_id === invitedUser &&
+          claimed.invite_email === null &&
+          claimed.role === "member",
+        `pre-claim visible = ${preClaimVisible}, rows = ${claim.count}, user_id = ${claimed?.user_id === invitedUser ? "self" : claimed?.user_id}, invite_email = ${claimed?.invite_email}, role = ${claimed?.role}`,
+      );
+
+      // 99: a caller whose email matches no invite claims nothing — neither the claim policy (email) nor
+      // the member policy (not a member) admits any row, so the unqualified update touches nothing.
+      await tx`reset role`;
+      await enterUserContext(tx, strangerUser, strangerEmail);
+      const stranger = await tx`update group_members set user_id = ${strangerUser}, invite_email = null`;
+      assert(labels[1], stranger.count === 0, `rows = ${stranger.count}`);
+
+      // 100: the busy caller's email matches the invite, so the claim policy admits the pending row; the
+      // one-group-per-user index then refuses it, since the caller already holds a live membership.
+      await tx`reset role`;
+      await enterUserContext(tx, busyUser, busyEmail);
+      await tx
+        .savepoint(async (sp) => {
+          await sp`update group_members set user_id = ${busyUser}, invite_email = null`;
+          assert(labels[2], false, "a second live membership landed, which it must not");
+        })
+        .catch((error: unknown) => {
+          assert(labels[2], pgCode(error) === "23505", `sqlstate ${pgCode(error) ?? "none"}`);
+        });
+
+      // Forces `sql.begin` to issue ROLLBACK: nothing this function wrote may survive it.
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`select current_user`;
+  const [{ count: probeCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from groups where name like 'rls invite%'`;
+  assert(
+    tailLabel,
+    afterUser === "postgres" && probeCount === "0",
+    `current_user = ${afterUser}, rows named 'rls invite%' = ${probeCount}`,
   );
 }
 

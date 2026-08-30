@@ -1,0 +1,5 @@
+ALTER TABLE "group_members" ADD COLUMN "invite_email" text;--> statement-breakpoint
+CREATE UNIQUE INDEX "group_members_group_invite_email_unique" ON "group_members" USING btree ("group_id",lower("invite_email")) WHERE "group_members"."invite_email" is not null;--> statement-breakpoint
+ALTER TABLE "group_members" ADD CONSTRAINT "group_members_invite_email_unclaimed" CHECK ("group_members"."invite_email" is null or "group_members"."user_id" is null);--> statement-breakpoint
+CREATE POLICY "group_members_update_claim" ON "group_members" AS PERMISSIVE FOR UPDATE TO "authenticated" USING ("group_members"."user_id" is null and "group_members"."invite_email" is not null and lower("group_members"."invite_email") = lower(auth.email())) WITH CHECK ("group_members"."user_id" = (select auth.uid()) and "group_members"."role" = 'member');--> statement-breakpoint
+GRANT UPDATE (user_id, invite_email) ON TABLE "group_members" TO authenticated;
