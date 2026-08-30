@@ -52,8 +52,9 @@ type KindLabels = { transfer: string; income: string; expense: string };
 // The signed-in landing. A user may run personal-only (RF-55), so an absent
 // group is expected, not a redirect to create one. With no account yet the
 // create-first-account guide stands (FLOWS §9); once an account exists the screen
-// leads with the net-worth-and-month summary (RF-65, RF-67) over the quick-entry
-// pill and the three most recent lines (RF-23).
+// leads with the per-owner net-worth and month summary (RF-67; RF-65's per-account
+// balances stay off the dashboard) over the quick-entry pill and the three most
+// recent lines (RF-23).
 export default async function HomePage(props: PageProps<"/[locale]">) {
   const { locale } = await props.params;
   if (!hasLocale(routing.locales, locale)) notFound();

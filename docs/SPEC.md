@@ -106,10 +106,10 @@ accounting exports, native apps. None of this gets built or left
 #### Reports
 
 - [ ] **RF-65** — Dashboard: balance per account, net worth per owner (personal and group), and income, expense and net for the current month.
-- [ ] **RF-34** — This month's expenses by category, largest first.
-- [ ] **RF-35** — Six-month comparison of income and expense.
-- [ ] **RF-66** — Each member's contribution for the month: net of transfers into the group's accounts, less those flowing back to that member.
-- [ ] **RF-67** — In every report grouped by member, the group's shared accounts appear as their own group. Shared accounts are not split across people.
+- [x] **RF-34** — This month's expenses by category, largest first.
+- [x] **RF-35** — Six-month comparison of income and expense.
+- [x] **RF-66** — Each member's contribution for the month: net of transfers into the group's accounts, less those flowing back to that member.
+- [x] **RF-67** — In every report grouped by member, the group's shared accounts appear as their own group. Shared accounts are not split across people.
 
 #### Cash
 
