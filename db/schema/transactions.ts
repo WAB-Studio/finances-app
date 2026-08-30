@@ -16,6 +16,7 @@ import { authenticatedRole, authUid } from "drizzle-orm/supabase";
 import { accounts } from "./accounts";
 import { appUsers } from "./app-users";
 import { groups } from "./groups";
+import { recurringRules } from "./recurring-rules";
 
 // A movement of money (RF-17): income names only a destination, expense only a source, a transfer both.
 export const transactions = pgTable(
@@ -36,6 +37,10 @@ export const transactions = pgTable(
     // Date-only, interpreted in America/Bogota (RNF-06): a YYYY-MM-DD string end to end, never a JS Date.
     occurredAt: date({ mode: "string" }).notNull(),
     description: text(),
+    // The rule that generated this movement (RF-31); cleared if the rule is deleted, keeping its history.
+    recurringRuleId: uuid().references(() => recurringRules.id, { onDelete: "set null" }),
+    // Set once a generated movement has been reviewed; null until then (RF-31).
+    reviewedAt: timestamp({ withTimezone: true }),
     externalRef: text(),
     createdBy: uuid()
       .notNull()
@@ -60,6 +65,7 @@ export const transactions = pgTable(
     check("transactions_external_ref_length", sql`length(${table.externalRef}) <= 200`),
     index("transactions_occurred_at_idx").on(table.occurredAt),
     index("transactions_created_by_idx").on(table.createdBy),
+    index("transactions_recurring_rule_id_idx").on(table.recurringRuleId),
     index("transactions_owner_user_id_idx")
       .on(table.ownerUserId)
       .where(sql`${table.ownerUserId} is not null`),
