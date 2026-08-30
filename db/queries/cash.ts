@@ -22,6 +22,7 @@ const accountRowColumns = {
   id: accounts.id,
   name: accounts.name,
   kind: accounts.kind,
+  subtype: accounts.subtype,
   institution: accounts.institution,
   ownerUserId: accounts.ownerUserId,
   groupId: accounts.groupId,

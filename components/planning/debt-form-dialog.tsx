@@ -197,6 +197,8 @@ function DebtForm({
       const created = await createAccount.executeAsync({
         name: values.name,
         kind: "liability",
+        // A debt is a card: the only subtype a liability admits (accounts_subtype_kind).
+        subtype: "tarjeta",
         placement: values.placement,
         institution: values.institution,
         amount: values.amount,

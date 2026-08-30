@@ -8,11 +8,13 @@ import { withUserDb } from "@/db/session";
 import { pesosToCents } from "@/lib/money";
 
 type AccountKind = Account["kind"];
+type AccountSubtype = Account["subtype"];
 
 export type AccountRow = {
   id: string;
   name: string;
   kind: AccountKind;
+  subtype: AccountSubtype;
   institution: string | null;
   ownerUserId: string | null;
   groupId: string | null;
@@ -34,6 +36,7 @@ export async function listAccounts(
         id: accounts.id,
         name: accounts.name,
         kind: accounts.kind,
+        subtype: accounts.subtype,
         institution: accounts.institution,
         ownerUserId: accounts.ownerUserId,
         groupId: accounts.groupId,
@@ -55,6 +58,7 @@ export async function listAccounts(
 export type CreateAccountArgs = {
   name: string;
   kind: AccountKind;
+  subtype: AccountSubtype;
   ownerUserId: string | null;
   groupId: string | null;
   isShared: boolean;
@@ -66,6 +70,7 @@ export type CreateAccountArgs = {
 export async function createAccount({
   name,
   kind,
+  subtype,
   ownerUserId,
   groupId,
   isShared,
@@ -81,6 +86,8 @@ export async function createAccount({
       .values({
         name,
         kind,
+        // Passed explicitly; `set_account_subtype` only fills an omitted one.
+        subtype,
         ownerUserId,
         groupId,
         isShared,
@@ -103,6 +110,7 @@ export async function createAccount({
 export type UpdateAccountArgs = {
   accountId: string;
   name: string;
+  subtype: AccountSubtype;
   isShared: boolean;
   institution: string | null;
   pesos: number;
@@ -112,6 +120,7 @@ export type UpdateAccountArgs = {
 export async function updateAccount({
   accountId,
   name,
+  subtype,
   isShared,
   institution,
   pesos,
@@ -124,6 +133,8 @@ export async function updateAccount({
       .update(accounts)
       .set({
         name,
+        // A bank account may become cash or the reverse; the kind holds it (RF-56).
+        subtype,
         isShared,
         institution: institution === "" ? null : institution,
         // `kind` is immutable and absent from the grant, so it is read from

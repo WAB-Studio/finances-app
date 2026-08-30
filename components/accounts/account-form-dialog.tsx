@@ -30,11 +30,20 @@ import { useActionErrorToast } from "@/lib/use-action-toast";
 import {
   ACCOUNT_KINDS,
   ACCOUNT_PLACEMENTS,
+  ACCOUNT_SUBTYPES,
+  SUBTYPES_BY_KIND,
   createAccountSchema,
   updateAccountSchema,
   type CreateAccountInput,
   type UpdateAccountInput,
 } from "@/lib/validation/account";
+
+// The message key naming each subtype's segment, kept beside the enum it maps.
+const SUBTYPE_LABEL_KEYS = {
+  bancaria: "subtypeBancaria",
+  efectivo: "subtypeEfectivo",
+  tarjeta: "subtypeTarjeta",
+} as const;
 
 // A superset of both schemas' shapes: the resolver strips whichever key the
 // active schema does not declare, so only the fields that schema needs ever
@@ -43,6 +52,7 @@ type AccountFormValues = {
   accountId: string;
   name: string;
   kind: (typeof ACCOUNT_KINDS)[number];
+  subtype: (typeof ACCOUNT_SUBTYPES)[number];
   placement: (typeof ACCOUNT_PLACEMENTS)[number];
   isShared: boolean;
   institution: string;
@@ -104,6 +114,7 @@ function AccountForm({
           accountId: account.id,
           name: account.name,
           kind: account.kind,
+          subtype: account.subtype,
           // A row names its owner XOR its group; the placement is fixed on edit.
           placement: account.ownerUserId ? "personal" : "group",
           isShared: account.isShared,
@@ -115,6 +126,8 @@ function AccountForm({
           accountId: "",
           name: "",
           kind: "asset",
+          // A new asset is a bank account unless the user picks cash (RF-56).
+          subtype: "bancaria",
           placement: "personal",
           isShared: false,
           institution: "",
@@ -127,6 +140,11 @@ function AccountForm({
   const kind = useWatch({ control: form.control, name: "kind" });
   const amountLabel =
     kind === "liability" ? t("openingOwedLabel") : t("openingBalanceLabel");
+
+  // The control offers only the subtypes the kind admits (accounts_subtype_kind):
+  // an asset stays bank-or-cash, a liability is always a card. On edit the kind is
+  // locked, so this is fixed; on create it follows the kind toggle below.
+  const subtypeOptions = SUBTYPES_BY_KIND[kind];
 
   function onActionSuccess() {
     toast.success(t(isEdit ? "updated" : "created"));
@@ -203,7 +221,15 @@ function AccountForm({
                   <SegmentedControl.Root
                     size="3"
                     value={field.value}
-                    onValueChange={field.onChange}
+                    onValueChange={(value) => {
+                      field.onChange(value);
+                      // Carry the subtype under the new kind: a liability is a
+                      // card, an asset falls back to a bank account.
+                      form.setValue(
+                        "subtype",
+                        value === "liability" ? "tarjeta" : "bancaria",
+                      );
+                    }}
                     aria-labelledby="account-kind-label"
                   >
                     <SegmentedControl.Item value="asset">
@@ -219,6 +245,32 @@ function AccountForm({
             )}
           />
         )}
+        {/* What the account is (RF-56): bank, cash, or a card. The options are
+            filtered to the kind, so a card never sits under an asset. */}
+        <Controller
+          name="subtype"
+          control={form.control}
+          render={({ field, fieldState }) => (
+            <Field invalid={fieldState.invalid}>
+              <FieldLabel id="account-subtype-label">{t("subtypeLabel")}</FieldLabel>
+              <FieldControl>
+                <SegmentedControl.Root
+                  size="3"
+                  value={field.value}
+                  onValueChange={field.onChange}
+                  aria-labelledby="account-subtype-label"
+                >
+                  {subtypeOptions.map((subtype) => (
+                    <SegmentedControl.Item key={subtype} value={subtype}>
+                      {t(SUBTYPE_LABEL_KEYS[subtype])}
+                    </SegmentedControl.Item>
+                  ))}
+                </SegmentedControl.Root>
+              </FieldControl>
+              <FieldMessage error={fieldState.error} />
+            </Field>
+          )}
+        />
         {/* Placement is set at creation and immutable after (RF-60): a personal
             account is the caller's own; a group account is offered only when they
             belong to one. On edit the picker is gone, like `kind`. */}

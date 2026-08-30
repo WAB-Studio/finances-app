@@ -6,6 +6,20 @@ import { MAX_AMOUNT_PESOS, parsePesos } from "@/lib/money";
 // The list the screens and both sides of validation read for an account's kind (RF-09).
 export const ACCOUNT_KINDS = ["asset", "liability"] as const;
 
+// What the account is: a bank account, physical cash, or a card (RF-56).
+export const ACCOUNT_SUBTYPES = ["bancaria", "efectivo", "tarjeta"] as const;
+
+// Which subtypes each kind admits, mirroring the accounts_subtype_kind DB CHECK:
+// cash and bank hold value (asset); a card is money owed (liability). The form
+// offers only these per kind, and the refinement below rejects the rest.
+export const SUBTYPES_BY_KIND = {
+  asset: ["bancaria", "efectivo"],
+  liability: ["tarjeta"],
+} as const satisfies Record<
+  (typeof ACCOUNT_KINDS)[number],
+  readonly (typeof ACCOUNT_SUBTYPES)[number][]
+>;
+
 // Where a new account lands: owned by the caller, or held by their group (RF-60).
 // The action turns this into the owner/group XOR the schema keeps off the wire.
 export const ACCOUNT_PLACEMENTS = ["personal", "group"] as const;
@@ -58,28 +72,53 @@ const accountBalanceOnSchema = z.string().superRefine((value, ctx) => {
   }
 });
 
-export const createAccountSchema = z.object({
-  name: accountNameSchema,
-  kind: z.enum(ACCOUNT_KINDS, { error: "accounts.errors.kindInvalid" }),
-  // The owner or group is resolved from the session, so only the placement travels.
-  placement: z.enum(ACCOUNT_PLACEMENTS, { error: "accounts.errors.placementInvalid" }),
-  institution: accountInstitutionSchema,
-  amount: accountAmountSchema,
-  balanceOn: accountBalanceOnSchema,
-});
+// The subtype must sit under a kind that admits it (accounts_subtype_kind); the
+// error lands on the field the control shows, so the same message covers the
+// form and a payload that skipped it.
+function requireSubtypeUnderKind(
+  data: { kind: (typeof ACCOUNT_KINDS)[number]; subtype: (typeof ACCOUNT_SUBTYPES)[number] },
+  ctx: z.RefinementCtx,
+) {
+  if (!(SUBTYPES_BY_KIND[data.kind] as readonly string[]).includes(data.subtype)) {
+    ctx.addIssue({
+      code: "custom",
+      message: "accounts.errors.subtypeKindMismatch",
+      path: ["subtype"],
+    });
+  }
+}
+
+export const createAccountSchema = z
+  .object({
+    name: accountNameSchema,
+    kind: z.enum(ACCOUNT_KINDS, { error: "accounts.errors.kindInvalid" }),
+    subtype: z.enum(ACCOUNT_SUBTYPES, { error: "accounts.errors.subtypeInvalid" }),
+    // The owner or group is resolved from the session, so only the placement travels.
+    placement: z.enum(ACCOUNT_PLACEMENTS, { error: "accounts.errors.placementInvalid" }),
+    institution: accountInstitutionSchema,
+    amount: accountAmountSchema,
+    balanceOn: accountBalanceOnSchema,
+  })
+  .superRefine(requireSubtypeUnderKind);
 
 export type CreateAccountInput = z.infer<typeof createAccountSchema>;
 
 // `kind` and the placement are immutable after creation; only `is_shared` toggles
 // whether the group may write a group account.
-export const updateAccountSchema = z.object({
-  accountId: z.uuid(),
-  name: accountNameSchema,
-  isShared: z.boolean(),
-  institution: accountInstitutionSchema,
-  amount: accountAmountSchema,
-  balanceOn: accountBalanceOnSchema,
-});
+export const updateAccountSchema = z
+  .object({
+    accountId: z.uuid(),
+    name: accountNameSchema,
+    // `kind` never changes on the row; it rides along only so the shared
+    // refinement can reject a subtype that leaves its kind server-side too.
+    kind: z.enum(ACCOUNT_KINDS, { error: "accounts.errors.kindInvalid" }),
+    subtype: z.enum(ACCOUNT_SUBTYPES, { error: "accounts.errors.subtypeInvalid" }),
+    isShared: z.boolean(),
+    institution: accountInstitutionSchema,
+    amount: accountAmountSchema,
+    balanceOn: accountBalanceOnSchema,
+  })
+  .superRefine(requireSubtypeUnderKind);
 
 export type UpdateAccountInput = z.infer<typeof updateAccountSchema>;
 
