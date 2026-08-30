@@ -139,7 +139,17 @@ export async function updateTransaction({
   return withUserDb(async (tx) => {
     const updated = await tx
       .update(transactions)
-      .set({ fromAccountId, toAccountId, amountCents, occurredAt, description })
+      // Correcting a generated movement also confirms it (RF-31): the same write
+      // stamps `reviewed_at` when the row is generated and still unreviewed, and
+      // leaves a manual row's null and an already-reviewed stamp untouched.
+      .set({
+        fromAccountId,
+        toAccountId,
+        amountCents,
+        occurredAt,
+        description,
+        reviewedAt: sql`case when ${transactions.recurringRuleId} is not null and ${transactions.reviewedAt} is null then now() else ${transactions.reviewedAt} end`,
+      })
       .where(eq(transactions.id, transactionId))
       .returning({ id: transactions.id });
 

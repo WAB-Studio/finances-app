@@ -482,6 +482,27 @@
       "alreadySettled": "Este pago ya se registró o se canceló."
     }
   },
+  "recurringRules": {
+    "errors": {
+      "amountRequired": "Escribe un monto.",
+      "amountInvalid": "Escribe un monto válido.",
+      "amountTooLarge": "El monto es demasiado alto.",
+      "categoryInvalid": "Elige una categoría válida.",
+      "descriptionTooLong": "El concepto no puede pasar de 200 caracteres.",
+      "frequencyInvalid": "Elige una frecuencia válida.",
+      "intervalInvalid": "El intervalo debe ser un número mayor que cero.",
+      "dayOfMonthRequired": "Elige el día del mes.",
+      "dayOfMonthInvalid": "Elige un día entre 1 y 31.",
+      "nextRunOnRequired": "Elige la fecha de la próxima ejecución.",
+      "nextRunOnInvalid": "Elige una fecha válida.",
+      "endsOnInvalid": "Elige una fecha válida.",
+      "endsOnBeforeNextRun": "La fecha de fin no puede ser anterior a la próxima ejecución.",
+      "exactlyOneAccount": "Elige una sola cuenta: origen para un gasto o destino para un ingreso.",
+      "ruleInvalid": "Esa regla no es válida.",
+      "transactionInvalid": "Ese movimiento no es válido.",
+      "scopeViolation": "La cuenta o la categoría no pertenecen al mismo ámbito."
+    }
+  },
   "debts": {
     "title": "Deudas",
     "total": "Deuda total",

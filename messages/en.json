@@ -482,6 +482,27 @@
       "alreadySettled": "This payment was already recorded or cancelled."
     }
   },
+  "recurringRules": {
+    "errors": {
+      "amountRequired": "Enter an amount.",
+      "amountInvalid": "Enter a valid amount.",
+      "amountTooLarge": "The amount is too high.",
+      "categoryInvalid": "Choose a valid category.",
+      "descriptionTooLong": "The concept cannot exceed 200 characters.",
+      "frequencyInvalid": "Choose a valid frequency.",
+      "intervalInvalid": "The interval must be a number greater than zero.",
+      "dayOfMonthRequired": "Choose the day of the month.",
+      "dayOfMonthInvalid": "Choose a day between 1 and 31.",
+      "nextRunOnRequired": "Choose the next run date.",
+      "nextRunOnInvalid": "Choose a valid date.",
+      "endsOnInvalid": "Choose a valid date.",
+      "endsOnBeforeNextRun": "The end date cannot be before the next run.",
+      "exactlyOneAccount": "Choose a single account: a source for an expense or a destination for income.",
+      "ruleInvalid": "That rule is not valid.",
+      "transactionInvalid": "That movement is not valid.",
+      "scopeViolation": "The account or category does not belong to the same scope."
+    }
+  },
   "debts": {
     "title": "Debts",
     "total": "Total debt",
