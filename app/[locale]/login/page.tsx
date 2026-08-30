@@ -1,13 +1,13 @@
 import { hasLocale } from "next-intl";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import type { Metadata } from "next";
-import { CircleAlertIcon, PiggyBank } from "lucide-react";
+import { CircleAlertIcon } from "lucide-react";
 import { notFound } from "next/navigation";
 
 import { LoginForm } from "@/components/auth/login-form";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { ThemeSwitcher } from "@/components/theme-switcher";
-import { Box, Callout, Card, Flex, Heading, Text } from "@/components/ui";
+import { AppMark, Box, Callout, Card, Flex, Heading, Text } from "@/components/ui";
 import { routing } from "@/i18n/routing";
 
 // A path the proxy put in `?next=`, or nothing: a repeated parameter arrives as
@@ -54,23 +54,7 @@ export default async function LoginPage(props: PageProps<"/[locale]/login">) {
           <Box width="100%" maxWidth="24rem">
             <Flex direction="column" gap="4">
               <Flex direction="column" gap="3">
-                <Flex
-                  align="center"
-                  justify="center"
-                  style={{
-                    width: 60,
-                    height: 60,
-                    borderRadius: 18,
-                    backgroundColor: "var(--accent-9)",
-                  }}
-                >
-                  <PiggyBank
-                    size={30}
-                    color="var(--accent-contrast)"
-                    strokeWidth={1.9}
-                    aria-hidden
-                  />
-                </Flex>
+                <AppMark />
                 <Flex direction="column" gap="1">
                   <Heading size="7">{t("common.appName")}</Heading>
                   <Text color="gray">{t("auth.tagline")}</Text>
