@@ -48,12 +48,23 @@ type RefEntity = "accounts" | "categories";
 // the `$inferSelect` column the export reads and the import writes back. A `ref`
 // column shows the referenced row's NAME under `key` while `field` stays the id
 // column the export resolves from (RF-49) and the import writes back after lookup.
-type SheetColumn<Model> = {
+type FieldColumn<Model> = {
   readonly key: string;
   readonly field: keyof Model & string;
   readonly money?: MoneyBoundary;
   readonly ref?: { readonly entity: RefEntity };
 };
+
+// A cell with no backing `$inferSelect` column: the export derives it from a
+// related row and the import reconstructs it. The only one today is a
+// transaction's category, which lives on its split, not the transaction row.
+type SyntheticColumn = {
+  readonly key: string;
+  readonly synthetic: true;
+  readonly ref?: { readonly entity: RefEntity };
+};
+
+type SheetColumn<Model> = FieldColumn<Model> | SyntheticColumn;
 
 // A row's stable reference (`refField`) names the column an import matches on to
 // update instead of duplicate (RF-52). `rowSchema` validates one parsed sheet
@@ -72,11 +83,11 @@ type CategoryModel = typeof categories.$inferSelect;
 type RecurringRuleModel = typeof recurringRules.$inferSelect;
 type TransactionModel = typeof transactions.$inferSelect;
 
-// The four non-transaction entities carry no `external_ref` column today, so
-// their reference for this PR is the row's own `id` (RF-52 idempotency still
-// holds: an existing id updates in place). A future import PR may repoint them
-// to a dedicated key without touching the export side.
-const idRef = { id: z.uuid() };
+// Every entity now carries an `external_ref` column: its stable per-scope import
+// key (RF-52), matched on to update instead of duplicate. Bounded like the model
+// (trimmed, <= 200); the sheet leaves it blank for a brand-new row, so it stays
+// optional — a trigger backfills it to `id::text` on insert.
+const externalRefSchema = z.string().trim().max(200).optional();
 
 // A cross-entity reference travels as the referenced row's name (RF-49), bounded
 // like the entities' own name (1..80). Names are not unique in a scope, so the
@@ -94,11 +105,11 @@ const nullableReferenceNameSchema = referenceNameSchema.nullable();
 const sheetCivilDateSchema = z.string().trim().refine(isCivilDate);
 
 // Accounts and members carry no cross-entity reference, so their row keeps the
-// create schema unchanged, its own id appended (RF-52).
-export const accountRowSchema = createAccountSchema.extend(idRef);
+// create schema unchanged, its external ref appended (RF-52).
+export const accountRowSchema = createAccountSchema.extend({ externalRef: externalRefSchema });
 export type AccountRow = z.infer<typeof accountRowSchema>;
 
-export const memberRowSchema = createMemberSchema.extend(idRef);
+export const memberRowSchema = createMemberSchema.extend({ externalRef: externalRefSchema });
 export type MemberRow = z.infer<typeof memberRowSchema>;
 
 // A category's parent is another category by name (RF-49); a top-level category
@@ -106,7 +117,7 @@ export type MemberRow = z.infer<typeof memberRowSchema>;
 // createCategorySchema, with its colour-at-top-level refinement — run in the later
 // import PR after `parent` is resolved to an id.
 export const categoryRowSchema = z.object({
-  id: z.uuid(),
+  externalRef: externalRefSchema,
   name: referenceNameSchema,
   kind: z.enum(CATEGORY_KINDS),
   parent: referenceNameSchema.nullish(),
@@ -119,7 +130,7 @@ export type CategoryRow = z.infer<typeof categoryRowSchema>;
 // light guard here — the authoritative createRecurringRuleSchema, with its
 // one-account and cadence refinements, runs in the later import PR after resolution.
 export const recurringRuleRowSchema = z.object({
-  id: z.uuid(),
+  externalRef: externalRefSchema,
   fromAccount: nullableReferenceNameSchema,
   toAccount: nullableReferenceNameSchema,
   amount: pesoAmountSchema({
@@ -143,9 +154,10 @@ export type RecurringRuleRow = z.infer<typeof recurringRuleRowSchema>;
 
 // A transaction owns `external_ref`, its stable import key, so that column stays as
 // itself; from/to accounts resolve to names (RF-49), each nullable so income and
-// expense stay one-sided and a transfer keeps both (RF-20). Splits and labels carry
-// no flat cell: the later import module reconstructs them and runs
-// createTransactionSchema (id-shaped) once every name is resolved to an id.
+// expense stay one-sided and a transfer keeps both (RF-20). `category` is the name
+// of the movement's single split (RF-69), nullable because a transfer names none.
+// Multi-split transactions cannot round-trip through one cell: the export leaves
+// it blank and the later import module reconstructs splits from the ledger side.
 export const transactionRowSchema = z.object({
   externalRef: z
     .string()
@@ -159,6 +171,7 @@ export const transactionRowSchema = z.object({
     invalid: "transactions.errors.amountInvalid",
     tooLarge: "transactions.errors.amountTooLarge",
   }),
+  category: nullableReferenceNameSchema,
   occurredAt: occurredAtSchema,
   description: z
     .string()
@@ -173,9 +186,9 @@ export type TransactionRow = z.infer<typeof transactionRowSchema>;
 // group back from it.
 export const accountSheetDescriptor = {
   entity: "accounts",
-  refField: "id",
+  refField: "externalRef",
   columns: [
-    { key: "id", field: "id" },
+    { key: "externalRef", field: "externalRef" },
     { key: "name", field: "name" },
     { key: "kind", field: "kind" },
     { key: "subtype", field: "subtype" },
@@ -189,9 +202,9 @@ export const accountSheetDescriptor = {
 
 export const memberSheetDescriptor = {
   entity: "members",
-  refField: "id",
+  refField: "externalRef",
   columns: [
-    { key: "id", field: "id" },
+    { key: "externalRef", field: "externalRef" },
     { key: "name", field: "name" },
     { key: "email", field: "inviteEmail" },
   ],
@@ -200,9 +213,9 @@ export const memberSheetDescriptor = {
 
 export const categorySheetDescriptor = {
   entity: "categories",
-  refField: "id",
+  refField: "externalRef",
   columns: [
-    { key: "id", field: "id" },
+    { key: "externalRef", field: "externalRef" },
     { key: "name", field: "name" },
     { key: "kind", field: "kind" },
     { key: "parent", field: "parentId", ref: { entity: "categories" } },
@@ -213,9 +226,9 @@ export const categorySheetDescriptor = {
 
 export const recurringRuleSheetDescriptor = {
   entity: "recurringRules",
-  refField: "id",
+  refField: "externalRef",
   columns: [
-    { key: "id", field: "id" },
+    { key: "externalRef", field: "externalRef" },
     { key: "fromAccount", field: "fromAccountId", ref: { entity: "accounts" } },
     { key: "toAccount", field: "toAccountId", ref: { entity: "accounts" } },
     { key: "amount", field: "amountCents", money: moneyBoundary },
@@ -240,6 +253,7 @@ export const transactionSheetDescriptor = {
     { key: "fromAccount", field: "fromAccountId", ref: { entity: "accounts" } },
     { key: "toAccount", field: "toAccountId", ref: { entity: "accounts" } },
     { key: "amount", field: "amountCents", money: moneyBoundary },
+    { key: "category", synthetic: true, ref: { entity: "categories" } },
     { key: "occurredAt", field: "occurredAt" },
     { key: "description", field: "description" },
   ],
