@@ -19,7 +19,13 @@ export function DashboardSummary({ data }: { data: DashboardData }) {
   const t = useTranslations("dashboard");
   const format = useFormatter();
 
-  const { netWorth, totalNetWorthCents, monthFlow, unreviewedCount } = data;
+  const {
+    netWorth,
+    totalNetWorthCents,
+    monthFlow,
+    unreviewedCount,
+    pendingDeliveryCount,
+  } = data;
 
   return (
     <Flex direction="column" gap="4">
@@ -31,17 +37,33 @@ export function DashboardSummary({ data }: { data: DashboardData }) {
           {format.number(centsToPesos(totalNetWorthCents), "currency")}
         </Heading>
 
-        {/* Deep-links to the ledger filtered to generated-unreviewed rows; hidden
-            once nothing awaits review (RF-31). */}
-        {unreviewedCount > 0 && (
-          <LocaleLink
-            href="/movements?unreviewed=1"
-            style={{ textDecoration: "none", alignSelf: "flex-start" }}
-          >
-            <Badge color="amber" variant="soft" radius="full">
-              {t("unreviewedBadge", { count: unreviewedCount })}
-            </Badge>
-          </LocaleLink>
+        {(unreviewedCount > 0 || pendingDeliveryCount > 0) && (
+          <Flex gap="2" wrap="wrap">
+            {/* Deep-links to the ledger filtered to generated-unreviewed rows; hidden
+                once nothing awaits review (RF-31). */}
+            {unreviewedCount > 0 && (
+              <LocaleLink
+                href="/movements?unreviewed=1"
+                style={{ textDecoration: "none", alignSelf: "flex-start" }}
+              >
+                <Badge color="amber" variant="soft" radius="full">
+                  {t("unreviewedBadge", { count: unreviewedCount })}
+                </Badge>
+              </LocaleLink>
+            )}
+            {pendingDeliveryCount > 0 && (
+              <LocaleLink
+                href="/inbox"
+                style={{ textDecoration: "none", alignSelf: "flex-start" }}
+              >
+                <Badge color="amber" variant="soft" radius="full">
+                  {t("pendingDeliveriesBadge", {
+                    count: pendingDeliveryCount,
+                  })}
+                </Badge>
+              </LocaleLink>
+            )}
+          </Flex>
         )}
 
         <Flex gap="2" wrap="wrap">
