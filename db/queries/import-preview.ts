@@ -10,7 +10,7 @@ import {
   transactions,
 } from "@/db/schema";
 import { withUserDb } from "@/db/session";
-import { SHEET_ENTITIES, type SheetEntity } from "@/lib/spreadsheet/schema";
+import { type SheetEntity } from "@/lib/spreadsheet/schema";
 
 // The table each entity's `external_ref` lives on, keyed by the import's entity
 // names. A row's `external_ref` is its stable per-scope import key (RF-52): present

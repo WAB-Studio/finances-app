@@ -3,12 +3,23 @@
 // `pgErrorCode` from the app.
 import { createHash, randomUUID } from "node:crypto";
 
+import { sql as dsql } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 
+import { commitImport } from "@/db/queries/import-commit";
+import type { CommitInput, CommitScope } from "@/db/queries/import-commit";
+import * as schema from "@/db/schema";
 import { pgErrorCode } from "@/lib/db-error";
+import { CATEGORY_COLORS } from "@/lib/fund/category-color";
 import { GROUP_CASH_ACCOUNT_NAME } from "@/lib/fund/seed";
 
 const sql = postgres(process.env.DATABASE_URL!, { prepare: false, max: 1 });
+
+// The import commit writes through Drizzle, so the proof drives it through a Drizzle
+// transaction over the same pool. `commitImport` takes the transaction and settles the
+// session the way `withUserDb` does, so RLS decides every row here too.
+const orm = drizzle(sql, { schema, casing: "snake_case" });
 
 let failed = false;
 
@@ -154,6 +165,7 @@ async function main() {
   await checkAccountSubtypeBackfill();
   await checkCashReportInvariants();
   await checkExternalRefKeys();
+  await checkImportCommit();
 }
 
 // Assertions 9-26: the repivoted schema. A group holds accounts and categories a user XOR a group
@@ -3530,6 +3542,333 @@ async function checkExternalRefKeys() {
     tailLabel,
     afterUser === "postgres" && probeCount === "0",
     `current_user = ${afterUser}, rows named 'rls ext refs%' = ${probeCount}`,
+  );
+}
+
+// Assertions 137-142: the import commit (RF-51/52/45). It writes the whole file in one
+// transaction: new rows insert, update rows overwrite by their stable key, a movement
+// links to a file-new account's REAL id, and any mid-write failure rolls back every
+// entity. Driven through `commitImport` itself — the shipped body, not a replica — under
+// an injected user, so RLS and the triggers decide each row. Every fixture rolls back.
+async function checkImportCommit() {
+  console.log("");
+  const owner = randomUUID();
+  const failOwner = randomUUID();
+  const today = "2026-01-01";
+  const color = CATEGORY_COLORS[0];
+
+  const labels = [
+    "137. a single-file commit inserts new rows and overwrites an update row in place by its stable key",
+    "138. re-committing the same file duplicates nothing and leaves the stable-keyed rows updated in place",
+    "139. a movement whose split fails rolls back every entity the same transaction wrote",
+    "140. a movement referencing a file-new account links to that account's real inserted id, not a placeholder",
+    "141. the commit lands an audit row for its writes",
+  ];
+  const tailLabel = "142. the rolled-back import-commit transaction leaves no trace";
+
+  // The placeholders a dev→prod file assigns its new referenced entities; the movement
+  // points at these, and the commit must swap each for the real inserted id.
+  const phAccountA = randomUUID();
+  const phAccountC = randomUUID();
+  const phCategory = randomUUID();
+
+  const forcedRollback = Symbol("forced rollback");
+
+  type OrmTx = Parameters<Parameters<typeof orm.transaction>[0]>[0];
+  const enter = (tx: OrmTx, subject: string) =>
+    tx.execute(dsql`select
+      set_config('request.jwt.claims', ${JSON.stringify({ sub: subject, role: "authenticated", aud: "authenticated" })}, true),
+      set_config('statement_timeout', '8000', true),
+      set_config('role', 'authenticated', true)`);
+
+  const scope: CommitScope = { userId: owner, groupId: null };
+
+  // The dev→prod file: two new accounts, one new category, and an expense that names a
+  // file-new account and the file-new category — all by placeholder, never a real id.
+  const firstFile: CommitInput = {
+    members: [],
+    categories: [
+      {
+        status: "new",
+        externalRef: "imp-cat-1",
+        placeholderId: phCategory,
+        object: { name: "Imp Cat", kind: "expense", parentId: null, color },
+      },
+    ],
+    accounts: [
+      {
+        status: "new",
+        externalRef: "imp-acct-A",
+        placeholderId: phAccountA,
+        object: { name: "Imp A", kind: "asset", subtype: "efectivo", placement: "personal", institution: null, amount: "100", balanceOn: today },
+      },
+      {
+        status: "new",
+        externalRef: "imp-acct-C",
+        placeholderId: phAccountC,
+        object: { name: "Imp C", kind: "asset", subtype: "efectivo", placement: "personal", institution: null, amount: "200", balanceOn: today },
+      },
+    ],
+    recurringRules: [],
+    transactions: [
+      {
+        status: "new",
+        externalRef: "imp-txn-1",
+        placeholderId: null,
+        object: {
+          fromAccountId: phAccountC,
+          toAccountId: null,
+          amount: "50",
+          occurredAt: today,
+          description: null,
+          externalRef: "imp-txn-1",
+          splits: [{ categoryId: phCategory, amount: "50" }],
+          labelIds: [],
+        },
+      },
+    ],
+  };
+
+  await orm
+    .transaction(async (tx) => {
+      await tx.execute(dsql`insert into auth.users (id) values (${owner})`);
+      await tx.execute(dsql`insert into app_users (id) values (${owner})`);
+      await enter(tx, owner);
+
+      await commitImport(tx, firstFile, scope);
+
+      const [acctA] = await tx.execute<{ id: string; name: string }>(
+        dsql`select id, name from accounts where external_ref = 'imp-acct-A'`,
+      );
+      const [acctC] = await tx.execute<{ id: string }>(
+        dsql`select id from accounts where external_ref = 'imp-acct-C'`,
+      );
+      const [cat1] = await tx.execute<{ id: string }>(
+        dsql`select id from categories where external_ref = 'imp-cat-1'`,
+      );
+      const [txn1] = await tx.execute<{ id: string; from_account_id: string | null }>(
+        dsql`select id, from_account_id from transactions where external_ref = 'imp-txn-1'`,
+      );
+      const [split1] = await tx.execute<{ category_id: string }>(
+        dsql`select category_id from transaction_splits where transaction_id = ${txn1.id}`,
+      );
+
+      // 140: the movement's account and its split's category are the REAL inserted ids,
+      // never the placeholders the file carried.
+      assert(
+        labels[3],
+        txn1.from_account_id === acctC.id &&
+          split1.category_id === cat1.id &&
+          txn1.from_account_id !== phAccountC &&
+          split1.category_id !== phCategory,
+        `from_account = ${txn1.from_account_id === acctC.id ? "real C" : txn1.from_account_id}, split cat = ${split1.category_id === cat1.id ? "real cat" : split1.category_id}`,
+      );
+
+      // A second file: one account updated by its key, one brand-new account.
+      const secondFile: CommitInput = {
+        members: [],
+        categories: [],
+        accounts: [
+          {
+            status: "update",
+            externalRef: "imp-acct-A",
+            placeholderId: null,
+            object: { name: "Imp A2", kind: "asset", subtype: "bancaria", placement: "personal", institution: null, amount: "150", balanceOn: today },
+          },
+          {
+            status: "new",
+            externalRef: "imp-acct-B",
+            placeholderId: randomUUID(),
+            object: { name: "Imp B", kind: "asset", subtype: "efectivo", placement: "personal", institution: null, amount: "10", balanceOn: today },
+          },
+        ],
+        recurringRules: [],
+        transactions: [],
+      };
+      await commitImport(tx, secondFile, scope);
+
+      const [acctARenamed] = await tx.execute<{ id: string; name: string }>(
+        dsql`select id, name from accounts where external_ref = 'imp-acct-A'`,
+      );
+      const [{ count: acctBCount }] = await tx.execute<{ count: string }>(
+        dsql`select count(*)::text as count from accounts where external_ref = 'imp-acct-B'`,
+      );
+      // 137: the update overwrote the existing row (same id, new name), the new row landed.
+      assert(
+        labels[0],
+        acctARenamed.id === acctA.id && acctARenamed.name === "Imp A2" && acctBCount === "1",
+        `A id held = ${acctARenamed.id === acctA.id}, A name = ${acctARenamed.name}, B rows = ${acctBCount}`,
+      );
+
+      // 141: the writes left an audit trail — the new account C is captured on INSERT (RF-45).
+      await tx.execute(dsql`reset role`);
+      const [{ count: auditCount }] = await tx.execute<{ count: string }>(
+        dsql`select count(*)::text as count from audit_log
+          where entity = 'accounts' and record_id = ${acctC.id} and action = 'INSERT'`,
+      );
+      assert(labels[4], Number(auditCount) >= 1, `audit rows for account C insert = ${auditCount}`);
+      await enter(tx, owner);
+
+      // Re-commit the FIRST file, now reclassified as updates the way the pipeline would on
+      // a re-import: references resolve to the real ids, not placeholders.
+      const [{ count: acctCountBefore }] = await tx.execute<{ count: string }>(
+        dsql`select count(*)::text as count from accounts where external_ref like 'imp-acct-%'`,
+      );
+      const [{ count: catCountBefore }] = await tx.execute<{ count: string }>(
+        dsql`select count(*)::text as count from categories where external_ref like 'imp-cat-%'`,
+      );
+      const [{ count: txnCountBefore }] = await tx.execute<{ count: string }>(
+        dsql`select count(*)::text as count from transactions where external_ref like 'imp-txn-%'`,
+      );
+
+      const reimport: CommitInput = {
+        members: [],
+        categories: [
+          {
+            status: "update",
+            externalRef: "imp-cat-1",
+            placeholderId: null,
+            object: { name: "Imp Cat", kind: "expense", parentId: null, color },
+          },
+        ],
+        accounts: [
+          {
+            status: "update",
+            externalRef: "imp-acct-A",
+            placeholderId: null,
+            object: { name: "Imp A", kind: "asset", subtype: "efectivo", placement: "personal", institution: null, amount: "100", balanceOn: today },
+          },
+          {
+            status: "update",
+            externalRef: "imp-acct-C",
+            placeholderId: null,
+            object: { name: "Imp C", kind: "asset", subtype: "efectivo", placement: "personal", institution: null, amount: "200", balanceOn: today },
+          },
+        ],
+        recurringRules: [],
+        transactions: [
+          {
+            status: "update",
+            externalRef: "imp-txn-1",
+            placeholderId: null,
+            object: {
+              fromAccountId: acctC.id,
+              toAccountId: null,
+              amount: "50",
+              occurredAt: today,
+              description: null,
+              externalRef: "imp-txn-1",
+              splits: [{ categoryId: cat1.id, amount: "50" }],
+              labelIds: [],
+            },
+          },
+        ],
+      };
+      await commitImport(tx, reimport, scope);
+
+      const [{ count: acctCountAfter }] = await tx.execute<{ count: string }>(
+        dsql`select count(*)::text as count from accounts where external_ref like 'imp-acct-%'`,
+      );
+      const [{ count: catCountAfter }] = await tx.execute<{ count: string }>(
+        dsql`select count(*)::text as count from categories where external_ref like 'imp-cat-%'`,
+      );
+      const [{ count: txnCountAfter }] = await tx.execute<{ count: string }>(
+        dsql`select count(*)::text as count from transactions where external_ref like 'imp-txn-%'`,
+      );
+      const [acctAReset] = await tx.execute<{ id: string; name: string }>(
+        dsql`select id, name from accounts where external_ref = 'imp-acct-A'`,
+      );
+      // 138: no table gained a row, and the stable-keyed account is updated in place (same id, reset name).
+      assert(
+        labels[1],
+        acctCountAfter === acctCountBefore &&
+          catCountAfter === catCountBefore &&
+          txnCountAfter === txnCountBefore &&
+          acctAReset.id === acctA.id &&
+          acctAReset.name === "Imp A",
+        `accounts ${acctCountBefore}→${acctCountAfter}, categories ${catCountBefore}→${catCountAfter}, transactions ${txnCountBefore}→${txnCountAfter}, A in place = ${acctAReset.id === acctA.id}`,
+      );
+
+      // Nothing this section wrote may survive; force the ROLLBACK.
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  // 139: a file whose write fails mid-way. The expense names an INCOME category on its
+  // split, which the match trigger refuses (23514) after the account and category already
+  // landed — so the whole transaction must roll back, leaving zero rows on every entity.
+  const failFile: CommitInput = {
+    members: [],
+    categories: [
+      {
+        status: "new",
+        externalRef: "imp-fail-cat",
+        placeholderId: randomUUID(),
+        object: { name: "Imp Fail Cat", kind: "income", parentId: null, color },
+      },
+    ],
+    accounts: [
+      {
+        status: "new",
+        externalRef: "imp-fail-acct",
+        placeholderId: randomUUID(),
+        object: { name: "Imp Fail Acct", kind: "asset", subtype: "efectivo", placement: "personal", institution: null, amount: "100", balanceOn: today },
+      },
+    ],
+    recurringRules: [],
+    transactions: [],
+  };
+  // The movement points at the two file-new rows by their placeholders, an expense (from
+  // set, to null) carrying the income category — the mismatch the trigger rejects.
+  failFile.transactions = [
+    {
+      status: "new",
+      externalRef: "imp-fail-txn",
+      placeholderId: null,
+      object: {
+        fromAccountId: failFile.accounts[0].placeholderId,
+        toAccountId: null,
+        amount: "50",
+        occurredAt: today,
+        description: null,
+        externalRef: "imp-fail-txn",
+        splits: [{ categoryId: failFile.categories[0].placeholderId!, amount: "50" }],
+        labelIds: [],
+      },
+    },
+  ];
+
+  let failCode = "";
+  await orm
+    .transaction(async (tx) => {
+      await tx.execute(dsql`insert into auth.users (id) values (${failOwner})`);
+      await tx.execute(dsql`insert into app_users (id) values (${failOwner})`);
+      await enter(tx, failOwner);
+      await commitImport(tx, failFile, { userId: failOwner, groupId: null });
+    })
+    .catch((error: unknown) => {
+      failCode = pgErrorCode(error) ?? "none";
+    });
+
+  const [{ count: failAccts }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from accounts where external_ref = 'imp-fail-acct'`;
+  const [{ count: failCats }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from categories where external_ref = 'imp-fail-cat'`;
+  assert(
+    labels[2],
+    failCode === "23514" && failAccts === "0" && failCats === "0",
+    `sqlstate ${failCode}, account rows = ${failAccts}, category rows = ${failCats} (expected 23514 and 0, 0)`,
+  );
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`select current_user`;
+  const [{ count: probeCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from accounts where external_ref like 'imp-acct-%' or external_ref like 'imp-fail-%'`;
+  assert(
+    tailLabel,
+    afterUser === "postgres" && probeCount === "0",
+    `current_user = ${afterUser}, import rows surviving = ${probeCount}`,
   );
 }
 

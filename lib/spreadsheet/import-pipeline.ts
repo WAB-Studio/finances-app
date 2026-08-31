@@ -58,11 +58,20 @@ type RawRow = Record<string, string | number | boolean | null>;
 // One row after the three gates: its position, its new-vs-update classification, the
 // errors it collected, and — only when it passed clean — the resolved, id-shaped and
 // schema-validated object a later commit writes. `object` is null for an errored row.
+// `externalRef` and `placeholderId` ride alongside because the authoritative schema
+// strips both from `object`, yet the commit needs the raw stable key to write it and
+// key an update (RF-52), and the placeholder a NEW account or category was assigned so
+// a reference to it remaps to its REAL inserted id (RF-51), never the placeholder.
 export type ResolvedRow = {
   index: number;
   status: "new" | "update";
   errors: string[];
   object: unknown | null;
+  // The row's raw stable key, null when the file left it blank (a trigger backfills it).
+  externalRef: string | null;
+  // The deterministic placeholder a file-new account or category is referenced by;
+  // null for every other entity and for an update, which reuses the existing real id.
+  placeholderId: string | null;
 };
 
 export type ImportEntityResult = {
@@ -114,6 +123,14 @@ function placeholderUuid(seed: string): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
 }
 
+// The one seed both the effective-set builder and a row's exposed `placeholderId`
+// derive from, so a reference and its target resolve to the SAME placeholder: a stable
+// key seeds by that key, a blank one by the file position — never a real database id.
+function placeholderFor(seedPrefix: string, ref: string, rowIndex: number): string {
+  const seed = ref.length > 0 ? `${seedPrefix}:ref:${ref}` : `${seedPrefix}:new:${rowIndex}`;
+  return placeholderUuid(seed);
+}
+
 // The effective post-import name→ids map for one referenced entity: the caller's
 // existing rows plus the file's own rows for that entity, deduped by stable key. A
 // file row whose key matches an existing row is the SAME entity — it adds no
@@ -146,8 +163,7 @@ function buildEffectiveMap(
       return;
     }
 
-    const seed = ref.length > 0 ? `${seedPrefix}:ref:${ref}` : `${seedPrefix}:new:${rowIndex}`;
-    entities.push({ id: placeholderUuid(seed), name });
+    entities.push({ id: placeholderFor(seedPrefix, ref, rowIndex), name });
   });
 
   const map = new Map<string, string[]>();
@@ -308,16 +324,27 @@ function processRow(
 ): ResolvedRow {
   const status = classify(entity, raw, existingRefs);
 
+  // The raw stable key and, for a NEW account or category, the placeholder a reference
+  // to it resolves to — both carried whatever the gates decide, so an errored row still
+  // reports its key and the commit never recomputes either.
+  const ref = text(raw.externalRef);
+  const externalRef = ref.length > 0 ? ref : null;
+  const placeholderId =
+    (entity === "accounts" || entity === "categories") && status === "new"
+      ? placeholderFor(entity, ref, index)
+      : null;
+  const carried = { index, status, externalRef, placeholderId };
+
   const guarded = sheetDescriptors[entity].rowSchema.safeParse(toNameShaped(entity, raw));
-  if (!guarded.success) return { index, status, errors: issueKeys(guarded.error), object: null };
+  if (!guarded.success) return { ...carried, errors: issueKeys(guarded.error), object: null };
 
   const resolved = resolveAndShape(entity, guarded.data as Record<string, unknown>, refs);
-  if (resolved.errors.length > 0) return { index, status, errors: resolved.errors, object: null };
+  if (resolved.errors.length > 0) return { ...carried, errors: resolved.errors, object: null };
 
   const checked = createSchemas[entity].safeParse(resolved.object);
-  if (!checked.success) return { index, status, errors: issueKeys(checked.error), object: null };
+  if (!checked.success) return { ...carried, errors: issueKeys(checked.error), object: null };
 
-  return { index, status, errors: [], object: checked.data };
+  return { ...carried, errors: [], object: checked.data };
 }
 
 // The reverse label maps, built from the SAME `data` namespace the writer used for

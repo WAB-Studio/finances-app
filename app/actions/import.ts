@@ -1,15 +1,30 @@
 "use server";
 
+import { refresh } from "next/cache";
 import { z } from "zod";
 
+import { commitImport } from "@/db/queries/import-commit";
+import type { CommitInput, CommitRow, CommitScope } from "@/db/queries/import-commit";
+import { getUserGroup } from "@/db/queries/groups";
+import { withUserDb } from "@/db/session";
 import { ActionError } from "@/lib/errors";
 import { authActionClient } from "@/lib/safe-action";
 import { runImportPipeline } from "@/lib/spreadsheet/import-pipeline";
+import type { ImportResult } from "@/lib/spreadsheet/import-pipeline";
 import type { SheetEntity } from "@/lib/spreadsheet/schema";
+import type { CreateAccountInput } from "@/lib/validation/account";
+import type { CreateCategoryInput } from "@/lib/validation/category";
+import type { CreateMemberInput } from "@/lib/validation/member";
+import type { CreateRecurringRuleInput } from "@/lib/validation/recurring-rule";
+import type { CreateTransactionInput } from "@/lib/validation/transaction";
 
 // The upload guards raise these; the shared pipeline owns the rest (RF-48).
 const FILE_REQUIRED = "data.import.errors.fileRequired";
 const FILE_TYPE = "data.import.errors.fileType";
+
+// A commit is all-or-nothing (RF-51): a single errored row across any sheet stops the
+// write before it starts, so the caller never lands a partial import.
+const FILE_HAS_ERRORS = "data.import.errors.hasErrors";
 
 type PreviewRow = {
   index: number;
@@ -55,4 +70,50 @@ export const previewImportAction = authActionClient
       })),
       totals: result.totals,
     };
+  });
+
+// One entity's passing rows in the shape the commit writes: its classification, its
+// stable key, the placeholder a reference to it resolves to, and its validated payload.
+function rowsFor<T>(result: ImportResult, entity: SheetEntity): CommitRow<T>[] {
+  const bucket = result.perEntity.find((set) => set.entity === entity);
+  return (bucket?.rows ?? []).map((row) => ({
+    status: row.status,
+    externalRef: row.externalRef,
+    placeholderId: row.placeholderId,
+    object: row.object as T,
+  }));
+}
+
+/**
+ * The import commit (RF-51/52/45): re-run the SAME pipeline server-side — never trust a
+ * client-sent preview (RNF-10) — and refuse the whole file if any row errored, so the
+ * write is all-or-nothing. The scope a personal-or-group row lands in is resolved from
+ * the session here, not the file, then the entire write runs in one `withUserDb`
+ * transaction so the audit trigger captures every insert and update and any single
+ * failure rolls all of it back.
+ */
+export const commitImportAction = authActionClient
+  .inputSchema(z.instanceof(FormData))
+  .action(async ({ parsedInput: formData, ctx }) => {
+    const file = formData.get("file");
+    if (!(file instanceof File)) throw new ActionError(FILE_REQUIRED);
+    if (!file.name.toLowerCase().endsWith(".xlsx")) throw new ActionError(FILE_TYPE);
+
+    const result = await runImportPipeline({ buffer: await file.arrayBuffer() });
+    if (result.totals.error > 0) throw new ActionError(FILE_HAS_ERRORS);
+
+    const group = await getUserGroup();
+    const scope: CommitScope = { userId: ctx.user.id, groupId: group?.id ?? null };
+
+    const input: CommitInput = {
+      members: rowsFor<CreateMemberInput>(result, "members"),
+      categories: rowsFor<CreateCategoryInput>(result, "categories"),
+      accounts: rowsFor<CreateAccountInput>(result, "accounts"),
+      recurringRules: rowsFor<CreateRecurringRuleInput>(result, "recurringRules"),
+      transactions: rowsFor<CreateTransactionInput>(result, "transactions"),
+    };
+
+    const outcome = await withUserDb((tx) => commitImport(tx, input, scope));
+    refresh();
+    return outcome;
   });

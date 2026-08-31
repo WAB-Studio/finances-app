@@ -774,7 +774,8 @@
         "tooManyRows": "El archivo tiene demasiadas filas. Divídelo e impórtalo por partes.",
         "invalidCell": "Esta celda tiene un valor no válido.",
         "unknownReference": "Ninguna cuenta o categoría de tu fondo coincide con este nombre.",
-        "ambiguousReference": "Más de una cuenta o categoría comparte este nombre. Renombra una para que sea única."
+        "ambiguousReference": "Más de una cuenta o categoría comparte este nombre. Renombra una para que sea única.",
+        "hasErrors": "El archivo todavía tiene errores. Corrígelos e impórtalo de nuevo."
       }
     }
   }
