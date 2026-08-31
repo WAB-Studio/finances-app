@@ -21,6 +21,7 @@ export function TapTarget({
       gap={gap}
       px={px}
       width={width}
+      minWidth="32px"
       minHeight="32px"
     >
       {children}
