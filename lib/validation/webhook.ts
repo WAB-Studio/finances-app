@@ -11,20 +11,22 @@ const amountSchema = pesoAmountSchema({
   tooLarge: "webhooks.errors.amountTooLarge",
 });
 
-// `external_ref` is mandatory: it is the idempotency key the per-scope unique
-// index keys off, so a body without it is rejected here, never at the DB. Every
-// other field is a caller override the interpreter's proposal yields to.
+// `external_ref` is optional: a caller that sends none gets the idempotency key
+// the per-scope unique index needs derived from the message text, and one that
+// sends its own overrides that. Every other field is a caller override the
+// interpreter's proposal yields to.
 export const webhookPayloadSchema = z.object({
   text: z
     .string()
     .trim()
     .min(1, { error: "webhooks.errors.textRequired" })
-    .max(200, { error: "webhooks.errors.textTooLong" }),
+    .max(320, { error: "webhooks.errors.textTooLong" }),
   external_ref: z
     .string()
     .trim()
     .min(1, { error: "webhooks.errors.externalRefRequired" })
-    .max(200, { error: "webhooks.errors.externalRefTooLong" }),
+    .max(200, { error: "webhooks.errors.externalRefTooLong" })
+    .optional(),
   amount: amountSchema.optional(),
   occurred_at: occurredAtSchema.optional(),
   account_id: z.uuid({ error: "webhooks.errors.accountInvalid" }).optional(),

@@ -148,8 +148,13 @@ accounting exports, native apps. None of this gets built or left
 
 - [ ] **RF-85** — A signed JSON webhook creates a movement from a payload: the request carries a bearer credential that resolves it to exactly one user; the quick-entry interpreter (RF-22) infers amount, category and description from the payload's text; the movement is written under that user's writable scope so the access policies and the audit apply as if the user had recorded it; and a stable external reference makes a re-delivery idempotent, updating nothing and duplicating nothing.
 - [x] **RF-86** — A user issues, names and revokes per-user webhook credentials; each credential's bearer token is shown once and stored only as a hash, may carry a default account and category the ingest falls back to when the payload does not name them, and a per-credential rate limit.
+- [ ] **RF-90** — A webhook delivery is stored as a pending proposal, never as a movement: a person accepts it, which records the movement, or rejects it, and a re-delivery of a reference already stored changes nothing.
+- [ ] **RF-91** — Accepting a complete proposal records the movement in one action; an incomplete one opens the movement form prefilled with everything the delivery read.
+- [ ] **RF-92** — A message shape is remembered per user: a shape a person silenced arrives already rejected and never waits for review, and a shape never seen before always waits.
+- [ ] **RF-93** — A merchant's category prefills a delivery's proposal only once that merchant is trusted; it never records a movement on its own.
+- [ ] **RF-94** — A merchant becomes trusted after two consecutive approvals under the same category, and an approval under a different category marks it ambiguous, which no later consistency undoes.
 
-The webhook reuses RF-22 (quick entry), RF-25 (created_by) and RF-45 (no write bypasses audit) unchanged: the same interpreter reads the payload text and the same insert path records the movement, so the created-by stamp and the audit hold as on any manual write. RF-52's idempotency shape is mirrored, not reused — RF-52 stays a spreadsheet-import requirement; the webhook applies the same stable-external-reference rule to its own deliveries.
+The webhook reuses RF-22 (quick entry), RF-25 (created_by) and RF-45 (no write bypasses audit) unchanged: the same interpreter reads the payload text and the same insert path records the movement, so the created-by stamp and the audit hold as on any manual write. RF-52's idempotency shape is mirrored, not reused — RF-52 stays a spreadsheet-import requirement; the webhook applies the same stable-external-reference rule to its own deliveries. The review queue keeps that reuse: it runs RF-22's interpreter to propose rather than to decide, and RF-25 and RF-45 hold unchanged because an accepted proposal is still written through the same insert path.
 
 ### Non-functional requirements
 

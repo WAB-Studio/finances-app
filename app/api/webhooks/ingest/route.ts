@@ -54,12 +54,23 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
+  // The payload no longer demands a reference, but this ingest path still keys
+  // its idempotency off one, so a body without it is refused here until the
+  // review queue derives one from the message text.
+  const { external_ref: externalRef } = parsed.data;
+  if (externalRef === undefined) {
+    return Response.json(
+      { error: "invalid_payload", fields: { external_ref: ["Required"] } },
+      { status: 422 },
+    );
+  }
+
   try {
     const result = await ingestWebhookMovement({
       ownerUserId: cred.ownerUserId,
       defaultAccountId: cred.defaultAccountId,
       defaultCategoryId: cred.defaultCategoryId,
-      payload: parsed.data,
+      payload: { ...parsed.data, external_ref: externalRef },
     });
 
     // A duplicate `external_ref` is a 200: the delivery is idempotent, not an

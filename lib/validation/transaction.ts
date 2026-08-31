@@ -72,7 +72,7 @@ const splitSchema = z.object({
   amount: splitAmountSchema,
 });
 
-const transactionFields = {
+export const transactionFields = {
   fromAccountId: accountRefSchema,
   toAccountId: accountRefSchema,
   amount: transactionAmountSchema,
@@ -118,7 +118,7 @@ export function requireAnAccount(
 // when `from` is null, expense when `to` is null, else transfer (RF-69). An
 // income or expense splits into rows summing to its amount in cents; a
 // transfer carries none.
-function refineSplits(data: TransactionFields, ctx: z.RefinementCtx) {
+export function refineSplits(data: TransactionFields, ctx: z.RefinementCtx) {
   const isTransfer = data.fromAccountId !== null && data.toAccountId !== null;
 
   if (isTransfer) {
