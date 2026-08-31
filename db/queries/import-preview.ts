@@ -23,26 +23,24 @@ const refTables = {
   transactions,
 } as const;
 
-// The caller's scope, read once so the preview resolves references and classifies
-// rows without touching Postgres again. Names are not unique in a scope, so a name
-// maps to MORE THAN ONE id; the preview raises a per-row error on a plural match.
-export type ImportScope = {
-  accountIdsByName: Map<string, string[]>;
-  categoryIdsByName: Map<string, string[]>;
-  existingRefs: Record<SheetEntity, Set<string>>;
+// One referenced entity as the resolver needs it: its real id, its current name, and
+// its stable key, so a file row that renames it (matched by key) can override the
+// name in the effective post-import set.
+export type ScopedEntity = {
+  id: string;
+  name: string;
+  externalRef: string | null;
 };
 
-// One id→name table read as a name→ids map, in the caller's RLS scope so a name
-// resolves to an id the same scope can write back.
-function toNameMap(rows: { id: string; name: string }[]): Map<string, string[]> {
-  const map = new Map<string, string[]>();
-  for (const row of rows) {
-    const ids = map.get(row.name) ?? [];
-    ids.push(row.id);
-    map.set(row.name, ids);
-  }
-  return map;
-}
+// The caller's existing scope, read once so the pipeline resolves references and
+// classifies rows without touching Postgres again. The account and category rows
+// seed the effective post-import set a reference resolves against; `existingRefs`
+// is the per-entity stable-key set the new-vs-update classification matches on.
+export type ImportScope = {
+  accounts: ScopedEntity[];
+  categories: ScopedEntity[];
+  existingRefs: Record<SheetEntity, Set<string>>;
+};
 
 // The set of `external_ref` values already in the caller's scope for one entity,
 // the null-guarded index the classification matches on (RF-52).
@@ -57,30 +55,46 @@ async function readExistingRefs(entity: SheetEntity): Promise<Set<string>> {
   });
 }
 
+// The stable keys present among a set of scoped rows, for the two entities whose id
+// and name are read anyway — no extra round trip for their `existingRefs` set.
+function refsOf(rows: ScopedEntity[]): Set<string> {
+  return new Set(rows.filter((row) => row.externalRef != null).map((row) => row.externalRef as string));
+}
+
 /**
- * The read side of the import preview (RF-51/52), all in the caller's RLS scope like
- * `readExport`: the account and category name→ids maps a reference resolves through,
- * and every entity's existing `external_ref` set for new-vs-update classification.
+ * The read side of the import pipeline (RF-51/52), all in the caller's RLS scope like
+ * `readExport`: the account and category rows a reference resolves through, and every
+ * entity's existing `external_ref` set for new-vs-update classification. The accounts
+ * and categories reads carry `external_ref`, so their key sets need no separate trip.
  * Each read is its own round trip, fanned out with `Promise.all`, never chained.
  */
 export async function readImportScope(): Promise<ImportScope> {
-  const [accountRows, categoryRows, ...refSets] = await Promise.all([
-    withUserDb((tx) =>
-      tx.select({ id: accounts.id, name: accounts.name }).from(accounts),
-    ),
-    withUserDb((tx) =>
-      tx.select({ id: categories.id, name: categories.name }).from(categories),
-    ),
-    ...SHEET_ENTITIES.map((entity) => readExistingRefs(entity)),
-  ]);
-
-  const existingRefs = Object.fromEntries(
-    SHEET_ENTITIES.map((entity, index) => [entity, refSets[index]]),
-  ) as Record<SheetEntity, Set<string>>;
+  const [accountRows, categoryRows, memberRefs, recurringRefs, transactionRefs] =
+    await Promise.all([
+      withUserDb((tx) =>
+        tx
+          .select({ id: accounts.id, name: accounts.name, externalRef: accounts.externalRef })
+          .from(accounts),
+      ),
+      withUserDb((tx) =>
+        tx
+          .select({ id: categories.id, name: categories.name, externalRef: categories.externalRef })
+          .from(categories),
+      ),
+      readExistingRefs("members"),
+      readExistingRefs("recurringRules"),
+      readExistingRefs("transactions"),
+    ]);
 
   return {
-    accountIdsByName: toNameMap(accountRows),
-    categoryIdsByName: toNameMap(categoryRows),
-    existingRefs,
+    accounts: accountRows,
+    categories: categoryRows,
+    existingRefs: {
+      accounts: refsOf(accountRows),
+      categories: refsOf(categoryRows),
+      members: memberRefs,
+      recurringRules: recurringRefs,
+      transactions: transactionRefs,
+    },
   };
 }
