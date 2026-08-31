@@ -166,6 +166,7 @@ async function main() {
   await checkCashReportInvariants();
   await checkExternalRefKeys();
   await checkImportCommit();
+  await checkLabelPolicies();
 }
 
 // Assertions 9-26: the repivoted schema. A group holds accounts and categories a user XOR a group
@@ -3869,6 +3870,220 @@ async function checkImportCommit() {
     tailLabel,
     afterUser === "postgres" && probeCount === "0",
     `current_user = ${afterUser}, import rows surviving = ${probeCount}`,
+  );
+}
+
+// Assertions 143-151: label governance. A group's labels bend to its leader and to no plain member,
+// a personal label to its owner alone, read is universal inside the group, a label only tags a
+// movement of its own scope, and the RF-89 filter narrows the ledger without widening it. Every
+// fixture is seeded through the app's own policies inside a transaction that rolls back.
+async function checkLabelPolicies() {
+  console.log("");
+  const leaderUser = randomUUID();
+  const memberUser = randomUUID();
+  const outsideUser = randomUUID();
+  const groupId = randomUUID();
+  const outsideGroupId = randomUUID();
+  const color = CATEGORY_COLORS[0];
+
+  const labels = [
+    "143. a member reads the group's label",
+    "144. a member cannot mint a label for the group",
+    "145. a member's update of the group's label touches nothing",
+    "146. a member's delete of the group's label touches nothing and the row survives",
+    "147. the leader's insert, update and delete of a group label all stand",
+    "148. a personal label yields to its owner and to no one else, the leader included",
+    "149. a label only tags a movement of its own scope",
+    "150. the RF-89 filter narrows the ledger to the labelled movement and never widens it",
+  ];
+  const tailLabel = "151. the rolled-back label transaction leaves no trace";
+
+  const forcedRollback = Symbol("forced rollback");
+
+  await sql
+    .begin(async (tx) => {
+      // Base identities, seeded as the owner before any role switch: `auth.users` is the FK target
+      // for `app_users`, and both must exist before the app's own policies can seed anything else.
+      await tx`insert into auth.users (id) values (${leaderUser}), (${memberUser}), (${outsideUser})`;
+      await tx`insert into app_users (id) values (${leaderUser}), (${memberUser}), (${outsideUser})`;
+
+      await enterUserContext(tx, leaderUser);
+      await tx`insert into groups (id, name, cash_mode) values (${groupId}, 'rls labels', 'shared')`;
+      await tx`insert into group_members (group_id, user_id, name, role)
+        values (${groupId}, ${leaderUser}, 'rls labels leader', 'leader')`;
+      const [{ id: sharedAccount }] = await tx<{ id: string }[]>`
+        insert into accounts (group_id, is_shared, name, kind, initial_balance_on)
+        values (${groupId}, true, 'rls labels shared cash', 'asset',
+          (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: groupLabel }] = await tx<{ id: string }[]>`
+        insert into labels (group_id, name, color)
+        values (${groupId}, 'rls labels group', ${color}) returning id`;
+
+      // A second member with a login: no policy hands one member another's membership, so seed it as the owner.
+      await tx`reset role`;
+      await tx`insert into group_members (group_id, user_id, name, role)
+        values (${groupId}, ${memberUser}, 'rls labels member', 'member')`;
+
+      await enterUserContext(tx, memberUser);
+      const [{ id: memberAccount }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_on)
+        values (${memberUser}, 'rls labels member cash', 'asset',
+          (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: personalLabel }] = await tx<{ id: string }[]>`
+        insert into labels (owner_user_id, name, color)
+        values (${memberUser}, 'rls labels personal', ${color}) returning id`;
+
+      // Two group movements, both transfers so neither needs a split: the group wins the scope the
+      // moment one side is the shared account. Only the first is ever labelled.
+      const [{ id: labelledTxn }] = await tx<{ id: string }[]>`
+        insert into transactions (from_account_id, to_account_id, amount_cents, occurred_at)
+        values (${memberAccount}, ${sharedAccount}, 4000,
+          (now() at time zone 'America/Bogota')::date) returning id`;
+      await tx`insert into transactions (from_account_id, to_account_id, amount_cents, occurred_at)
+        values (${sharedAccount}, ${memberAccount}, 1500, (now() at time zone 'America/Bogota')::date)`;
+
+      // A second group neither of them belongs to, with a label and a movement of its own.
+      await enterUserContext(tx, outsideUser);
+      await tx`insert into groups (id, name, cash_mode)
+        values (${outsideGroupId}, 'rls labels outside', 'shared')`;
+      await tx`insert into group_members (group_id, user_id, name, role)
+        values (${outsideGroupId}, ${outsideUser}, 'rls labels outside leader', 'leader')`;
+      const [{ id: outsideShared }] = await tx<{ id: string }[]>`
+        insert into accounts (group_id, is_shared, name, kind, initial_balance_on)
+        values (${outsideGroupId}, true, 'rls labels outside cash', 'asset',
+          (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: outsideOwn }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_on)
+        values (${outsideUser}, 'rls labels outside personal', 'asset',
+          (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: outsideLabel }] = await tx<{ id: string }[]>`
+        insert into labels (group_id, name, color)
+        values (${outsideGroupId}, 'rls labels outside group', ${color}) returning id`;
+      const [{ id: outsideTxn }] = await tx<{ id: string }[]>`
+        insert into transactions (from_account_id, to_account_id, amount_cents, occurred_at)
+        values (${outsideOwn}, ${outsideShared}, 2500,
+          (now() at time zone 'America/Bogota')::date) returning id`;
+      await tx`insert into transaction_labels (transaction_id, label_id)
+        values (${outsideTxn}, ${outsideLabel})`;
+
+      // 143: universal read inside the group — a plain member sees the label the leader defined.
+      await enterUserContext(tx, memberUser);
+      const [{ count: memberSeesGroupLabel }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from labels where id = ${groupLabel}`;
+      assert(labels[0], memberSeesGroupLabel === "1", `visible rows = ${memberSeesGroupLabel}`);
+
+      // 144: `labels_insert_group` gates on the leader claim, so the member's group label never lands.
+      await tx
+        .savepoint(async (sp) => {
+          await sp`insert into labels (group_id, name, color)
+            values (${groupId}, 'rls labels forged', ${color})`;
+          assert(labels[1], false, "a member minted a group label, which it must not");
+        })
+        .catch((error: unknown) => {
+          assert(labels[1], pgErrorCode(error) === "42501", `sqlstate ${pgErrorCode(error) ?? "none"}`);
+        });
+
+      // 145-146: the same gate on update and delete — the row is filtered out, so both touch nothing.
+      const memberUpdate = await tx`update labels set name = 'x' where id = ${groupLabel}`;
+      assert(labels[2], memberUpdate.count === 0, `update rows = ${memberUpdate.count}`);
+      const memberDelete = await tx`delete from labels where id = ${groupLabel}`;
+      const [{ count: survives }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from labels where id = ${groupLabel}`;
+      assert(
+        labels[3],
+        memberDelete.count === 0 && survives === "1",
+        `delete rows = ${memberDelete.count}, surviving rows = ${survives}`,
+      );
+
+      // 147: the leader holds the whole of the group's set, on a label of its own so the fixture stands.
+      await enterUserContext(tx, leaderUser);
+      const [{ id: leaderLabel }] = await tx<{ id: string }[]>`
+        insert into labels (group_id, name, color)
+        values (${groupId}, 'rls labels leader made', ${color}) returning id`;
+      const leaderUpdate = await tx`update labels set name = 'rls labels leader renamed'
+        where id = ${leaderLabel}`;
+      const leaderDelete = await tx`delete from labels where id = ${leaderLabel}`;
+      assert(
+        labels[4],
+        leaderUpdate.count === 1 && leaderDelete.count === 1,
+        `insert rows = 1, update rows = ${leaderUpdate.count}, delete rows = ${leaderDelete.count}`,
+      );
+
+      // 148: a personal label answers to its owner id, and the leader holds no exception over it.
+      await enterUserContext(tx, memberUser);
+      const [{ id: ownLabel }] = await tx<{ id: string }[]>`
+        insert into labels (owner_user_id, name, color)
+        values (${memberUser}, 'rls labels personal own', ${color}) returning id`;
+      const ownerRename = await tx`update labels set name = 'rls labels personal renamed'
+        where id = ${ownLabel}`;
+      await enterUserContext(tx, leaderUser);
+      const leaderOnPersonal = await tx`update labels set name = 'x' where id = ${ownLabel}`;
+      await enterUserContext(tx, memberUser);
+      const ownerDelete = await tx`delete from labels where id = ${ownLabel}`;
+      assert(
+        labels[5],
+        ownerRename.count === 1 && leaderOnPersonal.count === 0 && ownerDelete.count === 1,
+        `owner update rows = ${ownerRename.count}, leader update rows = ${leaderOnPersonal.count}, ` +
+          `owner delete rows = ${ownerDelete.count}`,
+      );
+
+      // 149: the join policy admits the member's write on a group movement either way, so only
+      // `assert_label_matches_transaction` can tell the two tags apart. The matching one stays, for 150.
+      await enterUserContext(tx, memberUser);
+      const matching = await tx`insert into transaction_labels (transaction_id, label_id)
+        values (${labelledTxn}, ${groupLabel})`;
+      await tx
+        .savepoint(async (sp) => {
+          await sp`insert into transaction_labels (transaction_id, label_id)
+            values (${labelledTxn}, ${personalLabel})`;
+          assert(labels[6], false, "a personal label tagged a group movement, which it must not");
+        })
+        .catch((error: unknown) => {
+          const code = pgErrorCode(error);
+          assert(
+            labels[6],
+            code === "23514" && matching.count === 1,
+            `mismatched sqlstate ${code ?? "none"}, matching rows = ${matching.count}`,
+          );
+        });
+
+      // 150: the predicate `listTransactions` composes for a label filter, replicated inline. The group's
+      // own label narrows to the movement it tags; the other group's label yields nothing, and never
+      // reaches past what the transactions policy already shows.
+      const [{ count: visible }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from transactions`;
+      const byGroupLabel = await tx<{ id: string }[]>`
+        select id from transactions where exists (
+          select 1 from transaction_labels tl
+          where tl.transaction_id = transactions.id and tl.label_id = ${groupLabel})`;
+      const byOutsideLabel = await tx<{ id: string }[]>`
+        select id from transactions where exists (
+          select 1 from transaction_labels tl
+          where tl.transaction_id = transactions.id and tl.label_id = ${outsideLabel})`;
+      assert(
+        labels[7],
+        visible === "2" &&
+          byGroupLabel.length === 1 &&
+          byGroupLabel[0].id === labelledTxn &&
+          byOutsideLabel.length === 0,
+        `visible rows = ${visible}, group-label rows = ${byGroupLabel.length}, ` +
+          `other-group-label rows = ${byOutsideLabel.length}`,
+      );
+
+      // Forces `sql.begin` to issue ROLLBACK: nothing this function wrote may survive it.
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`select current_user`;
+  const [{ count: probeCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from labels where name like 'rls labels%'`;
+  assert(
+    tailLabel,
+    afterUser === "postgres" && probeCount === "0",
+    `current_user = ${afterUser}, labels surviving = ${probeCount}`,
   );
 }
 

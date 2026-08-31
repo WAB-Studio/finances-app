@@ -25,6 +25,7 @@ flowchart TD
     Cta --> TxNew
     Aju --> Miembros["Members"]
     Aju --> Cats["Categories"]
+    Aju --> Etiq["Labels"]
     Aju --> Datos["Data — phase 2"]
     Aju --> Audit["Audit — phase 2"]
 ```

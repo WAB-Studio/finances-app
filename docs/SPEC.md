@@ -75,7 +75,7 @@ accounting exports, native apps. None of this gets built or left
 - [x] **RF-62** — Both accounts on a transaction belong to the caller's writable scope: their personal accounts and their group's shared accounts.
 - [x] **RF-22** — Quick entry: a single text field from which amount, category and description are inferred. Anything inferred stays editable before saving.
 - [x] **RF-23** — Listing with filters by date range, member, account, category and type.
-- [ ] **RF-89** — The transaction listing also filters by label, alongside the RF-23 filters.
+- [x] **RF-89** — The transaction listing also filters by label, alongside the RF-23 filters.
 - [x] **RF-24** — Edit and delete transactions.
 - [x] **RF-25** — Every transaction records which user created it.
 - [x] **RF-69** — Every income or expense splits into one or more (category, amount_cents) rows summing to its amount; a single-category income or expense is one split. A transfer has no splits and no category.
@@ -85,7 +85,7 @@ accounting exports, native apps. None of this gets built or left
 - [ ] **RF-63** — CRUD for categories with one level of subcategories, scoped to a user (personal) or a group; a subcategory shares its parent's scope.
 - [x] **RF-27** — Each category is either expense or income.
 - [x] **RF-64** — Creating a personal space or a group seeds an initial category set in the active language.
-- [ ] **RF-70** — Labels, independent of category, attach to transactions through a transaction_labels join; a group's labels are managed by its leader, a user's by their owner.
+- [x] **RF-70** — Labels, independent of category, attach to transactions through a transaction_labels join; a group's labels are managed by its leader, a user's by their owner.
 
 #### Recurring
 
