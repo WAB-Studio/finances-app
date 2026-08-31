@@ -3,6 +3,7 @@
 import type { LucideIcon } from "lucide-react";
 import {
   Database,
+  Inbox,
   LayoutDashboard,
   Menu,
   ScrollText,
@@ -25,6 +26,7 @@ import { Link as LocaleLink, usePathname } from "@/i18n/navigation";
 type DestinationKey =
   | "dashboard"
   | "planning"
+  | "inbox"
   | "members"
   | "accounts"
   | "categories"
@@ -41,6 +43,7 @@ function destinations(
   return [
     { key: "dashboard", href: "/", icon: LayoutDashboard },
     { key: "planning", href: "/planning", icon: Target },
+    { key: "inbox", href: "/inbox", icon: Inbox },
     ...(hasGroup
       ? [{ key: "members" as const, href: "/settings/members", icon: Users }]
       : []),

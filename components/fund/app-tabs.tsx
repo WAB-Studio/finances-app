@@ -5,6 +5,7 @@ import {
   ArrowRightLeft,
   Database,
   House,
+  Inbox,
   Plus,
   ScrollText,
   SlidersHorizontal,
@@ -35,6 +36,7 @@ import {
 import { Link as LocaleLink, usePathname } from "@/i18n/navigation";
 
 type SettingKey =
+  | "inbox"
   | "members"
   | "accounts"
   | "categories"
@@ -50,6 +52,7 @@ function settings(
   hasGroup: boolean,
 ): { key: SettingKey; href: string; icon: LucideIcon }[] {
   return [
+    { key: "inbox", href: "/inbox", icon: Inbox },
     ...(hasGroup
       ? [{ key: "members" as const, href: "/settings/members", icon: Users }]
       : []),
