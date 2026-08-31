@@ -92,6 +92,13 @@
       "when": 1788156054181,
       "tag": "0012_freezing_madelyne_pryor",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1788157694941,
+      "tag": "0013_qualify_resolve_webhook_credential",
+      "breakpoints": true
     }
   ]
 }
