@@ -21,6 +21,7 @@ import {
   Badge,
   Button,
   Callout,
+  ChipMultiSelect,
   Field,
   FieldControl,
   FieldGroup,
@@ -155,6 +156,13 @@ export function MovementForm({
 
   const isGroupScoped = kind !== null && scope === "group";
 
+  // A movement's labels share its scope, so only that scope's set is on offer
+  // (RF-70); the other scope's would be refused by the check on write.
+  const scopedLabels = useMemo(
+    () => options.labels.filter((label) => label.scope === scope),
+    [options.labels, scope],
+  );
+
   // Keep the splits in step with the derived kind: a transfer drops them, and a
   // switch between income and expense clears the categories the old kind carried
   // (RF-69). A lone split always holds the whole amount, like the quick sheet.
@@ -182,6 +190,15 @@ export function MovementForm({
 
     lastKind.current = kind;
   }, [kind, splits, amount, form]);
+
+  // Switching to an account of the other scope drops the selection, so a
+  // personal label never rides into a group movement.
+  const lastScope = useRef(scope);
+  useEffect(() => {
+    if (lastScope.current === scope) return;
+    lastScope.current = scope;
+    form.setValue("labelIds", [], { shouldValidate: true });
+  }, [scope, form]);
 
   function onActionSuccess() {
     onDone();
@@ -369,6 +386,38 @@ export function MovementForm({
             )}
           />
         )}
+
+        {/* A transfer carries no split but may carry labels, so the picker
+            mounts for every derived kind (RF-70). */}
+        <Controller
+          name="labelIds"
+          control={form.control}
+          render={({ field, fieldState }) => (
+            <Field invalid={fieldState.invalid}>
+              {scopedLabels.length === 0 ? (
+                <>
+                  <FieldLabel>{t("labelsLabel")}</FieldLabel>
+                  <Text size="2" color="gray">
+                    {t("labelsNone")}
+                  </Text>
+                </>
+              ) : (
+                <FieldControl>
+                  <ChipMultiSelect
+                    id="movement-labels"
+                    name="labelIds"
+                    value={field.value}
+                    onValueChange={field.onChange}
+                    options={scopedLabels}
+                    label={t("labelsLabel")}
+                    disabled={isPending}
+                  />
+                </FieldControl>
+              )}
+              <FieldMessage error={fieldState.error} />
+            </Field>
+          )}
+        />
 
         <Controller
           name="occurredAt"

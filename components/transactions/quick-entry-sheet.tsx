@@ -4,7 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { SquarePenIcon, XIcon } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 
@@ -15,6 +15,7 @@ import {
 import { SplitEditor } from "@/components/transactions/split-editor";
 import {
   Button,
+  ChipMultiSelect,
   Dialog,
   Field,
   FieldControl,
@@ -141,6 +142,13 @@ function QuickEntryForm({
     [options.categories, scope],
   );
 
+  // The same scope's labels, offered only when it has any: the sheet stays as
+  // short as it is today for a caller with none (RF-70).
+  const scopedLabels = useMemo(
+    () => options.labels.filter((label) => label.scope === scope),
+    [options.labels, scope],
+  );
+
   // Everything the interpreter proposes stays a suggestion the fields may
   // overwrite (RF-22): the account fills only while still empty so a manual
   // pick survives further typing.
@@ -171,13 +179,22 @@ function QuickEntryForm({
     }
   }
 
+  const lastScope = useRef(scope);
+
   // A lone split always carries the whole amount, so editing the total keeps it
   // in step; two or more are the editor's to balance.
   useEffect(() => {
     if (splits.length === 1 && splits[0].amount !== amount) {
       form.setValue("splits", [{ ...splits[0], amount }], { shouldValidate: true });
     }
-  }, [amount, splits, form]);
+
+    // A label shares its movement's scope, so an account of the other scope
+    // drops what the previous scope's picker filled.
+    if (lastScope.current !== scope) {
+      lastScope.current = scope;
+      form.setValue("labelIds", [], { shouldValidate: true });
+    }
+  }, [amount, splits, scope, form]);
 
   const create = useAction(createTransactionAction, {
     onSuccess: ({ data }) => {
@@ -274,6 +291,29 @@ function QuickEntryForm({
             </Field>
           )}
         />
+
+        {scopedLabels.length > 0 && (
+          <Controller
+            name="labelIds"
+            control={form.control}
+            render={({ field, fieldState }) => (
+              <Field invalid={fieldState.invalid}>
+                <FieldControl>
+                  <ChipMultiSelect
+                    id="quick-labels"
+                    name="labelIds"
+                    value={field.value}
+                    onValueChange={field.onChange}
+                    options={scopedLabels}
+                    label={t("labelsLabel")}
+                    disabled={create.isPending}
+                  />
+                </FieldControl>
+                <FieldMessage error={fieldState.error} />
+              </Field>
+            )}
+          />
+        )}
 
         <Controller
           name="fromAccountId"

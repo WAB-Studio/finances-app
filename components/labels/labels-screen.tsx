@@ -17,7 +17,6 @@ import {
   ColorSwatch,
   ConfirmDialog,
   DropdownMenu,
-  EmptyState,
   Flex,
   Heading,
   IconButton,
@@ -82,37 +81,32 @@ export function LabelsScreen({
     <Flex direction="column" gap="4">
       <Heading size="5">{t("title")}</Heading>
 
-      {personal.length === 0 && group.length === 0 ? (
-        <EmptyState
-          title={t("emptyTitle")}
-          description={t("emptyDescription")}
-          action={addButton("personal")}
+      {/* Each scope keeps its own heading and add button even while empty, so a
+          leader with no label anywhere still reaches the group's create path. */}
+      <Flex direction="column" gap="5">
+        <LabelSection
+          title={t("personalSection")}
+          rows={personal}
+          // A member who does not lead their group still governs their own
+          // set, and their personal movements carry only personal labels.
+          manageable
+          note={personal.length === 0 ? t("emptyDescription") : undefined}
+          addButton={addButton("personal")}
+          onEdit={(label) => setFormTarget({ placement: "personal", label })}
+          onDelete={setDeleteTarget}
         />
-      ) : (
-        <Flex direction="column" gap="5">
+        {hasGroup && (
           <LabelSection
-            title={t("personalSection")}
-            rows={personal}
-            // A member who does not lead their group still governs their own
-            // set, and their personal movements carry only personal labels.
-            manageable
-            addButton={addButton("personal")}
-            onEdit={(label) => setFormTarget({ placement: "personal", label })}
+            title={groupName}
+            rows={group}
+            manageable={canManageGroup}
+            note={canManageGroup ? undefined : t("leaderOnly")}
+            addButton={addButton("group")}
+            onEdit={(label) => setFormTarget({ placement: "group", label })}
             onDelete={setDeleteTarget}
           />
-          {hasGroup && (
-            <LabelSection
-              title={groupName}
-              rows={group}
-              manageable={canManageGroup}
-              note={canManageGroup ? undefined : t("leaderOnly")}
-              addButton={addButton("group")}
-              onEdit={(label) => setFormTarget({ placement: "group", label })}
-              onDelete={setDeleteTarget}
-            />
-          )}
-        </Flex>
-      )}
+        )}
+      </Flex>
 
       {/* Below Dialog.Content the form keys itself on the subject; closing unmounts it. */}
       <LabelFormDialog

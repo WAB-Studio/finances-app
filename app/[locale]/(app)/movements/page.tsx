@@ -41,6 +41,7 @@ const searchParamsSchema = z.object({
   member: nonEmpty,
   account: nonEmpty,
   category: nonEmpty,
+  label: nonEmpty,
   unreviewed: flag,
 });
 
@@ -75,6 +76,7 @@ export default async function MovementsPage(
     memberUserId: parsed.member,
     accountId: parsed.account,
     categoryId: parsed.category,
+    labelId: parsed.label,
     unreviewed: parsed.unreviewed,
   };
 
@@ -95,6 +97,7 @@ export default async function MovementsPage(
           member: parsed.member ?? null,
           account: parsed.account ?? null,
           category: parsed.category ?? null,
+          label: parsed.label ?? null,
           unreviewed: parsed.unreviewed,
         }}
       />

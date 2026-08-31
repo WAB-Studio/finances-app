@@ -15,6 +15,7 @@ import {
   Button,
   Card,
   CategoryTile,
+  ColorSwatch,
   EmptyState,
   Flex,
   Heading,
@@ -42,6 +43,7 @@ type MovementsFilters = {
   member: string | null;
   account: string | null;
   category: string | null;
+  label: string | null;
   // The deep-link flag: kept through any chip change so the filtered view stays
   // put until the user clears the filters (RF-31).
   unreviewed: boolean;
@@ -150,7 +152,8 @@ export function MovementsScreen({
         filters.to ||
         filters.member ||
         filters.account ||
-        filters.category,
+        filters.category ||
+        filters.label,
     );
 
   // Only the well-formed values ride the query; a cleared field drops its key so
@@ -163,6 +166,7 @@ export function MovementsScreen({
     if (next.member) query.member = next.member;
     if (next.account) query.account = next.account;
     if (next.category) query.category = next.category;
+    if (next.label) query.label = next.label;
     if (next.unreviewed) query.unreviewed = "1";
     return query;
   }
@@ -271,6 +275,36 @@ export function MovementsScreen({
                 </Select.Content>
               </Select.Root>
             </FilterField>
+
+            {/* The ledger spans both scopes, so the read filter offers every
+                label — unlike the write pickers, which narrow to one (RF-89). */}
+            {options.labels.length > 0 && (
+              <FilterField label={t("labelFilterLabel")}>
+                <Select.Root
+                  value={filters.label ?? ANY}
+                  onValueChange={(value) =>
+                    updateFilters({ label: value === ANY ? null : value })
+                  }
+                >
+                  <Select.Trigger />
+                  <Select.Content position="popper">
+                    <Select.Item value={ANY}>{t("allLabels")}</Select.Item>
+                    {options.labels.map((label) => (
+                      <Select.Item key={label.id} value={label.id}>
+                        <Flex as="span" align="center" gap="2">
+                          {/* `color` is a nullable column; a label stored
+                              without one keeps its name. */}
+                          {label.color && (
+                            <ColorSwatch color={label.color} />
+                          )}
+                          {label.name}
+                        </Flex>
+                      </Select.Item>
+                    ))}
+                  </Select.Content>
+                </Select.Root>
+              </FilterField>
+            )}
 
             {options.members.length > 0 && (
               <FilterField label={t("createdBy")}>
