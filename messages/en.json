@@ -123,6 +123,7 @@
     "members": "Members",
     "accounts": "Accounts",
     "categories": "Categories",
+    "data": "Data",
     "audit": "Audit log"
   },
   "audit": {
@@ -720,6 +721,17 @@
     "categoryKindMismatch": "The subcategory must have the same kind as its parent category."
   },
   "data": {
+    "screen": {
+      "title": "Data",
+      "exportHeading": "Export",
+      "entitiesLabel": "What to include",
+      "rangeFrom": "From",
+      "rangeTo": "To",
+      "download": "Download export",
+      "templateHeading": "Template",
+      "templateDescription": "A blank spreadsheet with the expected columns and your accounts and categories as valid options.",
+      "downloadTemplate": "Download template"
+    },
     "sheets": {
       "accounts": "Accounts",
       "members": "Members",

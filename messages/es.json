@@ -123,6 +123,7 @@
     "members": "Miembros",
     "accounts": "Cuentas",
     "categories": "Categorías",
+    "data": "Datos",
     "audit": "Auditoría"
   },
   "audit": {
@@ -720,6 +721,17 @@
     "categoryKindMismatch": "La subcategoría debe tener el mismo tipo que su categoría principal."
   },
   "data": {
+    "screen": {
+      "title": "Datos",
+      "exportHeading": "Exportar",
+      "entitiesLabel": "Qué incluir",
+      "rangeFrom": "Desde",
+      "rangeTo": "Hasta",
+      "download": "Descargar exportación",
+      "templateHeading": "Plantilla",
+      "templateDescription": "Una hoja de cálculo en blanco con las columnas esperadas y tus cuentas y categorías como opciones válidas.",
+      "downloadTemplate": "Descargar plantilla"
+    },
     "sheets": {
       "accounts": "Cuentas",
       "members": "Miembros",
