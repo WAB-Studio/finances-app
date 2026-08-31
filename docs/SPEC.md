@@ -137,8 +137,8 @@ accounting exports, native apps. None of this gets built or left
 
 #### Import, export and visible audit (phase 2)
 
-- [ ] **RF-49** — Download a spreadsheet template with the expected columns and the existing accounts and categories as valid options.
-- [ ] **RF-50** — Export accounts, members, categories, recurring rules and transactions, in the same shape the import accepts.
+- [x] **RF-49** — Download a spreadsheet template with the expected columns and the existing accounts and categories as valid options.
+- [x] **RF-50** — Export accounts, members, categories, recurring rules and transactions, in the same shape the import accepts.
 - [ ] **RF-51** — Import with preview: everything is validated before anything is written, errors are reported per row, and the user confirms. All or nothing.
 - [ ] **RF-52** — Re-importing the same file does not duplicate: every row carries a stable external reference and, if it already exists in the fund, it is updated.
 - [x] **RF-53** — Read-only audit log viewer, filterable by entity, user and date range.

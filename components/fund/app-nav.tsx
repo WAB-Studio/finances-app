@@ -1,7 +1,7 @@
 "use client";
 
 import type { LucideIcon } from "lucide-react";
-import { LayoutDashboard, Menu, ScrollText, Tags, Target, Users, Wallet } from "lucide-react";
+import { Database, LayoutDashboard, Menu, ScrollText, Tags, Target, Users, Wallet } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
 
@@ -17,6 +17,7 @@ type DestinationKey =
   | "members"
   | "accounts"
   | "categories"
+  | "data"
   | "audit";
 
 // One group per user with no switching (RF-55), so every destination is a fixed
@@ -32,6 +33,7 @@ function destinations(
       : []),
     { key: "accounts", href: "/settings/accounts", icon: Wallet },
     { key: "categories", href: "/settings/categories", icon: Tags },
+    { key: "data", href: "/settings/data", icon: Database },
     { key: "audit", href: "/settings/audit", icon: ScrollText },
   ];
 }

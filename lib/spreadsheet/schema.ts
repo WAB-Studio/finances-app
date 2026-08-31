@@ -1,0 +1,256 @@
+import { z } from "zod";
+
+import { accounts } from "@/db/schema/accounts";
+import { categories } from "@/db/schema/categories";
+import { groupMembers } from "@/db/schema/group-members";
+import { recurringRules } from "@/db/schema/recurring-rules";
+import { transactions } from "@/db/schema/transactions";
+import { isCivilDate } from "@/lib/dates";
+import { centsToPesos, pesosToCents } from "@/lib/money";
+import { CATEGORY_COLORS } from "@/lib/fund/category-color";
+import { createAccountSchema } from "@/lib/validation/account";
+import { CATEGORY_KINDS } from "@/lib/validation/category";
+import { createMemberSchema } from "@/lib/validation/member";
+import { occurredAtSchema, pesoAmountSchema } from "@/lib/validation/transaction";
+
+// The five entities export (RF-50) writes and import (RF-51/52) reads, in one
+// declared shape so both sides agree on the columns, their order and the rule
+// each cell obeys. No database access lives here: this is types and schemas.
+export const SHEET_ENTITIES = [
+  "accounts",
+  "members",
+  "categories",
+  "recurringRules",
+  "transactions",
+] as const;
+
+export type SheetEntity = (typeof SHEET_ENTITIES)[number];
+
+// The model carries integer cents (RNF-05); the sheet shows a decimal COP
+// value. The float exists only at this presentation boundary — `toSheet` on the
+// way out, `fromSheet` on the way back in — never in the model or its types.
+type MoneyBoundary = {
+  readonly toSheet: (cents: number) => number;
+  readonly fromSheet: (pesos: number) => number;
+};
+
+const moneyBoundary: MoneyBoundary = {
+  toSheet: centsToPesos,
+  fromSheet: pesosToCents,
+};
+
+// The two entities a cell can point at by name. A dev→prod restore re-links across
+// databases, so a reference travels as a name, not a uuid that means nothing there.
+type RefEntity = "accounts" | "categories";
+
+// One flat column of a sheet. `key` is the English header, the next-intl key a
+// later UI module translates, and the field name on a parsed row; `field` is
+// the `$inferSelect` column the export reads and the import writes back. A `ref`
+// column shows the referenced row's NAME under `key` while `field` stays the id
+// column the export resolves from (RF-49) and the import writes back after lookup.
+type SheetColumn<Model> = {
+  readonly key: string;
+  readonly field: keyof Model & string;
+  readonly money?: MoneyBoundary;
+  readonly ref?: { readonly entity: RefEntity };
+};
+
+// A row's stable reference (`refField`) names the column an import matches on to
+// update instead of duplicate (RF-52). `rowSchema` validates one parsed sheet
+// row with the same rules the form and server use (RNF-10).
+type SheetDescriptor<Model, Schema extends z.ZodType> = {
+  readonly entity: SheetEntity;
+  readonly refField: string;
+  readonly columns: readonly SheetColumn<Model>[];
+  readonly rowSchema: Schema;
+};
+
+// Model row types come straight from the migrations (RNF-11), never hand-copied.
+type AccountModel = typeof accounts.$inferSelect;
+type MemberModel = typeof groupMembers.$inferSelect;
+type CategoryModel = typeof categories.$inferSelect;
+type RecurringRuleModel = typeof recurringRules.$inferSelect;
+type TransactionModel = typeof transactions.$inferSelect;
+
+// The four non-transaction entities carry no `external_ref` column today, so
+// their reference for this PR is the row's own `id` (RF-52 idempotency still
+// holds: an existing id updates in place). A future import PR may repoint them
+// to a dedicated key without touching the export side.
+const idRef = { id: z.uuid() };
+
+// A cross-entity reference travels as the referenced row's name (RF-49), bounded
+// like the entities' own name (1..80). Names are not unique in a scope, so the
+// later import PR resolves a name to an id and raises a per-row error on a
+// duplicate — the sheet only guards the string shape here.
+const referenceNameSchema = z.string().trim().min(1).max(80);
+
+// Nullable on the side an entity omits: income names only a destination, expense
+// only a source (RF-20), mirroring accountRefSchema's `.nullable()`.
+const nullableReferenceNameSchema = referenceNameSchema.nullable();
+
+// A light civil-date guard for the two dates the ledger's own schema does not
+// export; the authoritative not-future and ordering rules live in the entity's
+// createX schema, run by the later import PR after name→id resolution.
+const sheetCivilDateSchema = z.string().trim().refine(isCivilDate);
+
+// Accounts and members carry no cross-entity reference, so their row keeps the
+// create schema unchanged, its own id appended (RF-52).
+export const accountRowSchema = createAccountSchema.extend(idRef);
+export type AccountRow = z.infer<typeof accountRowSchema>;
+
+export const memberRowSchema = createMemberSchema.extend(idRef);
+export type MemberRow = z.infer<typeof memberRowSchema>;
+
+// A category's parent is another category by name (RF-49); a top-level category
+// has none, so `parent` is optional and nullable. The id-shaped rules —
+// createCategorySchema, with its colour-at-top-level refinement — run in the later
+// import PR after `parent` is resolved to an id.
+export const categoryRowSchema = z.object({
+  id: z.uuid(),
+  name: referenceNameSchema,
+  kind: z.enum(CATEGORY_KINDS),
+  parent: referenceNameSchema.nullish(),
+  color: z.enum(CATEGORY_COLORS).nullable(),
+});
+export type CategoryRow = z.infer<typeof categoryRowSchema>;
+
+// A rule is one-sided (RF-29): one account by name, income or expense, never a
+// transfer; its category is named too. Frequency, interval and day-of-month get a
+// light guard here — the authoritative createRecurringRuleSchema, with its
+// one-account and cadence refinements, runs in the later import PR after resolution.
+export const recurringRuleRowSchema = z.object({
+  id: z.uuid(),
+  fromAccount: nullableReferenceNameSchema,
+  toAccount: nullableReferenceNameSchema,
+  amount: pesoAmountSchema({
+    required: "recurringRules.errors.amountRequired",
+    invalid: "recurringRules.errors.amountInvalid",
+    tooLarge: "recurringRules.errors.amountTooLarge",
+  }),
+  category: referenceNameSchema,
+  description: z
+    .string()
+    .trim()
+    .max(200, { error: "recurringRules.errors.descriptionTooLong" })
+    .nullish(),
+  frequency: z.enum(["monthly", "weekly", "yearly"]),
+  intervalN: z.number().int().min(1),
+  dayOfMonth: z.number().int().min(1).max(31).nullish(),
+  nextRunOn: sheetCivilDateSchema,
+  endsOn: sheetCivilDateSchema.nullish(),
+});
+export type RecurringRuleRow = z.infer<typeof recurringRuleRowSchema>;
+
+// A transaction owns `external_ref`, its stable import key, so that column stays as
+// itself; from/to accounts resolve to names (RF-49), each nullable so income and
+// expense stay one-sided and a transfer keeps both (RF-20). Splits and labels carry
+// no flat cell: the later import module reconstructs them and runs
+// createTransactionSchema (id-shaped) once every name is resolved to an id.
+export const transactionRowSchema = z.object({
+  externalRef: z
+    .string()
+    .trim()
+    .max(200, { error: "transactions.errors.externalRefTooLong" })
+    .optional(),
+  fromAccount: nullableReferenceNameSchema,
+  toAccount: nullableReferenceNameSchema,
+  amount: pesoAmountSchema({
+    required: "transactions.errors.amountRequired",
+    invalid: "transactions.errors.amountInvalid",
+    tooLarge: "transactions.errors.amountTooLarge",
+  }),
+  occurredAt: occurredAtSchema,
+  description: z
+    .string()
+    .trim()
+    .max(200, { error: "transactions.errors.descriptionTooLong" })
+    .nullable(),
+});
+export type TransactionRow = z.infer<typeof transactionRowSchema>;
+
+// `placement` has no single column of its own: the export derives personal vs
+// group from whether `ownerUserId` is set, and the import resolves the owner or
+// group back from it.
+export const accountSheetDescriptor = {
+  entity: "accounts",
+  refField: "id",
+  columns: [
+    { key: "id", field: "id" },
+    { key: "name", field: "name" },
+    { key: "kind", field: "kind" },
+    { key: "subtype", field: "subtype" },
+    { key: "placement", field: "ownerUserId" },
+    { key: "institution", field: "institution" },
+    { key: "amount", field: "initialBalanceCents", money: moneyBoundary },
+    { key: "balanceOn", field: "initialBalanceOn" },
+  ],
+  rowSchema: accountRowSchema,
+} satisfies SheetDescriptor<AccountModel, typeof accountRowSchema>;
+
+export const memberSheetDescriptor = {
+  entity: "members",
+  refField: "id",
+  columns: [
+    { key: "id", field: "id" },
+    { key: "name", field: "name" },
+    { key: "email", field: "inviteEmail" },
+  ],
+  rowSchema: memberRowSchema,
+} satisfies SheetDescriptor<MemberModel, typeof memberRowSchema>;
+
+export const categorySheetDescriptor = {
+  entity: "categories",
+  refField: "id",
+  columns: [
+    { key: "id", field: "id" },
+    { key: "name", field: "name" },
+    { key: "kind", field: "kind" },
+    { key: "parent", field: "parentId", ref: { entity: "categories" } },
+    { key: "color", field: "color" },
+  ],
+  rowSchema: categoryRowSchema,
+} satisfies SheetDescriptor<CategoryModel, typeof categoryRowSchema>;
+
+export const recurringRuleSheetDescriptor = {
+  entity: "recurringRules",
+  refField: "id",
+  columns: [
+    { key: "id", field: "id" },
+    { key: "fromAccount", field: "fromAccountId", ref: { entity: "accounts" } },
+    { key: "toAccount", field: "toAccountId", ref: { entity: "accounts" } },
+    { key: "amount", field: "amountCents", money: moneyBoundary },
+    { key: "category", field: "categoryId", ref: { entity: "categories" } },
+    { key: "description", field: "description" },
+    { key: "frequency", field: "frequency" },
+    { key: "intervalN", field: "intervalN" },
+    { key: "dayOfMonth", field: "dayOfMonth" },
+    { key: "nextRunOn", field: "nextRunOn" },
+    { key: "endsOn", field: "endsOn" },
+  ],
+  rowSchema: recurringRuleRowSchema,
+} satisfies SheetDescriptor<RecurringRuleModel, typeof recurringRuleRowSchema>;
+
+// Splits and labels are nested, not flat cells: a later import module bridges
+// them, so they carry no column here and stay out of the flat row schema.
+export const transactionSheetDescriptor = {
+  entity: "transactions",
+  refField: "externalRef",
+  columns: [
+    { key: "externalRef", field: "externalRef" },
+    { key: "fromAccount", field: "fromAccountId", ref: { entity: "accounts" } },
+    { key: "toAccount", field: "toAccountId", ref: { entity: "accounts" } },
+    { key: "amount", field: "amountCents", money: moneyBoundary },
+    { key: "occurredAt", field: "occurredAt" },
+    { key: "description", field: "description" },
+  ],
+  rowSchema: transactionRowSchema,
+} satisfies SheetDescriptor<TransactionModel, typeof transactionRowSchema>;
+
+// The one map both sides iterate, in the fixed entity order.
+export const sheetDescriptors = {
+  accounts: accountSheetDescriptor,
+  members: memberSheetDescriptor,
+  categories: categorySheetDescriptor,
+  recurringRules: recurringRuleSheetDescriptor,
+  transactions: transactionSheetDescriptor,
+} as const;
