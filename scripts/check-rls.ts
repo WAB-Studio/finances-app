@@ -168,6 +168,8 @@ async function main() {
   await checkImportCommit();
   await checkLabelPolicies();
   await checkWebhookCredentialOwnerWrites();
+  await checkIngestDeliveryPolicies();
+  await checkIngestMerchantTrust();
 }
 
 // Assertions 9-26: the repivoted schema. A group holds accounts and categories a user XOR a group
@@ -4240,6 +4242,432 @@ async function checkWebhookCredentialOwnerWrites() {
     tailLabel,
     afterUser === "postgres" && probeCount === "0",
     `current_user = ${afterUser}, rows named 'rls webhook writes%' = ${probeCount}`,
+  );
+}
+
+// Assertions 158-164: delivery and shape ownership, derived state, immutable insert state,
+// per-owner idempotency and the checks tying pending rows to unresolved proposals.
+async function checkIngestDeliveryPolicies() {
+  console.log("");
+  const owner = randomUUID();
+  const other = randomUUID();
+  const ownerShape = createHash("sha256").update(randomUUID()).digest("hex");
+  const rejectedShape = createHash("sha256").update(randomUUID()).digest("hex");
+  const approvedShape = createHash("sha256").update(randomUUID()).digest("hex");
+  const auditShape = createHash("sha256").update(randomUUID()).digest("hex");
+  const forcedRollback = Symbol("forced rollback");
+
+  const labels = [
+    "158. delivery and shape owner triggers stamp auth.uid and every ingest table writes an audit row",
+    "159. a second user reads and updates none of the first user's deliveries",
+    "160. insert grants bar forged state while a plain delivery lands pending and unresolved",
+    "161. rejected shapes silence new deliveries while approved shapes leave them pending",
+    "162. delivery references are unique per owner, not globally",
+    "163. pending deliveries cannot name a transaction or a resolution time",
+    "164. shape decisions are owner-isolated and unique per owner and shape",
+  ];
+
+  await sql
+    .begin(async (tx) => {
+      await tx`insert into auth.users (id) values (${owner}), (${other})`;
+      await tx`insert into app_users (id) values (${owner}), (${other})`;
+
+      const refusalOf = async (
+        run: (sp: postgres.TransactionSql) => Promise<unknown>,
+      ): Promise<string> => {
+        let code: string | undefined;
+        await tx
+          .savepoint(async (sp) => {
+            await run(sp);
+          })
+          .catch((error: unknown) => {
+            code = pgErrorCode(error);
+          });
+        return code ?? "none";
+      };
+
+      await enterUserContext(tx, owner);
+      const [{ id: categoryId }] = await tx<{ id: string }[]>`
+        insert into categories (owner_user_id, name, kind)
+        values (${owner}, 'rls ingest audit category', 'expense') returning id`;
+      const [{ id: accountId }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_on)
+        values (${owner}, 'rls ingest account', 'asset',
+          (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: transactionId }] = await tx<{ id: string }[]>`
+        insert into transactions (from_account_id, amount_cents, occurred_at)
+        values (${accountId}, 100, (now() at time zone 'America/Bogota')::date) returning id`;
+
+      const forgedOwnerCode = await refusalOf(
+        (sp) => sp`insert into ingest_deliveries
+          (owner_user_id, external_ref, raw_text, shape_hash)
+          values (${other}, 'rls-ingest-forged-owner', 'fixture', ${ownerShape})`,
+      );
+      const [delivery] = await tx<
+        { id: string; owner_user_id: string; status: string; resolved_at: Date | null }[]
+      >`insert into ingest_deliveries (external_ref, raw_text, shape_hash)
+        values ('rls-ingest-owner', 'fixture', ${ownerShape})
+        returning id, owner_user_id, status, resolved_at`;
+      const [shape] = await tx<{ id: string; owner_user_id: string }[]>`
+        insert into ingest_shapes (shape_hash, decision, sample_text)
+        values (${auditShape}, 'approved', 'fixture') returning id, owner_user_id`;
+      await tx`select private.remember_ingest_merchant(
+        'rls-ingest-audit-merchant', 'RLS ingest audit merchant', ${categoryId})`;
+      const [merchant] = await tx<{ id: string; owner_user_id: string }[]>`
+        select id, owner_user_id from ingest_merchants
+        where merchant_key = 'rls-ingest-audit-merchant'`;
+      await tx`reset role`;
+      const auditRows = await tx<{ entity: string; record_id: string }[]>`
+        select entity, record_id from audit_log
+        where action = 'INSERT' and (
+          (entity = 'ingest_deliveries' and record_id = ${delivery.id}) or
+          (entity = 'ingest_shapes' and record_id = ${shape.id}) or
+          (entity = 'ingest_merchants' and record_id = ${merchant.id})
+        )`;
+      const audited = new Set(
+        auditRows.map((row) => `${row.entity}:${row.record_id}`),
+      );
+      assert(
+        labels[0],
+        forgedOwnerCode === "42501" &&
+          delivery.owner_user_id === owner &&
+          shape.owner_user_id === owner &&
+          merchant.owner_user_id === owner &&
+          audited.has(`ingest_deliveries:${delivery.id}`) &&
+          audited.has(`ingest_shapes:${shape.id}`) &&
+          audited.has(`ingest_merchants:${merchant.id}`),
+        `owner sqlstate ${forgedOwnerCode}, stamped owners = ${delivery.owner_user_id === owner}/${shape.owner_user_id === owner}/${merchant.owner_user_id === owner}, audit rows = ${auditRows.length}`,
+      );
+
+      await enterUserContext(tx, other);
+      const [{ count: otherVisible }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from ingest_deliveries where id = ${delivery.id}`;
+      const otherUpdate = await tx`update ingest_deliveries
+        set status = 'rejected', resolved_at = now() where id = ${delivery.id}`;
+      assert(
+        labels[1],
+        otherVisible === "0" && otherUpdate.count === 0,
+        `visible rows = ${otherVisible}, updated rows = ${otherUpdate.count}`,
+      );
+
+      await enterUserContext(tx, owner);
+      const statusCode = await refusalOf(
+        (sp) => sp`insert into ingest_deliveries
+          (external_ref, raw_text, shape_hash, status)
+          values ('rls-ingest-forged-status', 'fixture', ${ownerShape}, 'accepted')`,
+      );
+      const resolvedCode = await refusalOf(
+        (sp) => sp`insert into ingest_deliveries
+          (external_ref, raw_text, shape_hash, resolved_at)
+          values ('rls-ingest-forged-resolved', 'fixture', ${ownerShape}, now())`,
+      );
+      const transactionCode = await refusalOf(
+        (sp) => sp`insert into ingest_deliveries
+          (external_ref, raw_text, shape_hash, transaction_id)
+          values ('rls-ingest-forged-transaction', 'fixture', ${ownerShape}, ${transactionId})`,
+      );
+      const [plain] = await tx<{ status: string; resolved_at: Date | null }[]>`
+        insert into ingest_deliveries (external_ref, raw_text, shape_hash)
+        values ('rls-ingest-plain', 'fixture', ${ownerShape})
+        returning status, resolved_at`;
+      assert(
+        labels[2],
+        statusCode === "42501" &&
+          resolvedCode === "42501" &&
+          transactionCode === "42501" &&
+          plain.status === "pending" &&
+          plain.resolved_at === null,
+        `status sqlstate ${statusCode}, resolved_at sqlstate ${resolvedCode}, transaction_id sqlstate ${transactionCode}, stored ${plain.status}/${plain.resolved_at === null ? "null" : "set"}`,
+      );
+
+      await tx`insert into ingest_shapes (shape_hash, decision, sample_text)
+        values (${rejectedShape}, 'rejected', 'fixture'),
+               (${approvedShape}, 'approved', 'fixture')`;
+      const [silenced] = await tx<{ status: string; resolved_at: Date | null }[]>`
+        insert into ingest_deliveries (external_ref, raw_text, shape_hash)
+        values ('rls-ingest-silenced', 'fixture', ${rejectedShape})
+        returning status, resolved_at`;
+      const [approved] = await tx<{ status: string; resolved_at: Date | null }[]>`
+        insert into ingest_deliveries (external_ref, raw_text, shape_hash)
+        values ('rls-ingest-approved', 'fixture', ${approvedShape})
+        returning status, resolved_at`;
+      assert(
+        labels[3],
+        silenced.status === "rejected" &&
+          silenced.resolved_at !== null &&
+          approved.status === "pending" &&
+          approved.resolved_at === null,
+        `rejected shape stored ${silenced.status}/${silenced.resolved_at ? "set" : "null"}, approved shape stored ${approved.status}/${approved.resolved_at ? "set" : "null"}`,
+      );
+
+      const duplicateCode = await refusalOf(
+        (sp) => sp`insert into ingest_deliveries (external_ref, raw_text, shape_hash)
+          values ('rls-ingest-owner', 'fixture duplicate', ${ownerShape})`,
+      );
+      await enterUserContext(tx, other);
+      const sameRefOther = await tx<{ id: string }[]>`
+        insert into ingest_deliveries (external_ref, raw_text, shape_hash)
+        values ('rls-ingest-owner', 'fixture other owner', ${ownerShape}) returning id`;
+      assert(
+        labels[4],
+        duplicateCode === "23505" && sameRefOther.length === 1,
+        `owner duplicate sqlstate ${duplicateCode}, second-owner rows = ${sameRefOther.length}`,
+      );
+
+      await enterUserContext(tx, owner);
+      const transactionPendingCode = await refusalOf(
+        (sp) => sp`update ingest_deliveries set transaction_id = ${transactionId}
+          where id = ${delivery.id}`,
+      );
+      const resolvedPendingCode = await refusalOf(
+        (sp) => sp`update ingest_deliveries set resolved_at = now()
+          where id = ${delivery.id}`,
+      );
+      assert(
+        labels[5],
+        transactionPendingCode === "23514" && resolvedPendingCode === "23514",
+        `transaction_id sqlstate ${transactionPendingCode}, resolved_at sqlstate ${resolvedPendingCode}`,
+      );
+
+      await enterUserContext(tx, other);
+      const [{ count: otherShapes }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from ingest_shapes where id = ${shape.id}`;
+      const otherShapeUpdate = await tx`update ingest_shapes set decision = 'rejected'
+        where id = ${shape.id}`;
+      await enterUserContext(tx, owner);
+      const shapeDuplicateCode = await refusalOf(
+        (sp) => sp`insert into ingest_shapes (shape_hash, decision, sample_text)
+          values (${auditShape}, 'rejected', 'fixture duplicate')`,
+      );
+      assert(
+        labels[6],
+        otherShapes === "0" &&
+          otherShapeUpdate.count === 0 &&
+          shapeDuplicateCode === "23505",
+        `second-user rows = ${otherShapes}, updates = ${otherShapeUpdate.count}, duplicate sqlstate ${shapeDuplicateCode}`,
+      );
+
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+}
+
+type MerchantSnapshot = {
+  id: string;
+  owner_user_id: string;
+  merchant_key: string;
+  merchant_label: string;
+  state: "learning" | "trusted" | "ambiguous";
+  candidate_category_id: string | null;
+  streak: number;
+  trusted_category_id: string | null;
+  created_at: Date;
+  updated_at: Date;
+};
+
+// Assertions 165-172: only the definer writes merchant memory, its transition is sticky and
+// owner-scoped, the shape definer can read forced-RLS rows, and the resolver returns its id.
+async function checkIngestMerchantTrust() {
+  console.log("");
+  const owner = randomUUID();
+  const other = randomUUID();
+  const rejectedShape = createHash("sha256").update(randomUUID()).digest("hex");
+  const tokenHash = createHash("sha256").update(randomUUID()).digest("hex");
+  const forcedRollback = Symbol("forced rollback");
+
+  const labels = [
+    "165. authenticated cannot insert or update merchant memory directly",
+    "166. two matching approvals trust a merchant and a contradiction makes it ambiguous",
+    "167. ambiguity stays pinned after later matching approvals",
+    "168. a disagreement while learning restarts the streak without pinning ambiguity",
+    "169. merchant memory is isolated per user even for the same merchant key",
+    "170. the delivery-state definer owner bypasses forced RLS to read silenced shapes",
+    "171. the credential resolver permanently proves the credential id projection",
+  ];
+  const tailLabel = "172. the rolled-back ingest transaction leaves no trace";
+
+  await sql
+    .begin(async (tx) => {
+      await tx`insert into auth.users (id) values (${owner}), (${other})`;
+      await tx`insert into app_users (id) values (${owner}), (${other})`;
+
+      const refusalOf = async (
+        run: (sp: postgres.TransactionSql) => Promise<unknown>,
+      ): Promise<string> => {
+        let code: string | undefined;
+        await tx
+          .savepoint(async (sp) => {
+            await run(sp);
+          })
+          .catch((error: unknown) => {
+            code = pgErrorCode(error);
+          });
+        return code ?? "none";
+      };
+      const readMerchant = async (key: string): Promise<MerchantSnapshot> => {
+        const [row] = await tx<MerchantSnapshot[]>`
+          select * from ingest_merchants where merchant_key = ${key}`;
+        if (!row) throw new Error(`missing merchant fixture ${key}`);
+        return row;
+      };
+
+      await enterUserContext(tx, owner);
+      const [{ id: categoryA }] = await tx<{ id: string }[]>`
+        insert into categories (owner_user_id, name, kind)
+        values (${owner}, 'rls ingest merchant A', 'expense') returning id`;
+      const [{ id: categoryB }] = await tx<{ id: string }[]>`
+        insert into categories (owner_user_id, name, kind)
+        values (${owner}, 'rls ingest merchant B', 'expense') returning id`;
+      await tx`select private.remember_ingest_merchant(
+        'rls-ingest-main', 'RLS ingest main', ${categoryA})`;
+
+      const directInsertCode = await refusalOf(
+        (sp) => sp`insert into ingest_merchants
+          (owner_user_id, merchant_key, merchant_label)
+          values (${owner}, 'rls-ingest-forged', 'RLS ingest forged')`,
+      );
+      const directUpdateCode = await refusalOf(
+        (sp) => sp`update ingest_merchants set state = 'trusted'
+          where merchant_key = 'rls-ingest-main'`,
+      );
+      assert(
+        labels[0],
+        directInsertCode === "42501" && directUpdateCode === "42501",
+        `insert sqlstate ${directInsertCode}, update sqlstate ${directUpdateCode}`,
+      );
+
+      const first = await readMerchant("rls-ingest-main");
+      await tx`select private.remember_ingest_merchant(
+        'rls-ingest-main', 'RLS ingest main', ${categoryA})`;
+      const second = await readMerchant("rls-ingest-main");
+      await tx`select private.remember_ingest_merchant(
+        'rls-ingest-main', 'RLS ingest main', ${categoryB})`;
+      const third = await readMerchant("rls-ingest-main");
+      assert(
+        labels[1],
+        first.state === "learning" &&
+          first.streak === 1 &&
+          first.trusted_category_id === null &&
+          second.state === "trusted" &&
+          second.streak === 2 &&
+          second.trusted_category_id === categoryA &&
+          third.state === "ambiguous" &&
+          third.trusted_category_id === null,
+        `first ${first.state}/${first.streak}/${first.trusted_category_id}, second ${second.state}/${second.streak}/${second.trusted_category_id}, third ${third.state}/${third.streak}/${third.trusted_category_id}`,
+      );
+
+      await tx`select private.remember_ingest_merchant(
+        'rls-ingest-main', 'RLS ingest main', ${categoryA})`;
+      await tx`select private.remember_ingest_merchant(
+        'rls-ingest-main', 'RLS ingest main', ${categoryA})`;
+      const sticky = await readMerchant("rls-ingest-main");
+      assert(
+        labels[2],
+        sticky.state === "ambiguous" && sticky.trusted_category_id === null,
+        `state = ${sticky.state}, streak = ${sticky.streak}, trusted_category_id = ${sticky.trusted_category_id}`,
+      );
+
+      await tx`select private.remember_ingest_merchant(
+        'rls-ingest-learning', 'RLS ingest learning', ${categoryA})`;
+      await tx`select private.remember_ingest_merchant(
+        'rls-ingest-learning', 'RLS ingest learning', ${categoryB})`;
+      const learning = await readMerchant("rls-ingest-learning");
+      assert(
+        labels[3],
+        learning.state === "learning" &&
+          learning.streak === 1 &&
+          learning.candidate_category_id === categoryB &&
+          learning.trusted_category_id === null,
+        `state = ${learning.state}, streak = ${learning.streak}, candidate_category_id = ${learning.candidate_category_id}, trusted_category_id = ${learning.trusted_category_id}`,
+      );
+
+      const ownerBefore = await readMerchant("rls-ingest-main");
+      await enterUserContext(tx, other);
+      const [{ id: otherCategory }] = await tx<{ id: string }[]>`
+        insert into categories (owner_user_id, name, kind)
+        values (${other}, 'rls ingest merchant other', 'expense') returning id`;
+      await tx`select private.remember_ingest_merchant(
+        'rls-ingest-main', 'RLS ingest main', ${otherCategory})`;
+      const otherRows = await tx<MerchantSnapshot[]>`
+        select * from ingest_merchants where merchant_key = 'rls-ingest-main'`;
+      await enterUserContext(tx, owner);
+      const ownerAfter = await readMerchant("rls-ingest-main");
+      assert(
+        labels[4],
+        otherRows.length === 1 &&
+          otherRows[0].owner_user_id === other &&
+          JSON.stringify(ownerAfter) === JSON.stringify(ownerBefore),
+        `second-user visible rows = ${otherRows.length}, owns row = ${otherRows[0]?.owner_user_id === other}, first row unchanged = ${JSON.stringify(ownerAfter) === JSON.stringify(ownerBefore)}`,
+      );
+
+      await tx`insert into ingest_shapes (shape_hash, decision, sample_text)
+        values (${rejectedShape}, 'rejected', 'fixture')`;
+      const [silenced] = await tx<{ status: string; resolved_at: Date | null }[]>`
+        insert into ingest_deliveries (external_ref, raw_text, shape_hash)
+        values ('rls-ingest-definer', 'fixture', ${rejectedShape})
+        returning status, resolved_at`;
+      await tx`reset role`;
+      const [definer] = await tx<
+        { security_definer: boolean; owner: string; bypass: boolean; forced: boolean }[]
+      >`select p.prosecdef as security_definer, r.rolname as owner,
+          r.rolbypassrls as bypass, c.relforcerowsecurity as forced
+        from pg_proc p
+        join pg_namespace n on n.oid = p.pronamespace
+        join pg_roles r on r.oid = p.proowner
+        join pg_class c on c.oid = 'public.ingest_shapes'::regclass
+        where n.nspname = 'private' and p.proname = 'set_ingest_delivery_state'`;
+      assert(
+        labels[5],
+        definer.security_definer &&
+          definer.owner === "postgres" &&
+          definer.bypass &&
+          definer.forced &&
+          silenced.status === "rejected" &&
+          silenced.resolved_at !== null,
+        `security definer = ${definer.security_definer}, owner = ${definer.owner}, bypass = ${definer.bypass}, forced = ${definer.forced}, stored = ${silenced.status}/${silenced.resolved_at ? "set" : "null"}`,
+      );
+
+      await enterUserContext(tx, owner);
+      const [credential] = await tx<{ id: string }[]>`
+        insert into webhook_credentials (name, token_hash)
+        values ('rls ingest resolver id', ${tokenHash}) returning id`;
+      await tx`reset role`;
+      const resolved = await tx<{ id: string; owner_user_id: string }[]>`
+        select id, owner_user_id from private.resolve_webhook_credential(${tokenHash})`;
+      assert(
+        labels[6],
+        resolved.length === 1 &&
+          resolved[0].id === credential.id &&
+          resolved[0].owner_user_id === owner,
+        `rows = ${resolved.length}, credential id matches = ${resolved[0]?.id === credential.id}, owner matches = ${resolved[0]?.owner_user_id === owner}`,
+      );
+
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`
+    select current_user`;
+  const [survivors] = await sql<
+    { deliveries: string; shapes: string; merchants: string }[]
+  >`select
+      (select count(*)::text from ingest_deliveries
+        where external_ref like 'rls-ingest-%') as deliveries,
+      (select count(*)::text from ingest_shapes
+        where sample_text = 'fixture' and shape_hash = ${rejectedShape}) as shapes,
+      (select count(*)::text from ingest_merchants
+        where merchant_key like 'rls-ingest-%') as merchants`;
+  assert(
+    tailLabel,
+    afterUser === "postgres" &&
+      survivors.deliveries === "0" &&
+      survivors.shapes === "0" &&
+      survivors.merchants === "0",
+    `current_user = ${afterUser}, deliveries = ${survivors.deliveries}, shapes = ${survivors.shapes}, merchants = ${survivors.merchants}`,
   );
 }
 
