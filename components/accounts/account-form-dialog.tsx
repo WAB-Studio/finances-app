@@ -56,6 +56,7 @@ type AccountFormValues = {
   placement: (typeof ACCOUNT_PLACEMENTS)[number];
   isShared: boolean;
   institution: string;
+  lastFour: string;
   amount: string;
   balanceOn: string;
 };
@@ -119,6 +120,7 @@ function AccountForm({
           placement: account.ownerUserId ? "personal" : "group",
           isShared: account.isShared,
           institution: account.institution ?? "",
+          lastFour: account.lastFour ?? "",
           amount: String(centsToPesos(Math.abs(account.initialBalanceCents))),
           balanceOn: account.initialBalanceOn,
         }
@@ -131,6 +133,7 @@ function AccountForm({
           placement: "personal",
           isShared: false,
           institution: "",
+          lastFour: "",
           amount: "",
           balanceOn: todayInBogota(),
         },
@@ -324,6 +327,35 @@ function AccountForm({
                   disabled={isPending}
                 />
               </FieldControl>
+              <FieldMessage error={fieldState.error} />
+            </Field>
+          )}
+        />
+        <Controller
+          name="lastFour"
+          control={form.control}
+          render={({ field, fieldState }) => (
+            <Field invalid={fieldState.invalid}>
+              <FieldLabel htmlFor="account-last-four">
+                <Flex as="span" align="center" gap="1">
+                  {t("lastFourLabel")}
+                  <Text size="2" weight="regular" color="gray">
+                    {tKey("common.optional")}
+                  </Text>
+                </Flex>
+              </FieldLabel>
+              <FieldControl>
+                <TextField.Root
+                  {...field}
+                  id="account-last-four"
+                  size="3"
+                  inputMode="numeric"
+                  maxLength={4}
+                  autoComplete="off"
+                  disabled={isPending}
+                />
+              </FieldControl>
+              <FieldDescription>{t("lastFourDescription")}</FieldDescription>
               <FieldMessage error={fieldState.error} />
             </Field>
           )}

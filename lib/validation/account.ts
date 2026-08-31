@@ -36,6 +36,13 @@ const accountInstitutionSchema = z
   .max(80, { error: "accounts.errors.institutionTooLong" })
   .nullable();
 
+const accountLastFourSchema = z
+  .string()
+  .trim()
+  .refine((value) => value === "" || /^[0-9]{4}$/.test(value), {
+    error: "accounts.errors.lastFourInvalid",
+  });
+
 // The opening amount stays a peso string through validation: no sign is
 // applied here, since the sign is a property of the account's kind (RF-10).
 const accountAmountSchema = z.string().superRefine((value, ctx) => {
@@ -96,6 +103,7 @@ export const createAccountSchema = z
     // The owner or group is resolved from the session, so only the placement travels.
     placement: z.enum(ACCOUNT_PLACEMENTS, { error: "accounts.errors.placementInvalid" }),
     institution: accountInstitutionSchema,
+    lastFour: accountLastFourSchema.optional(),
     amount: accountAmountSchema,
     balanceOn: accountBalanceOnSchema,
   })
@@ -115,6 +123,7 @@ export const updateAccountSchema = z
     subtype: z.enum(ACCOUNT_SUBTYPES, { error: "accounts.errors.subtypeInvalid" }),
     isShared: z.boolean(),
     institution: accountInstitutionSchema,
+    lastFour: accountLastFourSchema.optional(),
     amount: accountAmountSchema,
     balanceOn: accountBalanceOnSchema,
   })

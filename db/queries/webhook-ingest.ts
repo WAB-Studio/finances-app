@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 
 import {
   accounts,
@@ -48,7 +48,10 @@ export async function recordIngestDelivery({
       tx
         .select({ id: categories.id, name: categories.name, kind: categories.kind })
         .from(categories),
-      tx.select({ id: accounts.id, name: accounts.name }).from(accounts),
+      tx
+        .select({ id: accounts.id, name: accounts.name, lastFour: accounts.lastFour })
+        .from(accounts)
+        .where(isNull(accounts.archivedAt)),
       fingerprint.merchant
         ? tx
             .select({
@@ -89,7 +92,7 @@ export async function recordIngestDelivery({
 
     const description = proposal.description.trim().slice(0, MAX_DESCRIPTION_LENGTH);
 
-    const proposedAccountId = payload.account_id ?? defaultAccountId ?? null;
+    const proposedAccountId = payload.account_id ?? proposal.accountId;
     const proposedDirection = payload.direction ?? proposal.direction;
     const proposedOccurredAt = payload.occurred_at ?? todayInBogota();
     const proposedDescription = description === "" ? null : description;

@@ -34,6 +34,7 @@ export const accounts = pgTable(
     // that names neither has one derived by `set_account_subtype`; the default lets it be omitted.
     subtype: text({ enum: ["bancaria", "efectivo", "tarjeta"] }).notNull().default("bancaria"),
     institution: text(),
+    lastFour: text(),
     // The opening balance only (RNF-05). No running balance column exists anywhere (RNF-07).
     initialBalanceCents: bigint({ mode: "number" }).notNull().default(0),
     initialBalanceOn: date().notNull(),
@@ -63,6 +64,7 @@ export const accounts = pgTable(
     // A personal account is never shared; only a group account carries is_shared.
     check("accounts_personal_not_shared", sql`${table.ownerUserId} is null or ${table.isShared} = false`),
     check("accounts_external_ref_length", sql`length(${table.externalRef}) <= 200`),
+    check("accounts_last_four_digits", sql`${table.lastFour} is null or ${table.lastFour} ~ '^[0-9]{4}$'`),
     index("accounts_group_id_idx").on(table.groupId),
     index("accounts_owner_user_id_idx").on(table.ownerUserId),
     // `external_ref` is unique within a scope, so re-importing the same row updates instead of duplicating (RF-51).

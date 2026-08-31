@@ -16,6 +16,7 @@ export type AccountRow = {
   kind: AccountKind;
   subtype: AccountSubtype;
   institution: string | null;
+  lastFour?: string | null;
   ownerUserId: string | null;
   groupId: string | null;
   isShared: boolean;
@@ -38,6 +39,7 @@ export async function listAccounts(
         kind: accounts.kind,
         subtype: accounts.subtype,
         institution: accounts.institution,
+        lastFour: accounts.lastFour,
         ownerUserId: accounts.ownerUserId,
         groupId: accounts.groupId,
         isShared: accounts.isShared,
@@ -63,6 +65,7 @@ export type CreateAccountArgs = {
   groupId: string | null;
   isShared: boolean;
   institution: string | null;
+  lastFour?: string | null;
   pesos: number;
   balanceOn: string;
 };
@@ -75,6 +78,7 @@ export async function createAccount({
   groupId,
   isShared,
   institution,
+  lastFour,
   pesos,
   balanceOn,
 }: CreateAccountArgs): Promise<{ accountId: string }> {
@@ -93,6 +97,7 @@ export async function createAccount({
         isShared,
         // A blank field means "no institution", the same as an absent one.
         institution: institution === "" ? null : institution,
+        lastFour: lastFour ? lastFour : null,
         // A liability opens negative so net worth stays a plain sum (RNF-05).
         // `cents` is cast explicitly: an untyped param leaves unary minus with
         // no single best operator, and Postgres refuses to parse the case.
@@ -113,6 +118,7 @@ export type UpdateAccountArgs = {
   subtype: AccountSubtype;
   isShared: boolean;
   institution: string | null;
+  lastFour?: string | null;
   pesos: number;
   balanceOn: string;
 };
@@ -123,6 +129,7 @@ export async function updateAccount({
   subtype,
   isShared,
   institution,
+  lastFour,
   pesos,
   balanceOn,
 }: UpdateAccountArgs): Promise<boolean> {
@@ -137,6 +144,7 @@ export async function updateAccount({
         subtype,
         isShared,
         institution: institution === "" ? null : institution,
+        lastFour: lastFour ? lastFour : null,
         // `kind` is immutable and absent from the grant, so it is read from
         // the row itself rather than named in this `set`. `cents` is cast
         // explicitly for the same reason as in `createAccount`.

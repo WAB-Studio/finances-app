@@ -10,10 +10,14 @@ const AMOUNT_PATTERN = /\d[\d.,]*\d|\d/;
 const INCOME_PATTERN = /\brecibiste\s+una\s+transferencia\b/iu;
 const EXPENSE_PATTERN =
   /\b(?:transferiste|compraste|pagaste)\b|\btu\s+compra\b[\s\S]*\bfue\s+aprobada\b/iu;
+const ACCOUNT_TAIL_PATTERNS = [
+  /\*+\s*(\d{4})\b/gu,
+  /\btarjeta\s+cr[eé]dito\s+(\d{4})\b/giu,
+];
 
 interface InterpretContext {
   categories: { id: string; name: string; kind: string }[];
-  accounts: { id: string; name: string }[];
+  accounts: { id: string; name: string; lastFour?: string | null }[];
   defaultAccountId: string | null;
 }
 
@@ -39,6 +43,16 @@ export function interpretQuickEntry(
   const amountPesos = amountMatch
     ? normalizeAmountInput(amountMatch[0])
     : null;
+  const mentionedTails = new Set(
+    ACCOUNT_TAIL_PATTERNS.flatMap((pattern) =>
+      [...text.matchAll(pattern)].map((match) => match[1]),
+    ),
+  );
+  const matchedAccounts = ctx.accounts.filter(
+    (account) => account.lastFour && mentionedTails.has(account.lastFour),
+  );
+  const matchedAccountId =
+    matchedAccounts.length === 1 ? matchedAccounts[0].id : null;
 
   // The first category whose name reads as a substring of the text; the token
   // it matched drops out of the description below.
@@ -63,8 +77,8 @@ export function interpretQuickEntry(
     amountPesos,
     categoryId: matchedCategory?.id ?? null,
     description,
-    // The default account is the last one that person used (RF-22).
-    accountId: ctx.defaultAccountId,
+    // A uniquely named bank tail outranks the last-used fallback (RF-97, RF-22).
+    accountId: matchedAccountId ?? ctx.defaultAccountId,
     direction: INCOME_PATTERN.test(text)
       ? "income"
       : EXPENSE_PATTERN.test(text)
