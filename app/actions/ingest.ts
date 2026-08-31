@@ -1,0 +1,102 @@
+"use server";
+
+import { eq } from "drizzle-orm";
+import { refresh } from "next/cache";
+
+import {
+  acceptDelivery,
+  DeliveryNotPending,
+  rejectDelivery,
+} from "@/db/queries/ingest-review";
+import type { TransactionSplitInput } from "@/db/queries/transactions";
+import { ingestMerchants } from "@/db/schema";
+import { withUserDb } from "@/db/session";
+import { pgErrorCode } from "@/lib/db-error";
+import { ActionError } from "@/lib/errors";
+import { parsePesos, pesosToCents } from "@/lib/money";
+import { authActionClient } from "@/lib/safe-action";
+import {
+  acceptDeliverySchema,
+  forgetMerchantSchema,
+  rejectDeliverySchema,
+} from "@/lib/validation/ingest";
+
+type SplitInput = { categoryId: string; amount: string };
+
+function toCents(amount: string): number {
+  const pesos = parsePesos(amount);
+  if (pesos === null) throw new ActionError("errors.unexpected");
+  return pesosToCents(pesos);
+}
+
+function toSplitCents(splits: SplitInput[]): TransactionSplitInput[] {
+  return splits.map((split) => ({
+    categoryId: split.categoryId,
+    amountCents: toCents(split.amount),
+  }));
+}
+
+function mapReviewError(error: unknown): never {
+  if (error instanceof DeliveryNotPending) {
+    throw new ActionError("errors.notFound");
+  }
+
+  const code = pgErrorCode(error);
+  if (code === "42501" || code === "23503") {
+    throw new ActionError("errors.notFound");
+  }
+  throw error;
+}
+
+export const acceptDeliveryAction = authActionClient
+  .inputSchema(acceptDeliverySchema)
+  .action(async ({ parsedInput }) => {
+    const amountCents = toCents(parsedInput.amount);
+    const splits = toSplitCents(parsedInput.splits);
+
+    let transactionId: string;
+    try {
+      ({ transactionId } = await acceptDelivery({
+        deliveryId: parsedInput.deliveryId,
+        fromAccountId: parsedInput.fromAccountId,
+        toAccountId: parsedInput.toAccountId,
+        amountCents,
+        occurredAt: parsedInput.occurredAt,
+        description: parsedInput.description,
+        splits,
+        labelIds: parsedInput.labelIds,
+      }));
+    } catch (error) {
+      mapReviewError(error);
+    }
+
+    refresh();
+    return { transactionId };
+  });
+
+export const rejectDeliveryAction = authActionClient
+  .inputSchema(rejectDeliverySchema)
+  .action(async ({ parsedInput }) => {
+    try {
+      await rejectDelivery(parsedInput);
+    } catch (error) {
+      mapReviewError(error);
+    }
+
+    refresh();
+  });
+
+export const forgetMerchantAction = authActionClient
+  .inputSchema(forgetMerchantSchema)
+  .action(async ({ parsedInput: { merchantId } }) => {
+    const deleted = await withUserDb((tx) =>
+      tx
+        .delete(ingestMerchants)
+        .where(eq(ingestMerchants.id, merchantId))
+        .returning({ id: ingestMerchants.id }),
+    );
+
+    if (deleted.length === 0) throw new ActionError("errors.notFound");
+
+    refresh();
+  });
