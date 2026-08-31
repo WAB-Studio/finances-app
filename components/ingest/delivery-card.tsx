@@ -277,6 +277,7 @@ export function DeliveryCard({
         <Flex direction="column" align="start" gap="2">
           <Button
             type="button"
+            size="3"
             variant="ghost"
             color="gray"
             onClick={() => setRawTextOpen((open) => !open)}
