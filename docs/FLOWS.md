@@ -28,6 +28,7 @@ flowchart TD
     Aju --> Etiq["Labels"]
     Aju --> Datos["Data — phase 2"]
     Aju --> Webhooks["Webhooks"]
+    Aju --> Bandeja["Inbox"]
     Aju --> Audit["Audit — phase 2"]
 ```
 
@@ -244,6 +245,7 @@ Frequently skipped, and responsible for half the perceived quality:
 | Initial empty | Dashboard with no movements | Guide to creating the first account, not a chart at zero |
 | Filtered empty | Filtered list | No results, with an action to clear filters |
 | Unreviewed automatics | Dashboard | Notice linking to the already-filtered list |
+| Deliveries awaiting review | Dashboard | Amber badge linking to the inbox |
 | Debt without terms | Liability account with no rate or payment | Balance yes, interest no; invitation to complete it |
 | Archived member with accounts | Member settings | Ask per account: archive it or hand it to the fund (RF-12) |
 | Expired session | Any action | Back to login, preserving the destination |
@@ -259,3 +261,29 @@ same person may read dark on their phone and light on their laptop.
 
 Unlike the language, it does not follow the user between devices, because
 "follow the system" is a property of the device.
+
+---
+
+## 11. Bank message ingest
+
+```mermaid
+flowchart TD
+    A[Delivery arrives] --> B{"Shape silenced?"}
+    B -->|yes| C["Stored rejected,<br/>never shown"]
+    B -->|no| D[Stored pending]
+    D --> E{"Proposal complete?"}
+    E -->|yes| F[One-tap acceptance]
+    E -->|no| G[Prefilled movement form]
+    F --> H[Movement]
+    G -->|person confirms| H
+```
+
+Nothing becomes a movement without a person accepting it. A known shape and a
+trusted merchant can shorten the review, but neither writes on its own.
+
+Silencing a shape is permanent until the person explicitly reverses it; later
+deliveries cannot undo the decision or appear in the inbox.
+
+A merchant earns its category after two consecutive agreeing approvals. The
+first disagreement makes that memory ambiguous for good; forgetting the
+merchant is the only way to teach it again.

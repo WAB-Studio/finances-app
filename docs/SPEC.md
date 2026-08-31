@@ -146,15 +146,14 @@ accounting exports, native apps. None of this gets built or left
 
 #### Ingest
 
-- [ ] **RF-85** — A signed JSON webhook creates a movement from a payload: the request carries a bearer credential that resolves it to exactly one user; the quick-entry interpreter (RF-22) infers amount, category and description from the payload's text; the movement is written under that user's writable scope so the access policies and the audit apply as if the user had recorded it; and a stable external reference makes a re-delivery idempotent, updating nothing and duplicating nothing.
 - [x] **RF-86** — A user issues, names and revokes per-user webhook credentials; each credential's bearer token is shown once and stored only as a hash, may carry a default account and category the ingest falls back to when the payload does not name them, and a per-credential rate limit.
-- [ ] **RF-90** — A webhook delivery is stored as a pending proposal, never as a movement: a person accepts it, which records the movement, or rejects it, and a re-delivery of a reference already stored changes nothing.
-- [ ] **RF-91** — Accepting a complete proposal records the movement in one action; an incomplete one opens the movement form prefilled with everything the delivery read.
-- [ ] **RF-92** — A message shape is remembered per user: a shape a person silenced arrives already rejected and never waits for review, and a shape never seen before always waits.
-- [ ] **RF-93** — A merchant's category prefills a delivery's proposal only once that merchant is trusted; it never records a movement on its own.
-- [ ] **RF-94** — A merchant becomes trusted after two consecutive approvals under the same category, and an approval under a different category marks it ambiguous, which no later consistency undoes.
+- [x] **RF-90** — A webhook delivery is stored as a pending proposal, never as a movement: a person accepts it, which records the movement, or rejects it, and a re-delivery of a reference already stored changes nothing.
+- [x] **RF-91** — Accepting a complete proposal records the movement in one action; an incomplete one opens the movement form prefilled with everything the delivery read.
+- [x] **RF-92** — A message shape is remembered per user: a shape a person silenced arrives already rejected and never waits for review, and a shape never seen before always waits.
+- [x] **RF-93** — A merchant's category prefills a delivery's proposal only once that merchant is trusted; it never records a movement on its own.
+- [x] **RF-94** — A merchant becomes trusted after two consecutive approvals under the same category, and an approval under a different category marks it ambiguous, which no later consistency undoes.
 
-The webhook reuses RF-22 (quick entry), RF-25 (created_by) and RF-45 (no write bypasses audit) unchanged: the same interpreter reads the payload text and the same insert path records the movement, so the created-by stamp and the audit hold as on any manual write. RF-52's idempotency shape is mirrored, not reused — RF-52 stays a spreadsheet-import requirement; the webhook applies the same stable-external-reference rule to its own deliveries. The review queue keeps that reuse: it runs RF-22's interpreter to propose rather than to decide, and RF-25 and RF-45 hold unchanged because an accepted proposal is still written through the same insert path.
+The webhook (RF-90) reuses RF-22 (quick entry), RF-25 (created_by) and RF-45 (no write bypasses audit) unchanged: the same interpreter reads the payload text and the same insert path records the movement, so the created-by stamp and the audit hold as on any manual write. RF-52's idempotency shape is mirrored, not reused — RF-52 stays a spreadsheet-import requirement; the webhook applies the same stable-external-reference rule to its own deliveries. The review queue keeps that reuse: it runs RF-22's interpreter to propose rather than to decide, and RF-25 and RF-45 hold unchanged because an accepted proposal is still written through the same insert path.
 
 ### Non-functional requirements
 
@@ -199,6 +198,7 @@ Dead codes. The number stays burned and the tick stays as it was.
 - [ ] **RF-39** — A cash withdrawal goes to the member's own cash account if they have one, and to the fund's if they do not. The app neither asks nor stores a mode: the rule is derived from which accounts exist. _Retired 2026-08-28. Successor: RF-68 (per `cash_mode`)._
 - [ ] **RF-65** — Dashboard: balance per account, net worth per owner (personal and group), and income, expense and net for the current month. _Retired 2026-08-30. Successor: RF-88 (net worth per owner, no balance per account on the dashboard)._
 - [ ] **RF-77** — A savings goal's progress — amount saved, amount remaining and whether it is on track for its target date — derives from the movements contributed to it; it is never stored. _Retired 2026-08-30. Successor: RF-87 (derives from contributions, which may be virtual amounts with no movement)._
+- [ ] **RF-85** — A signed JSON webhook creates a movement from a payload: the request carries a bearer credential that resolves it to exactly one user; the quick-entry interpreter (RF-22) infers amount, category and description from the payload's text; the movement is written under that user's writable scope so the access policies and the audit apply as if the user had recorded it; and a stable external reference makes a re-delivery idempotent, updating nothing and duplicating nothing. _Retired 2026-08-31. Successor: RF-90 (a delivery is stored as a proposal a person accepts; the webhook never writes a movement)._
 
 ---
 
@@ -227,9 +227,15 @@ erDiagram
     app_users ||--o{ planned_payments : "owns (personal)"
     app_users ||--o{ savings_goals : "owns (personal)"
     app_users ||--o{ webhook_credentials : "issues"
+    app_users ||--o{ ingest_deliveries : "owns"
+    app_users ||--o{ ingest_shapes : "decides"
+    app_users ||--o{ ingest_merchants : "learns"
 
     accounts ||--o| webhook_credentials : "default"
     categories ||--o| webhook_credentials : "default"
+    webhook_credentials ||--o{ ingest_deliveries : "delivers"
+    transactions ||--o| ingest_deliveries : "records (once accepted)"
+    categories ||--o{ ingest_merchants : "remembers"
 
     accounts ||--o| debt_terms : "if liability"
     accounts ||--o{ installment_plans : "schedules"
@@ -509,6 +515,52 @@ erDiagram
         timestamptz created_at
         timestamptz updated_at
     }
+
+    ingest_deliveries {
+        uuid id PK
+        uuid owner_user_id FK "credential owner"
+        uuid credential_id FK
+        text external_ref "unique per owner"
+        text raw_text "message as received"
+        text shape_hash "masked-message sha-256"
+        text merchant_key
+        text merchant_label
+        text status "pending | accepted | rejected"
+        uuid transaction_id FK "null until accepted"
+        bigint proposed_amount_cents
+        uuid proposed_account_id FK
+        uuid proposed_category_id FK
+        text category_source "merchant | interpreter | credential_default"
+        text proposed_direction "income | expense"
+        date proposed_occurred_at
+        text proposed_description
+        timestamptz resolved_at "null while pending"
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    ingest_shapes {
+        uuid id PK
+        uuid owner_user_id FK
+        text shape_hash "unique per owner"
+        text decision "approved | rejected"
+        text sample_text
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    ingest_merchants {
+        uuid id PK
+        uuid owner_user_id FK
+        text merchant_key "unique per owner"
+        text merchant_label
+        text state "learning | trusted | ambiguous"
+        uuid candidate_category_id FK
+        smallint streak "0..2"
+        uuid trusted_category_id FK "only while trusted"
+        timestamptz created_at
+        timestamptz updated_at
+    }
 ```
 
 ### Invariants
@@ -587,6 +639,15 @@ Rules the model must always guarantee, regardless of how they are implemented:
   token is stored, never the token; an ingest through it writes under that user's
   scope, so RLS and audit apply as if the user recorded the movement; a
   per-credential fixed-window rate limit bounds its request rate.
+- A delivery belongs to exactly one user, the one its credential resolved to,
+  and never to a group.
+- A delivery becomes a movement only through a person's acceptance; nothing
+  writes one from a delivery on its own.
+- A delivery's `external_ref` is unique within its owner, so a re-delivery of a
+  stored reference writes nothing whatever its status.
+- A merchant's remembered category is earned by two consecutive agreeing
+  approvals and lost for good on the first disagreement; only an explicit
+  forget clears it.
 
 ---
 
