@@ -27,6 +27,7 @@ flowchart TD
     Aju --> Cats["Categories"]
     Aju --> Etiq["Labels"]
     Aju --> Datos["Data — phase 2"]
+    Aju --> Webhooks["Webhooks"]
     Aju --> Audit["Audit — phase 2"]
 ```
 
