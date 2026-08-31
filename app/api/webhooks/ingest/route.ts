@@ -1,9 +1,6 @@
 import { z } from "zod";
 
-import {
-  ingestWebhookMovement,
-  WebhookIngestError,
-} from "@/db/queries/webhook-ingest";
+import { recordIngestDelivery } from "@/db/queries/webhook-ingest";
 import { resolveWebhookCredential } from "@/db/queries/webhook-credentials";
 import { webhookPayloadSchema } from "@/lib/validation/webhook";
 
@@ -14,13 +11,6 @@ export const dynamic = "force-dynamic";
 
 const BEARER_PREFIX = "Bearer ";
 
-/**
- * The webhook entry point (RF-86). Authenticates a bearer credential, applies
- * its throttle, validates the JSON body and runs the ingest — every DB refusal
- * is mapped to a status code with no raw pg text in the body. The write runs as
- * the resolved owner inside `ingestWebhookMovement`; nothing from the payload
- * ever names the user.
- */
 export async function POST(request: Request): Promise<Response> {
   // An unknown, revoked or absent token all read identically: a generic 401.
   const header = request.headers.get("authorization");
@@ -54,46 +44,25 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
-  // The payload no longer demands a reference, but this ingest path still keys
-  // its idempotency off one, so a body without it is refused here until the
-  // review queue derives one from the message text.
-  const { external_ref: externalRef } = parsed.data;
-  if (externalRef === undefined) {
-    return Response.json(
-      { error: "invalid_payload", fields: { external_ref: ["Required"] } },
-      { status: 422 },
-    );
-  }
-
   try {
-    const result = await ingestWebhookMovement({
+    const result = await recordIngestDelivery({
       ownerUserId: cred.ownerUserId,
+      credentialId: cred.credentialId,
       defaultAccountId: cred.defaultAccountId,
       defaultCategoryId: cred.defaultCategoryId,
-      payload: { ...parsed.data, external_ref: externalRef },
+      payload: parsed.data,
     });
 
-    // A duplicate `external_ref` is a 200: the delivery is idempotent, not an
-    // error, and no second movement was written.
     return Response.json(
-      { transactionId: result.transactionId, duplicate: result.duplicate },
+      {
+        deliveryId: result.deliveryId,
+        status: result.status,
+        duplicate: result.duplicate,
+      },
       { status: 200 },
     );
-  } catch (error) {
-    if (error instanceof WebhookIngestError) {
-      // The reason is a stable code the caller can branch on; never pg text.
-      switch (error.reason) {
-        case "missing_account":
-        case "missing_category":
-        case "bad_amount":
-          return Response.json({ error: error.reason }, { status: 422 });
-        case "scope":
-          return Response.json({ error: "scope" }, { status: 403 });
-        default:
-          break;
-      }
-    }
-
+  } catch {
+    // Never the payload text: a bank SMS must not reach the server log.
     console.error("webhook ingest failed", {
       credentialOwner: cred.ownerUserId,
     });

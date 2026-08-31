@@ -109,6 +109,7 @@ export async function revokeWebhookCredential({
 }
 
 export type ResolvedWebhookCredential = {
+  credentialId: string;
   ownerUserId: string;
   defaultAccountId: string | null;
   defaultCategoryId: string | null;
@@ -128,12 +129,13 @@ export async function resolveWebhookCredential(
   const tokenHash = tokenHashOf(token);
 
   const rows = await db.execute<{
+    id: string;
     owner_user_id: string;
     default_account_id: string | null;
     default_category_id: string | null;
     throttled: boolean;
   }>(
-    sql`select owner_user_id, default_account_id, default_category_id, throttled
+    sql`select id, owner_user_id, default_account_id, default_category_id, throttled
       from private.resolve_webhook_credential(${tokenHash})`,
   );
 
@@ -141,6 +143,7 @@ export async function resolveWebhookCredential(
   if (!row) return null;
 
   return {
+    credentialId: row.id,
     ownerUserId: row.owner_user_id,
     defaultAccountId: row.default_account_id,
     defaultCategoryId: row.default_category_id,

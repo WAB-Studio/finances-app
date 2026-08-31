@@ -1,86 +1,64 @@
 import "server-only";
 
-import { eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
-import { accounts, categories, transactions } from "@/db/schema";
+import {
+  accounts,
+  categories,
+  ingestDeliveries,
+  ingestMerchants,
+} from "@/db/schema";
 import { withImpersonatedDb } from "@/db/session";
 import { pgErrorCode } from "@/lib/db-error";
 import { todayInBogota } from "@/lib/dates";
+import { fingerprintMessage } from "@/lib/ingest/fingerprint";
 import { parsePesos, pesosToCents } from "@/lib/money";
-import { insertTransaction } from "@/db/queries/transactions";
 import { interpretQuickEntry } from "@/lib/transactions/interpret";
+import type { WebhookPayloadInput } from "@/lib/validation/webhook";
 
-// Why an ingest was refused, in terms the route (C7) maps to a status code. No
-// raw pg text ever reaches the caller: a DB refusal is translated to one of
-// these before it escapes the transaction.
-export type WebhookIngestReason =
-  | "missing_account"
-  | "missing_category"
-  | "bad_amount"
-  | "scope"
-  | "unexpected";
-
-export class WebhookIngestError extends Error {
-  constructor(public reason: WebhookIngestReason) {
-    super(reason);
-    this.name = "WebhookIngestError";
-  }
-}
-
-// The validated inbound body (the route's Zod guards its shape and presence of
-// `external_ref`). `text` feeds the interpreter; every other field is a caller
-// override the interpreter's proposal yields to.
-export type WebhookIngestPayload = {
-  text: string;
-  amount?: string | null;
-  account_id?: string | null;
-  occurred_at?: string | null;
-  direction?: "income" | "expense" | null;
-  external_ref: string;
+export type IngestDeliveryResult = {
+  deliveryId: string;
+  status: "pending" | "rejected";
+  duplicate: boolean;
 };
 
-export type IngestWebhookMovementArgs = {
+export type RecordIngestDeliveryArgs = {
   ownerUserId: string;
+  credentialId: string;
   defaultAccountId: string | null;
   defaultCategoryId: string | null;
-  payload: WebhookIngestPayload;
+  payload: WebhookPayloadInput;
 };
 
-/**
- * Record one movement under a resolved credential's owner (RF-86), through the
- * same insert path a screen uses, so the data-layer audit trigger records it
- * like any other write (RF-45). The `ownerUserId` is one the caller verified
- * from a credential, never a payload value, so the whole body runs inside
- * `withImpersonatedDb` and every read and the write are RLS-bound.
- *
- * The interpreter (RF-22) proposes amount, category and description; explicit
- * payload fields win. A repeated `external_ref` trips the per-scope unique index
- * and returns the existing movement without a second write.
- */
-export async function ingestWebhookMovement({
+const MAX_DESCRIPTION_LENGTH = 200;
+
+export async function recordIngestDelivery({
   ownerUserId,
+  credentialId,
   defaultAccountId,
   defaultCategoryId,
   payload,
-}: IngestWebhookMovementArgs): Promise<{
-  transactionId: string;
-  duplicate: boolean;
-}> {
+}: RecordIngestDeliveryArgs): Promise<IngestDeliveryResult> {
+  const fingerprint = fingerprintMessage(payload.text);
+  const externalRef = payload.external_ref ?? fingerprint.contentHash;
+
   return withImpersonatedDb(ownerUserId, async (tx) => {
-    // The interpreter's context: the user's categories and accounts, read in
-    // parallel within the transaction, RLS-scoped to their personal and
-    // group-readable rows.
-    const [categoryRows, accountRows] = await Promise.all([
+    // Do not read ingest_shapes here; the insert trigger owns that decision.
+    const [categoryRows, accountRows, merchantRows] = await Promise.all([
       tx
-        .select({
-          id: categories.id,
-          name: categories.name,
-          kind: categories.kind,
-        })
+        .select({ id: categories.id, name: categories.name, kind: categories.kind })
         .from(categories),
-      tx
-        .select({ id: accounts.id, name: accounts.name })
-        .from(accounts),
+      tx.select({ id: accounts.id, name: accounts.name }).from(accounts),
+      fingerprint.merchant
+        ? tx
+            .select({
+              state: ingestMerchants.state,
+              trustedCategoryId: ingestMerchants.trustedCategoryId,
+            })
+            .from(ingestMerchants)
+            .where(eq(ingestMerchants.merchantKey, fingerprint.merchant.key))
+            .limit(1)
+        : Promise.resolve(null),
     ]);
 
     const proposal = interpretQuickEntry(payload.text, {
@@ -89,79 +67,98 @@ export async function ingestWebhookMovement({
       defaultAccountId,
     });
 
-    // A payload amount overrides the interpreter's; either way the result must
-    // parse to a positive peso value.
     const rawPesos = payload.amount ?? proposal.amountPesos;
-    if (rawPesos === null || rawPesos === undefined) {
-      throw new WebhookIngestError("bad_amount");
-    }
-    const pesos = parsePesos(rawPesos);
-    if (pesos === null) throw new WebhookIngestError("bad_amount");
-    const amountCents = pesosToCents(pesos);
-    if (amountCents <= 0) throw new WebhookIngestError("bad_amount");
+    const pesos =
+      rawPesos === null || rawPesos === undefined
+        ? null
+        : parsePesos(rawPesos);
+    const proposedAmountCents = pesos !== null && pesos > 0 ? pesosToCents(pesos) : null;
 
-    // No interpreter-guessed account: without a payload or default account the
-    // ingest is rejected (route → 422).
-    const accountId = payload.account_id ?? defaultAccountId;
-    if (!accountId) throw new WebhookIngestError("missing_account");
+    const merchant = merchantRows?.[0] ?? null;
+    const trustedCategoryId =
+      merchant?.state === "trusted" ? merchant.trustedCategoryId : null;
+    const proposedCategoryId =
+      trustedCategoryId ?? proposal.categoryId ?? defaultCategoryId ?? null;
+    const categorySource = trustedCategoryId
+      ? ("merchant" as const)
+      : proposal.categoryId
+        ? ("interpreter" as const)
+        : defaultCategoryId
+          ? ("credential_default" as const)
+          : null;
 
-    // An income or expense needs at least one split (RF-69), so a category is
-    // mandatory once the interpreter matched none and no default is set.
-    const categoryId = proposal.categoryId ?? defaultCategoryId;
-    if (!categoryId) throw new WebhookIngestError("missing_category");
+    const description = proposal.description.trim().slice(0, MAX_DESCRIPTION_LENGTH);
 
-    const occurredAt = payload.occurred_at ?? todayInBogota();
-    const direction = payload.direction ?? "expense";
-
-    // Direction supplies the one-sided account; the type is derived from it.
-    const fromAccountId = direction === "expense" ? accountId : null;
-    const toAccountId = direction === "income" ? accountId : null;
-    const description = proposal.description === "" ? null : proposal.description;
+    const proposedAccountId = payload.account_id ?? defaultAccountId ?? null;
+    const proposedDirection = payload.direction ?? null;
+    const proposedOccurredAt = payload.occurred_at ?? todayInBogota();
+    const proposedDescription = description === "" ? null : description;
+    const merchantKey = fingerprint.merchant?.key ?? null;
+    const merchantLabel = fingerprint.merchant?.label ?? null;
 
     try {
-      // A savepoint, so a duplicate's unique violation rolls back to a point the
-      // outer transaction survives — a bare error would abort it and block the
-      // read-back below.
-      const { transactionId } = await tx.transaction((sp) =>
-        insertTransaction(sp, {
-          fromAccountId,
-          toAccountId,
-          amountCents,
-          occurredAt,
-          description,
-          splits: [{ categoryId, amountCents }],
-          labelIds: [],
-          externalRef: payload.external_ref,
-        }),
+      // Keep a duplicate from aborting the transaction before its read-back.
+      const [row] = await tx.transaction((sp) =>
+        sp.execute<{ id: string; status: "pending" | "rejected" }>(sql`
+          insert into ingest_deliveries (
+            credential_id,
+            external_ref,
+            raw_text,
+            shape_hash,
+            merchant_key,
+            merchant_label,
+            proposed_amount_cents,
+            proposed_account_id,
+            proposed_category_id,
+            category_source,
+            proposed_direction,
+            proposed_occurred_at,
+            proposed_description
+          ) values (
+            ${credentialId},
+            ${externalRef},
+            ${payload.text},
+            ${fingerprint.shapeHash},
+            ${merchantKey},
+            ${merchantLabel},
+            ${proposedAmountCents},
+            ${proposedAccountId},
+            ${proposedCategoryId},
+            ${categorySource},
+            ${proposedDirection},
+            ${proposedOccurredAt},
+            ${proposedDescription}
+          )
+          returning id, status
+        `),
       );
 
-      return { transactionId, duplicate: false };
+      return {
+        deliveryId: row.id,
+        status: row.status,
+        duplicate: false,
+      };
     } catch (error) {
-      const code = pgErrorCode(error);
+      if (pgErrorCode(error) !== "23505") throw error;
 
-      // The per-scope `external_ref` unique index: the movement already exists,
-      // so read it back and report the duplicate rather than write a second one.
-      if (code === "23505") {
-        const existing = await tx
-          .select({ id: transactions.id })
-          .from(transactions)
-          .where(eq(transactions.externalRef, payload.external_ref))
-          .limit(1);
+      const [existing] = await tx
+        .select({ id: ingestDeliveries.id, status: ingestDeliveries.status })
+        .from(ingestDeliveries)
+        .where(
+          and(
+            eq(ingestDeliveries.ownerUserId, ownerUserId),
+            eq(ingestDeliveries.externalRef, externalRef),
+          ),
+        )
+        .limit(1);
 
-        if (existing[0]) {
-          return { transactionId: existing[0].id, duplicate: true };
-        }
-        throw new WebhookIngestError("unexpected");
-      }
+      if (!existing) throw error;
 
-      // A category-kind-vs-direction or scope-mismatch check (23514) and a write
-      // outside the impersonated user's writable scope (42501) both read as a
-      // scope refusal; no raw pg text escapes.
-      if (code === "23514" || code === "42501") {
-        throw new WebhookIngestError("scope");
-      }
-
-      throw new WebhookIngestError("unexpected");
+      return {
+        deliveryId: existing.id,
+        status: existing.status as IngestDeliveryResult["status"],
+        duplicate: true,
+      };
     }
   });
 }
