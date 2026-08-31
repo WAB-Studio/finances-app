@@ -9,6 +9,7 @@ import {
   pgTable,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 import { authenticatedRole, authUid } from "drizzle-orm/supabase";
@@ -37,6 +38,9 @@ export const accounts = pgTable(
     initialBalanceCents: bigint({ mode: "number" }).notNull().default(0),
     initialBalanceOn: date().notNull(),
     archivedAt: timestamp({ withTimezone: true }),
+    // The stable per-scope import key (RF-51): a re-import matches on it to update instead of duplicate.
+    // Auto-filled to `id::text` by a trigger when omitted; a webhook or upsert value survives untouched.
+    externalRef: text(),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   },
@@ -58,8 +62,16 @@ export const accounts = pgTable(
     check("accounts_owner_xor_group", sql`num_nonnulls(${table.ownerUserId}, ${table.groupId}) = 1`),
     // A personal account is never shared; only a group account carries is_shared.
     check("accounts_personal_not_shared", sql`${table.ownerUserId} is null or ${table.isShared} = false`),
+    check("accounts_external_ref_length", sql`length(${table.externalRef}) <= 200`),
     index("accounts_group_id_idx").on(table.groupId),
     index("accounts_owner_user_id_idx").on(table.ownerUserId),
+    // `external_ref` is unique within a scope, so re-importing the same row updates instead of duplicating (RF-51).
+    uniqueIndex("accounts_owner_external_ref_unique")
+      .on(table.ownerUserId, table.externalRef)
+      .where(sql`${table.externalRef} is not null`),
+    uniqueIndex("accounts_group_external_ref_unique")
+      .on(table.groupId, table.externalRef)
+      .where(sql`${table.externalRef} is not null`),
     // Universal read inside the group: your own personal account, plus every account of the group you belong to.
     pgPolicy("accounts_select_group", {
       for: "select",

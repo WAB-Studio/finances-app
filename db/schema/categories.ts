@@ -8,6 +8,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 import { authenticatedRole, authUid } from "drizzle-orm/supabase";
@@ -27,6 +28,9 @@ export const categories = pgTable(
     name: text().notNull(),
     kind: text({ enum: ["expense", "income"] }).notNull(),
     color: text(),
+    // The stable per-scope import key (RF-51): a re-import matches on it to update instead of duplicate.
+    // Auto-filled to `id::text` by a trigger when omitted; a webhook or upsert value survives untouched.
+    externalRef: text(),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   },
@@ -44,9 +48,17 @@ export const categories = pgTable(
       columns: [table.parentId, table.groupId],
       foreignColumns: [table.id, table.groupId],
     }).onDelete("cascade"),
+    check("categories_external_ref_length", sql`length(${table.externalRef}) <= 200`),
     index("categories_group_id_idx").on(table.groupId),
     index("categories_owner_user_id_idx").on(table.ownerUserId),
     index("categories_parent_id_idx").on(table.parentId),
+    // `external_ref` is unique within a scope, so re-importing the same row updates instead of duplicating (RF-51).
+    uniqueIndex("categories_owner_external_ref_unique")
+      .on(table.ownerUserId, table.externalRef)
+      .where(sql`${table.externalRef} is not null`),
+    uniqueIndex("categories_group_external_ref_unique")
+      .on(table.groupId, table.externalRef)
+      .where(sql`${table.externalRef} is not null`),
     // Universal read inside the group: your own personal categories, plus every category of the group you belong to.
     pgPolicy("categories_select_member", {
       for: "select",

@@ -153,6 +153,7 @@ async function main() {
   await checkAuditViewerPolicy();
   await checkAccountSubtypeBackfill();
   await checkCashReportInvariants();
+  await checkExternalRefKeys();
 }
 
 // Assertions 9-26: the repivoted schema. A group holds accounts and categories a user XOR a group
@@ -3288,6 +3289,247 @@ async function checkCashReportInvariants() {
     tailLabel,
     afterUser === "postgres" && probeCount === "0",
     `current_user = ${afterUser}, rows named 'rls cash report' = ${probeCount}`,
+  );
+}
+
+// Assertions 129-135: the per-scope import key (RF-51). Each of the four new entities carries a
+// partial unique index on `(scope, external_ref)`, so a duplicate ref in one scope is refused while
+// the same ref in a different scope stands; the derive trigger fills an omitted ref with `id::text`
+// on all five entities (transactions included) while an explicit ref survives; and the column grant
+// lets an authenticated member write the key under RLS. Every fixture is seeded through the app's own
+// policies or as the owner where no policy hands the row out, and rolled back.
+async function checkExternalRefKeys() {
+  console.log("");
+  const leaderUser = randomUUID();
+  const groupId = randomUUID();
+  const secondGroup = randomUUID();
+
+  const labels = [
+    "129. accounts: a duplicate external_ref in one scope is refused (23505); the same ref in two scopes both persist",
+    "130. categories: a duplicate external_ref in one scope is refused (23505); the same ref in two scopes both persist",
+    "131. recurring_rules: a duplicate external_ref in one scope is refused (23505); the same ref in two scopes both persist",
+    "132. group_members: a duplicate external_ref in one group is refused (23505); the same ref in two groups both persist",
+    "133. a null external_ref lands as id::text on all five entities — the derive trigger fired",
+    "134. an explicit external_ref survives on all five entities — the WHEN guard held",
+    "135. the column grant lets an authenticated member insert and update external_ref on an account under RLS",
+  ];
+  const tailLabel = "136. the rolled-back external_ref transaction leaves no trace";
+
+  const forcedRollback = Symbol("forced rollback");
+
+  await sql
+    .begin(async (tx) => {
+      await tx`insert into auth.users (id) values (${leaderUser})`;
+      await tx`insert into app_users (id) values (${leaderUser})`;
+
+      // The group, its leader, a personal and a shared account, and one expense category per scope:
+      // enough to book a rule and a movement, and to hold a ref in each of the two scopes.
+      await enterUserContext(tx, leaderUser);
+      await tx`insert into groups (id, name, cash_mode) values (${groupId}, 'rls ext refs', 'shared')`;
+      await tx`insert into group_members (group_id, user_id, name, role)
+        values (${groupId}, ${leaderUser}, 'rls ext refs leader', 'leader')`;
+      const [{ id: leaderAccount }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_on)
+        values (${leaderUser}, 'rls ext refs leader cash', 'asset', (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: sharedAccount }] = await tx<{ id: string }[]>`
+        insert into accounts (group_id, is_shared, name, kind, initial_balance_on)
+        values (${groupId}, true, 'rls ext refs shared cash', 'asset', (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: personalExpenseCat }] = await tx<{ id: string }[]>`
+        insert into categories (owner_user_id, name, kind)
+        values (${leaderUser}, 'rls ext refs personal expense', 'expense') returning id`;
+      const [{ id: groupExpenseCat }] = await tx<{ id: string }[]>`
+        insert into categories (group_id, name, kind)
+        values (${groupId}, 'rls ext refs group expense', 'expense') returning id`;
+
+      // 129: accounts. Seeded as the owner so the explicit scope columns reach the row untouched; only
+      // the partial unique index can reject the duplicate, and only within the one owner scope.
+      await tx`reset role`;
+      await tx`insert into accounts (owner_user_id, name, kind, external_ref, initial_balance_on)
+        values (${leaderUser}, 'rls ext refs acct owner', 'asset', 'ext-acct-dup', (now() at time zone 'America/Bogota')::date)`;
+      let acctDup = "";
+      await tx
+        .savepoint(async (sp) => {
+          await sp`insert into accounts (owner_user_id, name, kind, external_ref, initial_balance_on)
+            values (${leaderUser}, 'rls ext refs acct owner dup', 'asset', 'ext-acct-dup', (now() at time zone 'America/Bogota')::date)`;
+        })
+        .catch((error: unknown) => {
+          acctDup = pgErrorCode(error) ?? "none";
+        });
+      await tx`insert into accounts (group_id, is_shared, name, kind, external_ref, initial_balance_on)
+        values (${groupId}, true, 'rls ext refs acct group', 'asset', 'ext-acct-dup', (now() at time zone 'America/Bogota')::date)`;
+      const [{ count: acctScopes }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from accounts where external_ref = 'ext-acct-dup'`;
+      assert(
+        labels[0],
+        acctDup === "23505" && acctScopes === "2",
+        `dup sqlstate ${acctDup}, rows across scopes = ${acctScopes} (expected 23505 and 2)`,
+      );
+
+      // 130: categories, the same shape — owner scope and group scope hold the ref side by side.
+      await tx`insert into categories (owner_user_id, name, kind, external_ref)
+        values (${leaderUser}, 'rls ext refs cat owner', 'expense', 'ext-cat-dup')`;
+      let catDup = "";
+      await tx
+        .savepoint(async (sp) => {
+          await sp`insert into categories (owner_user_id, name, kind, external_ref)
+            values (${leaderUser}, 'rls ext refs cat owner dup', 'expense', 'ext-cat-dup')`;
+        })
+        .catch((error: unknown) => {
+          catDup = pgErrorCode(error) ?? "none";
+        });
+      await tx`insert into categories (group_id, name, kind, external_ref)
+        values (${groupId}, 'rls ext refs cat group', 'expense', 'ext-cat-dup')`;
+      const [{ count: catScopes }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from categories where external_ref = 'ext-cat-dup'`;
+      assert(
+        labels[1],
+        catDup === "23505" && catScopes === "2",
+        `dup sqlstate ${catDup}, rows across scopes = ${catScopes} (expected 23505 and 2)`,
+      );
+
+      // 131: recurring_rules. Booked as the writing member so the scope trigger derives owner vs group
+      // from the account; the ref rides on the derived scope, and only its own scope's index refuses it.
+      await enterUserContext(tx, leaderUser);
+      await tx`insert into recurring_rules (from_account_id, amount_cents, category_id, frequency, interval_n, day_of_month, next_run_on, external_ref)
+        values (${leaderAccount}, 5000, ${personalExpenseCat}, 'monthly', 1, 15,
+          (now() at time zone 'America/Bogota')::date + 30, 'ext-rule-dup')`;
+      let ruleDup = "";
+      await tx
+        .savepoint(async (sp) => {
+          await sp`insert into recurring_rules (from_account_id, amount_cents, category_id, frequency, interval_n, day_of_month, next_run_on, external_ref)
+            values (${leaderAccount}, 5000, ${personalExpenseCat}, 'monthly', 1, 15,
+              (now() at time zone 'America/Bogota')::date + 30, 'ext-rule-dup')`;
+        })
+        .catch((error: unknown) => {
+          ruleDup = pgErrorCode(error) ?? "none";
+        });
+      await tx`insert into recurring_rules (from_account_id, amount_cents, category_id, frequency, interval_n, day_of_month, next_run_on, external_ref)
+        values (${sharedAccount}, 6000, ${groupExpenseCat}, 'monthly', 1, 15,
+          (now() at time zone 'America/Bogota')::date + 30, 'ext-rule-dup')`;
+      await tx`reset role`;
+      const [{ count: ruleScopes }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from recurring_rules where external_ref = 'ext-rule-dup'`;
+      assert(
+        labels[2],
+        ruleDup === "23505" && ruleScopes === "2",
+        `dup sqlstate ${ruleDup}, rows across scopes = ${ruleScopes} (expected 23505 and 2)`,
+      );
+
+      // 132: group_members carries a group scope alone — a duplicate ref in one group is refused, the
+      // same ref in a second group stands. Seeded as the owner: no policy lets one member seed another group.
+      await tx`insert into group_members (group_id, name, role, external_ref)
+        values (${groupId}, 'rls ext refs gm one', 'member', 'ext-gm-dup')`;
+      let gmDup = "";
+      await tx
+        .savepoint(async (sp) => {
+          await sp`insert into group_members (group_id, name, role, external_ref)
+            values (${groupId}, 'rls ext refs gm one dup', 'member', 'ext-gm-dup')`;
+        })
+        .catch((error: unknown) => {
+          gmDup = pgErrorCode(error) ?? "none";
+        });
+      await tx`insert into groups (id, name, cash_mode) values (${secondGroup}, 'rls ext refs two', 'shared')`;
+      await tx`insert into group_members (group_id, name, role, external_ref)
+        values (${secondGroup}, 'rls ext refs gm two', 'member', 'ext-gm-dup')`;
+      const [{ count: gmScopes }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from group_members where external_ref = 'ext-gm-dup'`;
+      assert(
+        labels[3],
+        gmDup === "23505" && gmScopes === "2",
+        `dup sqlstate ${gmDup}, rows across groups = ${gmScopes} (expected 23505 and 2)`,
+      );
+
+      // 133: an omitted ref is filled with the row's own id on every entity. Accounts, categories and
+      // group_members as the owner; the rule and the movement as the writing member so their triggers run.
+      await tx`reset role`;
+      const [acctNull] = await tx<{ id: string; external_ref: string | null }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_on)
+        values (${leaderUser}, 'rls ext refs acct null', 'asset', (now() at time zone 'America/Bogota')::date)
+        returning id, external_ref`;
+      const [catNull] = await tx<{ id: string; external_ref: string | null }[]>`
+        insert into categories (owner_user_id, name, kind)
+        values (${leaderUser}, 'rls ext refs cat null', 'expense') returning id, external_ref`;
+      const [gmNull] = await tx<{ id: string; external_ref: string | null }[]>`
+        insert into group_members (group_id, name, role)
+        values (${groupId}, 'rls ext refs gm null', 'member') returning id, external_ref`;
+      await enterUserContext(tx, leaderUser);
+      const [ruleNull] = await tx<{ id: string; external_ref: string | null }[]>`
+        insert into recurring_rules (from_account_id, amount_cents, category_id, frequency, interval_n, day_of_month, next_run_on)
+        values (${leaderAccount}, 5000, ${personalExpenseCat}, 'monthly', 1, 15,
+          (now() at time zone 'America/Bogota')::date + 30) returning id, external_ref`;
+      const [txnNull] = await tx<{ id: string; external_ref: string | null }[]>`
+        insert into transactions (from_account_id, amount_cents, occurred_at)
+        values (${leaderAccount}, 5000, (now() at time zone 'America/Bogota')::date) returning id, external_ref`;
+      assert(
+        labels[4],
+        acctNull.external_ref === acctNull.id &&
+          catNull.external_ref === catNull.id &&
+          gmNull.external_ref === gmNull.id &&
+          ruleNull.external_ref === ruleNull.id &&
+          txnNull.external_ref === txnNull.id,
+        `acct ${acctNull.external_ref === acctNull.id}, cat ${catNull.external_ref === catNull.id}, gm ${gmNull.external_ref === gmNull.id}, rule ${ruleNull.external_ref === ruleNull.id}, txn ${txnNull.external_ref === txnNull.id}`,
+      );
+
+      // 134: an explicit ref is preserved unchanged on every entity — the WHEN guard skips the trigger.
+      await tx`reset role`;
+      const [acctKeep] = await tx<{ external_ref: string | null }[]>`
+        insert into accounts (owner_user_id, name, kind, external_ref, initial_balance_on)
+        values (${leaderUser}, 'rls ext refs acct keep', 'asset', 'ext-keep-acct', (now() at time zone 'America/Bogota')::date)
+        returning external_ref`;
+      const [catKeep] = await tx<{ external_ref: string | null }[]>`
+        insert into categories (owner_user_id, name, kind, external_ref)
+        values (${leaderUser}, 'rls ext refs cat keep', 'expense', 'ext-keep-cat') returning external_ref`;
+      const [gmKeep] = await tx<{ external_ref: string | null }[]>`
+        insert into group_members (group_id, name, role, external_ref)
+        values (${groupId}, 'rls ext refs gm keep', 'member', 'ext-keep-gm') returning external_ref`;
+      await enterUserContext(tx, leaderUser);
+      const [ruleKeep] = await tx<{ external_ref: string | null }[]>`
+        insert into recurring_rules (from_account_id, amount_cents, category_id, frequency, interval_n, day_of_month, next_run_on, external_ref)
+        values (${leaderAccount}, 5000, ${personalExpenseCat}, 'monthly', 1, 15,
+          (now() at time zone 'America/Bogota')::date + 30, 'ext-keep-rule') returning external_ref`;
+      const [txnKeep] = await tx<{ external_ref: string | null }[]>`
+        insert into transactions (from_account_id, amount_cents, occurred_at, external_ref)
+        values (${leaderAccount}, 5000, (now() at time zone 'America/Bogota')::date, 'ext-keep-txn') returning external_ref`;
+      assert(
+        labels[5],
+        acctKeep.external_ref === "ext-keep-acct" &&
+          catKeep.external_ref === "ext-keep-cat" &&
+          gmKeep.external_ref === "ext-keep-gm" &&
+          ruleKeep.external_ref === "ext-keep-rule" &&
+          txnKeep.external_ref === "ext-keep-txn",
+        `acct ${acctKeep.external_ref}, cat ${catKeep.external_ref}, gm ${gmKeep.external_ref}, rule ${ruleKeep.external_ref}, txn ${txnKeep.external_ref}`,
+      );
+
+      // 135: the column grant, exercised as an authenticated member in scope. The import stamps the key
+      // on insert and can correct it on update — both land through the narrow INSERT/UPDATE(external_ref) grant.
+      await enterUserContext(tx, leaderUser);
+      const [grantIns] = await tx<{ id: string; external_ref: string | null }[]>`
+        insert into accounts (owner_user_id, name, kind, external_ref, initial_balance_on)
+        values (${leaderUser}, 'rls ext refs grant', 'asset', 'ext-grant-1', (now() at time zone 'America/Bogota')::date)
+        returning id, external_ref`;
+      const grantUpdate = await tx`update accounts set external_ref = 'ext-grant-2' where id = ${grantIns.id}`;
+      const [{ external_ref: grantNow }] = await tx<{ external_ref: string | null }[]>`
+        select external_ref from accounts where id = ${grantIns.id}`;
+      assert(
+        labels[6],
+        grantIns.external_ref === "ext-grant-1" && grantUpdate.count === 1 && grantNow === "ext-grant-2",
+        `inserted = ${grantIns.external_ref}, updated rows = ${grantUpdate.count}, now = ${grantNow}`,
+      );
+
+      // Forces `sql.begin` to issue ROLLBACK: nothing this function wrote may survive it.
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`select current_user`;
+  const [{ count: probeCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from groups where name like 'rls ext refs%'`;
+  assert(
+    tailLabel,
+    afterUser === "postgres" && probeCount === "0",
+    `current_user = ${afterUser}, rows named 'rls ext refs%' = ${probeCount}`,
   );
 }
 
