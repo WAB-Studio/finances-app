@@ -73,6 +73,8 @@ export { BottomNav, BottomNavTrigger, type BottomNavTab } from "./bottom-nav";
 
 export { ColorSwatchPicker, ColorSwatch } from "./color-swatch-picker";
 
+export { ChipMultiSelect, type ChipOption } from "./chip-multi-select";
+
 export { StackedSegmentedControl } from "./stacked-segmented-control";
 
 export { TapTarget } from "./tap-target";
