@@ -31,6 +31,13 @@ const FILE_TYPE = "data.import.errors.fileType";
 const TOO_MANY_ROWS = "data.import.errors.tooManyRows";
 const UNKNOWN_REFERENCE = "data.import.errors.unknownReference";
 const AMBIGUOUS_REFERENCE = "data.import.errors.ambiguousReference";
+const INVALID_CELL = "data.import.errors.invalidCell";
+
+// A catalogue key is a dotted identifier with no spaces; a raw Zod default is an
+// English sentence. The light guard's number/enum/date fields carry no custom key,
+// so a mistyped cell surfaces Zod's default — mapped to a key here so no English
+// string ever reaches the preview (RF-48).
+const CATALOGUE_KEY = /^[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)+$/;
 
 // The authoritative id-shaped schema each entity re-runs after name→id resolution,
 // the same one its form uses (RNF-10).
@@ -100,9 +107,17 @@ function classify(entity: SheetEntity, raw: RawRow, scope: ImportScope): "new" |
   return ref.length > 0 && scope.existingRefs[entity].has(ref) ? "update" : "new";
 }
 
-// A distinct, ordered list of the message keys a Zod failure raised.
+// A distinct, ordered list of the message keys a Zod failure raised. A field with a
+// custom key passes its key through; a default English message from a number, enum
+// or date field maps to the generic invalid-cell key.
 function issueKeys(error: z.ZodError): string[] {
-  return [...new Set(error.issues.map((issue) => issue.message))];
+  return [
+    ...new Set(
+      error.issues.map((issue) =>
+        CATALOGUE_KEY.test(issue.message) ? issue.message : INVALID_CELL,
+      ),
+    ),
+  ];
 }
 
 // One reference name to an id in scope: no match is unknown, more than one is
