@@ -1,19 +1,28 @@
 "use client";
 
-import { Download, FileSpreadsheet } from "lucide-react";
+import { CheckCircle2, Download, FileSpreadsheet, Upload } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
-import { useState } from "react";
+import { useAction } from "next-safe-action/hooks";
+import { useRef, useState } from "react";
+import { toast } from "sonner";
 
+import { commitImportAction, previewImportAction } from "@/app/actions/import";
 import {
+  Badge,
   Button,
+  Callout,
   Card,
   Flex,
   Heading,
+  Spinner,
   Switch,
+  Table,
   Text,
   TextField,
+  VisuallyHidden,
 } from "@/components/ui";
 import type { SheetEntity } from "@/lib/spreadsheet/schema";
+import { useActionErrorToast, type MessageKey } from "@/lib/use-action-toast";
 
 /**
  * The export half of the Data screen (RF-49, RF-50). The entity picks and the
@@ -27,6 +36,8 @@ export function DataScreen({
   entities: readonly SheetEntity[];
 }) {
   const t = useTranslations("data");
+  // Root-scoped: a row's error is a full catalogue key from another namespace.
+  const tKey = useTranslations();
   const locale = useLocale();
 
   const [selected, setSelected] = useState<Set<SheetEntity>>(
@@ -55,6 +66,45 @@ export function DataScreen({
 
   const exportHref = `/${locale}/settings/data/export${query ? `?${query}` : ""}`;
   const templateHref = `/${locale}/settings/data/template`;
+
+  // The chosen file drives both the preview and the later commit; a ref clears the
+  // native input on reset, which no controlled value can do for a file field.
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [file, setFile] = useState<File | null>(null);
+
+  const onImportError = useActionErrorToast();
+
+  const preview = useAction(previewImportAction, { onError: onImportError });
+  const commit = useAction(commitImportAction, {
+    onSuccess: () => {
+      toast.success(t("screen.importDone"));
+      resetImport();
+    },
+    onError: onImportError,
+  });
+
+  function fileForm(chosen: File) {
+    const body = new FormData();
+    body.set("file", chosen);
+    return body;
+  }
+
+  function resetImport() {
+    setFile(null);
+    preview.reset();
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  // A fresh pick supersedes the last preview, so drop it before validating anew.
+  function onFileChange(chosen: File | null) {
+    setFile(chosen);
+    preview.reset();
+    if (chosen) preview.execute(fileForm(chosen));
+  }
+
+  const importPreview = preview.result.data;
+  // The gate: confirm writes only once every row across every sheet passed.
+  const canConfirm = !!importPreview && importPreview.totals.error === 0;
 
   return (
     <Flex direction="column" gap="4">
@@ -127,6 +177,140 @@ export function DataScreen({
               {t("screen.downloadTemplate")}
             </a>
           </Button>
+        </Flex>
+      </Card>
+
+      <Card>
+        <Flex direction="column" gap="4">
+          <Heading size="3">{t("screen.importHeading")}</Heading>
+          <Text size="2" color="gray">
+            {t("screen.importDescription")}
+          </Text>
+
+          <Flex direction="column" gap="1">
+            <Text size="2" weight="medium" color="gray">
+              {t("screen.fileLabel")}
+            </Text>
+            <Flex align="center" gap="2">
+              {/* Radix has no file field, so a hidden native input carries the pick
+                  behind a Button primitive rather than a bare styled control. */}
+              <Button asChild variant="soft" color="gray">
+                <label>
+                  <Upload size={16} />
+                  {t("screen.chooseFile")}
+                  <VisuallyHidden>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".xlsx"
+                      disabled={commit.isPending}
+                      onChange={(event) =>
+                        onFileChange(event.target.files?.[0] ?? null)
+                      }
+                    />
+                  </VisuallyHidden>
+                </label>
+              </Button>
+              {file && (
+                <Text size="2" color="gray">
+                  {file.name}
+                </Text>
+              )}
+            </Flex>
+          </Flex>
+
+          {preview.isPending && (
+            <Flex align="center" gap="2">
+              <Spinner />
+              <Text size="2" color="gray">
+                {t("screen.importChecking")}
+              </Text>
+            </Flex>
+          )}
+
+          {importPreview && !preview.isPending && (
+            <Flex direction="column" gap="4">
+              <Flex gap="2" wrap="wrap">
+                <Badge color="green" size="2">
+                  {t("screen.totalsNew", { count: importPreview.totals.new })}
+                </Badge>
+                <Badge color="blue" size="2">
+                  {t("screen.totalsUpdate", {
+                    count: importPreview.totals.update,
+                  })}
+                </Badge>
+                <Badge
+                  color={importPreview.totals.error > 0 ? "red" : "gray"}
+                  size="2"
+                >
+                  {t("screen.totalsError", {
+                    count: importPreview.totals.error,
+                  })}
+                </Badge>
+              </Flex>
+
+              {importPreview.totals.error > 0 ? (
+                importPreview.perEntity
+                  .filter((entity) =>
+                    entity.rows.some((row) => row.errors.length > 0),
+                  )
+                  .map((entity) => (
+                    <Flex key={entity.entity} direction="column" gap="1">
+                      <Text size="2" weight="medium">
+                        {t(`sheets.${entity.entity}`)}
+                      </Text>
+                      <Table.Root size="1" variant="surface">
+                        <Table.Header>
+                          <Table.Row>
+                            <Table.ColumnHeaderCell>
+                              {t("screen.reportRow")}
+                            </Table.ColumnHeaderCell>
+                            <Table.ColumnHeaderCell>
+                              {t("screen.reportProblem")}
+                            </Table.ColumnHeaderCell>
+                          </Table.Row>
+                        </Table.Header>
+                        <Table.Body>
+                          {entity.rows
+                            .filter((row) => row.errors.length > 0)
+                            .map((row) => (
+                              <Table.Row key={row.index}>
+                                <Table.RowHeaderCell>
+                                  {row.index}
+                                </Table.RowHeaderCell>
+                                <Table.Cell>
+                                  <Flex direction="column" gap="1">
+                                    {row.errors.map((error, position) => (
+                                      <Text key={`${error}-${position}`} size="2">
+                                        {tKey(error as MessageKey)}
+                                      </Text>
+                                    ))}
+                                  </Flex>
+                                </Table.Cell>
+                              </Table.Row>
+                            ))}
+                        </Table.Body>
+                      </Table.Root>
+                    </Flex>
+                  ))
+              ) : (
+                <Callout.Root color="green" variant="soft">
+                  <Callout.Icon>
+                    <CheckCircle2 size={16} aria-hidden />
+                  </Callout.Icon>
+                  <Callout.Text>{t("screen.importReady")}</Callout.Text>
+                </Callout.Root>
+              )}
+
+              <Button
+                onClick={() => file && commit.execute(fileForm(file))}
+                disabled={!canConfirm || commit.isPending}
+              >
+                {commit.isPending ? <Spinner /> : <Upload size={16} />}
+                {t("screen.confirmImport")}
+              </Button>
+            </Flex>
+          )}
         </Flex>
       </Card>
     </Flex>

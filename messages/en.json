@@ -730,7 +730,20 @@
       "download": "Download export",
       "templateHeading": "Template",
       "templateDescription": "A blank spreadsheet with the expected columns and your accounts and categories as valid options.",
-      "downloadTemplate": "Download template"
+      "downloadTemplate": "Download template",
+      "importHeading": "Import",
+      "importDescription": "Upload a filled-in .xlsx. Nothing is written until you review the preview and confirm.",
+      "fileLabel": "Spreadsheet",
+      "chooseFile": "Choose file",
+      "importChecking": "Checking the file…",
+      "totalsNew": "{count} new",
+      "totalsUpdate": "{count} updated",
+      "totalsError": "{count} with errors",
+      "reportRow": "Row",
+      "reportProblem": "Problem",
+      "importReady": "Every row is valid. Confirm to write them.",
+      "confirmImport": "Confirm import",
+      "importDone": "Import applied."
     },
     "sheets": {
       "accounts": "Accounts",

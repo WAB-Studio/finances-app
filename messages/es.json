@@ -730,7 +730,20 @@
       "download": "Descargar exportación",
       "templateHeading": "Plantilla",
       "templateDescription": "Una hoja de cálculo en blanco con las columnas esperadas y tus cuentas y categorías como opciones válidas.",
-      "downloadTemplate": "Descargar plantilla"
+      "downloadTemplate": "Descargar plantilla",
+      "importHeading": "Importar",
+      "importDescription": "Sube un .xlsx completado. No se escribe nada hasta que revises la vista previa y confirmes.",
+      "fileLabel": "Hoja de cálculo",
+      "chooseFile": "Elegir archivo",
+      "importChecking": "Comprobando el archivo…",
+      "totalsNew": "{count} nuevos",
+      "totalsUpdate": "{count} actualizados",
+      "totalsError": "{count} con errores",
+      "reportRow": "Fila",
+      "reportProblem": "Problema",
+      "importReady": "Todas las filas son válidas. Confirma para escribirlas.",
+      "confirmImport": "Confirmar importación",
+      "importDone": "Importación aplicada."
     },
     "sheets": {
       "accounts": "Cuentas",
