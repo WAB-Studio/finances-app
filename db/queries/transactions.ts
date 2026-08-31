@@ -94,30 +94,38 @@ export async function insertTransaction(
     labelIds,
   }: CreateTransactionArgs,
 ): Promise<{ transactionId: string }> {
-  const [row] = await tx
-    .insert(transactions)
-    // `created_by` is stamped by the scope trigger and absent from the INSERT
-    // grant; drizzle types it required, so the payload is cast past it.
-    .values({
-      fromAccountId,
-      toAccountId,
-      amountCents,
-      occurredAt,
+  const [row] = await tx.execute<{ id: string }>(sql`
+    insert into transactions (
+      from_account_id,
+      to_account_id,
+      amount_cents,
+      occurred_at,
       description,
-      externalRef,
-    } as typeof transactions.$inferInsert)
-    .returning({ id: transactions.id });
+      external_ref
+    ) values (
+      ${fromAccountId},
+      ${toAccountId},
+      ${amountCents},
+      ${occurredAt},
+      ${description},
+      ${externalRef}
+    )
+    returning id
+  `);
 
   const transactionId = row.id;
 
   if (splits.length > 0) {
-    await tx.insert(transactionSplits).values(
-      splits.map((split) => ({
-        transactionId,
-        categoryId: split.categoryId,
-        amountCents: split.amountCents,
-      })),
-    );
+    await tx.execute(sql`
+      insert into transaction_splits (transaction_id, category_id, amount_cents)
+      values ${sql.join(
+        splits.map(
+          (split) =>
+            sql`(${transactionId}, ${split.categoryId}, ${split.amountCents})`,
+        ),
+        sql`, `,
+      )}
+    `);
   }
 
   if (labelIds.length > 0) {
