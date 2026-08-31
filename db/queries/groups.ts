@@ -56,3 +56,23 @@ export const getGroupForUser = cache(async function getGroupForUser(
     return row ?? null;
   });
 });
+
+// The caller's role in their group (RF-70): `leader` governs the group's shared
+// records, `member` only reads them. `null` covers no session, no live
+// membership and a policy-filtered row alike.
+export const getUserGroupRole = cache(async function getUserGroupRole(): Promise<
+  "leader" | "member" | null
+> {
+  const user = await getSessionUser();
+  if (!user) return null;
+
+  return withUserDb(async (tx) => {
+    const [row] = await tx
+      .select({ role: groupMembers.role })
+      .from(groupMembers)
+      .where(and(eq(groupMembers.userId, user.id), isNull(groupMembers.archivedAt)))
+      .limit(1);
+
+    return row?.role ?? null;
+  });
+});

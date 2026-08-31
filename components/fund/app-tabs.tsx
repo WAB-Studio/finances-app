@@ -6,6 +6,7 @@ import {
   House,
   Plus,
   SlidersHorizontal,
+  Tag,
   Tags,
   Target,
   Users,
@@ -30,7 +31,7 @@ import {
 } from "@/components/ui";
 import { Link as LocaleLink, usePathname } from "@/i18n/navigation";
 
-type SettingKey = "members" | "accounts" | "categories";
+type SettingKey = "members" | "accounts" | "categories" | "labels";
 
 // The settings sheet mirrors AppNav's destinations minus the dashboard, which the
 // Inicio tab already owns. Members only exist inside a group.
@@ -43,6 +44,7 @@ function settings(
       : []),
     { key: "accounts", href: "/settings/accounts", icon: Wallet },
     { key: "categories", href: "/settings/categories", icon: Tags },
+    { key: "labels", href: "/settings/labels", icon: Tag },
   ];
 }
 

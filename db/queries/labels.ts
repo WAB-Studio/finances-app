@@ -1,6 +1,6 @@
 import "server-only";
 
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 
 import { labels } from "@/db/schema";
 import { withUserDb } from "@/db/session";
@@ -11,6 +11,22 @@ export type LabelScope = { ownerUserId: string } | { groupId: string };
 
 export type LabelRow = {
   id: string;
+  name: string;
+  color: string | null;
+};
+
+// The management screen's row: the label plus what would break if it went away
+// (RF-70). Both counts derive from the join and the budgets narrowing on it.
+export type LabelManagementRow = {
+  id: string;
+  name: string;
+  color: string | null;
+  movementCount: number;
+  budgetCount: number;
+};
+
+export type UpdateLabelArgs = {
+  labelId: string;
   name: string;
   color: string | null;
 };
@@ -38,6 +54,53 @@ export async function listLabels(scope: LabelScope): Promise<LabelRow[]> {
   );
 }
 
+/**
+ * The scope's labels for the management screen, counts along, in ONE round trip:
+ * both counts ride as correlated subqueries, never an N+1 follow-up. `listLabels`
+ * stays countless so the movement form never pays for them.
+ */
+export async function listManagedLabels(
+  scope: LabelScope,
+): Promise<LabelManagementRow[]> {
+  // The outer reference is written qualified: drizzle renders an embedded column
+  // bare inside a projection, and a bare `id` binds to the subquery's own table.
+  const outerId = sql`"labels"."id"`;
+
+  const movementCount = sql<number>`(
+    select count(*)::int from transaction_labels tl where tl.label_id = ${outerId}
+  )`;
+
+  const budgetCount = sql<number>`(
+    select count(*)::int from budgets b where b.label_id = ${outerId}
+  )`;
+
+  return withUserDb(async (tx) =>
+    tx
+      .select({
+        id: labels.id,
+        name: labels.name,
+        color: labels.color,
+        movementCount,
+        budgetCount,
+      })
+      .from(labels)
+      .where(scopeWhere(scope))
+      .orderBy(asc(labels.name)),
+  );
+}
+
+// The colours already spent in the scope, so a new label defaults to a fresh one.
+export async function listUsedLabelColors(scope: LabelScope): Promise<string[]> {
+  return withUserDb(async (tx) => {
+    const rows = await tx
+      .selectDistinct({ color: labels.color })
+      .from(labels)
+      .where(scopeWhere(scope));
+
+    return rows.flatMap((row) => (row.color ? [row.color] : []));
+  });
+}
+
 export async function createLabel({
   scope,
   name,
@@ -53,6 +116,24 @@ export async function createLabel({
       .returning({ id: labels.id });
 
     return { labelId: row.id };
+  });
+}
+
+// The placement is immutable, so no scope column is named here; the UPDATE grant
+// covers `(name, color)` only. A false row count is a denied or absent label.
+export async function updateLabel({
+  labelId,
+  name,
+  color,
+}: UpdateLabelArgs): Promise<boolean> {
+  return withUserDb(async (tx) => {
+    const rows = await tx
+      .update(labels)
+      .set({ name, color })
+      .where(eq(labels.id, labelId))
+      .returning({ id: labels.id });
+
+    return rows.length > 0;
   });
 }
 

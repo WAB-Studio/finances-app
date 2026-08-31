@@ -42,6 +42,8 @@ export type TransactionListFilters = {
   memberUserId?: string;
   accountId?: string;
   categoryId?: string;
+  // The label a movement carries through the join, RF-89.
+  labelId?: string;
   kind?: string;
   // The deep-link target: keep only generated movements still awaiting review
   // (`recurring_rule_id is not null and reviewed_at is null`), RF-31.
@@ -238,6 +240,12 @@ export async function listTransactions(
         where s.transaction_id = ${transactions.id} and s.category_id = ${filters.categoryId})`,
     );
   }
+  if (filters.labelId) {
+    conditions.push(
+      sql`exists (select 1 from ${transactionLabels} tl
+        where tl.transaction_id = ${transactions.id} and tl.label_id = ${filters.labelId})`,
+    );
+  }
   if (filters.kind) conditions.push(eq(transactions.kind, filters.kind));
   if (filters.unreviewed) {
     conditions.push(
@@ -248,15 +256,20 @@ export async function listTransactions(
     );
   }
 
+  // The outer reference is written qualified: drizzle renders an embedded column
+  // bare inside a projection, and a bare `id` binds to the subquery's own table,
+  // which turns the correlation into a constant and empties both sets.
+  const outerId = sql`"transactions"."id"`;
+
   const splitsJson = sql<{ categoryId: string; amountCents: number }[]>`coalesce((
     select jsonb_agg(jsonb_build_object('categoryId', s.category_id, 'amountCents', s.amount_cents))
-    from ${transactionSplits} s where s.transaction_id = ${transactions.id}
+    from ${transactionSplits} s where s.transaction_id = ${outerId}
   ), '[]'::jsonb)`;
 
   const labelsJson = sql<{ id: string; name: string; color: string | null }[]>`coalesce((
     select jsonb_agg(jsonb_build_object('id', l.id, 'name', l.name, 'color', l.color) order by l.name)
     from ${transactionLabels} tl join labels l on l.id = tl.label_id
-    where tl.transaction_id = ${transactions.id}
+    where tl.transaction_id = ${outerId}
   ), '[]'::jsonb)`;
 
   return withUserDb(async (tx) => {

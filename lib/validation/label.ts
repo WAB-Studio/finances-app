@@ -27,16 +27,31 @@ function requireColor(
   }
 }
 
-// The scope (personal or group) is resolved from the session (RF-70), so it
-// never travels in the payload.
+// Where a new label lands: the caller's own set, or their group's (RF-70). The
+// action turns this into the owner/group XOR the schema keeps off the wire.
+export const LABEL_PLACEMENTS = ["personal", "group"] as const;
+
 export const createLabelSchema = z
   .object({
+    name: labelNameSchema,
+    color: labelColorSchema,
+    // The owner or group is resolved from the session, so only the placement travels.
+    placement: z.enum(LABEL_PLACEMENTS, { error: "labels.errors.placementInvalid" }),
+  })
+  .superRefine(requireColor);
+
+export type CreateLabelInput = z.infer<typeof createLabelSchema>;
+
+// A label never changes scope, so the placement is absent from an edit.
+export const updateLabelSchema = z
+  .object({
+    labelId: z.uuid(),
     name: labelNameSchema,
     color: labelColorSchema,
   })
   .superRefine(requireColor);
 
-export type CreateLabelInput = z.infer<typeof createLabelSchema>;
+export type UpdateLabelInput = z.infer<typeof updateLabelSchema>;
 
 export const deleteLabelSchema = z.object({
   labelId: z.uuid(),
