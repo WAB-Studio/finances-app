@@ -27,6 +27,9 @@ export const groupMembers = pgTable(
     inviteEmail: text(),
     name: text().notNull(),
     role: text({ enum: ["leader", "member"] }).notNull().default("member"),
+    // The stable per-scope import key (RF-51): a re-import matches on it to update instead of duplicate.
+    // Auto-filled to `id::text` by a trigger when omitted; a webhook or upsert value survives untouched.
+    externalRef: text(),
     archivedAt: timestamp({ withTimezone: true }),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
@@ -38,6 +41,11 @@ export const groupMembers = pgTable(
     check("group_members_leader_has_user", sql`${table.role} <> 'leader' or ${table.userId} is not null`),
     // An invite only pends on an unclaimed row: claiming it (RF-06) clears the email as it sets the user.
     check("group_members_invite_email_unclaimed", sql`${table.inviteEmail} is null or ${table.userId} is null`),
+    check("group_members_external_ref_length", sql`length(${table.externalRef}) <= 200`),
+    // `external_ref` is unique within the group scope, so re-importing the same person updates instead of duplicating (RF-51).
+    uniqueIndex("group_members_group_external_ref_unique")
+      .on(table.groupId, table.externalRef)
+      .where(sql`${table.externalRef} is not null`),
     // One group per user: a live claim on any group blocks a second, across the whole table.
     uniqueIndex("group_members_user_unique")
       .on(table.userId)

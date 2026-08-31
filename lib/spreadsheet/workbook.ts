@@ -24,6 +24,13 @@ type ColumnView = {
   readonly ref?: { readonly entity: "accounts" | "categories" };
 };
 
+// The read side of the same column: the export writes a cell with `toSheet`, the
+// import reads it back across `fromSheet`, so this view exposes the reverse boundary.
+type ParseColumnView = {
+  readonly key: string;
+  readonly money?: { readonly fromSheet: (pesos: number) => number };
+};
+
 // The interface text a person reads on the sheet (RF-49): the localized tab name
 // per entity and the localized header per descriptor column key. The route builds
 // these from next-intl; this module stays free of the message catalogue.
@@ -152,4 +159,110 @@ export function buildTemplate(input: {
   }
 
   return workbook;
+}
+
+// The reverse of `SheetLabels`: the writer turned an entity into a tab name and a
+// column key into a header, so the reader turns a tab name back into its entity and
+// a header back into its column key. Built by the action from the SAME next-intl
+// namespaces the writer used, for the request locale, so a localized file round-trips.
+// This module stays free of the message catalogue; the maps arrive resolved.
+export type ReverseSheetLabels = {
+  readonly entityBySheetName: ReadonlyMap<string, SheetEntity>;
+  readonly columnKeyByHeader: ReadonlyMap<SheetEntity, ReadonlyMap<string, string>>;
+};
+
+// Every entity's raw rows, keyed by the descriptor's column `key`. An entity whose
+// sheet is absent (or holds no data rows) has no key here.
+export type ParsedWorkbook = Partial<Record<SheetEntity, Record<string, CellValue>[]>>;
+
+// One cell reduced to a plain scalar: a formula yields its cached result, a
+// hyperlink or rich-text run its text, a date its civil day, an error nothing. A
+// blank or whitespace-only string reads as null, so an untouched cell counts as
+// empty rather than a value.
+function readCell(value: ExcelJS.CellValue): CellValue {
+  if (value == null) return null;
+  if (typeof value === "number" || typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  if (typeof value === "object") {
+    if ("result" in value) return value.result == null ? null : readCell(value.result);
+    if ("richText" in value) return readCell(value.richText.map((run) => run.text).join(""));
+    if ("text" in value) return readCell(value.text);
+  }
+  return null;
+}
+
+// The header text of a cell, untrimmed-to-null unlike a data cell: an empty header
+// names no column, so it maps to nothing.
+function headerText(value: ExcelJS.CellValue): string | null {
+  const text = readCell(value);
+  return typeof text === "string" ? text : null;
+}
+
+/**
+ * The inverse of `buildWorkbook` (RF-51): reads an uploaded `.xlsx` back into raw
+ * per-entity records. Sheets match by tab name and columns by header text, never by
+ * position — a person may reorder or drop columns and the file still parses; an
+ * unknown sheet or header is ignored. A money column crosses `fromSheet` here, the
+ * one float in the pipeline, at this boundary. No database access and no catalogue:
+ * the caller supplies the reverse label maps and later resolves names to ids.
+ */
+export async function parseWorkbook(input: {
+  buffer: ArrayBuffer;
+  labels: ReverseSheetLabels;
+}): Promise<ParsedWorkbook> {
+  const workbook = new ExcelJS.Workbook();
+  // ExcelJS's `Buffer` is an empty extension of `ArrayBuffer`, so the file bytes go
+  // straight in; JSZip reads an `ArrayBuffer` at runtime.
+  await workbook.xlsx.load(input.buffer);
+
+  const result: ParsedWorkbook = {};
+
+  workbook.eachSheet((sheet) => {
+    const entity = input.labels.entityBySheetName.get(sheet.name);
+    if (entity === undefined) return;
+
+    const headerToKey = input.labels.columnKeyByHeader.get(entity);
+    if (headerToKey === undefined) return;
+
+    const columns = sheetDescriptors[entity].columns as readonly ParseColumnView[];
+    const moneyByKey = new Map(columns.map((column) => [column.key, column.money] as const));
+
+    // A header row maps a physical column index to its descriptor key; a header the
+    // reverse map does not know stays unmapped, so its column drops out.
+    const keyByColumn = new Map<number, string>();
+    sheet.getRow(1).eachCell((cell, columnNumber) => {
+      const header = headerText(cell.value);
+      if (header === null) return;
+      const key = headerToKey.get(header);
+      if (key !== undefined) keyByColumn.set(columnNumber, key);
+    });
+
+    const rows: Record<string, CellValue>[] = [];
+    for (let rowNumber = 2; rowNumber <= sheet.rowCount; rowNumber += 1) {
+      const row = sheet.getRow(rowNumber);
+      const record: Record<string, CellValue> = {};
+      let hasValue = false;
+
+      keyByColumn.forEach((key, columnNumber) => {
+        const cell = readCell(row.getCell(columnNumber).value);
+        const money = moneyByKey.get(key);
+        const value =
+          money !== undefined && typeof cell === "number" ? money.fromSheet(cell) : cell;
+        record[key] = value;
+        if (value !== null) hasValue = true;
+      });
+
+      // A row with no value under any known column is a blank template line, not an
+      // import: it counts toward neither the row cap nor per-row validation.
+      if (hasValue) rows.push(record);
+    }
+
+    result[entity] = rows;
+  });
+
+  return result;
 }

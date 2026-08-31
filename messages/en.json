@@ -730,7 +730,20 @@
       "download": "Download export",
       "templateHeading": "Template",
       "templateDescription": "A blank spreadsheet with the expected columns and your accounts and categories as valid options.",
-      "downloadTemplate": "Download template"
+      "downloadTemplate": "Download template",
+      "importHeading": "Import",
+      "importDescription": "Upload a filled-in .xlsx. Nothing is written until you review the preview and confirm.",
+      "fileLabel": "Spreadsheet",
+      "chooseFile": "Choose file",
+      "importChecking": "Checking the file…",
+      "totalsNew": "{count} new",
+      "totalsUpdate": "{count} updated",
+      "totalsError": "{count} with errors",
+      "reportRow": "Row",
+      "reportProblem": "Problem",
+      "importReady": "Every row is valid. Confirm to write them.",
+      "confirmImport": "Confirm import",
+      "importDone": "Import applied."
     },
     "sheets": {
       "accounts": "Accounts",
@@ -766,6 +779,17 @@
     "filenames": {
       "export": "finances-export",
       "template": "finances-template"
+    },
+    "import": {
+      "errors": {
+        "fileRequired": "Choose a file to import.",
+        "fileType": "The file must be an .xlsx spreadsheet.",
+        "tooManyRows": "The file has too many rows. Split it and import in parts.",
+        "invalidCell": "This cell has an invalid value.",
+        "unknownReference": "No account or category in your fund matches this name.",
+        "ambiguousReference": "More than one account or category shares this name. Rename one so it is unique.",
+        "hasErrors": "The file still has errors. Fix them and import again."
+      }
     }
   }
 }

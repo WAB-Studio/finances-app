@@ -10,6 +10,7 @@ import {
   smallint,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 import { authenticatedRole, authUid } from "drizzle-orm/supabase";
@@ -48,6 +49,9 @@ export const recurringRules = pgTable(
     nextRunOn: date({ mode: "string" }).notNull(),
     endsOn: date({ mode: "string" }),
     isActive: boolean().notNull().default(true),
+    // The stable per-scope import key (RF-51): a re-import matches on it to update instead of duplicate.
+    // Auto-filled to `id::text` by a trigger when omitted; a webhook or upsert value survives untouched.
+    externalRef: text(),
     createdBy: uuid()
       .notNull()
       .references(() => appUsers.id, { onDelete: "restrict" }),
@@ -85,6 +89,7 @@ export const recurringRules = pgTable(
       sql`${table.endsOn} is null or ${table.endsOn} >= ${table.nextRunOn}`,
     ),
     check("recurring_rules_description_length", sql`length(${table.description}) <= 200`),
+    check("recurring_rules_external_ref_length", sql`length(${table.externalRef}) <= 200`),
     index("recurring_rules_owner_user_id_idx")
       .on(table.ownerUserId)
       .where(sql`${table.ownerUserId} is not null`),
@@ -93,6 +98,13 @@ export const recurringRules = pgTable(
       .where(sql`${table.groupId} is not null`),
     index("recurring_rules_next_run_on_idx").on(table.nextRunOn),
     index("recurring_rules_category_id_idx").on(table.categoryId),
+    // `external_ref` is unique within a scope, so re-importing the same row updates instead of duplicating (RF-51).
+    uniqueIndex("recurring_rules_owner_external_ref_unique")
+      .on(table.ownerUserId, table.externalRef)
+      .where(sql`${table.externalRef} is not null`),
+    uniqueIndex("recurring_rules_group_external_ref_unique")
+      .on(table.groupId, table.externalRef)
+      .where(sql`${table.externalRef} is not null`),
     // Universal read inside the group: your own personal rules, plus every rule of the group you belong to.
     pgPolicy("recurring_rules_select_member", {
       for: "select",

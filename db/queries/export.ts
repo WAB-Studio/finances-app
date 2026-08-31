@@ -10,6 +10,7 @@ import {
   groupMembers,
   recurringRules,
   transactions,
+  transactionSplits,
 } from "@/db/schema";
 import { withUserDb } from "@/db/session";
 import { TIME_ZONE } from "@/lib/locales";
@@ -64,12 +65,20 @@ function toCivilDate(value: Date | string): string {
 }
 
 // One column seen through the shared contract: `satisfies` narrows each literal, so
-// only some carry `ref`; this view restores the optional marker for iteration.
-type ColumnView = {
-  readonly key: string;
-  readonly field: string;
-  readonly ref?: { readonly entity: "accounts" | "categories" };
-};
+// only some carry `ref`; this view restores the optional markers for iteration.
+// A field-backed column reads its `$inferSelect` column; a synthetic one (the
+// transaction category) has none and is filled from a related row instead.
+type ColumnView =
+  | {
+      readonly key: string;
+      readonly field: string;
+      readonly ref?: { readonly entity: "accounts" | "categories" };
+    }
+  | {
+      readonly key: string;
+      readonly synthetic: true;
+      readonly ref?: { readonly entity: "accounts" | "categories" };
+    };
 
 // True when an entity's descriptor points at the given entity by name, so its name
 // map is worth a round trip.
@@ -89,9 +98,18 @@ async function readEntityRows<E extends SheetEntity>(
   const descriptor = sheetDescriptors[entity];
   const table = exportTables[entity];
   const columns = table as unknown as Record<string, PgColumn>;
+  const descriptorColumns = descriptor.columns as readonly ColumnView[];
 
   const projection: Record<string, PgColumn> = {};
-  for (const column of descriptor.columns) projection[column.field] = columns[column.field];
+  for (const column of descriptorColumns) {
+    // A synthetic column (the transaction category) has no model column to select.
+    if ("synthetic" in column) continue;
+    projection[column.field] = columns[column.field];
+  }
+
+  // No descriptor names a transaction's id anymore, yet the category fill matches
+  // a split back to its row by it; carry it so `toExportRows` can look it up.
+  if (entity === "transactions") projection["id"] = columns["id"];
 
   const bound = dateColumn[entity];
   const conditions: SQL[] = [];
@@ -123,6 +141,31 @@ async function readNameMap(table: typeof accounts | typeof categories): Promise<
 
 const emptyNameMap = new Map<string, string>();
 
+// Each transaction's split category ids, grouped by transaction (RF-69). Read in
+// the caller's RLS scope so a split resolves to a category the same scope reads
+// back. One round trip for every split; the category fill picks the ids of the
+// transactions it exports and ignores the rest.
+async function readSplitCategoryIds(): Promise<Map<string, string[]>> {
+  return withUserDb(async (tx) => {
+    const rows = await tx
+      .select({
+        transactionId: transactionSplits.transactionId,
+        categoryId: transactionSplits.categoryId,
+      })
+      .from(transactionSplits);
+
+    const byTransaction = new Map<string, string[]>();
+    for (const row of rows) {
+      const ids = byTransaction.get(row.transactionId) ?? [];
+      ids.push(row.categoryId);
+      byTransaction.set(row.transactionId, ids);
+    }
+    return byTransaction;
+  });
+}
+
+const emptySplitMap = new Map<string, string[]>();
+
 // One raw row turned into its sheet shape: a reference to its name, `placement` to
 // a personal/group indicator, money left in integer cents (RNF-05), scalars as is.
 function toExportRows<E extends SheetEntity>(
@@ -130,6 +173,7 @@ function toExportRows<E extends SheetEntity>(
   rows: Record<string, unknown>[],
   accountNames: Map<string, string>,
   categoryNames: Map<string, string>,
+  splitCategoryIds: Map<string, string[]>,
 ): ExportRow<E>[] {
   const columns = sheetDescriptors[entity].columns as readonly ColumnView[];
 
@@ -137,6 +181,15 @@ function toExportRows<E extends SheetEntity>(
     const cell: Record<string, CellValue> = {};
 
     for (const column of columns) {
+      if ("synthetic" in column) {
+        // The only synthetic column is a transaction's category (RF-69): the name
+        // of its SINGLE split. Zero splits (a transfer) or more than one (no
+        // faithful single cell) leave it blank.
+        const ids = splitCategoryIds.get(row.id as string) ?? [];
+        cell[column.key] = ids.length === 1 ? categoryNames.get(ids[0]) ?? null : null;
+        continue;
+      }
+
       const value = row[column.field];
 
       if (column.ref) {
@@ -175,16 +228,24 @@ export async function readExport(input: ExportInput): Promise<ExportResult> {
 
   const needsAccounts = requested.some((entity) => referencesEntity(entity, "accounts"));
   const needsCategories = requested.some((entity) => referencesEntity(entity, "categories"));
+  const needsSplits = requested.includes("transactions");
 
-  const [sets, accountNames, categoryNames] = await Promise.all([
+  const [sets, accountNames, categoryNames, splitCategoryIds] = await Promise.all([
     Promise.all(requested.map((entity) => readEntityRows(entity, input.from, input.to))),
     needsAccounts ? readNameMap(accounts) : Promise.resolve(emptyNameMap),
     needsCategories ? readNameMap(categories) : Promise.resolve(emptyNameMap),
+    needsSplits ? readSplitCategoryIds() : Promise.resolve(emptySplitMap),
   ]);
 
   const result: ExportResult = {};
   requested.forEach((entity, index) => {
-    result[entity] = toExportRows(entity, sets[index], accountNames, categoryNames) as never;
+    result[entity] = toExportRows(
+      entity,
+      sets[index],
+      accountNames,
+      categoryNames,
+      splitCategoryIds,
+    ) as never;
   });
 
   return result;

@@ -3,12 +3,23 @@
 // `pgErrorCode` from the app.
 import { createHash, randomUUID } from "node:crypto";
 
+import { sql as dsql } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 
+import { commitImport } from "@/db/queries/import-commit";
+import type { CommitInput, CommitScope } from "@/db/queries/import-commit";
+import * as schema from "@/db/schema";
 import { pgErrorCode } from "@/lib/db-error";
+import { CATEGORY_COLORS } from "@/lib/fund/category-color";
 import { GROUP_CASH_ACCOUNT_NAME } from "@/lib/fund/seed";
 
 const sql = postgres(process.env.DATABASE_URL!, { prepare: false, max: 1 });
+
+// The import commit writes through Drizzle, so the proof drives it through a Drizzle
+// transaction over the same pool. `commitImport` takes the transaction and settles the
+// session the way `withUserDb` does, so RLS decides every row here too.
+const orm = drizzle(sql, { schema, casing: "snake_case" });
 
 let failed = false;
 
@@ -153,6 +164,8 @@ async function main() {
   await checkAuditViewerPolicy();
   await checkAccountSubtypeBackfill();
   await checkCashReportInvariants();
+  await checkExternalRefKeys();
+  await checkImportCommit();
 }
 
 // Assertions 9-26: the repivoted schema. A group holds accounts and categories a user XOR a group
@@ -3288,6 +3301,574 @@ async function checkCashReportInvariants() {
     tailLabel,
     afterUser === "postgres" && probeCount === "0",
     `current_user = ${afterUser}, rows named 'rls cash report' = ${probeCount}`,
+  );
+}
+
+// Assertions 129-135: the per-scope import key (RF-51). Each of the four new entities carries a
+// partial unique index on `(scope, external_ref)`, so a duplicate ref in one scope is refused while
+// the same ref in a different scope stands; the derive trigger fills an omitted ref with `id::text`
+// on all five entities (transactions included) while an explicit ref survives; and the column grant
+// lets an authenticated member write the key under RLS. Every fixture is seeded through the app's own
+// policies or as the owner where no policy hands the row out, and rolled back.
+async function checkExternalRefKeys() {
+  console.log("");
+  const leaderUser = randomUUID();
+  const groupId = randomUUID();
+  const secondGroup = randomUUID();
+
+  const labels = [
+    "129. accounts: a duplicate external_ref in one scope is refused (23505); the same ref in two scopes both persist",
+    "130. categories: a duplicate external_ref in one scope is refused (23505); the same ref in two scopes both persist",
+    "131. recurring_rules: a duplicate external_ref in one scope is refused (23505); the same ref in two scopes both persist",
+    "132. group_members: a duplicate external_ref in one group is refused (23505); the same ref in two groups both persist",
+    "133. a null external_ref lands as id::text on all five entities — the derive trigger fired",
+    "134. an explicit external_ref survives on all five entities — the WHEN guard held",
+    "135. the column grant lets an authenticated member insert and update external_ref on an account under RLS",
+  ];
+  const tailLabel = "136. the rolled-back external_ref transaction leaves no trace";
+
+  const forcedRollback = Symbol("forced rollback");
+
+  await sql
+    .begin(async (tx) => {
+      await tx`insert into auth.users (id) values (${leaderUser})`;
+      await tx`insert into app_users (id) values (${leaderUser})`;
+
+      // The group, its leader, a personal and a shared account, and one expense category per scope:
+      // enough to book a rule and a movement, and to hold a ref in each of the two scopes.
+      await enterUserContext(tx, leaderUser);
+      await tx`insert into groups (id, name, cash_mode) values (${groupId}, 'rls ext refs', 'shared')`;
+      await tx`insert into group_members (group_id, user_id, name, role)
+        values (${groupId}, ${leaderUser}, 'rls ext refs leader', 'leader')`;
+      const [{ id: leaderAccount }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_on)
+        values (${leaderUser}, 'rls ext refs leader cash', 'asset', (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: sharedAccount }] = await tx<{ id: string }[]>`
+        insert into accounts (group_id, is_shared, name, kind, initial_balance_on)
+        values (${groupId}, true, 'rls ext refs shared cash', 'asset', (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: personalExpenseCat }] = await tx<{ id: string }[]>`
+        insert into categories (owner_user_id, name, kind)
+        values (${leaderUser}, 'rls ext refs personal expense', 'expense') returning id`;
+      const [{ id: groupExpenseCat }] = await tx<{ id: string }[]>`
+        insert into categories (group_id, name, kind)
+        values (${groupId}, 'rls ext refs group expense', 'expense') returning id`;
+
+      // 129: accounts. Seeded as the owner so the explicit scope columns reach the row untouched; only
+      // the partial unique index can reject the duplicate, and only within the one owner scope.
+      await tx`reset role`;
+      await tx`insert into accounts (owner_user_id, name, kind, external_ref, initial_balance_on)
+        values (${leaderUser}, 'rls ext refs acct owner', 'asset', 'ext-acct-dup', (now() at time zone 'America/Bogota')::date)`;
+      let acctDup = "";
+      await tx
+        .savepoint(async (sp) => {
+          await sp`insert into accounts (owner_user_id, name, kind, external_ref, initial_balance_on)
+            values (${leaderUser}, 'rls ext refs acct owner dup', 'asset', 'ext-acct-dup', (now() at time zone 'America/Bogota')::date)`;
+        })
+        .catch((error: unknown) => {
+          acctDup = pgErrorCode(error) ?? "none";
+        });
+      await tx`insert into accounts (group_id, is_shared, name, kind, external_ref, initial_balance_on)
+        values (${groupId}, true, 'rls ext refs acct group', 'asset', 'ext-acct-dup', (now() at time zone 'America/Bogota')::date)`;
+      const [{ count: acctScopes }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from accounts where external_ref = 'ext-acct-dup'`;
+      assert(
+        labels[0],
+        acctDup === "23505" && acctScopes === "2",
+        `dup sqlstate ${acctDup}, rows across scopes = ${acctScopes} (expected 23505 and 2)`,
+      );
+
+      // 130: categories, the same shape — owner scope and group scope hold the ref side by side.
+      await tx`insert into categories (owner_user_id, name, kind, external_ref)
+        values (${leaderUser}, 'rls ext refs cat owner', 'expense', 'ext-cat-dup')`;
+      let catDup = "";
+      await tx
+        .savepoint(async (sp) => {
+          await sp`insert into categories (owner_user_id, name, kind, external_ref)
+            values (${leaderUser}, 'rls ext refs cat owner dup', 'expense', 'ext-cat-dup')`;
+        })
+        .catch((error: unknown) => {
+          catDup = pgErrorCode(error) ?? "none";
+        });
+      await tx`insert into categories (group_id, name, kind, external_ref)
+        values (${groupId}, 'rls ext refs cat group', 'expense', 'ext-cat-dup')`;
+      const [{ count: catScopes }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from categories where external_ref = 'ext-cat-dup'`;
+      assert(
+        labels[1],
+        catDup === "23505" && catScopes === "2",
+        `dup sqlstate ${catDup}, rows across scopes = ${catScopes} (expected 23505 and 2)`,
+      );
+
+      // 131: recurring_rules. Booked as the writing member so the scope trigger derives owner vs group
+      // from the account; the ref rides on the derived scope, and only its own scope's index refuses it.
+      await enterUserContext(tx, leaderUser);
+      await tx`insert into recurring_rules (from_account_id, amount_cents, category_id, frequency, interval_n, day_of_month, next_run_on, external_ref)
+        values (${leaderAccount}, 5000, ${personalExpenseCat}, 'monthly', 1, 15,
+          (now() at time zone 'America/Bogota')::date + 30, 'ext-rule-dup')`;
+      let ruleDup = "";
+      await tx
+        .savepoint(async (sp) => {
+          await sp`insert into recurring_rules (from_account_id, amount_cents, category_id, frequency, interval_n, day_of_month, next_run_on, external_ref)
+            values (${leaderAccount}, 5000, ${personalExpenseCat}, 'monthly', 1, 15,
+              (now() at time zone 'America/Bogota')::date + 30, 'ext-rule-dup')`;
+        })
+        .catch((error: unknown) => {
+          ruleDup = pgErrorCode(error) ?? "none";
+        });
+      await tx`insert into recurring_rules (from_account_id, amount_cents, category_id, frequency, interval_n, day_of_month, next_run_on, external_ref)
+        values (${sharedAccount}, 6000, ${groupExpenseCat}, 'monthly', 1, 15,
+          (now() at time zone 'America/Bogota')::date + 30, 'ext-rule-dup')`;
+      await tx`reset role`;
+      const [{ count: ruleScopes }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from recurring_rules where external_ref = 'ext-rule-dup'`;
+      assert(
+        labels[2],
+        ruleDup === "23505" && ruleScopes === "2",
+        `dup sqlstate ${ruleDup}, rows across scopes = ${ruleScopes} (expected 23505 and 2)`,
+      );
+
+      // 132: group_members carries a group scope alone — a duplicate ref in one group is refused, the
+      // same ref in a second group stands. Seeded as the owner: no policy lets one member seed another group.
+      await tx`insert into group_members (group_id, name, role, external_ref)
+        values (${groupId}, 'rls ext refs gm one', 'member', 'ext-gm-dup')`;
+      let gmDup = "";
+      await tx
+        .savepoint(async (sp) => {
+          await sp`insert into group_members (group_id, name, role, external_ref)
+            values (${groupId}, 'rls ext refs gm one dup', 'member', 'ext-gm-dup')`;
+        })
+        .catch((error: unknown) => {
+          gmDup = pgErrorCode(error) ?? "none";
+        });
+      await tx`insert into groups (id, name, cash_mode) values (${secondGroup}, 'rls ext refs two', 'shared')`;
+      await tx`insert into group_members (group_id, name, role, external_ref)
+        values (${secondGroup}, 'rls ext refs gm two', 'member', 'ext-gm-dup')`;
+      const [{ count: gmScopes }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from group_members where external_ref = 'ext-gm-dup'`;
+      assert(
+        labels[3],
+        gmDup === "23505" && gmScopes === "2",
+        `dup sqlstate ${gmDup}, rows across groups = ${gmScopes} (expected 23505 and 2)`,
+      );
+
+      // 133: an omitted ref is filled with the row's own id on every entity. Accounts, categories and
+      // group_members as the owner; the rule and the movement as the writing member so their triggers run.
+      await tx`reset role`;
+      const [acctNull] = await tx<{ id: string; external_ref: string | null }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_on)
+        values (${leaderUser}, 'rls ext refs acct null', 'asset', (now() at time zone 'America/Bogota')::date)
+        returning id, external_ref`;
+      const [catNull] = await tx<{ id: string; external_ref: string | null }[]>`
+        insert into categories (owner_user_id, name, kind)
+        values (${leaderUser}, 'rls ext refs cat null', 'expense') returning id, external_ref`;
+      const [gmNull] = await tx<{ id: string; external_ref: string | null }[]>`
+        insert into group_members (group_id, name, role)
+        values (${groupId}, 'rls ext refs gm null', 'member') returning id, external_ref`;
+      await enterUserContext(tx, leaderUser);
+      const [ruleNull] = await tx<{ id: string; external_ref: string | null }[]>`
+        insert into recurring_rules (from_account_id, amount_cents, category_id, frequency, interval_n, day_of_month, next_run_on)
+        values (${leaderAccount}, 5000, ${personalExpenseCat}, 'monthly', 1, 15,
+          (now() at time zone 'America/Bogota')::date + 30) returning id, external_ref`;
+      const [txnNull] = await tx<{ id: string; external_ref: string | null }[]>`
+        insert into transactions (from_account_id, amount_cents, occurred_at)
+        values (${leaderAccount}, 5000, (now() at time zone 'America/Bogota')::date) returning id, external_ref`;
+      assert(
+        labels[4],
+        acctNull.external_ref === acctNull.id &&
+          catNull.external_ref === catNull.id &&
+          gmNull.external_ref === gmNull.id &&
+          ruleNull.external_ref === ruleNull.id &&
+          txnNull.external_ref === txnNull.id,
+        `acct ${acctNull.external_ref === acctNull.id}, cat ${catNull.external_ref === catNull.id}, gm ${gmNull.external_ref === gmNull.id}, rule ${ruleNull.external_ref === ruleNull.id}, txn ${txnNull.external_ref === txnNull.id}`,
+      );
+
+      // 134: an explicit ref is preserved unchanged on every entity — the WHEN guard skips the trigger.
+      await tx`reset role`;
+      const [acctKeep] = await tx<{ external_ref: string | null }[]>`
+        insert into accounts (owner_user_id, name, kind, external_ref, initial_balance_on)
+        values (${leaderUser}, 'rls ext refs acct keep', 'asset', 'ext-keep-acct', (now() at time zone 'America/Bogota')::date)
+        returning external_ref`;
+      const [catKeep] = await tx<{ external_ref: string | null }[]>`
+        insert into categories (owner_user_id, name, kind, external_ref)
+        values (${leaderUser}, 'rls ext refs cat keep', 'expense', 'ext-keep-cat') returning external_ref`;
+      const [gmKeep] = await tx<{ external_ref: string | null }[]>`
+        insert into group_members (group_id, name, role, external_ref)
+        values (${groupId}, 'rls ext refs gm keep', 'member', 'ext-keep-gm') returning external_ref`;
+      await enterUserContext(tx, leaderUser);
+      const [ruleKeep] = await tx<{ external_ref: string | null }[]>`
+        insert into recurring_rules (from_account_id, amount_cents, category_id, frequency, interval_n, day_of_month, next_run_on, external_ref)
+        values (${leaderAccount}, 5000, ${personalExpenseCat}, 'monthly', 1, 15,
+          (now() at time zone 'America/Bogota')::date + 30, 'ext-keep-rule') returning external_ref`;
+      const [txnKeep] = await tx<{ external_ref: string | null }[]>`
+        insert into transactions (from_account_id, amount_cents, occurred_at, external_ref)
+        values (${leaderAccount}, 5000, (now() at time zone 'America/Bogota')::date, 'ext-keep-txn') returning external_ref`;
+      assert(
+        labels[5],
+        acctKeep.external_ref === "ext-keep-acct" &&
+          catKeep.external_ref === "ext-keep-cat" &&
+          gmKeep.external_ref === "ext-keep-gm" &&
+          ruleKeep.external_ref === "ext-keep-rule" &&
+          txnKeep.external_ref === "ext-keep-txn",
+        `acct ${acctKeep.external_ref}, cat ${catKeep.external_ref}, gm ${gmKeep.external_ref}, rule ${ruleKeep.external_ref}, txn ${txnKeep.external_ref}`,
+      );
+
+      // 135: the column grant, exercised as an authenticated member in scope. The import stamps the key
+      // on insert and can correct it on update — both land through the narrow INSERT/UPDATE(external_ref) grant.
+      await enterUserContext(tx, leaderUser);
+      const [grantIns] = await tx<{ id: string; external_ref: string | null }[]>`
+        insert into accounts (owner_user_id, name, kind, external_ref, initial_balance_on)
+        values (${leaderUser}, 'rls ext refs grant', 'asset', 'ext-grant-1', (now() at time zone 'America/Bogota')::date)
+        returning id, external_ref`;
+      const grantUpdate = await tx`update accounts set external_ref = 'ext-grant-2' where id = ${grantIns.id}`;
+      const [{ external_ref: grantNow }] = await tx<{ external_ref: string | null }[]>`
+        select external_ref from accounts where id = ${grantIns.id}`;
+      assert(
+        labels[6],
+        grantIns.external_ref === "ext-grant-1" && grantUpdate.count === 1 && grantNow === "ext-grant-2",
+        `inserted = ${grantIns.external_ref}, updated rows = ${grantUpdate.count}, now = ${grantNow}`,
+      );
+
+      // Forces `sql.begin` to issue ROLLBACK: nothing this function wrote may survive it.
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`select current_user`;
+  const [{ count: probeCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from groups where name like 'rls ext refs%'`;
+  assert(
+    tailLabel,
+    afterUser === "postgres" && probeCount === "0",
+    `current_user = ${afterUser}, rows named 'rls ext refs%' = ${probeCount}`,
+  );
+}
+
+// Assertions 137-142: the import commit (RF-51/52/45). It writes the whole file in one
+// transaction: new rows insert, update rows overwrite by their stable key, a movement
+// links to a file-new account's REAL id, and any mid-write failure rolls back every
+// entity. Driven through `commitImport` itself — the shipped body, not a replica — under
+// an injected user, so RLS and the triggers decide each row. Every fixture rolls back.
+async function checkImportCommit() {
+  console.log("");
+  const owner = randomUUID();
+  const failOwner = randomUUID();
+  const today = "2026-01-01";
+  const color = CATEGORY_COLORS[0];
+
+  const labels = [
+    "137. a single-file commit inserts new rows and overwrites an update row in place by its stable key",
+    "138. re-committing the same file duplicates nothing and leaves the stable-keyed rows updated in place",
+    "139. a movement whose split fails rolls back every entity the same transaction wrote",
+    "140. a movement referencing a file-new account links to that account's real inserted id, not a placeholder",
+    "141. the commit lands an audit row for its writes",
+  ];
+  const tailLabel = "142. the rolled-back import-commit transaction leaves no trace";
+
+  // The placeholders a dev→prod file assigns its new referenced entities; the movement
+  // points at these, and the commit must swap each for the real inserted id.
+  const phAccountA = randomUUID();
+  const phAccountC = randomUUID();
+  const phCategory = randomUUID();
+
+  const forcedRollback = Symbol("forced rollback");
+
+  type OrmTx = Parameters<Parameters<typeof orm.transaction>[0]>[0];
+  const enter = (tx: OrmTx, subject: string) =>
+    tx.execute(dsql`select
+      set_config('request.jwt.claims', ${JSON.stringify({ sub: subject, role: "authenticated", aud: "authenticated" })}, true),
+      set_config('statement_timeout', '8000', true),
+      set_config('role', 'authenticated', true)`);
+
+  const scope: CommitScope = { userId: owner, groupId: null };
+
+  // The dev→prod file: two new accounts, one new category, and an expense that names a
+  // file-new account and the file-new category — all by placeholder, never a real id.
+  const firstFile: CommitInput = {
+    members: [],
+    categories: [
+      {
+        status: "new",
+        externalRef: "imp-cat-1",
+        placeholderId: phCategory,
+        object: { name: "Imp Cat", kind: "expense", parentId: null, color },
+      },
+    ],
+    accounts: [
+      {
+        status: "new",
+        externalRef: "imp-acct-A",
+        placeholderId: phAccountA,
+        object: { name: "Imp A", kind: "asset", subtype: "efectivo", placement: "personal", institution: null, amount: "100", balanceOn: today },
+      },
+      {
+        status: "new",
+        externalRef: "imp-acct-C",
+        placeholderId: phAccountC,
+        object: { name: "Imp C", kind: "asset", subtype: "efectivo", placement: "personal", institution: null, amount: "200", balanceOn: today },
+      },
+    ],
+    recurringRules: [],
+    transactions: [
+      {
+        status: "new",
+        externalRef: "imp-txn-1",
+        placeholderId: null,
+        object: {
+          fromAccountId: phAccountC,
+          toAccountId: null,
+          amount: "50",
+          occurredAt: today,
+          description: null,
+          externalRef: "imp-txn-1",
+          splits: [{ categoryId: phCategory, amount: "50" }],
+          labelIds: [],
+        },
+      },
+    ],
+  };
+
+  await orm
+    .transaction(async (tx) => {
+      await tx.execute(dsql`insert into auth.users (id) values (${owner})`);
+      await tx.execute(dsql`insert into app_users (id) values (${owner})`);
+      await enter(tx, owner);
+
+      await commitImport(tx, firstFile, scope);
+
+      const [acctA] = await tx.execute<{ id: string; name: string }>(
+        dsql`select id, name from accounts where external_ref = 'imp-acct-A'`,
+      );
+      const [acctC] = await tx.execute<{ id: string }>(
+        dsql`select id from accounts where external_ref = 'imp-acct-C'`,
+      );
+      const [cat1] = await tx.execute<{ id: string }>(
+        dsql`select id from categories where external_ref = 'imp-cat-1'`,
+      );
+      const [txn1] = await tx.execute<{ id: string; from_account_id: string | null }>(
+        dsql`select id, from_account_id from transactions where external_ref = 'imp-txn-1'`,
+      );
+      const [split1] = await tx.execute<{ category_id: string }>(
+        dsql`select category_id from transaction_splits where transaction_id = ${txn1.id}`,
+      );
+
+      // 140: the movement's account and its split's category are the REAL inserted ids,
+      // never the placeholders the file carried.
+      assert(
+        labels[3],
+        txn1.from_account_id === acctC.id &&
+          split1.category_id === cat1.id &&
+          txn1.from_account_id !== phAccountC &&
+          split1.category_id !== phCategory,
+        `from_account = ${txn1.from_account_id === acctC.id ? "real C" : txn1.from_account_id}, split cat = ${split1.category_id === cat1.id ? "real cat" : split1.category_id}`,
+      );
+
+      // A second file: one account updated by its key, one brand-new account.
+      const secondFile: CommitInput = {
+        members: [],
+        categories: [],
+        accounts: [
+          {
+            status: "update",
+            externalRef: "imp-acct-A",
+            placeholderId: null,
+            object: { name: "Imp A2", kind: "asset", subtype: "bancaria", placement: "personal", institution: null, amount: "150", balanceOn: today },
+          },
+          {
+            status: "new",
+            externalRef: "imp-acct-B",
+            placeholderId: randomUUID(),
+            object: { name: "Imp B", kind: "asset", subtype: "efectivo", placement: "personal", institution: null, amount: "10", balanceOn: today },
+          },
+        ],
+        recurringRules: [],
+        transactions: [],
+      };
+      await commitImport(tx, secondFile, scope);
+
+      const [acctARenamed] = await tx.execute<{ id: string; name: string }>(
+        dsql`select id, name from accounts where external_ref = 'imp-acct-A'`,
+      );
+      const [{ count: acctBCount }] = await tx.execute<{ count: string }>(
+        dsql`select count(*)::text as count from accounts where external_ref = 'imp-acct-B'`,
+      );
+      // 137: the update overwrote the existing row (same id, new name), the new row landed.
+      assert(
+        labels[0],
+        acctARenamed.id === acctA.id && acctARenamed.name === "Imp A2" && acctBCount === "1",
+        `A id held = ${acctARenamed.id === acctA.id}, A name = ${acctARenamed.name}, B rows = ${acctBCount}`,
+      );
+
+      // 141: the writes left an audit trail — the new account C is captured on INSERT (RF-45).
+      await tx.execute(dsql`reset role`);
+      const [{ count: auditCount }] = await tx.execute<{ count: string }>(
+        dsql`select count(*)::text as count from audit_log
+          where entity = 'accounts' and record_id = ${acctC.id} and action = 'INSERT'`,
+      );
+      assert(labels[4], Number(auditCount) >= 1, `audit rows for account C insert = ${auditCount}`);
+      await enter(tx, owner);
+
+      // Re-commit the FIRST file, now reclassified as updates the way the pipeline would on
+      // a re-import: references resolve to the real ids, not placeholders.
+      const [{ count: acctCountBefore }] = await tx.execute<{ count: string }>(
+        dsql`select count(*)::text as count from accounts where external_ref like 'imp-acct-%'`,
+      );
+      const [{ count: catCountBefore }] = await tx.execute<{ count: string }>(
+        dsql`select count(*)::text as count from categories where external_ref like 'imp-cat-%'`,
+      );
+      const [{ count: txnCountBefore }] = await tx.execute<{ count: string }>(
+        dsql`select count(*)::text as count from transactions where external_ref like 'imp-txn-%'`,
+      );
+
+      const reimport: CommitInput = {
+        members: [],
+        categories: [
+          {
+            status: "update",
+            externalRef: "imp-cat-1",
+            placeholderId: null,
+            object: { name: "Imp Cat", kind: "expense", parentId: null, color },
+          },
+        ],
+        accounts: [
+          {
+            status: "update",
+            externalRef: "imp-acct-A",
+            placeholderId: null,
+            object: { name: "Imp A", kind: "asset", subtype: "efectivo", placement: "personal", institution: null, amount: "100", balanceOn: today },
+          },
+          {
+            status: "update",
+            externalRef: "imp-acct-C",
+            placeholderId: null,
+            object: { name: "Imp C", kind: "asset", subtype: "efectivo", placement: "personal", institution: null, amount: "200", balanceOn: today },
+          },
+        ],
+        recurringRules: [],
+        transactions: [
+          {
+            status: "update",
+            externalRef: "imp-txn-1",
+            placeholderId: null,
+            object: {
+              fromAccountId: acctC.id,
+              toAccountId: null,
+              amount: "50",
+              occurredAt: today,
+              description: null,
+              externalRef: "imp-txn-1",
+              splits: [{ categoryId: cat1.id, amount: "50" }],
+              labelIds: [],
+            },
+          },
+        ],
+      };
+      await commitImport(tx, reimport, scope);
+
+      const [{ count: acctCountAfter }] = await tx.execute<{ count: string }>(
+        dsql`select count(*)::text as count from accounts where external_ref like 'imp-acct-%'`,
+      );
+      const [{ count: catCountAfter }] = await tx.execute<{ count: string }>(
+        dsql`select count(*)::text as count from categories where external_ref like 'imp-cat-%'`,
+      );
+      const [{ count: txnCountAfter }] = await tx.execute<{ count: string }>(
+        dsql`select count(*)::text as count from transactions where external_ref like 'imp-txn-%'`,
+      );
+      const [acctAReset] = await tx.execute<{ id: string; name: string }>(
+        dsql`select id, name from accounts where external_ref = 'imp-acct-A'`,
+      );
+      // 138: no table gained a row, and the stable-keyed account is updated in place (same id, reset name).
+      assert(
+        labels[1],
+        acctCountAfter === acctCountBefore &&
+          catCountAfter === catCountBefore &&
+          txnCountAfter === txnCountBefore &&
+          acctAReset.id === acctA.id &&
+          acctAReset.name === "Imp A",
+        `accounts ${acctCountBefore}→${acctCountAfter}, categories ${catCountBefore}→${catCountAfter}, transactions ${txnCountBefore}→${txnCountAfter}, A in place = ${acctAReset.id === acctA.id}`,
+      );
+
+      // Nothing this section wrote may survive; force the ROLLBACK.
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  // 139: a file whose write fails mid-way. The expense names an INCOME category on its
+  // split, which the match trigger refuses (23514) after the account and category already
+  // landed — so the whole transaction must roll back, leaving zero rows on every entity.
+  const failFile: CommitInput = {
+    members: [],
+    categories: [
+      {
+        status: "new",
+        externalRef: "imp-fail-cat",
+        placeholderId: randomUUID(),
+        object: { name: "Imp Fail Cat", kind: "income", parentId: null, color },
+      },
+    ],
+    accounts: [
+      {
+        status: "new",
+        externalRef: "imp-fail-acct",
+        placeholderId: randomUUID(),
+        object: { name: "Imp Fail Acct", kind: "asset", subtype: "efectivo", placement: "personal", institution: null, amount: "100", balanceOn: today },
+      },
+    ],
+    recurringRules: [],
+    transactions: [],
+  };
+  // The movement points at the two file-new rows by their placeholders, an expense (from
+  // set, to null) carrying the income category — the mismatch the trigger rejects.
+  failFile.transactions = [
+    {
+      status: "new",
+      externalRef: "imp-fail-txn",
+      placeholderId: null,
+      object: {
+        fromAccountId: failFile.accounts[0].placeholderId,
+        toAccountId: null,
+        amount: "50",
+        occurredAt: today,
+        description: null,
+        externalRef: "imp-fail-txn",
+        splits: [{ categoryId: failFile.categories[0].placeholderId!, amount: "50" }],
+        labelIds: [],
+      },
+    },
+  ];
+
+  let failCode = "";
+  await orm
+    .transaction(async (tx) => {
+      await tx.execute(dsql`insert into auth.users (id) values (${failOwner})`);
+      await tx.execute(dsql`insert into app_users (id) values (${failOwner})`);
+      await enter(tx, failOwner);
+      await commitImport(tx, failFile, { userId: failOwner, groupId: null });
+    })
+    .catch((error: unknown) => {
+      failCode = pgErrorCode(error) ?? "none";
+    });
+
+  const [{ count: failAccts }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from accounts where external_ref = 'imp-fail-acct'`;
+  const [{ count: failCats }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from categories where external_ref = 'imp-fail-cat'`;
+  assert(
+    labels[2],
+    failCode === "23514" && failAccts === "0" && failCats === "0",
+    `sqlstate ${failCode}, account rows = ${failAccts}, category rows = ${failCats} (expected 23514 and 0, 0)`,
+  );
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`select current_user`;
+  const [{ count: probeCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from accounts where external_ref like 'imp-acct-%' or external_ref like 'imp-fail-%'`;
+  assert(
+    tailLabel,
+    afterUser === "postgres" && probeCount === "0",
+    `current_user = ${afterUser}, import rows surviving = ${probeCount}`,
   );
 }
 

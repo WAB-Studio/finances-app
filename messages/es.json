@@ -730,7 +730,20 @@
       "download": "Descargar exportación",
       "templateHeading": "Plantilla",
       "templateDescription": "Una hoja de cálculo en blanco con las columnas esperadas y tus cuentas y categorías como opciones válidas.",
-      "downloadTemplate": "Descargar plantilla"
+      "downloadTemplate": "Descargar plantilla",
+      "importHeading": "Importar",
+      "importDescription": "Sube un .xlsx completado. No se escribe nada hasta que revises la vista previa y confirmes.",
+      "fileLabel": "Hoja de cálculo",
+      "chooseFile": "Elegir archivo",
+      "importChecking": "Comprobando el archivo…",
+      "totalsNew": "{count} nuevos",
+      "totalsUpdate": "{count} actualizados",
+      "totalsError": "{count} con errores",
+      "reportRow": "Fila",
+      "reportProblem": "Problema",
+      "importReady": "Todas las filas son válidas. Confirma para escribirlas.",
+      "confirmImport": "Confirmar importación",
+      "importDone": "Importación aplicada."
     },
     "sheets": {
       "accounts": "Cuentas",
@@ -766,6 +779,17 @@
     "filenames": {
       "export": "finanzas-datos",
       "template": "finanzas-plantilla"
+    },
+    "import": {
+      "errors": {
+        "fileRequired": "Elige un archivo para importar.",
+        "fileType": "El archivo debe ser una hoja de cálculo .xlsx.",
+        "tooManyRows": "El archivo tiene demasiadas filas. Divídelo e impórtalo por partes.",
+        "invalidCell": "Esta celda tiene un valor no válido.",
+        "unknownReference": "Ninguna cuenta o categoría de tu fondo coincide con este nombre.",
+        "ambiguousReference": "Más de una cuenta o categoría comparte este nombre. Renombra una para que sea única.",
+        "hasErrors": "El archivo todavía tiene errores. Corrígelos e impórtalo de nuevo."
+      }
     }
   }
 }
