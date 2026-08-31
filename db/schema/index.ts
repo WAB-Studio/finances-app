@@ -19,3 +19,6 @@ export * from "./installment-lines";
 export * from "./debt-statements";
 export * from "./webhook-credentials";
 export * from "./audit-log";
+export * from "./ingest-deliveries";
+export * from "./ingest-shapes";
+export * from "./ingest-merchants";
