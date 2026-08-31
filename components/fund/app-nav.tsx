@@ -11,6 +11,7 @@ import {
   Target,
   Users,
   Wallet,
+  Webhook,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
@@ -28,6 +29,7 @@ type DestinationKey =
   | "accounts"
   | "categories"
   | "labels"
+  | "webhooks"
   | "data"
   | "audit";
 
@@ -45,6 +47,7 @@ function destinations(
     { key: "accounts", href: "/settings/accounts", icon: Wallet },
     { key: "categories", href: "/settings/categories", icon: Tags },
     { key: "labels", href: "/settings/labels", icon: Tag },
+    { key: "webhooks", href: "/settings/webhooks", icon: Webhook },
     { key: "data", href: "/settings/data", icon: Database },
     { key: "audit", href: "/settings/audit", icon: ScrollText },
   ];
