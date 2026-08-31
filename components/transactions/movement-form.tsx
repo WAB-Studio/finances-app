@@ -16,6 +16,7 @@ import {
   createTransactionAction,
   updateTransactionAction,
 } from "@/app/actions/transactions";
+import { acceptDeliveryAction } from "@/app/actions/ingest";
 import { SplitEditor } from "@/components/transactions/split-editor";
 import {
   Badge,
@@ -42,6 +43,10 @@ import { todayInBogota } from "@/lib/dates";
 import { centsToPesos, parsePesos } from "@/lib/money";
 import { useActionErrorToast } from "@/lib/use-action-toast";
 import {
+  acceptDeliverySchema,
+  type AcceptDeliveryInput,
+} from "@/lib/validation/ingest";
+import {
   createTransactionSchema,
   updateTransactionSchema,
   type CreateTransactionInput,
@@ -52,6 +57,7 @@ import {
 // active schema does not declare, so `external_ref` never reaches the edit
 // action and `transaction_id` never reaches the create one.
 type MovementFormValues = {
+  deliveryId?: string;
   transactionId?: string;
   fromAccountId: string | null;
   toAccountId: string | null;
@@ -93,24 +99,39 @@ export function MovementForm({
   mode,
   options,
   movement,
+  deliveryId,
+  defaults,
   onDone,
 }: {
   mode: "create" | "edit";
   options: TransactionFormOptions;
   movement?: TransactionListRow;
+  deliveryId?: string;
+  defaults?: {
+    fromAccountId?: string | null;
+    toAccountId?: string | null;
+    amount?: string;
+    occurredAt?: string;
+    description?: string | null;
+    splits?: { categoryId: string; amount: string }[];
+  };
   onDone: () => void;
 }) {
   const t = useTranslations("transactions");
+  const tIngest = useTranslations("ingest");
   const tKey = useTranslations();
   const format = useFormatter();
   const onActionError = useActionErrorToast();
 
   const isEdit = mode === "edit";
+  const isAccept = !movement && deliveryId !== undefined;
 
   const form = useForm<MovementFormValues>({
     resolver: (isEdit
       ? zodResolver(updateTransactionSchema)
-      : zodResolver(createTransactionSchema)) as unknown as Resolver<MovementFormValues>,
+      : isAccept
+        ? zodResolver(acceptDeliverySchema)
+        : zodResolver(createTransactionSchema)) as unknown as Resolver<MovementFormValues>,
     mode: "onChange",
     defaultValues: movement
       ? {
@@ -127,14 +148,22 @@ export function MovementForm({
           labelIds: movement.labels.map((label) => label.id),
         }
       : {
+          deliveryId: isAccept ? deliveryId : undefined,
           // Reached from the quick sheet's income-or-transfer link, so the empty
           // form opens as an income: a destination and no source (RF-18).
-          fromAccountId: null,
-          toAccountId: options.lastUsedAccountId,
-          amount: "",
-          occurredAt: todayInBogota(),
-          description: null,
-          splits: [],
+          fromAccountId:
+            defaults?.fromAccountId !== undefined
+              ? defaults.fromAccountId
+              : null,
+          toAccountId:
+            defaults?.toAccountId !== undefined
+              ? defaults.toAccountId
+              : options.lastUsedAccountId,
+          amount: defaults?.amount ?? "",
+          occurredAt: defaults?.occurredAt ?? todayInBogota(),
+          description:
+            defaults?.description !== undefined ? defaults.description : null,
+          splits: defaults?.splits ?? [],
           labelIds: [],
         },
   });
@@ -204,7 +233,7 @@ export function MovementForm({
     onDone();
   }
 
-  // Two hooks, not one behind a ternary: the actions' input types differ, and
+  // Three hooks, not one behind a ternary: the actions' input types differ, and
   // rules of hooks forbid picking which one to call.
   const create = useAction(createTransactionAction, {
     onSuccess: onActionSuccess,
@@ -214,8 +243,16 @@ export function MovementForm({
     onSuccess: onActionSuccess,
     onError: onActionError,
   });
+  const accept = useAction(acceptDeliveryAction, {
+    onSuccess: onActionSuccess,
+    onError: onActionError,
+  });
 
-  const isPending = isEdit ? update.isPending : create.isPending;
+  const isPending = isEdit
+    ? update.isPending
+    : isAccept
+      ? accept.isPending
+      : create.isPending;
 
   function onSubmit(values: MovementFormValues) {
     // The resolver already parsed `values` for this mode, dropping the field the
@@ -223,6 +260,8 @@ export function MovementForm({
     // create.
     if (isEdit) {
       update.execute(values as UpdateTransactionInput);
+    } else if (isAccept) {
+      accept.execute({ ...values, deliveryId } as AcceptDeliveryInput);
     } else {
       create.execute(values as CreateTransactionInput);
     }
@@ -483,7 +522,7 @@ export function MovementForm({
           disabled={!form.formState.isValid || isPending}
         >
           {isPending && <Spinner />}
-          {t("saveMovement")}
+          {isAccept ? tIngest("accept") : t("saveMovement")}
         </Button>
       </FieldGroup>
     </form>
