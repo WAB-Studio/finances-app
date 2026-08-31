@@ -4,6 +4,7 @@ import { getAccountBalances } from "@/db/queries/account-balances";
 import { listAccounts } from "@/db/queries/accounts";
 import { listMembers } from "@/db/queries/group-members";
 import { getUserGroup } from "@/db/queries/groups";
+import { countPendingDeliveries } from "@/db/queries/ingest-review";
 import { getMonthlyFlow } from "@/db/queries/reports/monthly-flow";
 import type { MonthlyFlow } from "@/db/queries/reports/monthly-flow";
 import { netWorthByOwner } from "@/db/queries/reports/net-worth";
@@ -27,25 +28,34 @@ export type DashboardData = {
   monthFlow: MonthlyFlow;
   // Generated movements still awaiting review — the "N sin revisar" badge (RF-31).
   unreviewedCount: number;
+  pendingDeliveryCount: number;
 };
 
 /**
  * The home dashboard's read-model: net worth per owner and this month's flow
  * (RF-88). Scope is never a parameter — every underlying query runs inside
  * `withUserDb`, so RLS restricts the rows to the caller and their one group.
- * The five independent reads fan out in one `Promise.all`; the roster is a
+ * The seven independent reads fan out in one `Promise.all`; the roster is a
  * conditional second trip, taken only once a group is known.
  */
 export async function getDashboardData(): Promise<DashboardData> {
-  const [accounts, balances, monthFlow, group, sessionUser, unreviewedCount] =
-    await Promise.all([
-      listAccounts({ archived: false }),
-      getAccountBalances(),
-      getMonthlyFlow(currentMonthRange()),
-      getUserGroup(),
-      getSessionUser(),
-      countUnreviewedGenerated(),
-    ]);
+  const [
+    accounts,
+    balances,
+    monthFlow,
+    group,
+    sessionUser,
+    unreviewedCount,
+    pendingDeliveryCount,
+  ] = await Promise.all([
+    listAccounts({ archived: false }),
+    getAccountBalances(),
+    getMonthlyFlow(currentMonthRange()),
+    getUserGroup(),
+    getSessionUser(),
+    countUnreviewedGenerated(),
+    countPendingDeliveries(),
+  ]);
 
   // Only a grouped caller has a roster to name member buckets against; a
   // personal-only caller falls back to the `isSelf` label with no round trip.
@@ -84,5 +94,6 @@ export async function getDashboardData(): Promise<DashboardData> {
     totalNetWorthCents,
     monthFlow,
     unreviewedCount,
+    pendingDeliveryCount,
   };
 }
