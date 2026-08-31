@@ -123,6 +123,7 @@
     "members": "Miembros",
     "accounts": "Cuentas",
     "categories": "Categorías",
+    "labels": "Etiquetas",
     "data": "Datos",
     "audit": "Auditoría"
   },
@@ -304,6 +305,38 @@
       "colorRequired": "Elige un color."
     }
   },
+  "labels": {
+    "title": "Etiquetas",
+    "add": "Añadir etiqueta",
+    "addTitle": "Añadir etiqueta",
+    "editTitle": "Editar etiqueta",
+    "nameLabel": "Nombre",
+    "colorLabel": "Color",
+    "colorOption": "Color {number}",
+    "placementLabel": "Dónde va",
+    "placementPersonal": "Personal",
+    "placementGroup": "El grupo",
+    "placementLocked": "El ámbito no se puede cambiar después de crear la etiqueta.",
+    "personalSection": "Mis etiquetas",
+    "groupSection": "Etiquetas del grupo",
+    "leaderOnly": "Pide al líder del grupo que cree o cambie las etiquetas del grupo.",
+    "usageCount": "{count, plural, one {# movimiento} other {# movimientos}}",
+    "budgetCount": "{count, plural, one {# presupuesto} other {# presupuestos}}",
+    "emptyTitle": "Todavía no hay etiquetas",
+    "emptyDescription": "Añade la primera etiqueta para agrupar movimientos sin cambiar su categoría.",
+    "deleteTitle": "Eliminar etiqueta",
+    "deleteDescription": "Esta acción no se puede deshacer.",
+    "deleteWithUsageDescription": "{count, plural, one {Esta acción quita la etiqueta de # movimiento.} other {Esta acción quita la etiqueta de # movimientos.}}",
+    "created": "Etiqueta creada.",
+    "updated": "Etiqueta actualizada.",
+    "deleted": "Etiqueta eliminada.",
+    "errors": {
+      "nameRequired": "Escribe el nombre de la etiqueta.",
+      "nameTooLong": "El nombre no puede pasar de 80 caracteres.",
+      "colorRequired": "Elige un color.",
+      "placementInvalid": "Elige dónde va la etiqueta."
+    }
+  },
   "transactions": {
     "quickTitle": "Nuevo movimiento",
     "quickPlaceholder": "Anota un gasto…",
@@ -383,7 +416,11 @@
       "splitsRequired": "Asigna al menos una categoría.",
       "splitsSumMismatch": "Las categorías deben sumar el monto del movimiento.",
       "splitsScopeViolation": "La cuenta o la categoría no pertenecen al mismo ámbito."
-    }
+    },
+    "labelsLabel": "Etiquetas",
+    "labelsNone": "Crea etiquetas en Ajustes para usarlas aquí.",
+    "labelFilterLabel": "Etiqueta",
+    "allLabels": "Todas las etiquetas"
   },
   "cash": {
     "withdrawAction": "Retirar efectivo",
@@ -718,7 +755,9 @@
     "lastOwner": "El fondo necesita al menos un propietario.",
     "selfArchive": "No puedes archivarte a ti mismo.",
     "categoryNesting": "Las categorías solo admiten un nivel de subcategorías.",
-    "categoryKindMismatch": "La subcategoría debe tener el mismo tipo que su categoría principal."
+    "categoryKindMismatch": "La subcategoría debe tener el mismo tipo que su categoría principal.",
+    "notLeader": "Solo el líder del grupo puede hacer este cambio.",
+    "labelInUse": "Un presupuesto usa esta etiqueta. Quítala del presupuesto para eliminarla."
   },
   "data": {
     "screen": {

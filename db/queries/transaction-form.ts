@@ -17,10 +17,14 @@ import { getSessionUser, requireUser, withUserDb } from "@/db/session";
 // personal category apart from the group's without a second lookup.
 export type ScopedCategory = CategoryNode & { scope: "personal" | "group" };
 
+// A label carries its scope for the same reason (RF-70): a movement's labels
+// must share its scope, and the picker tells the two sets apart with no lookup.
+export type ScopedLabel = LabelRow & { scope: "personal" | "group" };
+
 export type TransactionFormOptions = {
   accounts: AccountRow[];
   categories: ScopedCategory[];
-  labels: LabelRow[];
+  labels: ScopedLabel[];
   members: { userId: string; name: string }[];
   lastUsedAccountId: string | null;
 };
@@ -71,7 +75,10 @@ export async function getTransactionFormOptions(): Promise<TransactionFormOption
   return {
     accounts,
     categories,
-    labels: [...personalLabels, ...groupLabels],
+    labels: [
+      ...personalLabels.map((label) => ({ ...label, scope: "personal" as const })),
+      ...groupLabels.map((label) => ({ ...label, scope: "group" as const })),
+    ],
     // Only members who have claimed a login can be a movement's creator (RF-25).
     members: groupMembers.flatMap((member) =>
       member.userId ? [{ userId: member.userId, name: member.name }] : [],

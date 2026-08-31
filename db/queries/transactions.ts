@@ -42,6 +42,8 @@ export type TransactionListFilters = {
   memberUserId?: string;
   accountId?: string;
   categoryId?: string;
+  // The label a movement carries through the join, RF-89.
+  labelId?: string;
   kind?: string;
   // The deep-link target: keep only generated movements still awaiting review
   // (`recurring_rule_id is not null and reviewed_at is null`), RF-31.
@@ -236,6 +238,12 @@ export async function listTransactions(
     conditions.push(
       sql`exists (select 1 from ${transactionSplits} s
         where s.transaction_id = ${transactions.id} and s.category_id = ${filters.categoryId})`,
+    );
+  }
+  if (filters.labelId) {
+    conditions.push(
+      sql`exists (select 1 from ${transactionLabels} tl
+        where tl.transaction_id = ${transactions.id} and tl.label_id = ${filters.labelId})`,
     );
   }
   if (filters.kind) conditions.push(eq(transactions.kind, filters.kind));

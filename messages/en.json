@@ -123,6 +123,7 @@
     "members": "Members",
     "accounts": "Accounts",
     "categories": "Categories",
+    "labels": "Labels",
     "data": "Data",
     "audit": "Audit log"
   },
@@ -304,6 +305,38 @@
       "colorRequired": "Choose a color."
     }
   },
+  "labels": {
+    "title": "Labels",
+    "add": "Add label",
+    "addTitle": "Add label",
+    "editTitle": "Edit label",
+    "nameLabel": "Name",
+    "colorLabel": "Color",
+    "colorOption": "Color {number}",
+    "placementLabel": "Where it goes",
+    "placementPersonal": "Personal",
+    "placementGroup": "The group",
+    "placementLocked": "Where a label goes cannot be changed after it is created.",
+    "personalSection": "My labels",
+    "groupSection": "The group's labels",
+    "leaderOnly": "Ask the group's leader to create or change the group's labels.",
+    "usageCount": "{count, plural, one {# movement} other {# movements}}",
+    "budgetCount": "{count, plural, one {# budget} other {# budgets}}",
+    "emptyTitle": "No labels yet",
+    "emptyDescription": "Add the first label to group movements without changing their category.",
+    "deleteTitle": "Delete label",
+    "deleteDescription": "This cannot be undone.",
+    "deleteWithUsageDescription": "{count, plural, one {This also removes the label from # movement.} other {This also removes the label from # movements.}}",
+    "created": "Label created.",
+    "updated": "Label updated.",
+    "deleted": "Label deleted.",
+    "errors": {
+      "nameRequired": "Enter the label's name.",
+      "nameTooLong": "The name cannot exceed 80 characters.",
+      "colorRequired": "Choose a color.",
+      "placementInvalid": "Choose where the label goes."
+    }
+  },
   "transactions": {
     "quickTitle": "New movement",
     "quickPlaceholder": "Jot down an expense…",
@@ -383,7 +416,11 @@
       "splitsRequired": "Assign at least one category.",
       "splitsSumMismatch": "The categories must add up to the movement's amount.",
       "splitsScopeViolation": "The account or category isn't in the same scope."
-    }
+    },
+    "labelsLabel": "Labels",
+    "labelsNone": "Create labels in Settings to use them here.",
+    "labelFilterLabel": "Label",
+    "allLabels": "All labels"
   },
   "cash": {
     "withdrawAction": "Withdraw cash",
@@ -718,7 +755,9 @@
     "lastOwner": "The fund needs at least one owner.",
     "selfArchive": "You cannot archive yourself.",
     "categoryNesting": "Categories only allow one level of subcategories.",
-    "categoryKindMismatch": "The subcategory must have the same kind as its parent category."
+    "categoryKindMismatch": "The subcategory must have the same kind as its parent category.",
+    "notLeader": "Only the group's leader can make this change.",
+    "labelInUse": "A budget uses this label. Remove it from the budget to delete it."
   },
   "data": {
     "screen": {
