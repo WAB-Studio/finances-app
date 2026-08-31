@@ -62,12 +62,16 @@ export async function listLabels(scope: LabelScope): Promise<LabelRow[]> {
 export async function listManagedLabels(
   scope: LabelScope,
 ): Promise<LabelManagementRow[]> {
+  // The outer reference is written qualified: drizzle renders an embedded column
+  // bare inside a projection, and a bare `id` binds to the subquery's own table.
+  const outerId = sql`"labels"."id"`;
+
   const movementCount = sql<number>`(
-    select count(*)::int from transaction_labels tl where tl.label_id = ${labels.id}
+    select count(*)::int from transaction_labels tl where tl.label_id = ${outerId}
   )`;
 
   const budgetCount = sql<number>`(
-    select count(*)::int from budgets b where b.label_id = ${labels.id}
+    select count(*)::int from budgets b where b.label_id = ${outerId}
   )`;
 
   return withUserDb(async (tx) =>
