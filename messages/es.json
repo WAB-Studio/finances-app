@@ -125,7 +125,8 @@
     "categories": "Categorías",
     "labels": "Etiquetas",
     "data": "Datos",
-    "audit": "Auditoría"
+    "audit": "Auditoría",
+    "webhooks": "Webhooks"
   },
   "audit": {
     "title": "Auditoría",
@@ -827,6 +828,60 @@
         "ambiguousReference": "Más de una cuenta o categoría comparte este nombre. Renombra una para que sea única.",
         "hasErrors": "El archivo todavía tiene errores. Corrígelos e impórtalo de nuevo."
       }
+    }
+  },
+  "webhooks": {
+    "title": "Webhooks",
+    "add": "Crear credencial",
+    "emptyTitle": "Sin credenciales",
+    "emptyDescription": "Crea una credencial para que un atajo o un servicio anote movimientos por ti.",
+    "rateLimit": "{count, plural, one {# petición por minuto} other {# peticiones por minuto}}",
+    "defaultAccount": "Cuenta: {name}",
+    "defaultCategory": "Categoría: {name}",
+    "defaultsNone": "Sin cuenta ni categoría por defecto",
+    "lastUsed": "Último uso el {date}",
+    "neverUsed": "Sin usar todavía",
+    "issuedOn": "Creada el {date}",
+    "revokedBadge": "Revocada",
+    "revoke": "Revocar",
+    "revokeTitle": "Revocar credencial",
+    "revokeDescription": "El token deja de funcionar de inmediato y todo envío que lo use fallará. No se puede reactivar: crea otra credencial para volver a enviar.",
+    "revokeDone": "Credencial revocada.",
+    "addTitle": "Crear credencial",
+    "nameLabel": "Nombre",
+    "defaultAccountLabel": "Cuenta por defecto",
+    "defaultCategoryLabel": "Categoría por defecto",
+    "defaultNone": "Ninguna",
+    "rateLimitLabel": "Límite por minuto",
+    "rateLimitDescription": "Peticiones que aceptas por minuto. Por encima del límite se rechazan.",
+    "issue": "Crear credencial",
+    "tokenTitle": "Tu token",
+    "tokenWarning": "Cópialo ahora: es la única vez que se muestra y no hay forma de recuperarlo. Si lo pierdes, revoca esta credencial y crea otra.",
+    "tokenLabel": "Token",
+    "tokenAcknowledge": "Ya lo guardé",
+    "created": "Credencial creada.",
+    "endpointHeading": "Cómo enviar un movimiento",
+    "endpointUrlLabel": "URL",
+    "endpointRequestLabel": "Petición",
+    "endpointFieldsDescription": "Manda el token en la cabecera «Authorization: Bearer». En el cuerpo JSON son obligatorios «text», con lo que gastaste, y «external_ref», un identificador único por envío; «amount», «occurred_at», «account_id» y «direction» son opcionales.",
+    "copy": "Copiar",
+    "copied": "Copiado",
+    "copyFailed": "No se pudo copiar. Selecciona el texto y cópialo a mano.",
+    "errors": {
+      "nameRequired": "Escribe el nombre de la credencial.",
+      "nameTooLong": "El nombre no puede pasar de 80 caracteres.",
+      "accountInvalid": "Elige una cuenta válida.",
+      "categoryInvalid": "Elige una categoría válida.",
+      "rateLimitInvalid": "Escribe un límite entre 1 y 1000 peticiones por minuto.",
+      "credentialInvalid": "Elige una credencial válida.",
+      "textRequired": "El campo «text» es obligatorio.",
+      "textTooLong": "El campo «text» no puede pasar de 200 caracteres.",
+      "externalRefRequired": "El campo «external_ref» es obligatorio.",
+      "externalRefTooLong": "El campo «external_ref» no puede pasar de 200 caracteres.",
+      "amountRequired": "Escribe un monto.",
+      "amountInvalid": "Escribe un monto válido.",
+      "amountTooLarge": "El monto es demasiado alto.",
+      "directionInvalid": "El campo «direction» solo acepta «expense» o «income»."
     }
   }
 }

@@ -3,14 +3,17 @@
 import type { LucideIcon } from "lucide-react";
 import {
   ArrowRightLeft,
+  Database,
   House,
   Plus,
+  ScrollText,
   SlidersHorizontal,
   Tag,
   Tags,
   Target,
   Users,
   Wallet,
+  Webhook,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
@@ -31,10 +34,18 @@ import {
 } from "@/components/ui";
 import { Link as LocaleLink, usePathname } from "@/i18n/navigation";
 
-type SettingKey = "members" | "accounts" | "categories" | "labels";
+type SettingKey =
+  | "members"
+  | "accounts"
+  | "categories"
+  | "labels"
+  | "webhooks"
+  | "data"
+  | "audit";
 
 // The settings sheet mirrors AppNav's destinations minus the dashboard, which the
-// Inicio tab already owns. Members only exist inside a group.
+// Inicio tab already owns. Members only exist inside a group. The panel renders
+// from `md` up, so a destination missing here is unreachable on a phone (RNF-08).
 function settings(
   hasGroup: boolean,
 ): { key: SettingKey; href: string; icon: LucideIcon }[] {
@@ -45,6 +56,9 @@ function settings(
     { key: "accounts", href: "/settings/accounts", icon: Wallet },
     { key: "categories", href: "/settings/categories", icon: Tags },
     { key: "labels", href: "/settings/labels", icon: Tag },
+    { key: "webhooks", href: "/settings/webhooks", icon: Webhook },
+    { key: "data", href: "/settings/data", icon: Database },
+    { key: "audit", href: "/settings/audit", icon: ScrollText },
   ];
 }
 

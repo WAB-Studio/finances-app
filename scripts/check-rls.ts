@@ -167,6 +167,7 @@ async function main() {
   await checkExternalRefKeys();
   await checkImportCommit();
   await checkLabelPolicies();
+  await checkWebhookCredentialOwnerWrites();
 }
 
 // Assertions 9-26: the repivoted schema. A group holds accounts and categories a user XOR a group
@@ -4084,6 +4085,161 @@ async function checkLabelPolicies() {
     tailLabel,
     afterUser === "postgres" && probeCount === "0",
     `current_user = ${afterUser}, labels surviving = ${probeCount}`,
+  );
+}
+
+// Assertions 152-157: the credential write paths the screen drives. `owner_user_id` sits outside the
+// INSERT grant, so no one mints a credential for someone else; the owner's eight-column read stands;
+// the revoke lands under `authenticated` alone and takes the token out of the resolver's reach; and the
+// token hash and the throttle counters stay outside the UPDATE grant. Every fixture is seeded through
+// the app's own policies inside a transaction that rolls back.
+async function checkWebhookCredentialOwnerWrites() {
+  console.log("");
+  const owner = randomUUID();
+  const other = randomUUID();
+
+  const labels = [
+    "152. an insert naming another user as owner is refused",
+    "153. the owner reads back the eight columns the list projects",
+    "154. the owner's revoke lands and the second user's identical revoke touches nothing",
+    "155. the resolver yields no row for a credential its owner revoked",
+    "156. token_hash and both throttle counters are outside the update grant",
+  ];
+  const tailLabel = "157. the rolled-back credential write transaction leaves no trace";
+
+  // 64 hex chars each: the token_hash length check demands exactly that.
+  const ownerHash = createHash("sha256").update(randomUUID()).digest("hex");
+  const forgedHash = createHash("sha256").update(randomUUID()).digest("hex");
+  const rotatedHash = createHash("sha256").update(randomUUID()).digest("hex");
+
+  const forcedRollback = Symbol("forced rollback");
+
+  await sql
+    .begin(async (tx) => {
+      await tx`insert into auth.users (id) values (${owner}), (${other})`;
+      await tx`insert into app_users (id) values (${owner}), (${other})`;
+
+      // Runs a barred statement in its own savepoint so the transaction survives the refusal, and
+      // hands back whatever sqlstate Postgres raised — never one copied from the migration.
+      const refusalOf = async (
+        run: (sp: postgres.TransactionSql) => Promise<unknown>,
+      ): Promise<string> => {
+        let code: string | undefined;
+        await tx
+          .savepoint(async (sp) => {
+            await run(sp);
+          })
+          .catch((error: unknown) => {
+            code = pgErrorCode(error);
+          });
+        return code ?? "none";
+      };
+
+      await enterUserContext(tx, owner);
+      const [credential] = await tx<{ id: string }[]>`
+        insert into webhook_credentials (name, token_hash)
+        values ('rls webhook writes live', ${ownerHash}) returning id`;
+
+      // 152: the column privilege refuses the statement before the owner trigger can overwrite the
+      // value, so the issue path has no way to mint a credential in someone else's name.
+      const forgedCode = await refusalOf(
+        (sp) => sp`insert into webhook_credentials (owner_user_id, name, token_hash)
+          values (${other}, 'rls webhook writes forged', ${forgedHash})`,
+      );
+      assert(labels[0], forgedCode === "42501", `sqlstate ${forgedCode}`);
+
+      // 153: the SELECT grant covers every column `listWebhookCredentials` projects. A column left out
+      // of it would surface here as a privilege error, not as a null.
+      type Projection = {
+        id: string;
+        name: string;
+        default_account_id: string | null;
+        default_category_id: string | null;
+        rate_limit_per_min: number;
+        last_used_at: Date | null;
+        revoked_at: Date | null;
+        created_at: Date;
+      };
+      let projected: Projection[] = [];
+      let projectionCode: string | undefined;
+      await tx
+        .savepoint(async (sp) => {
+          projected = await sp<Projection[]>`
+            select id, name, default_account_id, default_category_id, rate_limit_per_min,
+              last_used_at, revoked_at, created_at
+            from webhook_credentials where id = ${credential.id}`;
+        })
+        .catch((error: unknown) => {
+          projectionCode = pgErrorCode(error);
+        });
+      const projectedColumns = Object.keys(projected[0] ?? {});
+      assert(
+        labels[1],
+        projectionCode === undefined &&
+          projected.length === 1 &&
+          projected[0].id === credential.id &&
+          projectedColumns.length === 8,
+        `rows = ${projected.length}, columns = ${projectedColumns.length}, sqlstate ${projectionCode ?? "none"}`,
+      );
+
+      // 154: both statements are identical and both run as `authenticated`; only the update policy's
+      // owner filter tells them apart, so the second user's revoke finds no row to touch.
+      const ownerRevoke = await tx`update webhook_credentials set revoked_at = now()
+        where id = ${credential.id}`;
+      const [{ stamped }] = await tx<{ stamped: boolean }[]>`
+        select revoked_at is not null as stamped from webhook_credentials where id = ${credential.id}`;
+      await enterUserContext(tx, other);
+      const otherRevoke = await tx`update webhook_credentials set revoked_at = now()
+        where id = ${credential.id}`;
+      assert(
+        labels[2],
+        ownerRevoke.count === 1 && stamped === true && otherRevoke.count === 0,
+        `owner update rows = ${ownerRevoke.count}, revoked_at set = ${stamped}, ` +
+          `second user update rows = ${otherRevoke.count}`,
+      );
+
+      // 155: assertion 90 revokes as the object owner; this one revoked through the screen's own path,
+      // and the resolver on the base connection stops answering for the hash either way.
+      await tx`reset role`;
+      const resolved = await tx<{ owner_user_id: string }[]>`
+        select owner_user_id from private.resolve_webhook_credential(${ownerHash})`;
+      assert(labels[3], resolved.length === 0, `resolver rows = ${resolved.length}`);
+
+      // 156: the UPDATE grant lists name, the defaults, the rate limit and revoked_at and nothing else.
+      // A token is replaced by issuing a new credential, and the window answers to the resolver alone.
+      await enterUserContext(tx, owner);
+      const tokenCode = await refusalOf(
+        (sp) => sp`update webhook_credentials set token_hash = ${rotatedHash}
+          where id = ${credential.id}`,
+      );
+      const countCode = await refusalOf(
+        (sp) => sp`update webhook_credentials set rate_count = 0 where id = ${credential.id}`,
+      );
+      const windowCode = await refusalOf(
+        (sp) => sp`update webhook_credentials set rate_window_started_at = now()
+          where id = ${credential.id}`,
+      );
+      assert(
+        labels[4],
+        tokenCode === "42501" && countCode === "42501" && windowCode === "42501",
+        `token_hash sqlstate ${tokenCode}, rate_count sqlstate ${countCode}, ` +
+          `rate_window_started_at sqlstate ${windowCode}`,
+      );
+
+      // Forces `sql.begin` to issue ROLLBACK: nothing this function wrote may survive it.
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`select current_user`;
+  const [{ count: probeCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from webhook_credentials where name like 'rls webhook writes%'`;
+  assert(
+    tailLabel,
+    afterUser === "postgres" && probeCount === "0",
+    `current_user = ${afterUser}, rows named 'rls webhook writes%' = ${probeCount}`,
   );
 }
 
