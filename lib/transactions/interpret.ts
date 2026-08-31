@@ -7,6 +7,9 @@ import { normalizeAmountInput } from "@/lib/money";
 // The first run of digits, optionally carrying the thousands separators a
 // person types by hand; `normalizeAmountInput` strips those to a peso string.
 const AMOUNT_PATTERN = /\d[\d.,]*\d|\d/;
+const INCOME_PATTERN = /\brecibiste\s+una\s+transferencia\b/iu;
+const EXPENSE_PATTERN =
+  /\b(?:transferiste|compraste|pagaste)\b|\btu\s+compra\b[\s\S]*\bfue\s+aprobada\b/iu;
 
 interface InterpretContext {
   categories: { id: string; name: string; kind: string }[];
@@ -19,6 +22,7 @@ interface QuickEntryProposal {
   categoryId: string | null;
   description: string;
   accountId: string | null;
+  direction: "income" | "expense" | null;
 }
 
 function escapeRegExp(value: string): string {
@@ -61,5 +65,10 @@ export function interpretQuickEntry(
     description,
     // The default account is the last one that person used (RF-22).
     accountId: ctx.defaultAccountId,
+    direction: INCOME_PATTERN.test(text)
+      ? "income"
+      : EXPENSE_PATTERN.test(text)
+        ? "expense"
+        : null,
   };
 }

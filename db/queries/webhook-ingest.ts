@@ -90,7 +90,7 @@ export async function recordIngestDelivery({
     const description = proposal.description.trim().slice(0, MAX_DESCRIPTION_LENGTH);
 
     const proposedAccountId = payload.account_id ?? defaultAccountId ?? null;
-    const proposedDirection = payload.direction ?? null;
+    const proposedDirection = payload.direction ?? proposal.direction;
     const proposedOccurredAt = payload.occurred_at ?? todayInBogota();
     const proposedDescription = description === "" ? null : description;
     const merchantKey = fingerprint.merchant?.key ?? null;
