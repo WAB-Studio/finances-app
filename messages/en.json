@@ -125,7 +125,8 @@
     "categories": "Categories",
     "labels": "Labels",
     "data": "Data",
-    "audit": "Audit log"
+    "audit": "Audit log",
+    "webhooks": "Webhooks"
   },
   "audit": {
     "title": "Audit log",
@@ -827,6 +828,60 @@
         "ambiguousReference": "More than one account or category shares this name. Rename one so it is unique.",
         "hasErrors": "The file still has errors. Fix them and import again."
       }
+    }
+  },
+  "webhooks": {
+    "title": "Webhooks",
+    "add": "Create credential",
+    "emptyTitle": "No credentials",
+    "emptyDescription": "Create a credential so a shortcut or a service records movements for you.",
+    "rateLimit": "{count, plural, one {# request per minute} other {# requests per minute}}",
+    "defaultAccount": "Account: {name}",
+    "defaultCategory": "Category: {name}",
+    "defaultsNone": "No default account or category",
+    "lastUsed": "Last used on {date}",
+    "neverUsed": "Not used yet",
+    "issuedOn": "Created on {date}",
+    "revokedBadge": "Revoked",
+    "revoke": "Revoke",
+    "revokeTitle": "Revoke credential",
+    "revokeDescription": "The token stops working immediately and every delivery using it will fail. It cannot be reactivated: create another credential to keep sending.",
+    "revokeDone": "Credential revoked.",
+    "addTitle": "Create credential",
+    "nameLabel": "Name",
+    "defaultAccountLabel": "Default account",
+    "defaultCategoryLabel": "Default category",
+    "defaultNone": "None",
+    "rateLimitLabel": "Limit per minute",
+    "rateLimitDescription": "Requests you accept per minute. Anything above the limit is rejected.",
+    "issue": "Create credential",
+    "tokenTitle": "Your token",
+    "tokenWarning": "Copy it now: this is the only time it is shown and there is no way to recover it. If you lose it, revoke this credential and create another.",
+    "tokenLabel": "Token",
+    "tokenAcknowledge": "I saved it",
+    "created": "Credential created.",
+    "endpointHeading": "How to send a movement",
+    "endpointUrlLabel": "URL",
+    "endpointRequestLabel": "Request",
+    "endpointFieldsDescription": "Send the token in the «Authorization: Bearer» header. The JSON body requires «text», with what you spent, and «external_ref», a unique identifier per delivery; «amount», «occurred_at», «account_id» and «direction» are optional.",
+    "copy": "Copy",
+    "copied": "Copied",
+    "copyFailed": "Could not copy. Select the text and copy it by hand.",
+    "errors": {
+      "nameRequired": "Enter the credential's name.",
+      "nameTooLong": "The name cannot exceed 80 characters.",
+      "accountInvalid": "Choose a valid account.",
+      "categoryInvalid": "Choose a valid category.",
+      "rateLimitInvalid": "Enter a limit between 1 and 1000 requests per minute.",
+      "credentialInvalid": "Choose a valid credential.",
+      "textRequired": "The «text» field is required.",
+      "textTooLong": "The «text» field cannot exceed 200 characters.",
+      "externalRefRequired": "The «external_ref» field is required.",
+      "externalRefTooLong": "The «external_ref» field cannot exceed 200 characters.",
+      "amountRequired": "Enter an amount.",
+      "amountInvalid": "Enter a valid amount.",
+      "amountTooLarge": "The amount is too large.",
+      "directionInvalid": "The «direction» field only accepts «expense» or «income»."
     }
   }
 }

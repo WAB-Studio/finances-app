@@ -5,8 +5,12 @@ import { createHash, randomBytes } from "node:crypto";
 import { desc, eq, sql } from "drizzle-orm";
 
 import { db } from "@/db/client";
+import { listAccounts } from "@/db/queries/accounts";
+import { listCategories } from "@/db/queries/categories";
+import type { CategoryNode } from "@/db/queries/categories";
+import { getUserGroup } from "@/db/queries/groups";
 import { webhookCredentials } from "@/db/schema";
-import { withUserDb } from "@/db/session";
+import { requireUser, withUserDb } from "@/db/session";
 
 // The bearer a webhook presents, and the SHA-256 of it the row keeps. Only the
 // hash is ever stored, so a raw token exists in exactly two places: this file's
@@ -141,5 +145,70 @@ export async function resolveWebhookCredential(
     defaultAccountId: row.default_account_id,
     defaultCategoryId: row.default_category_id,
     throttled: row.throttled,
+  };
+}
+
+// What the issue form offers as a credential's fallbacks (RF-86).
+export type WebhookCredentialOptions = {
+  accounts: { id: string; name: string }[];
+  categories: { id: string; name: string; kind: "income" | "expense" }[];
+};
+
+// A node and its children as flat pickable rows; a child inherits the node's kind,
+// which the payload's `direction` has to be able to match.
+function flattenCategories(
+  nodes: CategoryNode[],
+): { id: string; name: string; kind: "income" | "expense" }[] {
+  return nodes
+    .flatMap((node) => [
+      { id: node.id, name: node.name, kind: node.kind },
+      ...node.children.map((child) => ({
+        id: child.id,
+        name: child.name,
+        kind: node.kind,
+      })),
+    ])
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * The defaults an issue form may offer, in one fan-out. The caller's group is
+ * resolved first because it names the second category scope; the group reads
+ * collapse to empty sets for a personal-only caller.
+ *
+ * The account list is narrowed to what an ingest under this owner could write:
+ * their own personal accounts and the group's shared ones. Another member's
+ * personal account is dropped because a default pointing there makes every
+ * delivery fail. The narrowing is presentation of the policy, never the policy —
+ * RLS is what actually refuses an out-of-scope write.
+ */
+export async function getWebhookCredentialOptions(): Promise<WebhookCredentialOptions> {
+  const user = await requireUser();
+  const group = await getUserGroup();
+
+  const personalScope = { ownerUserId: user.id } as const;
+  const empty = Promise.resolve([]);
+
+  const [accounts, personalExpense, personalIncome, groupExpense, groupIncome] =
+    await Promise.all([
+      listAccounts({ archived: false }),
+      listCategories(personalScope, "expense"),
+      listCategories(personalScope, "income"),
+      group ? listCategories({ groupId: group.id }, "expense") : empty,
+      group ? listCategories({ groupId: group.id }, "income") : empty,
+    ]);
+
+  return {
+    accounts: accounts
+      .filter(
+        (account) =>
+          account.ownerUserId === user.id ||
+          (account.groupId !== null && account.isShared),
+      )
+      .map((account) => ({ id: account.id, name: account.name })),
+    categories: [
+      ...flattenCategories([...personalExpense, ...personalIncome]),
+      ...flattenCategories([...groupExpense, ...groupIncome]),
+    ],
   };
 }
