@@ -718,5 +718,42 @@
     "selfArchive": "You cannot archive yourself.",
     "categoryNesting": "Categories only allow one level of subcategories.",
     "categoryKindMismatch": "The subcategory must have the same kind as its parent category."
+  },
+  "data": {
+    "sheets": {
+      "accounts": "Accounts",
+      "members": "Members",
+      "categories": "Categories",
+      "recurringRules": "Recurring rules",
+      "transactions": "Transactions"
+    },
+    "columns": {
+      "id": "ID",
+      "name": "Name",
+      "kind": "Kind",
+      "subtype": "Class",
+      "placement": "Placement",
+      "institution": "Institution",
+      "amount": "Amount",
+      "balanceOn": "Opening date",
+      "email": "Email",
+      "parent": "Parent category",
+      "color": "Color",
+      "externalRef": "External reference",
+      "fromAccount": "From (source)",
+      "toAccount": "To (destination)",
+      "category": "Category",
+      "description": "Description",
+      "frequency": "Frequency",
+      "intervalN": "Interval",
+      "dayOfMonth": "Day of the month",
+      "nextRunOn": "Next run",
+      "endsOn": "End date",
+      "occurredAt": "Date"
+    },
+    "filenames": {
+      "export": "finances-export",
+      "template": "finances-template"
+    }
   }
 }
