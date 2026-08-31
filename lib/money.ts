@@ -8,11 +8,13 @@ export const MAX_AMOUNT_PESOS = 99_999_999_999;
 
 // Strips the separators `Intl.NumberFormat` writes and the ones a person
 // types by hand, so a pasted "500.000" and a typed "500000" parse the same.
+// Bank messages may append zero decimals in either locale; fractions stay invalid.
 // Only a separator sitting where a thousands group falls — exactly three
 // digits, then another separator or the end — is a group mark; anything
 // else is left in place so "500.5" still reads as a decimal, not a peso.
 export function normalizeAmountInput(raw: string): string {
-  return raw.replace(/[.,   ](?=\d{3}(?:\D|$))/g, "");
+  const integerPesos = raw.trim().replace(/[.,]00$/, "");
+  return integerPesos.replace(/[.,   ](?=\d{3}(?:\D|$))/g, "");
 }
 
 // `null` on anything but a plain run of digits: no sign, no decimal, no
