@@ -766,6 +766,15 @@
     "filenames": {
       "export": "finanzas-datos",
       "template": "finanzas-plantilla"
+    },
+    "import": {
+      "errors": {
+        "fileRequired": "Elige un archivo para importar.",
+        "fileType": "El archivo debe ser una hoja de cálculo .xlsx.",
+        "tooManyRows": "El archivo tiene demasiadas filas. Divídelo e impórtalo por partes.",
+        "unknownReference": "Ninguna cuenta o categoría de tu fondo coincide con este nombre.",
+        "ambiguousReference": "Más de una cuenta o categoría comparte este nombre. Renombra una para que sea única."
+      }
     }
   }
 }

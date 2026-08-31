@@ -766,6 +766,15 @@
     "filenames": {
       "export": "finances-export",
       "template": "finances-template"
+    },
+    "import": {
+      "errors": {
+        "fileRequired": "Choose a file to import.",
+        "fileType": "The file must be an .xlsx spreadsheet.",
+        "tooManyRows": "The file has too many rows. Split it and import in parts.",
+        "unknownReference": "No account or category in your fund matches this name.",
+        "ambiguousReference": "More than one account or category shares this name. Rename one so it is unique."
+      }
     }
   }
 }
