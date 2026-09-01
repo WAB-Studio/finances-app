@@ -192,22 +192,6 @@ export async function updateBudget({
   });
 }
 
-export async function archiveBudget({
-  budgetId,
-}: {
-  budgetId: string;
-}): Promise<boolean> {
-  return withUserDb(async (tx) => {
-    const rows = await tx
-      .update(budgets)
-      .set({ archivedAt: sql`now()` })
-      .where(eq(budgets.id, budgetId))
-      .returning({ id: budgets.id });
-
-    return rows.length > 0;
-  });
-}
-
 export async function deleteBudget({
   budgetId,
 }: {

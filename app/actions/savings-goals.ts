@@ -117,7 +117,7 @@ export const deleteGoalAction = authActionClient
   });
 
 /**
- * Adds a typed virtual aporte toward a goal (RF-77). The entry earmarks no
+ * Adds a typed virtual aporte toward a goal (RF-87). The entry earmarks no
  * movement, so only the amount crosses, as a peso string.
  */
 export const contributeGoalAction = authActionClient
@@ -136,7 +136,7 @@ export const contributeGoalAction = authActionClient
     return { contributionId };
   });
 
-// A false row count is a contribution that was denied or already gone (RF-77).
+// A false row count is a contribution that was denied or already gone (RF-87).
 export const removeGoalContributionAction = authActionClient
   .inputSchema(removeGoalContributionSchema)
   .action(async ({ parsedInput: { contributionId } }) => {

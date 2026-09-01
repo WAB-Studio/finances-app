@@ -78,9 +78,9 @@ export async function createAccount(
   return withUserDb((tx) => insertAccount(tx, args));
 }
 
-// The insert body of `createAccount`, against a caller-supplied transaction, so a
-// rolled-back proof drives the statement a screen commits.
-export async function insertAccount(
+// The insert body of `createAccount`: the wrapper opens the session, this runs
+// the statement inside whatever transaction it is handed.
+async function insertAccount(
   tx: Transaction,
   {
     name,

@@ -46,10 +46,9 @@ export async function createGroup(
   return { groupId };
 }
 
-// The insert body of `createGroup`, against a caller-supplied transaction, so a
-// rolled-back proof drives the statements a screen commits. The session user and
-// the group's id are resolved by the caller.
-export async function insertGroup(
+// The insert body of `createGroup`: every statement lands in the one transaction
+// it is handed. The session user and the group's id are resolved by the caller.
+async function insertGroup(
   tx: Transaction,
   {
     name,

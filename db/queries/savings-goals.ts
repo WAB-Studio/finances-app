@@ -18,9 +18,9 @@ export type GoalProgress = {
 };
 
 /**
- * Every non-archived goal with its progress in ONE round trip (RF-77, RNF-09):
- * `saved_cents` is read from the `goal_progress` view, which sums the earmarked
- * movements — this never re-sums the contributions itself. Remaining floors at
+ * Every non-archived goal with its progress in ONE round trip (RF-87, RNF-09):
+ * `saved_cents` is read from the `goal_progress` view, which sums the goal's
+ * contributions — this never re-sums them itself. Remaining floors at
  * zero so an overshot goal reads as reached, not negative. Scope is the policy's
  * job: `withUserDb` shows only the caller's readable goals.
  */
@@ -137,22 +137,6 @@ export async function updateGoal({
   });
 }
 
-export async function archiveGoal({
-  goalId,
-}: {
-  goalId: string;
-}): Promise<boolean> {
-  return withUserDb(async (tx) => {
-    const rows = await tx
-      .update(savingsGoals)
-      .set({ archivedAt: sql`now()` })
-      .where(eq(savingsGoals.id, goalId))
-      .returning({ id: savingsGoals.id });
-
-    return rows.length > 0;
-  });
-}
-
 export async function deleteGoal({
   goalId,
 }: {
@@ -168,7 +152,7 @@ export async function deleteGoal({
   });
 }
 
-// Adds an aporte toward a goal (RF-77). A null `transactionId` is a virtual
+// Adds an aporte toward a goal (RF-87). A null `transactionId` is a virtual
 // envelope entry; a movement id earmarks it, and the `assert_goal_contribution_scope`
 // trigger checks that movement shares the goal's scope.
 export async function addGoalContribution({

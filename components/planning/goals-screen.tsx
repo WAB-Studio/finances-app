@@ -32,7 +32,7 @@ import { useActionErrorToast } from "@/lib/use-action-toast";
 /**
  * The savings-goals area: each goal reads as a virtual-envelope card whose bar
  * and apartado derive server-side from the `goal_progress` view — money earmarked,
- * never moved (RF-76, RF-77). A goal is created, edited, contributed to or
+ * never moved (RF-76, RF-87). A goal is created, edited, contributed to or
  * deleted through the dialogs and the confirm below. Money stays integer cents;
  * the peso figure is display only.
  */
@@ -160,7 +160,7 @@ function GoalCard({
   const format = useFormatter();
 
   // The bar and the percentage read the derived apartado against the meta,
-  // clamped so a reached goal never runs the bar past its track (RF-77).
+  // clamped so a reached goal never runs the bar past its track (RF-87).
   const pct =
     goal.targetAmountCents > 0
       ? Math.min(100, Math.round((goal.savedCents / goal.targetAmountCents) * 100))
