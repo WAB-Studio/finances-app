@@ -14,8 +14,8 @@
  * at both ends: a crashed run leaves the next one a clean queue.
  */
 import { createHash, randomUUID } from "node:crypto";
-import { readFileSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 
 import { chromium, test as base } from "@playwright/test";
 
@@ -234,6 +234,8 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
 
   await purge(userId);
   const scope = await seedScope(userId);
+  // `private/` is gitignored, so a fresh clone reaches this write without it.
+  mkdirSync(dirname(SCOPE_FILE), { recursive: true });
   writeFileSync(SCOPE_FILE, `${JSON.stringify(scope, null, 2)}\n`, "utf8");
 
   const link = await magicLinkUrl();
