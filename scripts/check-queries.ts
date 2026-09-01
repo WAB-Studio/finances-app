@@ -7,7 +7,7 @@
  * No transaction wraps a suite. `withUserDb` opens and commits its own, and
  * running the production control flow rather than a replica of it is the point.
  */
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import { getAccountBalances } from "@/db/queries/account-balances";
 import {
@@ -43,6 +43,8 @@ import {
   countPendingDeliveries,
   listOwnMerchants,
   listPendingDeliveries,
+  listSilencedShapes,
+  restoreShape,
 } from "@/db/queries/ingest-review";
 import {
   createInstallmentPlan,
@@ -192,6 +194,11 @@ async function checkWrite<T>(
   }
 }
 
+// The same drive-and-assert as `checkWrite`, under the name a read belongs under:
+// `checkRead` above asserts the literal `true`, so it passes on `[]` and on another
+// user's rows alike. A read that has something to say about its rows uses this.
+const checkReadValue = checkWrite;
+
 // Reads back as the owner, outside RLS: the assertion is about what was STORED,
 // not about what a policy would show.
 async function readColumn<T>(
@@ -207,6 +214,70 @@ async function readColumn<T>(
 
   return row?.value;
 }
+
+type SilencedFixture = {
+  shapeId: string;
+  sampleText: string;
+  silencedIds: string[];
+  humanRejectedId: string;
+};
+
+/**
+ * One silenced shape as RF-92 leaves it: a delivery a person rejected by hand before
+ * the memory existed, then the memory, then two deliveries that memory discarded on
+ * arrival. Nothing here names `status` or `silenced_on_arrival` — the trigger settles
+ * both, so the fixture is what the database decides rather than what the harness wants.
+ */
+async function seedSilencedShape(
+  userId: string,
+  tag: string,
+): Promise<SilencedFixture> {
+  const shapeHash = createHash("sha256").update(randomUUID()).digest("hex");
+  const sampleText = `Harness mensaje silenciado ${tag}`;
+  const ref = (suffix: string) => `harness-${tag}-${suffix}-${shapeHash.slice(0, 12)}`;
+  const claims = JSON.stringify({
+    sub: userId,
+    role: "authenticated",
+    aud: "authenticated",
+  });
+
+  return fixtureSql.begin<SilencedFixture>(async (tx) => {
+    await tx`select set_config('request.jwt.claims', ${claims}, true)`;
+
+    // Inserted while no memory exists, so it arrives pending and the rejection below is
+    // a person's — the one row a restore must never touch.
+    const [human] = await tx<{ id: string }[]>`
+      insert into ingest_deliveries (external_ref, raw_text, shape_hash)
+      values (${ref("human")}, ${sampleText}, ${shapeHash}) returning id`;
+    await tx`
+      update ingest_deliveries set status = 'rejected', resolved_at = now()
+      where id = ${human.id} and status = 'pending'`;
+
+    const [shape] = await tx<{ id: string }[]>`
+      insert into ingest_shapes (shape_hash, decision, sample_text)
+      values (${shapeHash}, 'rejected', ${sampleText}) returning id`;
+
+    const silenced = await tx<{ id: string }[]>`
+      insert into ingest_deliveries (external_ref, raw_text, shape_hash)
+      values (${ref("silenced-a")}, ${sampleText}, ${shapeHash}),
+             (${ref("silenced-b")}, ${sampleText}, ${shapeHash})
+      returning id`;
+
+    return {
+      shapeId: shape.id,
+      sampleText,
+      silencedIds: silenced.map((row) => row.id),
+      humanRejectedId: human.id,
+    };
+  });
+}
+
+type SilencedFixtures = {
+  // Restored by the write suite; the read suite then proves it is gone.
+  restored: SilencedFixture;
+  // Left silenced, so the read has rows of its own to be asserted on.
+  listed: SilencedFixture;
+};
 
 type WriteResults = {
   accountId: string | null;
@@ -224,6 +295,7 @@ async function writeSuite(
   userId: string,
   scope: HarnessScope,
   groupless: HarnessUser,
+  silenced: SilencedFixture,
 ): Promise<WriteResults> {
   const today = todayInBogota();
   const personal = { ownerUserId: userId } as const;
@@ -714,6 +786,36 @@ async function writeSuite(
     },
   );
 
+  // RF-99: the shape memory and the deliveries it discarded move in one statement. The
+  // read-back is the whole promise — two silenced deliveries back in the queue with the
+  // flag cleared, and the rejection this person made still standing.
+  await checkWrite(
+    "restoreShape",
+    () => restoreShape({ shapeId: silenced.shapeId }),
+    async ({ deliveriesRestored }) => {
+      const [row] = await fixtureSql<
+        { shapes: string; queued: string; human: string | null }[]
+      >`
+        select
+          (select count(*)::text from ingest_shapes
+             where id = ${silenced.shapeId}) as shapes,
+          (select count(*)::text from ingest_deliveries
+             where id in ${fixtureSql(silenced.silencedIds)}
+               and status = 'pending' and silenced_on_arrival = false) as queued,
+          (select status from ingest_deliveries
+             where id = ${silenced.humanRejectedId}) as human`;
+
+      return {
+        ok:
+          deliveriesRestored === 2 &&
+          row.shapes === "0" &&
+          row.queued === "2" &&
+          row.human === "rejected",
+        detail: `restored ${deliveriesRestored} deliveries, ${row.shapes} memories left, ${row.queued} of 2 back in the queue unflagged, the person's own rejection still ${row.human}`,
+      };
+    },
+  );
+
   // The contract names this `setUserLocale`; the module exports `upsertUserLocale`.
   await checkWrite(
     "upsertUserLocale",
@@ -741,6 +843,7 @@ async function readSuite(
   userId: string,
   scope: HarnessScope,
   writes: WriteResults,
+  silenced: SilencedFixtures,
 ): Promise<void> {
   const personal = { ownerUserId: userId } as const;
   const debtAccountId = writes.accountId ?? scope.liabilityAccountId;
@@ -795,6 +898,24 @@ async function readSuite(
   await checkRead("listPendingDeliveries", () => listPendingDeliveries());
   await checkRead("countPendingDeliveries", () => countPendingDeliveries());
   await checkRead("listOwnMerchants", () => listOwnMerchants());
+  await checkReadValue(
+    "listSilencedShapes",
+    () => listSilencedShapes(),
+    (shapes) => {
+      const listed = shapes.find((shape) => shape.id === silenced.listed.shapeId);
+      const restoredStillNamed = shapes.some(
+        (shape) => shape.id === silenced.restored.shapeId,
+      );
+
+      return {
+        ok:
+          listed?.silencedCount === 2 &&
+          listed.sampleText === silenced.listed.sampleText &&
+          !restoredStillNamed,
+        detail: `${shapes.length} silenced, the seeded one counts ${listed?.silencedCount ?? "no"} discarded deliveries and samples "${listed?.sampleText ?? "nothing"}"; the restored one is ${restoredStillNamed ? "still named" : "gone"}`,
+      };
+    },
+  );
   await checkRead("readExport", () => readExport({ entityKeys: [...SHEET_ENTITIES] }));
   await checkRead("readImportScope", () => readImportScope());
   await checkRead("getUserLocale", () => getUserLocale());
@@ -806,7 +927,10 @@ async function readSuite(
  * raises. A refused write leaves nothing to read, so a read-back assertion skips
  * rather than passing on an absent row.
  */
-async function invariantSuite(writes: WriteResults): Promise<void> {
+async function invariantSuite(
+  writes: WriteResults,
+  restored: SilencedFixture,
+): Promise<void> {
   const negativeOpening = next("a liability's opening balance is stored negative");
   if (writes.accountId === null) {
     skip(negativeOpening, "createAccount was refused, so no row was written");
@@ -888,6 +1012,29 @@ async function invariantSuite(writes: WriteResults): Promise<void> {
       refusal(error),
     );
   }
+
+  // RF-99, read through the two screens that show it: the shape is off the silenced
+  // list, the deliveries it discarded are waiting for review again, and the delivery
+  // this person rejected by hand stayed rejected.
+  const undone = next("an undone silence returns only what the machine discarded");
+  const [shapes, pending] = await Promise.all([
+    listSilencedShapes(),
+    listPendingDeliveries(),
+  ]);
+  const queued = restored.silencedIds.filter((id) =>
+    pending.some((delivery) => delivery.id === id),
+  );
+  const humanQueued = pending.some(
+    (delivery) => delivery.id === restored.humanRejectedId,
+  );
+
+  assert(
+    undone,
+    !shapes.some((shape) => shape.id === restored.shapeId) &&
+      queued.length === 2 &&
+      !humanQueued,
+    `the shape is ${shapes.some((shape) => shape.id === restored.shapeId) ? "still silenced" : "no longer silenced"}, ${queued.length} of 2 discarded deliveries are pending again, the person's rejection is ${humanQueued ? "back in the queue" : "still out of it"}`,
+  );
 }
 
 async function main(): Promise<void> {
@@ -913,11 +1060,18 @@ async function main(): Promise<void> {
   );
   console.log("");
 
-  const writes = await writeSuite(userId, scope, groupless);
+  // Two of the same fixture, because the suites run in order: the write suite restores
+  // one, so the read suite would have nothing left to assert on if they shared it.
+  const silenced: SilencedFixtures = {
+    restored: await seedSilencedShape(userId, "restaurada"),
+    listed: await seedSilencedShape(userId, "listada"),
+  };
+
+  const writes = await writeSuite(userId, scope, groupless, silenced.restored);
   console.log("");
-  await readSuite(userId, scope, writes);
+  await readSuite(userId, scope, writes, silenced);
   console.log("");
-  await invariantSuite(writes);
+  await invariantSuite(writes, silenced.restored);
 }
 
 // Wrapped in an async IIFE (not top-level await) so the runner can transpile
