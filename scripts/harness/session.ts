@@ -16,8 +16,8 @@
 // "Database error finding user". So `ensureHarnessAuthUser` fills them, and the
 // real user's mailbox is never used.
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 
 import { fixtureSql } from "./fixtures";
 
@@ -69,6 +69,8 @@ export async function harnessSession(): Promise<HarnessSession> {
       : null;
 
   current = refreshed ?? (await mintSession());
+  // `private/` is gitignored, so a fresh clone reaches this write without it.
+  mkdirSync(dirname(SESSION_FILE), { recursive: true });
   writeFileSync(SESSION_FILE, `${JSON.stringify(current, null, 2)}\n`, "utf8");
 
   return current;
