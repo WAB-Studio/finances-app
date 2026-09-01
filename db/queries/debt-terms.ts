@@ -1,7 +1,8 @@
 import "server-only";
 
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
+import { insertRow } from "@/db/insert-row";
 import { debtTerms } from "@/db/schema";
 import type { DebtTerms } from "@/db/schema";
 import { withUserDb } from "@/db/session";
@@ -54,14 +55,17 @@ export async function upsertDebtTerms(
   };
 
   return withUserDb(async (tx) => {
-    const [row] = await tx
-      .insert(debtTerms)
-      .values({ accountId: args.accountId, ...writable })
-      .onConflictDoUpdate({
-        target: debtTerms.accountId,
-        set: { ...writable, updatedAt: sql`now()` },
-      })
-      .returning({ accountId: debtTerms.accountId });
+    // `updated_at` is out of the SET: `debt_terms_set_timestamps` stamps it, no
+    // UPDATE grant covers it, and the privilege check runs conflict or not.
+    const [row] = await insertRow(
+      tx,
+      debtTerms,
+      { accountId: args.accountId, ...writable },
+      {
+        onConflict: { target: debtTerms.accountId, set: writable },
+        returning: { accountId: debtTerms.accountId },
+      },
+    );
 
     return { accountId: row.accountId };
   });

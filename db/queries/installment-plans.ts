@@ -2,6 +2,7 @@ import "server-only";
 
 import { eq, inArray, sql } from "drizzle-orm";
 
+import { insertRow } from "@/db/insert-row";
 import { installmentLines, installmentPlans, transactions } from "@/db/schema";
 import type { InstallmentPlan } from "@/db/schema";
 import { withUserDb } from "@/db/session";
@@ -42,10 +43,11 @@ export async function createInstallmentPlan({
   lines,
 }: CreateInstallmentPlanArgs): Promise<{ planId: string }> {
   return withUserDb(async (tx) => {
-    const [plan] = await tx
-      .insert(installmentPlans)
-      // A decimal string binds straight to the numeric rate — the column casts it.
-      .values({
+    // A decimal string binds straight to the numeric rate — the column casts it.
+    const [plan] = await insertRow(
+      tx,
+      installmentPlans,
+      {
         accountId,
         description,
         principalCents,
@@ -56,13 +58,16 @@ export async function createInstallmentPlan({
         avalCents,
         startDate,
         merchant,
-      })
-      .returning({ id: installmentPlans.id });
+      },
+      { returning: { id: installmentPlans.id } },
+    );
 
     const planId = plan.id;
 
     if (lines.length > 0) {
-      await tx.insert(installmentLines).values(
+      await insertRow(
+        tx,
+        installmentLines,
         lines.map((line) => ({
           planId,
           seq: line.seq,
@@ -200,17 +205,14 @@ export async function recordDebtPayment({
   occurredAt: string;
 }): Promise<{ transactionId: string; paidLineIds: string[] }> {
   return withUserDb(async (tx) => {
-    const [txn] = await tx
-      .insert(transactions)
-      // `created_by`, the scope and `kind` are set by triggers/generation and
-      // absent from the INSERT grant; drizzle types them required, so cast past.
-      .values({
-        fromAccountId,
-        toAccountId,
-        amountCents,
-        occurredAt,
-      } as typeof transactions.$inferInsert)
-      .returning({ id: transactions.id });
+    // `created_by`, the scope and `kind` are set by triggers/generation and
+    // absent from the INSERT grant.
+    const [txn] = await insertRow(
+      tx,
+      transactions,
+      { fromAccountId, toAccountId, amountCents, occurredAt },
+      { returning: { id: transactions.id } },
+    );
 
     const transactionId = txn.id;
 
