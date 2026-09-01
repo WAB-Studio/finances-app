@@ -4,7 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { Info } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { Controller, useForm, useWatch, type Resolver } from "react-hook-form";
 import { toast } from "sonner";
 
@@ -160,6 +160,41 @@ function RecurringForm({
   const nextRunOn = useWatch({ control: form.control, name: "nextRunOn" });
 
   const accountId = direction === "income" ? toAccountId : fromAccountId;
+
+  // The one account fixes the rule's scope (RF-62): a personal account names its
+  // owner's set, a group account the group's.
+  const scope = useMemo(() => {
+    const account = options.accounts.find((one) => one.id === accountId);
+    return account?.groupId ? "group" : "personal";
+  }, [options.accounts, accountId]);
+
+  // Only that scope's categories, and only of the direction's kind (RF-27),
+  // parents and children flattened into one pickable list: anything else is what
+  // the scope trigger refuses on write.
+  const categories = useMemo(
+    () =>
+      options.categories
+        .filter(
+          (category) => category.scope === scope && category.kind === direction,
+        )
+        .flatMap((category) => [
+          { id: category.id, name: category.name },
+          ...category.children.map((child) => ({
+            id: child.id,
+            name: child.name,
+          })),
+        ]),
+    [options.categories, scope, direction],
+  );
+
+  // Switching direction or moving to an account of the other scope strands the
+  // category outside that list, so the selection drops.
+  useEffect(() => {
+    const categoryId = form.getValues("categoryId");
+    if (categoryId && !categories.some((one) => one.id === categoryId)) {
+      form.setValue("categoryId", "", { shouldValidate: true });
+    }
+  }, [categories, form]);
 
   // Weekly carries no day anchor; yearly tracks the next run's day; monthly keeps
   // the person's day, seeding it from the next run only while it is still empty.
@@ -462,7 +497,7 @@ function RecurringForm({
                   <Select.Item value={NO_CATEGORY}>
                     {t("categoryNone")}
                   </Select.Item>
-                  {options.categories.map((category) => (
+                  {categories.map((category) => (
                     <Select.Item key={category.id} value={category.id}>
                       {category.name}
                     </Select.Item>
