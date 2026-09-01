@@ -13,7 +13,11 @@
     "typecheck": "tsgo --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node --env-file=.env.local ./node_modules/drizzle-kit/bin.cjs migrate",
-    "db:check-rls": "node --import tsx --env-file=.env.local scripts/check-rls.ts"
+    "db:check-rls": "TSX_TSCONFIG_PATH=scripts/harness/tsconfig.json node --import tsx --env-file=.env.local scripts/check-rls.ts",
+    "check:queries": "TSX_TSCONFIG_PATH=scripts/harness/tsconfig.json node --import tsx --env-file=.env.local scripts/check-queries.ts",
+    "check:http": "TSX_TSCONFIG_PATH=scripts/harness/tsconfig.json node -e \"console.error('check:http is not built yet — layer 2 lands it'); process.exit(1)\"",
+    "check:e2e": "TSX_TSCONFIG_PATH=scripts/harness/tsconfig.json node -e \"console.error('check:e2e is not built yet — layer 3 lands it, and it needs a server on :3000'); process.exit(1)\"",
+    "check": "npm run db:check-rls && npm run check:queries && npm run check:http"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.9.1",
@@ -37,6 +41,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
