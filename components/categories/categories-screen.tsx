@@ -147,7 +147,9 @@ export function CategoriesScreen({
                         variant="ghost"
                         color="gray"
                         size="3"
-                        aria-label={tKey("common.actions")}
+                        aria-label={tKey("common.actionsFor", {
+                          name: category.name,
+                        })}
                       >
                         <EllipsisVertical size={16} />
                       </IconButton>
@@ -208,7 +210,9 @@ export function CategoriesScreen({
                                 variant="ghost"
                                 color="gray"
                                 size="3"
-                                aria-label={tKey("common.actions")}
+                                aria-label={tKey("common.actionsFor", {
+                                  name: child.name,
+                                })}
                               >
                                 <EllipsisVertical size={16} />
                               </IconButton>

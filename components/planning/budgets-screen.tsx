@@ -258,7 +258,7 @@ function BudgetCard({
                 type="button"
                 variant="ghost"
                 color="gray"
-                aria-label={tKey("common.actions")}
+                aria-label={tKey("common.actionsFor", { name: title })}
               >
                 <EllipsisVertical size={16} />
               </IconButton>

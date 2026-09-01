@@ -152,7 +152,7 @@ export default async function HomePage(props: PageProps<"/[locale]">) {
         />
 
         <Flex justify="between" align="baseline" gap="3">
-          <Heading size="4">{t("listTitle")}</Heading>
+          <Heading as="h2" size="4">{t("listTitle")}</Heading>
           <Link asChild size="2" weight="medium">
             <LocaleLink href="/movements">{t("seeAll")}</LocaleLink>
           </Link>
