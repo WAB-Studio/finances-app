@@ -72,11 +72,11 @@ export async function listBudgetsWithStatus(
             and t.occurred_at >= (case b.period
               when 'weekly' then ${weekly.start}
               when 'yearly' then ${yearly.start}
-              else ${monthly.start} end)
+              else ${monthly.start} end)::date
             and t.occurred_at < (case b.period
               when 'weekly' then ${weekly.endExclusive}
               when 'yearly' then ${yearly.endExclusive}
-              else ${monthly.endExclusive} end)
+              else ${monthly.endExclusive} end)::date
             and (b.account_id is null
               or t.from_account_id = b.account_id or t.to_account_id = b.account_id)
             and (b.label_id is null or exists (

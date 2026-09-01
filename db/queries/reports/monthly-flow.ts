@@ -53,7 +53,8 @@ export async function getMonthlyFlow(range: {
  * read — never one round trip per month (RNF-09). The span runs from the first
  * of `lastSixMonthStarts()` to the month after its last; the query groups by the
  * `YYYY-MM` month key, and TypeScript projects those groups onto the six known
- * buckets so a month with no movement still renders as zeros.
+ * buckets so a month with no movement still renders as zeros. `occurred_at` is a
+ * `date`, so the key comes from `to_char`: no text function can read the column.
  */
 export async function getSixMonthFlow(): Promise<MonthFlow[]> {
   const monthStarts = lastSixMonthStarts();
@@ -67,12 +68,12 @@ export async function getSixMonthFlow(): Promise<MonthFlow[]> {
       expense_cents: string;
     }>(sql`
       select
-        substr(occurred_at, 1, 7) as month_key,
+        to_char(occurred_at, 'YYYY-MM') as month_key,
         coalesce(sum(amount_cents) filter (where kind = 'income'), 0) as income_cents,
         coalesce(sum(amount_cents) filter (where kind = 'expense'), 0) as expense_cents
       from transactions
       where occurred_at >= ${sixMonthStart} and occurred_at < ${endExclusive}
-      group by substr(occurred_at, 1, 7)
+      group by to_char(occurred_at, 'YYYY-MM')
     `);
 
     const byMonthKey = new Map(rows.map((row) => [row.month_key, row]));
