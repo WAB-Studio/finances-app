@@ -183,6 +183,11 @@ async function main() {
   await checkSlippedGrants();
   await checkGroupUpdatePolicy();
   await checkWriteGrantMap();
+  await checkSelfTransferRefused();
+  await checkCategoryParentScope();
+  await checkGroupCommitsWithLeader();
+  await checkInstallmentAllocation();
+  await checkGoalAccountScope();
 }
 
 // Assertions 9-26: the repivoted schema. A group holds accounts and categories a user XOR a group
@@ -6024,6 +6029,641 @@ async function checkWriteGrantMap() {
       !after.includes("groups") &&
       after.length === DELETE_GRANTS.length,
     `inside the transaction ${seeded.length} tables granted DELETE including groups; after the rollback ${after.length}, groups included = ${after.includes("groups")}`,
+  );
+}
+
+// Assertions 206-209: RF-101. `num_nonnulls(from_account_id, to_account_id) >= 1` counted the accounts
+// and never compared them, so a movement naming one account on both sides committed, took
+// `kind = 'transfer'` from the generated column and entered the ledger as a real entry netting zero —
+// one row returned on the live database. The pair is executed here, then the two legal shapes it must
+// not have cost. Fixtures live in one transaction forced to roll back; each barred statement runs in
+// its own savepoint.
+async function checkSelfTransferRefused() {
+  console.log("");
+  const owner = randomUUID();
+  const today = "2026-01-01";
+  const forcedRollback = Symbol("forced rollback");
+
+  const labels = [
+    "206. a movement naming one account on both sides is refused",
+    "207. a planned payment naming one account on both sides is refused",
+    "208. a transfer between two different accounts and a one-sided income still land",
+  ];
+  const tailLabel = "209. the rolled-back self-transfer transaction leaves no trace";
+
+  type OrmTx = Parameters<Parameters<typeof orm.transaction>[0]>[0];
+  const enter = (tx: OrmTx, subject: string) =>
+    tx.execute(dsql`select
+      set_config('request.jwt.claims', ${JSON.stringify({ sub: subject, role: "authenticated", aud: "authenticated" })}, true),
+      set_config('statement_timeout', '8000', true),
+      set_config('role', 'authenticated', true)`);
+
+  await orm
+    .transaction(async (tx) => {
+      const refusalOf = async (run: (sp: OrmTx) => Promise<unknown>): Promise<string> => {
+        let refusal = "no refusal — the statement was accepted";
+        await tx
+          .transaction(async (sp) => {
+            await run(sp);
+          })
+          .catch((error: unknown) => {
+            refusal = describeRefusal(error);
+          });
+        return refusal;
+      };
+
+      await tx.execute(dsql`insert into auth.users (id) values (${owner})`);
+      await tx.execute(dsql`insert into app_users (id) values (${owner})`);
+      await enter(tx, owner);
+
+      const [bank] = await tx.execute<{ id: string }>(
+        dsql`insert into accounts (owner_user_id, name, kind, initial_balance_cents, initial_balance_on)
+          values (${owner}, 'rls self transfer bank', 'asset', 500000, ${today}) returning id`,
+      );
+      const [cash] = await tx.execute<{ id: string }>(
+        dsql`insert into accounts (owner_user_id, name, kind, initial_balance_cents, initial_balance_on)
+          values (${owner}, 'rls self transfer cash', 'asset', 100000, ${today}) returning id`,
+      );
+
+      // 206: the entry that netted zero. `is distinct from` is what refuses it, so the message names
+      // the constraint and not a policy.
+      const selfRefusal = await refusalOf((sp) =>
+        sp.execute(
+          dsql`insert into transactions (from_account_id, to_account_id, amount_cents, occurred_at)
+            values (${bank.id}, ${bank.id}, 500000, ${today})`,
+        ),
+      );
+      assert(
+        labels[0],
+        selfRefusal.includes("23514") &&
+          selfRefusal.includes("transactions_accounts_distinct"),
+        selfRefusal,
+      );
+
+      // 207: the deferred twin carried the identical `num_nonnulls` shape.
+      const plannedRefusal = await refusalOf((sp) =>
+        sp.execute(
+          dsql`insert into planned_payments (from_account_id, to_account_id, amount_cents, due_date)
+            values (${bank.id}, ${bank.id}, 500000, ${today})`,
+        ),
+      );
+      assert(
+        labels[1],
+        plannedRefusal.includes("23514") &&
+          plannedRefusal.includes("planned_payments_accounts_distinct"),
+        plannedRefusal,
+      );
+
+      // 208: the negative control — the fix refuses one pair, it does not withdraw the transfer.
+      const transfer = await tx.execute<{ id: string; kind: string }>(
+        dsql`insert into transactions (from_account_id, to_account_id, amount_cents, occurred_at)
+          values (${bank.id}, ${cash.id}, 200000, ${today}) returning id, kind`,
+      );
+      const income = await tx.execute<{ id: string; kind: string }>(
+        dsql`insert into transactions (to_account_id, amount_cents, occurred_at)
+          values (${bank.id}, 300000, ${today}) returning id, kind`,
+      );
+      assert(
+        labels[2],
+        transfer.length === 1 &&
+          transfer[0].kind === "transfer" &&
+          income.length === 1 &&
+          income[0].kind === "income",
+        `transfer landed ${transfer.length} row as ${transfer[0]?.kind}, income landed ${income.length} row as ${income[0]?.kind}`,
+      );
+
+      // Nothing this section wrote may survive; force the ROLLBACK.
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`select current_user`;
+  const [{ count: probeCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from accounts where name like 'rls self transfer%'`;
+  assert(
+    tailLabel,
+    afterUser === "postgres" && probeCount === "0",
+    `current_user = ${afterUser}, rows named 'rls self transfer%' = ${probeCount}`,
+  );
+}
+
+// Assertions 210-214: RF-63's written clause, "a subcategory shares its parent's scope". The composite
+// foreign key on `(parent_id, group_id)` is MATCH SIMPLE, so it is not evaluated at all when `group_id`
+// is null — every personal category — and `assert_category_depth` checked self-reference, depth and
+// kind and never scope. A personal category naming a group category, and one naming a uuid held by no
+// row, each landed on the live database, and the picker then dropped them in silence. Both are executed
+// here, then the two subcategories the app actually writes. Fixtures live in one transaction forced to
+// roll back; each barred statement runs in its own savepoint.
+async function checkCategoryParentScope() {
+  console.log("");
+  const leaderUser = randomUUID();
+  const groupId = randomUUID();
+  const forcedRollback = Symbol("forced rollback");
+
+  const labels = [
+    "210. a personal category naming a group category as parent is refused",
+    "211. a category naming a parent held by no row is refused",
+    "212. a personal subcategory of its owner's own parent lands",
+    "213. a group subcategory of that group's parent lands",
+  ];
+  const tailLabel = "214. the rolled-back category-scope transaction leaves no trace";
+
+  type OrmTx = Parameters<Parameters<typeof orm.transaction>[0]>[0];
+  const enter = (tx: OrmTx, subject: string) =>
+    tx.execute(dsql`select
+      set_config('request.jwt.claims', ${JSON.stringify({ sub: subject, role: "authenticated", aud: "authenticated" })}, true),
+      set_config('statement_timeout', '8000', true),
+      set_config('role', 'authenticated', true)`);
+
+  await orm
+    .transaction(async (tx) => {
+      const refusalOf = async (run: (sp: OrmTx) => Promise<unknown>): Promise<string> => {
+        let refusal = "no refusal — the statement was accepted";
+        await tx
+          .transaction(async (sp) => {
+            await run(sp);
+          })
+          .catch((error: unknown) => {
+            refusal = describeRefusal(error);
+          });
+        return refusal;
+      };
+
+      await tx.execute(dsql`insert into auth.users (id) values (${leaderUser})`);
+      await tx.execute(dsql`insert into app_users (id) values (${leaderUser})`);
+      await enter(tx, leaderUser);
+      await tx.execute(
+        dsql`insert into groups (id, name, cash_mode) values (${groupId}, 'rls category scope', 'shared')`,
+      );
+      await tx.execute(
+        dsql`insert into group_members (group_id, user_id, name, role)
+          values (${groupId}, ${leaderUser}, 'rls category scope leader', 'leader')`,
+      );
+
+      const [groupParent] = await tx.execute<{ id: string }>(
+        dsql`insert into categories (group_id, name, kind)
+          values (${groupId}, 'rls category scope group parent', 'expense') returning id`,
+      );
+      const [ownParent] = await tx.execute<{ id: string }>(
+        dsql`insert into categories (owner_user_id, name, kind)
+          values (${leaderUser}, 'rls category scope own parent', 'expense') returning id`,
+      );
+
+      // 210: the group's category, named as parent by a personal one. Both are the caller's to write,
+      // which is why no policy ever stood in the way.
+      const crossRefusal = await refusalOf((sp) =>
+        sp.execute(
+          dsql`insert into categories (owner_user_id, parent_id, name, kind)
+            values (${leaderUser}, ${groupParent.id}, 'rls category scope escapee', 'expense')`,
+        ),
+      );
+      assert(
+        labels[0],
+        crossRefusal.includes("23514") && crossRefusal.includes("scope"),
+        crossRefusal,
+      );
+
+      // 211: MATCH SIMPLE skipped existence too, so the parent need not have been a row at all.
+      const ghostRefusal = await refusalOf((sp) =>
+        sp.execute(
+          dsql`insert into categories (owner_user_id, parent_id, name, kind)
+            values (${leaderUser}, ${randomUUID()}, 'rls category scope ghost', 'expense')`,
+        ),
+      );
+      assert(
+        labels[1],
+        ghostRefusal.includes("23514") && ghostRefusal.includes("does not exist"),
+        ghostRefusal,
+      );
+
+      // 212, 213: the negative controls — one level of subcategory still saves, in either scope.
+      const ownChild = await tx.execute<{ id: string }>(
+        dsql`insert into categories (owner_user_id, parent_id, name, kind)
+          values (${leaderUser}, ${ownParent.id}, 'rls category scope own child', 'expense') returning id`,
+      );
+      assert(labels[2], ownChild.length === 1, `landed ${ownChild.length} row`);
+
+      const groupChild = await tx.execute<{ id: string }>(
+        dsql`insert into categories (group_id, parent_id, name, kind)
+          values (${groupId}, ${groupParent.id}, 'rls category scope group child', 'expense') returning id`,
+      );
+      assert(labels[3], groupChild.length === 1, `landed ${groupChild.length} row`);
+
+      // Nothing this section wrote may survive; force the ROLLBACK.
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`select current_user`;
+  const [{ count: probeCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from categories where name like 'rls category scope%'`;
+  assert(
+    tailLabel,
+    afterUser === "postgres" && probeCount === "0",
+    `current_user = ${afterUser}, rows named 'rls category scope%' = ${probeCount}`,
+  );
+}
+
+// Assertions 215-217: RF-59 at the moment a group is born. `groups_insert_any` is `WITH CHECK true` and
+// `assert_group_keeps_leader` fires only on UPDATE and DELETE, so an insert into `groups` not followed
+// by its leader row committed an orphan — proved on the live database as a row nobody can see, since it
+// fails its own SELECT policy, and nobody can remove, since `groups` carries no DELETE policy and no
+// DELETE grant. The new trigger is deferred, so it is `set constraints ... immediate` that reaches it
+// inside a transaction which never commits. Fixtures roll back; each barred statement has its savepoint.
+async function checkGroupCommitsWithLeader() {
+  console.log("");
+  const creator = randomUUID();
+  const orphanGroup = randomUUID();
+  const properGroup = randomUUID();
+  const forcedRollback = Symbol("forced rollback");
+
+  const labels = [
+    "215. a group inserted without its leader row is refused at commit",
+    "216. a group inserted with its leader row commits and is visible to its creator",
+  ];
+  const tailLabel = "217. the rolled-back orphan-group transaction leaves no trace";
+
+  type OrmTx = Parameters<Parameters<typeof orm.transaction>[0]>[0];
+  const enter = (tx: OrmTx, subject: string) =>
+    tx.execute(dsql`select
+      set_config('request.jwt.claims', ${JSON.stringify({ sub: subject, role: "authenticated", aud: "authenticated" })}, true),
+      set_config('statement_timeout', '8000', true),
+      set_config('role', 'authenticated', true)`);
+
+  await orm
+    .transaction(async (tx) => {
+      await tx.execute(dsql`insert into auth.users (id) values (${creator})`);
+      await tx.execute(dsql`insert into app_users (id) values (${creator})`);
+      await enter(tx, creator);
+
+      // 215: the orphan. No RETURNING on the insert — that would apply the SELECT policy the creator
+      // does not satisfy yet, and the refusal under test is the trigger's, not a policy's.
+      let orphanVisible = "not read";
+      let orphanRefusal = "no refusal — the orphan group stood at commit";
+      await tx
+        .transaction(async (sp) => {
+          await sp.execute(
+            dsql`insert into groups (id, name, cash_mode)
+              values (${orphanGroup}, 'rls orphan group', 'shared')`,
+          );
+          const [own] = await sp.execute<{ count: string }>(
+            dsql`select count(*)::text as count from groups where id = ${orphanGroup}`,
+          );
+          orphanVisible = own.count;
+          await sp.execute(dsql`set constraints "assert_group_has_leader" immediate`);
+        })
+        .catch((error: unknown) => {
+          orphanRefusal = describeRefusal(error);
+        });
+      assert(
+        labels[0],
+        orphanRefusal.includes("23514") &&
+          orphanRefusal.includes("without a leader") &&
+          orphanVisible === "0",
+        `${orphanRefusal}; rows its own creator could see = ${orphanVisible}`,
+      );
+
+      // 216: the negative control — `createGroup` writes the group and its leader in one transaction,
+      // and the deferral is what lets it keep writing them in that order.
+      let properOutcome = "the pair never ran";
+      let properVisible = "not read";
+      await tx
+        .transaction(async (sp) => {
+          await sp.execute(
+            dsql`insert into groups (id, name, cash_mode)
+              values (${properGroup}, 'rls proper group', 'shared')`,
+          );
+          await sp.execute(
+            dsql`insert into group_members (group_id, user_id, name, role)
+              values (${properGroup}, ${creator}, 'rls proper group leader', 'leader')`,
+          );
+          await sp.execute(dsql`set constraints "assert_group_has_leader" immediate`);
+          const [own] = await sp.execute<{ count: string }>(
+            dsql`select count(*)::text as count from groups where id = ${properGroup}`,
+          );
+          properVisible = own.count;
+          properOutcome = "accepted";
+        })
+        .catch((error: unknown) => {
+          properOutcome = describeRefusal(error);
+        });
+      assert(
+        labels[1],
+        properOutcome === "accepted" && properVisible === "1",
+        `${properOutcome}, rows its creator can see = ${properVisible}`,
+      );
+
+      // Nothing this section wrote may survive; force the ROLLBACK.
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`select current_user`;
+  const [{ count: probeCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from groups where name like 'rls orphan group%' or name like 'rls proper group%'`;
+  assert(
+    tailLabel,
+    afterUser === "postgres" && probeCount === "0",
+    `current_user = ${afterUser}, rows named 'rls orphan group%' or 'rls proper group%' = ${probeCount}`,
+  );
+}
+
+// Assertions 218-221: RF-82 in the engine. "Paid in full or not at all, oldest first" lived only in a
+// TypeScript loop; `assert_installment_line_payment` checked nothing but that the movement touches the
+// plan's account, and `paid_transaction_id` is the one column `authenticated` may UPDATE on
+// `installment_lines`. One 100-cent movement marked all three 100000-cent lines paid on the live
+// database and the derived pending read 0 against an untouched debt. The new trigger is deferred so the
+// allocator's multi-row UPDATE is judged whole, which is why `set constraints ... immediate` is what
+// reaches it here. Fixtures roll back; each barred statement has its savepoint.
+async function checkInstallmentAllocation() {
+  console.log("");
+  const owner = randomUUID();
+  const today = "2026-01-16";
+  const forcedRollback = Symbol("forced rollback");
+
+  const labels = [
+    "218. one 100-cent movement cannot mark three 100000-cent lines paid",
+    "219. a line is refused while an older unpaid line of the same account stands",
+    "220. the allocator's oldest-first, in-full assignment of two lines to one covering movement commits",
+  ];
+  const tailLabel = "221. the rolled-back allocation transaction leaves no trace";
+
+  type OrmTx = Parameters<Parameters<typeof orm.transaction>[0]>[0];
+  const enter = (tx: OrmTx, subject: string) =>
+    tx.execute(dsql`select
+      set_config('request.jwt.claims', ${JSON.stringify({ sub: subject, role: "authenticated", aud: "authenticated" })}, true),
+      set_config('statement_timeout', '8000', true),
+      set_config('role', 'authenticated', true)`);
+
+  await orm
+    .transaction(async (tx) => {
+      const refusalOf = async (run: (sp: OrmTx) => Promise<unknown>): Promise<string> => {
+        let refusal = "no refusal — the statement was accepted";
+        await tx
+          .transaction(async (sp) => {
+            await run(sp);
+          })
+          .catch((error: unknown) => {
+            refusal = describeRefusal(error);
+          });
+        return refusal;
+      };
+
+      await tx.execute(dsql`insert into auth.users (id) values (${owner})`);
+      await tx.execute(dsql`insert into app_users (id) values (${owner})`);
+      await enter(tx, owner);
+
+      const [card] = await tx.execute<{ id: string }>(
+        dsql`insert into accounts (owner_user_id, name, kind, initial_balance_cents, initial_balance_on)
+          values (${owner}, 'rls allocation card', 'liability', -900000, ${today}) returning id`,
+      );
+      const [cash] = await tx.execute<{ id: string }>(
+        dsql`insert into accounts (owner_user_id, name, kind, initial_balance_cents, initial_balance_on)
+          values (${owner}, 'rls allocation cash', 'asset', 1000000, ${today}) returning id`,
+      );
+      const [plan] = await tx.execute<{ id: string }>(
+        dsql`insert into installment_plans (account_id, principal_cents, n_installments, frequency, start_date)
+          values (${card.id}, 300000, 3, 'monthly', ${today}) returning id`,
+      );
+      await tx.execute(
+        dsql`insert into installment_lines (plan_id, seq, due_date, amount_cents) values
+          (${plan.id}, 1, '2026-02-15', 100000),
+          (${plan.id}, 2, '2026-03-15', 100000),
+          (${plan.id}, 3, '2026-04-15', 100000)`,
+      );
+      const [coin] = await tx.execute<{ id: string }>(
+        dsql`insert into transactions (from_account_id, to_account_id, amount_cents, occurred_at)
+          values (${cash.id}, ${card.id}, 100, ${today}) returning id`,
+      );
+      const [covering] = await tx.execute<{ id: string }>(
+        dsql`insert into transactions (from_account_id, to_account_id, amount_cents, occurred_at)
+          values (${cash.id}, ${card.id}, 200000, ${today}) returning id`,
+      );
+
+      // 218: the whole plan marked paid by a movement of one peso. Both statements pass
+      // `assert_installment_line_payment`: the movement does touch the plan's account.
+      let sweptRows = -1;
+      let sweepRefusal = "no refusal — the sweep stood at commit";
+      await tx
+        .transaction(async (sp) => {
+          const rows = await sp.execute<{ id: string }>(
+            dsql`update installment_lines set paid_transaction_id = ${coin.id}
+              where plan_id = ${plan.id} returning id`,
+          );
+          sweptRows = rows.length;
+          await sp.execute(dsql`set constraints "assert_installment_allocation" immediate`);
+        })
+        .catch((error: unknown) => {
+          sweepRefusal = describeRefusal(error);
+        });
+      assert(
+        labels[0],
+        sweepRefusal.includes("23514") && sweepRefusal.includes("cannot pay lines totalling"),
+        `the UPDATE reached ${sweptRows === -1 ? "no" : sweptRows} lines, ${sweepRefusal}`,
+      );
+
+      // 219: the order. The movement covers the line twice over; what refuses it is the older line of
+      // the same account left unpaid behind it.
+      const skipRefusal = await refusalOf(async (sp) => {
+        await sp.execute(
+          dsql`update installment_lines set paid_transaction_id = ${covering.id}
+            where plan_id = ${plan.id} and seq = 2`,
+        );
+        await sp.execute(dsql`set constraints "assert_installment_allocation" immediate`);
+      });
+      assert(
+        labels[1],
+        skipRefusal.includes("23514") && skipRefusal.includes("older unpaid line"),
+        skipRefusal,
+      );
+
+      // 220: the negative control — the walk `recordDebtPayment` runs, which pays the two oldest lines
+      // in full and stops at the third. A trigger that refused this would have removed the feature.
+      let fifoOutcome = "the allocation never ran";
+      let fifoState = "not read";
+      await tx
+        .transaction(async (sp) => {
+          await sp.execute(
+            dsql`update installment_lines set paid_transaction_id = ${covering.id}
+              where plan_id = ${plan.id} and seq in (1, 2)`,
+          );
+          await sp.execute(dsql`set constraints "assert_installment_allocation" immediate`);
+          const rows = await sp.execute<{ seq: number; paid: boolean }>(
+            dsql`select seq, paid_transaction_id is not null as paid from installment_lines
+              where plan_id = ${plan.id} order by seq`,
+          );
+          fifoState = rows.map((row) => `${row.seq}:${row.paid}`).join(", ");
+          fifoOutcome = "accepted";
+        })
+        .catch((error: unknown) => {
+          fifoOutcome = describeRefusal(error);
+        });
+      assert(
+        labels[2],
+        fifoOutcome === "accepted" && fifoState === "1:true, 2:true, 3:false",
+        `${fifoOutcome}, paid by seq = ${fifoState}`,
+      );
+
+      // Nothing this section wrote may survive; force the ROLLBACK.
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`select current_user`;
+  const [{ count: probeCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from accounts where name like 'rls allocation%'`;
+  assert(
+    tailLabel,
+    afterUser === "postgres" && probeCount === "0",
+    `current_user = ${afterUser}, rows named 'rls allocation%' = ${probeCount}`,
+  );
+}
+
+// Assertions 222-226: the goal's account. `assert_goal_contribution_scope` guards the movement a
+// contribution earmarks and never the account the goal names, and nothing else looked: the hole was
+// suspected, not proved, so it was opened first — a personal goal naming a group account, and a second
+// naming another person's personal account, each landed one row on the live database under RLS. Both
+// are executed here against the guard that now stands. Fixtures live in one transaction forced to roll
+// back; each barred statement runs in its own savepoint.
+async function checkGoalAccountScope() {
+  console.log("");
+  const leaderUser = randomUUID();
+  const strangerUser = randomUUID();
+  const groupId = randomUUID();
+  const today = "2026-01-01";
+  const forcedRollback = Symbol("forced rollback");
+
+  const labels = [
+    "222. a personal goal naming a group account is refused",
+    "223. a personal goal naming another person's account is refused",
+    "224. a goal naming its owner's own account, and one naming no account, both land",
+    "225. a group goal naming that group's account lands",
+  ];
+  const tailLabel = "226. the rolled-back goal-scope transaction leaves no trace";
+
+  type OrmTx = Parameters<Parameters<typeof orm.transaction>[0]>[0];
+  const enter = (tx: OrmTx, subject: string) =>
+    tx.execute(dsql`select
+      set_config('request.jwt.claims', ${JSON.stringify({ sub: subject, role: "authenticated", aud: "authenticated" })}, true),
+      set_config('statement_timeout', '8000', true),
+      set_config('role', 'authenticated', true)`);
+
+  await orm
+    .transaction(async (tx) => {
+      const refusalOf = async (run: (sp: OrmTx) => Promise<unknown>): Promise<string> => {
+        let refusal = "no refusal — the statement was accepted";
+        await tx
+          .transaction(async (sp) => {
+            await run(sp);
+          })
+          .catch((error: unknown) => {
+            refusal = describeRefusal(error);
+          });
+        return refusal;
+      };
+
+      await tx.execute(
+        dsql`insert into auth.users (id) values (${leaderUser}), (${strangerUser})`,
+      );
+      await tx.execute(
+        dsql`insert into app_users (id) values (${leaderUser}), (${strangerUser})`,
+      );
+
+      // The stranger's own account, written by the stranger: nobody else could have.
+      await enter(tx, strangerUser);
+      const [strangerAccount] = await tx.execute<{ id: string }>(
+        dsql`insert into accounts (owner_user_id, name, kind, initial_balance_cents, initial_balance_on)
+          values (${strangerUser}, 'rls goal scope stranger', 'asset', 100000, ${today}) returning id`,
+      );
+
+      await tx.execute(dsql`reset role`);
+      await enter(tx, leaderUser);
+      await tx.execute(
+        dsql`insert into groups (id, name, cash_mode) values (${groupId}, 'rls goal scope', 'shared')`,
+      );
+      await tx.execute(
+        dsql`insert into group_members (group_id, user_id, name, role)
+          values (${groupId}, ${leaderUser}, 'rls goal scope leader', 'leader')`,
+      );
+      const [groupAccount] = await tx.execute<{ id: string }>(
+        dsql`insert into accounts (group_id, is_shared, name, kind, initial_balance_cents, initial_balance_on)
+          values (${groupId}, true, 'rls goal scope group', 'asset', 100000, ${today}) returning id`,
+      );
+      const [ownAccount] = await tx.execute<{ id: string }>(
+        dsql`insert into accounts (owner_user_id, name, kind, initial_balance_cents, initial_balance_on)
+          values (${leaderUser}, 'rls goal scope own', 'asset', 100000, ${today}) returning id`,
+      );
+
+      // 222: the group's account is one the caller may write, which is why no policy stopped this.
+      const groupRefusal = await refusalOf((sp) =>
+        sp.execute(
+          dsql`insert into savings_goals (owner_user_id, name, target_amount_cents, account_id)
+            values (${leaderUser}, 'rls goal scope on group account', 500000, ${groupAccount.id})`,
+        ),
+      );
+      assert(
+        labels[0],
+        groupRefusal.includes("23514") && groupRefusal.includes("its own scope"),
+        groupRefusal,
+      );
+
+      // 223: an account the caller cannot read, let alone write, named by a goal that is entirely his.
+      const strangerRefusal = await refusalOf((sp) =>
+        sp.execute(
+          dsql`insert into savings_goals (owner_user_id, name, target_amount_cents, account_id)
+            values (${leaderUser}, 'rls goal scope on stranger account', 500000, ${strangerAccount.id})`,
+        ),
+      );
+      assert(
+        labels[1],
+        strangerRefusal.includes("23514") && strangerRefusal.includes("its own scope"),
+        strangerRefusal,
+      );
+
+      // 224, 225: the negative controls — the account a goal may name is still nameable, in either
+      // scope, and a goal naming none at all is still legal (RF-77).
+      const onOwn = await tx.execute<{ id: string }>(
+        dsql`insert into savings_goals (owner_user_id, name, target_amount_cents, account_id)
+          values (${leaderUser}, 'rls goal scope own goal', 500000, ${ownAccount.id}) returning id`,
+      );
+      const onNone = await tx.execute<{ id: string }>(
+        dsql`insert into savings_goals (owner_user_id, name, target_amount_cents)
+          values (${leaderUser}, 'rls goal scope accountless goal', 500000) returning id`,
+      );
+      assert(
+        labels[2],
+        onOwn.length === 1 && onNone.length === 1,
+        `on its owner's account ${onOwn.length} row, on no account ${onNone.length} row`,
+      );
+
+      const onGroup = await tx.execute<{ id: string }>(
+        dsql`insert into savings_goals (group_id, name, target_amount_cents, account_id)
+          values (${groupId}, 'rls goal scope group goal', 500000, ${groupAccount.id}) returning id`,
+      );
+      assert(labels[3], onGroup.length === 1, `landed ${onGroup.length} row`);
+
+      // Nothing this section wrote may survive; force the ROLLBACK.
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`select current_user`;
+  const [{ count: probeCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from savings_goals where name like 'rls goal scope%'`;
+  assert(
+    tailLabel,
+    afterUser === "postgres" && probeCount === "0",
+    `current_user = ${afterUser}, rows named 'rls goal scope%' = ${probeCount}`,
   );
 }
 

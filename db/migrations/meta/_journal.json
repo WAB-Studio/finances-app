@@ -127,6 +127,20 @@
       "when": 1788300018389,
       "tag": "0018_close_the_grant_gaps",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1788301933200,
+      "tag": "0019_refuse_the_writes_the_model_never_meant",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1788301973047,
+      "tag": "0020_pin_a_goal_to_the_scope_of_its_account",
+      "breakpoints": true
     }
   ]
 }

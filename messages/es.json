@@ -409,6 +409,7 @@
       "splitAmountTooLarge": "El monto de la categoría es demasiado alto.",
       "accountInvalid": "Elige una cuenta válida.",
       "accountRequired": "Elige al menos una cuenta.",
+      "accountSame": "Elige una cuenta distinta para el destino.",
       "dateRequired": "Elige una fecha.",
       "dateInvalid": "Elige una fecha válida.",
       "dateInFuture": "La fecha no puede ser futura.",

@@ -102,6 +102,9 @@ import { currentMonthRange, todayInBogota } from "@/lib/dates";
 import { pgErrorCode } from "@/lib/db-error";
 import { SEED_CATEGORIES } from "@/lib/fund/seed";
 import { SHEET_ENTITIES } from "@/lib/spreadsheet/schema";
+import { createTransactionSchema } from "@/lib/validation/transaction";
+import en from "@/messages/en.json";
+import es from "@/messages/es.json";
 
 import { assert, report, skip } from "./harness/assert";
 import type { FixtureTable, HarnessScope, HarnessUser } from "./harness/fixtures";
@@ -982,6 +985,36 @@ async function invariantSuite(writes: WriteResults): Promise<void> {
       `kind = ${row.kind}, from = ${row.from_account_id !== null}, to = ${row.to_account_id !== null}`,
     );
   }
+
+  // RF-101, on the schema side: the database refuses the pair with a check
+  // constraint, and the very schema the form binds to refuses it first, with a
+  // message. Same schema on both ends of the action (RNF-10), so one parse
+  // proves the form and the server together.
+  const selfTransfer = next("the shared schema refuses a transfer to the same account");
+  const sameAccount = writes.accountId ?? randomUUID();
+  const parsed = createTransactionSchema.safeParse({
+    fromAccountId: sameAccount,
+    toAccountId: sameAccount,
+    amount: "10000",
+    occurredAt: todayInBogota(),
+    description: null,
+    splits: [],
+    labelIds: [],
+  });
+  const issues = parsed.success ? [] : parsed.error.issues;
+  const sameIssue = issues.find(
+    (issue) => issue.message === "transactions.errors.accountSame",
+  );
+  assert(
+    selfTransfer,
+    sameIssue !== undefined &&
+      sameIssue.path.join(".") === "toAccountId" &&
+      es.transactions.errors.accountSame.length > 0 &&
+      en.transactions.errors.accountSame.length > 0,
+    parsed.success
+      ? "the payload parsed, which it must not"
+      : `${issues.length} issue(s), accountSame at path ${sameIssue?.path.join(".") ?? "none"}, es "${es.transactions.errors.accountSame}", en "${en.transactions.errors.accountSame}"`,
+  );
 
   const audited = next("every write left an audit_log row naming its record");
   if (written.length === 0) {

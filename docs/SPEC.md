@@ -73,6 +73,7 @@ accounting exports, native apps. None of this gets built or left
 - [x] **RF-18** — The type is derived from the accounts involved; the user does not choose it.
 - [ ] **RF-19** — Transfers are excluded from every income and expense report.
 - [x] **RF-20** — Every transaction has a positive amount and at least one account.
+- [x] **RF-101** — A transfer names two different accounts; a movement whose source and destination are the same account is refused.
 - [x] **RF-62** — Both accounts on a transaction belong to the caller's writable scope: their personal accounts and their group's shared accounts.
 - [x] **RF-22** — Quick entry: a single text field from which amount, category and description are inferred. Anything inferred stays editable before saving.
 - [x] **RF-23** — Listing with filters by date range, member, account, category and type.

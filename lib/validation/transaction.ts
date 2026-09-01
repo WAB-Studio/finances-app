@@ -99,8 +99,9 @@ type TransactionFields = {
 };
 
 // At least one account, so income and expense stay one-sided and a transfer
-// keeps both (RF-20). Typed on the account pair alone so a planned payment,
-// which carries no splits, reuses the very same refinement.
+// keeps both (RF-20), and the two sides of a transfer are different accounts
+// (RF-101). Typed on the account pair alone so a planned payment, which carries
+// no splits, reuses the very same refinement.
 export function requireAnAccount(
   data: { fromAccountId: string | null; toAccountId: string | null },
   ctx: z.RefinementCtx,
@@ -110,6 +111,15 @@ export function requireAnAccount(
       code: "custom",
       message: "transactions.errors.accountRequired",
       path: ["fromAccountId"],
+    });
+    return;
+  }
+
+  if (data.fromAccountId !== null && data.fromAccountId === data.toAccountId) {
+    ctx.addIssue({
+      code: "custom",
+      message: "transactions.errors.accountSame",
+      path: ["toAccountId"],
     });
   }
 }
