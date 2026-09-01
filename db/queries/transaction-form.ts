@@ -1,25 +1,25 @@
 import "server-only";
 
 import { desc, eq, sql } from "drizzle-orm";
+import { cache } from "react";
 
 import { listAccounts } from "@/db/queries/accounts";
 import type { AccountRow } from "@/db/queries/accounts";
-import { listCategories } from "@/db/queries/categories";
-import type { CategoryNode } from "@/db/queries/categories";
-import { getUserGroup } from "@/db/queries/groups";
-import { listMembers } from "@/db/queries/group-members";
-import { listLabels } from "@/db/queries/labels";
-import type { LabelRow } from "@/db/queries/labels";
+import { listScopedCategories } from "@/db/queries/categories";
+import type { ScopedCategoryNode } from "@/db/queries/categories";
+import { listCallerMembers } from "@/db/queries/group-members";
+import { listScopedLabels } from "@/db/queries/labels";
+import type { ScopedLabelRow } from "@/db/queries/labels";
 import { transactions } from "@/db/schema";
 import { getSessionUser, requireUser, withUserDb } from "@/db/session";
 
 // A category carries the scope it was read for (RF-62), so the form can tell a
 // personal category apart from the group's without a second lookup.
-export type ScopedCategory = CategoryNode & { scope: "personal" | "group" };
+export type ScopedCategory = ScopedCategoryNode;
 
 // A label carries its scope for the same reason (RF-70): a movement's labels
 // must share its scope, and the picker tells the two sets apart with no lookup.
-export type ScopedLabel = LabelRow & { scope: "personal" | "group" };
+export type ScopedLabel = ScopedLabelRow;
 
 export type TransactionFormOptions = {
   accounts: AccountRow[];
@@ -29,63 +29,39 @@ export type TransactionFormOptions = {
   lastUsedAccountId: string | null;
 };
 
-// Everything the write screen needs to open, in one fan-out. The caller's group
-// is resolved first because it names the group scope the reads then key off; the
-// group-only reads collapse to empty sets when the caller runs personal-only.
-export async function getTransactionFormOptions(): Promise<TransactionFormOptions> {
-  const user = await requireUser();
-  const group = await getUserGroup();
+/**
+ * Everything the write screen needs to open, in one fan-out. Every read resolves
+ * the caller's group inside its own statement, so there is no guard transaction
+ * to wait behind and the group half of a set costs no read of its own.
+ *
+ * Deduplicated per request: the shell fetches this for quick entry and the page
+ * under it asks for the same options, and one read serves both (RF-22).
+ */
+export const getTransactionFormOptions = cache(
+  async function getTransactionFormOptions(): Promise<TransactionFormOptions> {
+    const user = await requireUser();
 
-  const personalScope = { ownerUserId: user.id } as const;
-  const empty = Promise.resolve([]);
+    const [accounts, categories, labels, members, lastUsedAccountId] =
+      await Promise.all([
+        listAccounts({ archived: false }),
+        listScopedCategories(user.id),
+        listScopedLabels(user.id),
+        listCallerMembers(user.id, { archived: false }),
+        getLastUsedAccountId(),
+      ]);
 
-  const [
-    accounts,
-    personalExpense,
-    personalIncome,
-    personalLabels,
-    groupExpense,
-    groupIncome,
-    groupLabels,
-    groupMembers,
-    lastUsedAccountId,
-  ] = await Promise.all([
-    listAccounts({ archived: false }),
-    listCategories(personalScope, "expense"),
-    listCategories(personalScope, "income"),
-    listLabels(personalScope),
-    group ? listCategories({ groupId: group.id }, "expense") : empty,
-    group ? listCategories({ groupId: group.id }, "income") : empty,
-    group ? listLabels({ groupId: group.id }) : empty,
-    group ? listMembers(group.id, { archived: false }) : empty,
-    getLastUsedAccountId(),
-  ]);
-
-  const categories: ScopedCategory[] = [
-    ...[...personalExpense, ...personalIncome].map((category) => ({
-      ...category,
-      scope: "personal" as const,
-    })),
-    ...[...groupExpense, ...groupIncome].map((category) => ({
-      ...category,
-      scope: "group" as const,
-    })),
-  ];
-
-  return {
-    accounts,
-    categories,
-    labels: [
-      ...personalLabels.map((label) => ({ ...label, scope: "personal" as const })),
-      ...groupLabels.map((label) => ({ ...label, scope: "group" as const })),
-    ],
-    // Only members who have claimed a login can be a movement's creator (RF-25).
-    members: groupMembers.flatMap((member) =>
-      member.userId ? [{ userId: member.userId, name: member.name }] : [],
-    ),
-    lastUsedAccountId,
-  };
-}
+    return {
+      accounts,
+      categories,
+      labels,
+      // Only members who have claimed a login can be a movement's creator (RF-25).
+      members: members.flatMap((member) =>
+        member.userId ? [{ userId: member.userId, name: member.name }] : [],
+      ),
+      lastUsedAccountId,
+    };
+  },
+);
 
 // The account the quick-entry field defaults to (RF-22): the source of the
 // caller's most recent movement, or its destination for an income, or null when
@@ -124,16 +100,12 @@ export async function resolveCreatorNames(
   const unique = [...new Set(userIds)];
   if (unique.length === 0) return names;
 
-  const [user, group] = await Promise.all([getSessionUser(), getUserGroup()]);
-  // Archived members carry a name too, so both rosters feed the lookup.
-  const members = group
-    ? (
-        await Promise.all([
-          listMembers(group.id, { archived: false }),
-          listMembers(group.id, { archived: true }),
-        ])
-      ).flat()
-    : [];
+  // No round trip of its own: the session is already verified for the request.
+  const user = await getSessionUser();
+  if (!user) return names;
+
+  // Archived members carry a name too, so one read covers both rosters.
+  const members = await listCallerMembers(user.id, { archived: "all" });
 
   const memberNames = new Map(
     members.flatMap((member) =>
@@ -145,7 +117,7 @@ export async function resolveCreatorNames(
     const memberName = memberNames.get(id);
     if (memberName) {
       names.set(id, memberName);
-    } else if (user && id === user.id) {
+    } else if (id === user.id) {
       names.set(id, user.email);
     }
   }

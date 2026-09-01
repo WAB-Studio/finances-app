@@ -113,6 +113,13 @@
       "when": 1788274078249,
       "tag": "0015_puzzling_dagger",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1788298462845,
+      "tag": "0018_unique_spencer_smythe",
+      "breakpoints": true
     }
   ]
 }

@@ -7,9 +7,8 @@ import { desc, eq, sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import { insertRow } from "@/db/insert-row";
 import { listAccounts } from "@/db/queries/accounts";
-import { listCategories } from "@/db/queries/categories";
+import { listScopedCategories } from "@/db/queries/categories";
 import type { CategoryNode } from "@/db/queries/categories";
-import { getUserGroup } from "@/db/queries/groups";
 import { webhookCredentials } from "@/db/schema";
 import { requireUser, withUserDb } from "@/db/session";
 
@@ -172,9 +171,9 @@ function flattenCategories(
 }
 
 /**
- * The defaults an issue form may offer, in one fan-out. The caller's group is
- * resolved first because it names the second category scope; the group reads
- * collapse to empty sets for a personal-only caller.
+ * The defaults an issue form may offer, in one fan-out. Both category scopes come
+ * back from one statement, the caller's group resolved inside it, so nothing is
+ * chained ahead of the fan-out and a personal-only caller pays no group read.
  *
  * The account list is narrowed to what an ingest under this owner could write:
  * their own personal accounts and the group's shared ones. Another member's
@@ -184,19 +183,11 @@ function flattenCategories(
  */
 export async function getWebhookCredentialOptions(): Promise<WebhookCredentialOptions> {
   const user = await requireUser();
-  const group = await getUserGroup();
 
-  const personalScope = { ownerUserId: user.id } as const;
-  const empty = Promise.resolve([]);
-
-  const [accounts, personalExpense, personalIncome, groupExpense, groupIncome] =
-    await Promise.all([
-      listAccounts({ archived: false }),
-      listCategories(personalScope, "expense"),
-      listCategories(personalScope, "income"),
-      group ? listCategories({ groupId: group.id }, "expense") : empty,
-      group ? listCategories({ groupId: group.id }, "income") : empty,
-    ]);
+  const [accounts, categories] = await Promise.all([
+    listAccounts({ archived: false }),
+    listScopedCategories(user.id),
+  ]);
 
   return {
     accounts: accounts
@@ -207,8 +198,8 @@ export async function getWebhookCredentialOptions(): Promise<WebhookCredentialOp
       )
       .map((account) => ({ id: account.id, name: account.name })),
     categories: [
-      ...flattenCategories([...personalExpense, ...personalIncome]),
-      ...flattenCategories([...groupExpense, ...groupIncome]),
+      ...flattenCategories(categories.filter((node) => node.scope === "personal")),
+      ...flattenCategories(categories.filter((node) => node.scope === "group")),
     ],
   };
 }

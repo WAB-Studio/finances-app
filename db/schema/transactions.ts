@@ -64,6 +64,15 @@ export const transactions = pgTable(
     check("transactions_description_length", sql`length(${table.description}) <= 200`),
     check("transactions_external_ref_length", sql`length(${table.externalRef}) <= 200`),
     index("transactions_occurred_at_idx").on(table.occurredAt),
+    // `account_balances` sums each side of an account with no scope column in the
+    // predicate, so the scope-leading composites below cannot serve it; without
+    // these two it reads the table once per side, per account.
+    index("transactions_from_account_id_idx")
+      .on(table.fromAccountId)
+      .where(sql`from_account_id is not null`),
+    index("transactions_to_account_id_idx")
+      .on(table.toAccountId)
+      .where(sql`to_account_id is not null`),
     index("transactions_created_by_idx").on(table.createdBy),
     index("transactions_recurring_rule_id_idx").on(table.recurringRuleId),
     index("transactions_owner_user_id_idx")

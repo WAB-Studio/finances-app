@@ -3,6 +3,7 @@ import "server-only";
 import { and, asc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 
 import { insertRow } from "@/db/insert-row";
+import { callerGroupId } from "@/db/queries/groups";
 import { groupMembers } from "@/db/schema";
 import type { GroupMember } from "@/db/schema";
 import { withUserDb } from "@/db/session";
@@ -43,6 +44,39 @@ export async function listMembers(
             : isNull(groupMembers.archivedAt),
         ),
       )
+      .orderBy(asc(groupMembers.name)),
+  );
+}
+
+/**
+ * The caller's own roster, without a group id to pass and without the transaction
+ * that used to resolve one: the membership rides as a subselect. `archived: "all"`
+ * reads both rosters at once — a movement or an audit row outlives the member who
+ * caused it, so naming one needs the archived names too.
+ */
+export async function listCallerMembers(
+  userId: string,
+  options: { archived: boolean | "all" },
+): Promise<MemberRow[]> {
+  const archivedFilter =
+    options.archived === "all"
+      ? undefined
+      : options.archived
+        ? isNotNull(groupMembers.archivedAt)
+        : isNull(groupMembers.archivedAt);
+
+  return withUserDb(async (tx) =>
+    tx
+      .select({
+        id: groupMembers.id,
+        name: groupMembers.name,
+        role: groupMembers.role,
+        userId: groupMembers.userId,
+        inviteEmail: groupMembers.inviteEmail,
+        archivedAt: groupMembers.archivedAt,
+      })
+      .from(groupMembers)
+      .where(and(eq(groupMembers.groupId, callerGroupId(userId)), archivedFilter))
       .orderBy(asc(groupMembers.name)),
   );
 }
