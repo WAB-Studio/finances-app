@@ -29,6 +29,14 @@ export const groups = pgTable(
       to: authenticatedRole,
       withCheck: sql`true`,
     }),
+    // The `GRANT UPDATE (name, cash_mode)` has stood since the first migration with no policy to
+    // serve it, so every rename answered UPDATE 0. The grant bounds the columns, this bounds the row.
+    pgPolicy("groups_update_leader", {
+      for: "update",
+      to: authenticatedRole,
+      using: sql`(select private.is_group_leader(${table.id}))`,
+      withCheck: sql`(select private.is_group_leader(${table.id}))`,
+    }),
   ],
 );
 

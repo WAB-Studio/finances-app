@@ -1,6 +1,6 @@
 import "server-only";
 
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 import { insertRow } from "@/db/insert-row";
 import { appUsers } from "@/db/schema";
@@ -32,19 +32,13 @@ export async function upsertUserLocale(locale: Locale): Promise<void> {
 
   await withUserDb(async (tx) => {
     // One statement, not select-then-write: two tabs would race a check into a
-    // duplicate key. `updated_at` moves only here — nothing else touches it.
-    // Unlike `debt_terms`, `app_users` grants UPDATE on `updated_at` and carries
-    // no timestamp trigger, so the SET is what stamps it.
+    // duplicate key. `updated_at` is left out of the SET on purpose: no UPDATE
+    // grant covers it and `app_users_set_timestamps` stamps it.
     await insertRow(
       tx,
       appUsers,
       { id: user.id, locale },
-      {
-        onConflict: {
-          target: appUsers.id,
-          set: { locale, updatedAt: sql`now()` },
-        },
-      },
+      { onConflict: { target: appUsers.id, set: { locale } } },
     );
   });
 }

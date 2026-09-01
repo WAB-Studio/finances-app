@@ -120,6 +120,13 @@
       "when": 1788298921820,
       "tag": "0017_restrict_member_management_to_leader",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1788300018389,
+      "tag": "0018_close_the_grant_gaps",
+      "breakpoints": true
     }
   ]
 }
