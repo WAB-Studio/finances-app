@@ -131,9 +131,9 @@ export async function createCategory(
   return withUserDb((tx) => insertCategory(tx, args));
 }
 
-// The insert body of `createCategory`, against a caller-supplied transaction, so a
-// rolled-back proof drives the statement a screen commits.
-export async function insertCategory(
+// The insert body of `createCategory`: the wrapper opens the session, this runs
+// the statement inside whatever transaction it is handed.
+async function insertCategory(
   tx: Transaction,
   { scope, name, kind, parentId, color }: CreateCategoryArgs,
 ): Promise<{ categoryId: string }> {

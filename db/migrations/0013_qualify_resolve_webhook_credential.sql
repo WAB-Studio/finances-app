@@ -1,7 +1,5 @@
--- Widening the projection by `id` put an OUT variable named `id` in scope, so the bare `id` in each
--- update's predicate stopped naming the column and every resolution raised 42702. The table is aliased
--- and the predicate qualified in all three branches; the returned column keeps its name. The throttle,
--- the row lock and the revoked-token behaviour are those of the original.
+-- The OUT columns of the `returns table` shadow same-named table columns inside the body, so every
+-- predicate here qualifies through the alias `c` rather than naming a column bare.
 create or replace function private.resolve_webhook_credential(p_token_hash text)
 returns table(id uuid, owner_user_id uuid, default_account_id uuid, default_category_id uuid, throttled boolean)
 language plpgsql security definer set search_path = '' as $$

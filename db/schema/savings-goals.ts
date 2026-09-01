@@ -17,7 +17,7 @@ import { appUsers } from "./app-users";
 import { groups } from "./groups";
 
 // A virtual envelope (RF-76): a target amount and optional target date, scoped to a user or a group.
-// Progress derives from the movements contributed to it and is never stored (RF-77).
+// Progress derives from its contributions and is never stored (RF-87).
 export const savingsGoals = pgTable(
   "savings_goals",
   {

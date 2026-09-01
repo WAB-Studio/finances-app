@@ -35,7 +35,7 @@ const goalFields = {
   accountId: z.uuid({ error: "goals.errors.accountInvalid" }).nullish(),
 };
 
-// An opening virtual aporte seeded at creation (RF-77); optional, same peso rules.
+// An opening virtual aporte seeded at creation (RF-87); optional, same peso rules.
 const initialContributionSchema = pesoAmountSchema({
   required: "goals.errors.amountRequired",
   invalid: "goals.errors.amountInvalid",
@@ -62,7 +62,7 @@ export const deleteGoalSchema = z.object({
 
 export type DeleteGoalInput = z.infer<typeof deleteGoalSchema>;
 
-// A typed virtual aporte toward the goal (RF-77); the entry earmarks no
+// A typed virtual aporte toward the goal (RF-87); the entry earmarks no
 // movement, so the amount alone crosses as a peso string.
 export const contributeGoalSchema = z.object({
   goalId: z.uuid({ error: "goals.errors.goalInvalid" }),

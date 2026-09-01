@@ -32,8 +32,8 @@ export const updateMemberSchema = z.object({
 
 export type UpdateMemberInput = z.infer<typeof updateMemberSchema>;
 
-// Accounts no longer hang off a member (RF-61), so archiving one carries no
-// per-account decision: it only flags the member.
+// Accounts name a user or the group, never a member (RF-61), so archiving one
+// carries no per-account decision: it only flags the member.
 export const archiveMemberSchema = z.object({
   memberId: z.uuid(),
 });

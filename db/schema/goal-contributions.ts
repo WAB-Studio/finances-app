@@ -5,7 +5,8 @@ import { authenticatedRole, authUid } from "drizzle-orm/supabase";
 import { savingsGoals } from "./savings-goals";
 import { transactions } from "./transactions";
 
-// The movements a savings goal earmarks (RF-77): a goal's progress sums these and is never stored.
+// The amounts a savings goal sets aside (RF-87): a goal's progress sums these and is never stored.
+// A row names a movement only when one earmarks it; the amount alone is enough.
 export const goalContributions = pgTable(
   "goal_contributions",
   {

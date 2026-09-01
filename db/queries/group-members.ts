@@ -122,9 +122,9 @@ export async function updateMember({
   });
 }
 
-// Accounts no longer hang off a member — they name a user or the group — so
-// archiving one only sets its own flag; `group_members_update_member` still
-// refuses a caller archiving their own row.
+// Accounts name a user or the group, never a member, so archiving one only sets
+// its own flag; `group_members_update_member` still refuses a caller archiving
+// their own row.
 export async function archiveMember({
   groupId,
   memberId,

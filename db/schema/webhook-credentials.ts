@@ -16,7 +16,7 @@ import { accounts } from "./accounts";
 import { appUsers } from "./app-users";
 import { categories } from "./categories";
 
-// A per-user bearer credential a signed webhook resolves to (RF-85, RF-86); only a hash of the token is
+// A per-user bearer credential a signed webhook resolves to (RF-90, RF-86); only a hash of the token is
 // stored. A default account and category the ingest falls back to when the payload names neither, and a
 // per-credential fixed-window rate limit whose window and counter the resolver manages.
 export const webhookCredentials = pgTable(

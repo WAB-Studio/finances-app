@@ -72,7 +72,7 @@ function ContributeForm({
   const onActionError = useActionErrorToast();
 
   // A virtual aporte: the action earmarks no movement, so only the amount
-  // crosses and the derived apartado rises on the next refresh (RF-77).
+  // crosses and the derived apartado rises on the next refresh (RF-87).
   const contribute = useAction(contributeGoalAction, {
     onSuccess() {
       toast.success(t("contributed"));
