@@ -927,7 +927,8 @@
     "silencedToast": "Done: messages like this one no longer reach the inbox.",
     "errors": {
       "deliveryInvalid": "Choose a valid message.",
-      "merchantInvalid": "Choose a valid merchant."
+      "merchantInvalid": "Choose a valid merchant.",
+      "shapeInvalid": "Choose a valid silenced message."
     }
   }
 }
