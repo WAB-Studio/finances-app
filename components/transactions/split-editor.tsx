@@ -50,7 +50,6 @@ export function SplitEditor({
   onChange: (splits: Split[]) => void;
 }) {
   const t = useTranslations("transactions");
-  const tKey = useTranslations();
   const format = useFormatter();
 
   // Only the movement's scope and kind, parents and their children flattened
@@ -91,6 +90,9 @@ export function SplitEditor({
   return (
     <Flex direction="column" gap="3" width="100%">
       {value.map((split, index) => {
+        // Three rows make three identical triples otherwise: each control names
+        // the row it belongs to.
+        const position = index + 1;
         const color =
           options.find((option) => option.id === split.categoryId)?.color ??
           null;
@@ -104,7 +106,7 @@ export function SplitEditor({
             >
               <Select.Trigger
                 placeholder={t("categoryLabel")}
-                aria-label={t("categoryLabel")}
+                aria-label={t("splitRowCategory", { position })}
                 style={{ flex: 1 }}
               />
               <Select.Content position="popper">
@@ -121,14 +123,14 @@ export function SplitEditor({
                 updateSplit(index, { amount: event.target.value })
               }
               inputMode="numeric"
-              aria-label={t("amountLabel")}
+              aria-label={t("splitRowAmount", { position })}
               style={{ width: 110, fontVariantNumeric: "tabular-nums" }}
             />
             <IconButton
               type="button"
               variant="ghost"
               color="gray"
-              aria-label={tKey("common.delete")}
+              aria-label={t("splitRowRemove", { position })}
               onClick={() => removeSplit(index)}
             >
               <XIcon size={16} />

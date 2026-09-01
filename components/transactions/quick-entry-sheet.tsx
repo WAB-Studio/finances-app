@@ -372,11 +372,9 @@ function QuickEntryForm({
           </Link>
         </Flex>
 
-        <Button
-          type="submit"
-          size="3"
-          disabled={!form.formState.isValid || create.isPending}
-        >
+        {/* Never dead: while the form is short of something, submitting is what
+            makes it say so. */}
+        <Button type="submit" size="3" disabled={create.isPending}>
           {create.isPending && <Spinner />}
           {t("quickSave")}
         </Button>

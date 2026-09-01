@@ -20,11 +20,14 @@ const thresholdPctSchema = z
   .min(1, { error: "budgets.errors.thresholdInvalid" })
   .max(100, { error: "budgets.errors.thresholdInvalid" });
 
+// A name of nothing but spaces would title the card with a blank instead of
+// letting it fall back to the category's own name, so it lands as null.
 const nameSchema = z
   .string()
   .trim()
   .max(80, { error: "budgets.errors.nameTooLong" })
-  .nullish();
+  .nullish()
+  .transform((value) => value?.trim() || null);
 
 // The account and label only narrow the spend the limit is measured against;
 // leaving either off measures the category's whole spend.
