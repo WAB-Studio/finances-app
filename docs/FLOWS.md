@@ -281,8 +281,10 @@ flowchart TD
 Nothing becomes a movement without a person accepting it. A known shape and a
 trusted merchant can shorten the review, but neither writes on its own.
 
-Silencing a shape is permanent until the person explicitly reverses it; later
-deliveries cannot undo the decision or appear in the inbox.
+Silencing a shape holds over every later delivery; none of them undoes the
+decision or appears in the inbox. Returning a silenced shape to the queue undoes
+it, and every message the silence discarded on its own comes back to the queue
+with it.
 
 A merchant earns its category after two consecutive agreeing approvals. The
 first disagreement makes that memory ambiguous for good; forgetting the
