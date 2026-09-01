@@ -2,6 +2,7 @@ import "server-only";
 
 import { and, asc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 
+import { insertRow } from "@/db/insert-row";
 import { recurringRules, transactions } from "@/db/schema";
 import type { RecurringRule } from "@/db/schema";
 import { withUserDb } from "@/db/session";
@@ -76,9 +77,10 @@ export async function createRecurringRule({
   endsOn,
 }: CreateRecurringRuleArgs): Promise<{ recurringRuleId: string }> {
   return withUserDb(async (tx) => {
-    const [row] = await tx
-      .insert(recurringRules)
-      .values({
+    const [row] = await insertRow(
+      tx,
+      recurringRules,
+      {
         fromAccountId,
         toAccountId,
         amountCents,
@@ -89,8 +91,9 @@ export async function createRecurringRule({
         dayOfMonth,
         nextRunOn,
         endsOn,
-      } as typeof recurringRules.$inferInsert)
-      .returning({ id: recurringRules.id });
+      },
+      { returning: { id: recurringRules.id } },
+    );
 
     return { recurringRuleId: row.id };
   });

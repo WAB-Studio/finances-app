@@ -2,6 +2,7 @@ import "server-only";
 
 import { and, asc, eq } from "drizzle-orm";
 
+import { insertRow } from "@/db/insert-row";
 import { plannedPayments, transactionSplits, transactions } from "@/db/schema";
 import type { PlannedPayment } from "@/db/schema";
 import { withUserDb } from "@/db/session";
@@ -71,9 +72,10 @@ export async function createPlannedPayment({
   description,
 }: CreatePlannedPaymentArgs): Promise<{ plannedPaymentId: string }> {
   return withUserDb(async (tx) => {
-    const [row] = await tx
-      .insert(plannedPayments)
-      .values({
+    const [row] = await insertRow(
+      tx,
+      plannedPayments,
+      {
         fromAccountId,
         toAccountId,
         amountCents,
@@ -81,8 +83,9 @@ export async function createPlannedPayment({
         dueDate,
         remindOn,
         description,
-      } as typeof plannedPayments.$inferInsert)
-      .returning({ id: plannedPayments.id });
+      },
+      { returning: { id: plannedPayments.id } },
+    );
 
     return { plannedPaymentId: row.id };
   });
@@ -195,26 +198,24 @@ export async function settlePlannedPayment({
 }: SettlePlannedPaymentArgs): Promise<SettlePlannedPaymentResult> {
   try {
     return await withUserDb(async (tx) => {
-      const [row] = await tx
-        .insert(transactions)
-        // `created_by`, the scope and `kind` are set by triggers/generation and
-        // absent from the INSERT grant; drizzle types them required, so cast past.
-        .values({
-          fromAccountId,
-          toAccountId,
-          amountCents,
-          occurredAt,
-          description,
-        } as typeof transactions.$inferInsert)
-        .returning({ id: transactions.id });
+      // `created_by`, the scope and `kind` are set by triggers/generation and
+      // absent from the INSERT grant.
+      const [row] = await insertRow(
+        tx,
+        transactions,
+        { fromAccountId, toAccountId, amountCents, occurredAt, description },
+        { returning: { id: transactions.id } },
+      );
 
       const transactionId = row.id;
 
       // A transfer carries no category and no split; an income or expense earmarks its one category.
       if (categoryId !== null) {
-        await tx
-          .insert(transactionSplits)
-          .values({ transactionId, categoryId, amountCents });
+        await insertRow(tx, transactionSplits, {
+          transactionId,
+          categoryId,
+          amountCents,
+        });
       }
 
       const claimed = await tx
