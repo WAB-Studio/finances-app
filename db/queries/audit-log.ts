@@ -23,6 +23,14 @@ export type AuditLogFilters = {
   offset: number;
 };
 
+// What the viewer renders, and all it is handed: the `before_data`/`after_data`
+// snapshots stay in the table, where a token hash or a bank message never reaches
+// a client bundle (RNF-13).
+export type AuditLogRow = Pick<
+  AuditLog,
+  "id" | "entity" | "recordId" | "action" | "actorUserId" | "occurredAt"
+>;
+
 // The entities the caller can actually read, and the actors to name a row by.
 export type AuditFilterOptions = {
   entities: string[];
@@ -62,14 +70,21 @@ function auditConditions(filters: AuditLogFilters): SQL[] {
  */
 export async function listAuditLog(
   filters: AuditLogFilters,
-): Promise<{ rows: AuditLog[]; total: number }> {
+): Promise<{ rows: AuditLogRow[]; total: number }> {
   const conditions = auditConditions(filters);
   const where = conditions.length > 0 ? and(...conditions) : undefined;
 
   const [rows, total] = await Promise.all([
     withUserDb((tx) =>
       tx
-        .select()
+        .select({
+          id: auditLog.id,
+          entity: auditLog.entity,
+          recordId: auditLog.recordId,
+          action: auditLog.action,
+          actorUserId: auditLog.actorUserId,
+          occurredAt: auditLog.occurredAt,
+        })
         .from(auditLog)
         .where(where)
         .orderBy(desc(auditLog.occurredAt), desc(auditLog.id))
