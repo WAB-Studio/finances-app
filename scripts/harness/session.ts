@@ -195,12 +195,17 @@ async function mintSession(): Promise<HarnessSession> {
 async function requestOtp(userId: string): Promise<string> {
   minted = true;
 
-  const response = await fetch(`${SUPABASE_URL}/auth/v1/otp`, {
-    method: "POST",
-    headers: { apikey: PUBLISHABLE_KEY, "Content-Type": "application/json" },
-    // The harness never signs a user up over HTTP; the row is already there.
-    body: JSON.stringify({ email: HARNESS_EMAIL, create_user: false }),
-  });
+  let response = await postOtp();
+
+  // The rate limit is a short floor between sends — the answer names the seconds
+  // left — so a second run inside it waits rather than failing the whole layer.
+  if (response.status === 429) {
+    const body = await response.text();
+    const seconds = Number(/after (\d+) seconds/.exec(body)?.[1] ?? 0);
+    await new Promise((done) => setTimeout(done, (seconds + 1) * 1000));
+    response = await postOtp();
+  }
+
   if (!response.ok) {
     throw new Error(
       `POST /auth/v1/otp answered ${response.status} — ${(await response.text()).slice(0, 200)}`,
@@ -211,6 +216,15 @@ async function requestOtp(userId: string): Promise<string> {
   if (!hash) throw new Error("the OTP request left no one_time_tokens row");
 
   return hash;
+}
+
+function postOtp(): Promise<Response> {
+  return fetch(`${SUPABASE_URL}/auth/v1/otp`, {
+    method: "POST",
+    headers: { apikey: PUBLISHABLE_KEY, "Content-Type": "application/json" },
+    // The harness never signs a user up over HTTP; the row is already there.
+    body: JSON.stringify({ email: HARNESS_EMAIL, create_user: false }),
+  });
 }
 
 // Over the direct connection, because no API hands a token hash back. Old rows
