@@ -43,6 +43,34 @@ const CLEANUP_ORDER = [
 
 export type FixtureTable = (typeof CLEANUP_ORDER)[number][0];
 
+// A year of movements, as the decision fixes it: eleven a day for 365 days. It
+// is the premise RNF-09's budget is stated against, so `scripts/seed-year.ts`
+// writes exactly this many and `scripts/check-http.ts` refuses to report a
+// verdict until at least this many are in the ledger it measures.
+export const YEAR_OF_MOVEMENTS = 4015;
+
+// The `external_ref` every seeded movement carries, which is what makes the seed
+// repeatable and its drop exact.
+export const YEAR_SEED_PREFIX = "rnf09-year:";
+
+// The movements a user owns, counted as the owner: the precondition a measurement
+// of RNF-09 reads before it claims to have measured anything.
+export async function countOwnedMovements(userId: string): Promise<number> {
+  const [row] = await fixtureSql<{ total: string }[]>`
+    select count(*)::text as total from transactions where owner_user_id = ${userId}`;
+
+  return Number(row.total);
+}
+
+// The identity behind an email, or null. `scripts/seed-year.ts` names the user it
+// seeds this way, and the timing suites name the user they read as.
+export async function findUserByEmail(email: string): Promise<HarnessUser | null> {
+  const [row] = await fixtureSql<{ id: string }[]>`
+    select id from auth.users where email = ${email}`;
+
+  return row ? { id: row.id, email } : null;
+}
+
 // The rows the harness seeds for the caller: one group it leads, the three
 // accounts a movement needs both ends of, and one category and label to file it under.
 export type HarnessScope = {

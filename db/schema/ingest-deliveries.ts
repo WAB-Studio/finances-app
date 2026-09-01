@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
   bigint,
+  boolean,
   check,
   date,
   index,
@@ -46,6 +47,9 @@ export const ingestDeliveries = pgTable(
     status: text({ enum: ["pending", "accepted", "rejected"] })
       .notNull()
       .default("pending"),
+    // The shape memory resolved this delivery on arrival (RF-92); no person ever saw it, so RF-99 may
+    // return it to the queue. A rejection a person made never carries this.
+    silencedOnArrival: boolean().notNull().default(false),
     // The movement an acceptance recorded; cleared if that movement is deleted, leaving the decision.
     transactionId: uuid().references(() => transactions.id, { onDelete: "set null" }),
     proposedAmountCents: bigint({ mode: "number" }),
@@ -71,6 +75,12 @@ export const ingestDeliveries = pgTable(
     check(
       "ingest_deliveries_resolved_at_matches_status",
       sql`(${table.status} = 'pending') = (${table.resolvedAt} is null)`,
+    ),
+    // A restored delivery cannot keep the flag, so a pending row is a pending row and the queue never
+    // grows a second class of card.
+    check(
+      "ingest_deliveries_silenced_only_when_rejected",
+      sql`${table.silencedOnArrival} = false or ${table.status} = 'rejected'`,
     ),
     // Only an acceptance names a movement; a rejection never carries one.
     check(

@@ -177,6 +177,7 @@ async function main() {
   await checkIngestMerchantTrust();
   await checkInsertGrantMap();
   await checkInsertHelper();
+  await checkIngestShapeRestore();
 }
 
 // Assertions 9-26: the repivoted schema. A group holds accounts and categories a user XOR a group
@@ -4747,6 +4748,7 @@ const INSERT_GRANT_GAPS: Record<string, string[]> = {
     "id",
     "owner_user_id",
     "resolved_at",
+    "silenced_on_arrival",
     "status",
     "transaction_id",
     "updated_at",
@@ -5091,6 +5093,269 @@ async function checkInsertHelper() {
       survivors.terms === "0",
     `${upsertOutcome}; current_user = ${afterUser}, accounts surviving = ${survivors.accounts}, terms surviving = ${survivors.terms}`,
   );
+}
+
+// Assertions 179-184: RF-99, the undo of a silenced shape. Every claim here is about
+// `silenced_on_arrival`, the column that tells the machine's rejection from a person's:
+// who writes it, who can reach a row carrying it, and what a restore is allowed to move.
+async function checkIngestShapeRestore() {
+  console.log("");
+  const owner = randomUUID();
+  const other = randomUUID();
+  const today = "2026-01-01";
+  const silencedHash = createHash("sha256").update(randomUUID()).digest("hex");
+  const probeHash = createHash("sha256").update(randomUUID()).digest("hex");
+  const forcedRollback = Symbol("forced rollback");
+
+  const labels = [
+    "179. the shape memory settles the arrival: silenced under a rejected shape, pending under none",
+    "180. neither review path reaches a silenced delivery",
+    "181. a restore keeping the flag is refused and the same one clearing it lands",
+    "182. a second user's delete filters to nothing and their restore returns nothing",
+    "183. the owner's restore drops one shape and returns only what the silence discarded",
+    "184. the same shape arrives pending once the silence is undone",
+  ];
+
+  type OrmTx = Parameters<Parameters<typeof orm.transaction>[0]>[0];
+  const enter = (tx: OrmTx, subject: string) =>
+    tx.execute(dsql`select
+      set_config('request.jwt.claims', ${JSON.stringify({ sub: subject, role: "authenticated", aud: "authenticated" })}, true),
+      set_config('statement_timeout', '8000', true),
+      set_config('role', 'authenticated', true)`);
+
+  await orm
+    .transaction(async (tx) => {
+      await tx.execute(dsql`insert into auth.users (id) values (${owner}), (${other})`);
+      await tx.execute(dsql`insert into app_users (id) values (${owner}), (${other})`);
+      await enter(tx, owner);
+
+      // Every statement below runs in its own savepoint, the permitted ones included: a
+      // refusal reports its sqlstate AND its message, because 42501 covers both a missing
+      // grant and a policy, and 23514 names which check fired only in the message.
+      const attempt = async <T extends Record<string, unknown>>(
+        run: (sp: OrmTx) => Promise<T[]>,
+      ): Promise<{ rows: T[]; refusal: string }> => {
+        let outcome = { rows: [] as T[], refusal: "no refusal" };
+        await tx
+          .transaction(async (sp) => {
+            outcome = { rows: [...(await run(sp))], refusal: "no refusal" };
+          })
+          .catch((error: unknown) => {
+            outcome = { rows: [], refusal: describeRefusal(error) };
+          });
+        return outcome;
+      };
+
+      // `restoreShape`'s one statement, verbatim: the shape and the deliveries it silenced
+      // move together or not at all, and the counts are what the caller reads.
+      const restore = (on: OrmTx, shapeId: string) =>
+        on.execute<{ shapes: number; deliveries: number }>(dsql`
+          with dropped as (
+            delete from ingest_shapes
+            where id = ${shapeId} and decision = 'rejected'
+            returning shape_hash
+          ),
+          restored as (
+            update ingest_deliveries d
+               set status = 'pending', resolved_at = null, silenced_on_arrival = false
+              from dropped
+             where d.shape_hash = dropped.shape_hash
+               and d.status = 'rejected'
+               and d.silenced_on_arrival
+            returning d.id
+          )
+          select (select count(*)::int from dropped)  as shapes,
+                 (select count(*)::int from restored) as deliveries`);
+
+      // 179: the trigger's two branches on one hash. The human-rejected delivery is
+      // inserted BEFORE the shape exists, so it arrives pending — that is the negative
+      // control, and it is the row the restore below must leave alone.
+      const [human] = await tx.execute<{
+        id: string;
+        status: string;
+        silenced_on_arrival: boolean;
+      }>(dsql`insert into ingest_deliveries (external_ref, raw_text, shape_hash)
+        values ('rls-restore-human', 'fixture', ${silencedHash})
+        returning id, status, silenced_on_arrival`);
+      await tx.execute(dsql`update ingest_deliveries
+        set status = 'rejected', resolved_at = now()
+        where id = ${human.id} and status = 'pending'`);
+
+      await tx.execute(dsql`insert into ingest_shapes (shape_hash, decision, sample_text)
+        values (${silencedHash}, 'rejected', 'fixture'), (${probeHash}, 'rejected', 'fixture')`);
+      const [shape] = await tx.execute<{ id: string }>(
+        dsql`select id from ingest_shapes where shape_hash = ${silencedHash}`,
+      );
+
+      const silenced = await tx.execute<{
+        id: string;
+        status: string;
+        silenced_on_arrival: boolean;
+      }>(dsql`insert into ingest_deliveries (external_ref, raw_text, shape_hash)
+        values ('rls-restore-silenced-a', 'fixture', ${silencedHash}),
+               ('rls-restore-silenced-b', 'fixture', ${silencedHash})
+        returning id, status, silenced_on_arrival`);
+
+      assert(
+        labels[0],
+        silenced.length === 2 &&
+          silenced.every(
+            (row) => row.status === "rejected" && row.silenced_on_arrival === true,
+          ) &&
+          human.status === "pending" &&
+          human.silenced_on_arrival === false,
+        `shape ${silencedHash.slice(0, 12)} under a rejected memory stored ${silenced.map((row) => `${row.status}/${row.silenced_on_arrival}`).join(" and ")}, the same shape under no memory stored ${human.status}/${human.silenced_on_arrival}`,
+      );
+
+      // 180: both review paths carry `and status = 'pending'`, so a silenced row is out of
+      // a person's reach without any policy having to say so. The account and the movement
+      // exist only to make the accept path's statement the real one.
+      const [account] = await tx.execute<{ id: string }>(
+        dsql`insert into accounts
+          (owner_user_id, name, kind, subtype, initial_balance_cents, initial_balance_on)
+          values (${owner}, 'RLS restore account', 'asset', 'efectivo', 100000, ${today})
+          returning id`,
+      );
+      const [movement] = await tx.execute<{ id: string }>(
+        dsql`insert into transactions (from_account_id, amount_cents, occurred_at)
+          values (${account.id}, 5000, ${today}) returning id`,
+      );
+      const target = silenced[0].id;
+
+      const guard = await attempt((sp) =>
+        sp.execute<{ id: string }>(dsql`select id from ingest_deliveries
+          where id = ${target} and status = 'pending' for update`),
+      );
+      const rejectPath = await attempt((sp) =>
+        sp.execute<{ id: string }>(dsql`update ingest_deliveries
+          set status = 'rejected', resolved_at = now()
+          where id = ${target} and status = 'pending' returning id`),
+      );
+      const acceptPath = await attempt((sp) =>
+        sp.execute<{ id: string }>(dsql`update ingest_deliveries
+          set status = 'accepted', resolved_at = now(), transaction_id = ${movement.id}
+          where id = ${target} and status = 'pending' returning id`),
+      );
+
+      assert(
+        labels[1],
+        guard.rows.length === 0 &&
+          rejectPath.rows.length === 0 &&
+          acceptPath.rows.length === 0 &&
+          guard.refusal === "no refusal" &&
+          rejectPath.refusal === "no refusal" &&
+          acceptPath.refusal === "no refusal",
+        `the accept guard locked ${guard.rows.length} rows (${guard.refusal}), the reject update changed ${rejectPath.rows.length} (${rejectPath.refusal}), the accept update changed ${acceptPath.rows.length} (${acceptPath.refusal})`,
+      );
+
+      // 181: on a shape of its own, so the counts the restore returns below stay untouched.
+      // Turning a silenced row pending while it keeps the flag is the database's refusal,
+      // not the writer's discipline — a restored delivery is indistinguishable from one
+      // that never arrived silenced.
+      const [probe] = await tx.execute<{ id: string }>(
+        dsql`insert into ingest_deliveries (external_ref, raw_text, shape_hash)
+          values ('rls-restore-probe', 'fixture', ${probeHash}) returning id`,
+      );
+      const keptFlag = await attempt((sp) =>
+        sp.execute<{ id: string }>(dsql`update ingest_deliveries
+          set status = 'pending', resolved_at = null
+          where id = ${probe.id} returning id`),
+      );
+      const clearedFlag = await attempt((sp) =>
+        sp.execute<{ status: string; silenced_on_arrival: boolean }>(dsql`
+          update ingest_deliveries
+          set status = 'pending', resolved_at = null, silenced_on_arrival = false
+          where id = ${probe.id} returning status, silenced_on_arrival`),
+      );
+
+      assert(
+        labels[2],
+        keptFlag.refusal.includes("23514") &&
+          keptFlag.refusal.includes("ingest_deliveries_silenced_only_when_rejected") &&
+          clearedFlag.rows.length === 1 &&
+          clearedFlag.rows[0].status === "pending" &&
+          clearedFlag.rows[0].silenced_on_arrival === false,
+        `keeping the flag ${keptFlag.refusal}, clearing it stored ${clearedFlag.rows[0]?.status ?? "nothing"}/${clearedFlag.rows[0]?.silenced_on_arrival ?? "nothing"}`,
+      );
+
+      // 182: the delete policy filters, it does not refuse — a second user's statement is
+      // well-formed, touches nothing and raises nothing. Run before the owner's restore,
+      // while the shape and its silenced deliveries are still there to be taken.
+      await enter(tx, other);
+      const otherDelete = await attempt((sp) =>
+        sp.execute<{ id: string }>(dsql`delete from ingest_shapes
+          where id = ${shape.id} and decision = 'rejected' returning id`),
+      );
+      const otherRestore = await attempt((sp) => restore(sp, shape.id));
+
+      assert(
+        labels[3],
+        otherDelete.rows.length === 0 &&
+          otherDelete.refusal === "no refusal" &&
+          otherRestore.refusal === "no refusal" &&
+          otherRestore.rows[0]?.shapes === 0 &&
+          otherRestore.rows[0]?.deliveries === 0,
+        `their delete removed ${otherDelete.rows.length} shapes (${otherDelete.refusal}), their restore returned ${otherRestore.rows[0]?.shapes ?? "nothing"} shapes and ${otherRestore.rows[0]?.deliveries ?? "nothing"} deliveries (${otherRestore.refusal})`,
+      );
+
+      // 183: the owner's own restore. Two silenced deliveries come back, the person's
+      // rejection of the same shape does not, and the probe shape is proof the delete
+      // took one row rather than every rejected memory the owner holds.
+      await enter(tx, owner);
+      const owned = await attempt((sp) => restore(sp, shape.id));
+      const after = await tx.execute<{
+        id: string;
+        status: string;
+        silenced_on_arrival: boolean;
+        unresolved: boolean;
+      }>(dsql`select id, status, silenced_on_arrival, resolved_at is null as unresolved
+        from ingest_deliveries where shape_hash = ${silencedHash}`);
+      const [shapesLeft] = await tx.execute<{ silenced: number; probe: number }>(dsql`
+        select
+          (select count(*)::int from ingest_shapes where shape_hash = ${silencedHash}) as silenced,
+          (select count(*)::int from ingest_shapes where shape_hash = ${probeHash}) as probe`);
+
+      const restoredRows = after.filter((row) => silenced.some((s) => s.id === row.id));
+      const humanRow = after.find((row) => row.id === human.id);
+
+      assert(
+        labels[4],
+        owned.rows[0]?.shapes === 1 &&
+          owned.rows[0]?.deliveries === 2 &&
+          restoredRows.length === 2 &&
+          restoredRows.every(
+            (row) =>
+              row.status === "pending" &&
+              row.silenced_on_arrival === false &&
+              row.unresolved,
+          ) &&
+          humanRow?.status === "rejected" &&
+          humanRow.silenced_on_arrival === false &&
+          shapesLeft.silenced === 0 &&
+          shapesLeft.probe === 1,
+        `it dropped ${owned.rows[0]?.shapes ?? "nothing"} shape and returned ${owned.rows[0]?.deliveries ?? "nothing"} deliveries, now ${restoredRows.map((row) => row.status).join(" and ")}; the person's rejection stayed ${humanRow?.status}/${humanRow?.silenced_on_arrival}; ${shapesLeft.silenced} silenced memory left, ${shapesLeft.probe} other memory untouched (${owned.refusal})`,
+      );
+
+      // 184: RF-99's forward half. Nothing was written to say the shape is welcome again;
+      // the absent memory is what `private.set_ingest_delivery_state` reads as never seen.
+      const [returning] = await tx.execute<{
+        status: string;
+        silenced_on_arrival: boolean;
+      }>(dsql`insert into ingest_deliveries (external_ref, raw_text, shape_hash)
+        values ('rls-restore-after', 'fixture', ${silencedHash})
+        returning status, silenced_on_arrival`);
+
+      assert(
+        labels[5],
+        returning.status === "pending" && returning.silenced_on_arrival === false,
+        `shape ${silencedHash.slice(0, 12)} now arrives ${returning.status}/${returning.silenced_on_arrival}, where before the restore it arrived rejected/true`,
+      );
+
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
 }
 
 // Wrapped in an async IIFE (not top-level await) so the runner can transpile

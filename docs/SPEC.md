@@ -156,6 +156,7 @@ accounting exports, native apps. None of this gets built or left
 - [x] **RF-96** — Webhook ingest proposes income or expense only when the bank message carries a recognized direction verb; a caller-supplied direction overrides it, and an unknown verb leaves it empty.
 - [x] **RF-97** — An account may store its last four digits; webhook ingest proposes the uniquely matching account named by a bank message before falling back to the credential default, while an explicit account override still wins.
 - [x] **RF-98** — Webhook ingest proposes the date the bank message carries, written with a two- or four-digit year and interpreted in `America/Bogota`; a caller-supplied date still overrides it, and a message whose date is unreadable or later than the day of delivery falls back to that day.
+- [x] **RF-99** — A person sees the message shapes they have silenced, each with the message that silenced it, and returns one to the queue: later messages of that shape wait for review again, and every message of that shape the silence discarded on its own comes back to the queue with it, indistinguishable from one never silenced. A message a person discarded stays discarded.
 
 The webhook (RF-90) reuses RF-22 (quick entry), RF-25 (created_by) and RF-45 (no write bypasses audit) unchanged: the same interpreter reads the payload text and the same insert path records the movement, so the created-by stamp and the audit hold as on any manual write. RF-52's idempotency shape is mirrored, not reused — RF-52 stays a spreadsheet-import requirement; the webhook applies the same stable-external-reference rule to its own deliveries. The review queue keeps that reuse: it runs RF-22's interpreter to propose rather than to decide, and RF-25 and RF-45 hold unchanged because an accepted proposal is still written through the same insert path.
 
@@ -531,6 +532,7 @@ erDiagram
         text merchant_key
         text merchant_label
         text status "pending | accepted | rejected"
+        boolean silenced_on_arrival "the shape memory resolved it, never a person"
         uuid transaction_id FK "null until accepted"
         bigint proposed_amount_cents
         uuid proposed_account_id FK
@@ -650,6 +652,9 @@ Rules the model must always guarantee, regardless of how they are implemented:
   writes one from a delivery on its own.
 - A delivery's `external_ref` is unique within its owner, so a re-delivery of a
   stored reference writes nothing whatever its status.
+- A delivery the shape memory discarded on arrival is marked as such and is the
+  only kind a restore returns to the queue; a delivery a person discarded is
+  never returned.
 - A merchant's remembered category is earned by two consecutive agreeing
   approvals and lost for good on the first disagreement; only an explicit
   forget clears it.

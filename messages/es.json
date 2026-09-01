@@ -925,9 +925,17 @@
     "rejectAndSilence": "Descartar y no volver a preguntar",
     "rejectedToast": "Mensaje descartado.",
     "silencedToast": "Listo: los mensajes así no vuelven a la bandeja.",
+    "silencedTitle": "Mensajes silenciados",
+    "silencedCount": "{count, plural, one {# mensaje silenciado} other {# mensajes silenciados}}",
+    "silencedOn": "Silenciado el {date}",
+    "silencedWaiting": "{count, plural, one {# mensaje descartado por esta regla} other {# mensajes descartados por esta regla}}",
+    "restore": "Volver a preguntar",
+    "restoredToast": "Listo: los mensajes así vuelven a la bandeja.",
+    "restoredWithDeliveries": "{count, plural, one {Listo: # mensaje volvió a la bandeja.} other {Listo: # mensajes volvieron a la bandeja.}}",
     "errors": {
       "deliveryInvalid": "Elige un mensaje válido.",
-      "merchantInvalid": "Elige un comercio válido."
+      "merchantInvalid": "Elige un comercio válido.",
+      "shapeInvalid": "Elige un mensaje silenciado válido."
     }
   }
 }
