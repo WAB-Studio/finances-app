@@ -4747,6 +4747,7 @@ const INSERT_GRANT_GAPS: Record<string, string[]> = {
     "id",
     "owner_user_id",
     "resolved_at",
+    "silenced_on_arrival",
     "status",
     "transaction_id",
     "updated_at",

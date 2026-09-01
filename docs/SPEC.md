@@ -532,6 +532,7 @@ erDiagram
         text merchant_key
         text merchant_label
         text status "pending | accepted | rejected"
+        boolean silenced_on_arrival "the shape memory resolved it, never a person"
         uuid transaction_id FK "null until accepted"
         bigint proposed_amount_cents
         uuid proposed_account_id FK
@@ -651,6 +652,9 @@ Rules the model must always guarantee, regardless of how they are implemented:
   writes one from a delivery on its own.
 - A delivery's `external_ref` is unique within its owner, so a re-delivery of a
   stored reference writes nothing whatever its status.
+- A delivery the shape memory discarded on arrival is marked as such and is the
+  only kind a restore returns to the queue; a delivery a person discarded is
+  never returned.
 - A merchant's remembered category is earned by two consecutive agreeing
   approvals and lost for good on the first disagreement; only an explicit
   forget clears it.
