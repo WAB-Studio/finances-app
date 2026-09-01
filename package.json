@@ -17,6 +17,8 @@
     "check:queries": "TSX_TSCONFIG_PATH=scripts/harness/tsconfig.json node --import tsx --env-file=.env.local scripts/check-queries.ts",
     "check:http": "TSX_TSCONFIG_PATH=scripts/harness/tsconfig.json node --import tsx --env-file=.env.local scripts/check-http.ts",
     "check:e2e": "node --env-file=.env.local ./node_modules/@playwright/test/cli.js test",
+    "seed:year": "TSX_TSCONFIG_PATH=scripts/harness/tsconfig.json node --import tsx --env-file=.env.local scripts/seed-year.ts",
+    "seed:year:drop": "npm run seed:year -- drop",
     "check": "npm run db:check-rls && npm run check:queries && npm run check:http"
   },
   "dependencies": {

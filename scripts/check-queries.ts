@@ -9,6 +9,10 @@
  */
 import { createHash, randomUUID } from "node:crypto";
 
+// FIRST, and it has to stay first: it plants the counted pool `@/db/client` picks
+// up, and a client already built is a client that cannot be instrumented.
+import { roundTrips } from "./harness/instrument";
+
 import { getAccountBalances } from "@/db/queries/account-balances";
 import {
   archiveAccount,
@@ -23,7 +27,7 @@ import {
   listBudgetsWithStatus,
   updateBudget,
 } from "@/db/queries/budgets";
-import { withdrawCash } from "@/db/queries/cash";
+import { resolveWithdrawalTarget, withdrawCash } from "@/db/queries/cash";
 import {
   createCategory,
   listCategories,
@@ -38,6 +42,7 @@ import { getDebtTerms, upsertDebtTerms } from "@/db/queries/debt-terms";
 import { getDebtsScreenData } from "@/db/queries/debts-screen";
 import { readExport } from "@/db/queries/export";
 import { createMember, listMembers } from "@/db/queries/group-members";
+import { getUserGroup } from "@/db/queries/groups";
 import { readImportScope } from "@/db/queries/import-preview";
 import {
   countPendingDeliveries,
@@ -106,12 +111,16 @@ import type { FixtureTable, HarnessScope, HarnessUser } from "./harness/fixtures
 import {
   asUser,
   cleanup,
+  countOwnedMovements,
   createHarnessUser,
   createMembershipFreeUser,
+  findUserByEmail,
   fixtureSql,
   seedHarnessScope,
   track,
+  YEAR_OF_MOVEMENTS,
 } from "./harness/fixtures";
+import { HARNESS_EMAIL } from "./harness/session";
 
 // The user the decisions note as already seeded. Read once for the transcript,
 // never written, and no assertion depends on it.
@@ -1037,6 +1046,81 @@ async function invariantSuite(
   );
 }
 
+/**
+ * Suite Q-timing: what each screen-level read costs, in wall time and in round
+ * trips counted at the driver. It PRINTS and asserts nothing — RNF-09 is a budget
+ * on an HTTP response, and this is the attribution that has to explain the number
+ * `check:http` reports, not a second verdict on it.
+ *
+ * Read as the user `scripts/seed-year.ts` loaded the year of movements onto, so
+ * the numbers are the ones the requirement is stated against; against the run's
+ * own throwaway user they would only say what an empty ledger costs. Nothing here
+ * writes, so reading as another identity leaves that user's rows exactly as found.
+ */
+async function timingSuite(): Promise<void> {
+  const seeded = await findUserByEmail(HARNESS_EMAIL);
+  if (!seeded) {
+    console.log(
+      `REPORT  no ${HARNESS_EMAIL} identity, so there is no seeded ledger to time; run check:http once, then seed:year.`,
+    );
+    return;
+  }
+
+  const movements = await countOwnedMovements(seeded.id);
+  console.log(
+    `REPORT  timing as ${HARNESS_EMAIL}, who owns ${movements} movements${
+      movements >= YEAR_OF_MOVEMENTS
+        ? ""
+        : ` — short of the ${YEAR_OF_MOVEMENTS} a year holds, so these numbers understate the requirement`
+    }.`,
+  );
+
+  const timed = async (name: string, run: () => Promise<unknown>): Promise<void> => {
+    const trips = roundTrips();
+    const started = performance.now();
+    const value = await run();
+
+    console.log(
+      `REPORT  ${name} — ${Math.round(performance.now() - started)} ms over ${roundTrips() - trips} round trips, ${summarise(value)}.`,
+    );
+  };
+
+  await asUser(seeded, async () => {
+    // Cold: the pool has no connection to this database yet, and the first read
+    // would charge the whole suite for opening one.
+    await getUserGroup();
+
+    console.log("");
+    await timed("getDashboardData (the whole dashboard read-model)", () =>
+      getDashboardData(),
+    );
+    // The same six reads again, one at a time: what the fan-out above is made of.
+    await timed("  listAccounts", () => listAccounts({ archived: false }));
+    await timed("  getAccountBalances", () => getAccountBalances());
+    await timed("  getMonthlyFlow", () => getMonthlyFlow(currentMonthRange()));
+    await timed("  getUserGroup", () => getUserGroup());
+    await timed("  countUnreviewedGenerated", () => countUnreviewedGenerated());
+    await timed("  countPendingDeliveries", () => countPendingDeliveries());
+
+    // The rest of what a request for `/es` costs: the layout and the page each
+    // call `getTransactionFormOptions`, and it awaits `getUserGroup()` before its
+    // own fan-out rather than inside it.
+    await timed("getTransactionFormOptions (layout, then page again)", () =>
+      getTransactionFormOptions(),
+    );
+    await timed("listTransactions limit 3 (the dashboard's recent lines)", () =>
+      listTransactions({}, { limit: 3 }),
+    );
+    await timed("resolveWithdrawalTarget", () => resolveWithdrawalTarget());
+
+    console.log("");
+    await timed("listTransactions unbounded (what /movements loads)", () =>
+      listTransactions({}),
+    );
+    await timed("getReportsData (what /reports loads)", () => getReportsData());
+  });
+}
+
 async function main(): Promise<void> {
   const userId = await createHarnessUser();
   console.log(`REPORT  harness user ${userId}, created for this run and dropped after it.`);
@@ -1072,6 +1156,8 @@ async function main(): Promise<void> {
   await readSuite(userId, scope, writes, silenced);
   console.log("");
   await invariantSuite(writes, silenced.restored);
+  console.log("");
+  await timingSuite();
 }
 
 // Wrapped in an async IIFE (not top-level await) so the runner can transpile

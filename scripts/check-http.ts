@@ -15,7 +15,13 @@ import { join, resolve } from "node:path";
 import messages from "@/messages/es.json";
 
 import { assert, report, skip } from "./harness/assert";
-import { cleanup, fixtureSql, track } from "./harness/fixtures";
+import {
+  cleanup,
+  countOwnedMovements,
+  fixtureSql,
+  track,
+  YEAR_OF_MOVEMENTS,
+} from "./harness/fixtures";
 import {
   HARNESS_BASE_URL,
   HARNESS_EMAIL,
@@ -480,7 +486,39 @@ async function webhookSuite(userId: string): Promise<void> {
   );
 }
 
-async function timingSuite(cases: RenderCase[], cookie: string): Promise<void> {
+// The 2 s of RNF-09, in the unit the measurement produces.
+const RNF_09_BUDGET_MS = 2000;
+
+// What `HARNESS_TARGET` may name. `next dev` compiles a route on demand, so a
+// number measured there is about the compiler as much as the query plan; it is
+// worth reporting, and it is labelled, but it is not the requirement's subject.
+const TARGETS = {
+  production: "a production build served by next start",
+  dev: "next dev, which compiles on demand — NOT the requirement's subject",
+} as const;
+
+type Target = keyof typeof TARGETS;
+
+function namedTarget(): Target | null {
+  const named = process.env.HARNESS_TARGET;
+
+  return named && named in TARGETS ? (named as Target) : null;
+}
+
+/**
+ * How long every screen takes hot, and the one verdict this layer carries: RNF-09.
+ *
+ * The budget presumes a year of movements, so the verdict reads TWO preconditions
+ * before it claims anything — the movements the measured user owns, counted in the
+ * database, and `HARNESS_TARGET`, which names what is being served. Missing either,
+ * it skips SAYING WHICH: a dashboard answering fast over an empty ledger meets
+ * nothing, and a green line from that would be a lie about the requirement.
+ */
+async function timingSuite(
+  cases: RenderCase[],
+  cookie: string,
+  userId: string,
+): Promise<void> {
   for (const one of cases) {
     const started = Date.now();
     await get(one.path, cookie);
@@ -499,9 +537,31 @@ async function timingSuite(cases: RenderCase[], cookie: string): Promise<void> {
   console.log(
     `REPORT  the dashboard's median over five hot requests is ${median} ms (${samples.join(", ")}).`,
   );
-  skip(
-    next("the dashboard meets the RNF-09 budget"),
-    `unmeasurable here: ${median} ms on an empty ledger against a 2000 ms budget that assumes a year of movements, on next dev, which compiles on demand`,
+
+  const movements = await countOwnedMovements(userId);
+  const target = namedTarget();
+  const label = next("the dashboard meets the RNF-09 budget");
+
+  if (movements < YEAR_OF_MOVEMENTS) {
+    skip(
+      label,
+      `the ledger holds ${movements} movements for the measured user, short of the ${YEAR_OF_MOVEMENTS} a year holds — run \`npm run seed:year\`; ${median} ms measured over what is there`,
+    );
+    return;
+  }
+
+  if (target === null) {
+    skip(
+      label,
+      `HARNESS_TARGET names nothing measurable — set it to ${Object.keys(TARGETS).join(" or ")}; ${median} ms measured over ${movements} movements`,
+    );
+    return;
+  }
+
+  assert(
+    label,
+    median <= RNF_09_BUDGET_MS,
+    `${median} ms median against a ${RNF_09_BUDGET_MS} ms budget, over ${movements} movements, on ${TARGETS[target]}`,
   );
 }
 
@@ -529,7 +589,7 @@ async function main(): Promise<void> {
   await localeSuite(cookie);
   await webhookSuite(userId);
   console.log("");
-  await timingSuite(cases, cookie);
+  await timingSuite(cases, cookie, userId);
 }
 
 // Wrapped in an async IIFE (not top-level await) so the runner can transpile this
