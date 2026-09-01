@@ -18,6 +18,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 import { chromium, test as base } from "@playwright/test";
+import type { TransactionSql } from "postgres";
 
 import { TIME_ZONE } from "@/lib/locales";
 
@@ -64,6 +65,23 @@ function claimsFor(userId: string): string {
     sub: userId,
     role: "authenticated",
     aud: "authenticated",
+  });
+}
+
+/**
+ * Runs `fn` in one transaction that speaks for the harness user, which is what
+ * the stamping triggers read, while the owner's privileges do the writing. A
+ * spec seeds its own rows through this and drops them itself; nothing here is
+ * tracked, so a spec that leaks a row leaks it until the teardown purge.
+ */
+export async function asHarnessUser(
+  fn: (tx: TransactionSql) => Promise<void>,
+): Promise<void> {
+  const { userId } = readScope();
+
+  await fixtureSql.begin(async (tx) => {
+    await tx`select set_config('request.jwt.claims', ${claimsFor(userId)}, true)`;
+    await fn(tx);
   });
 }
 
@@ -186,12 +204,34 @@ export async function seedUnreviewedMovement(): Promise<void> {
   });
 }
 
-// Everything the harness user owns. The specs write through the interface, so the
-// rows a run leaves behind are not all tracked by id.
+// Everything the harness user owns, child before parent. The specs write through
+// the interface, so the rows a run leaves behind are not all tracked by id, and a
+// run must end at the row counts it found — `audit_log` excepted, which no
+// harness ever deletes from.
 async function purge(userId: string): Promise<void> {
   await fixtureSql`delete from ingest_deliveries where owner_user_id = ${userId}`;
   await fixtureSql`delete from ingest_shapes where owner_user_id = ${userId}`;
   await fixtureSql`delete from ingest_merchants where owner_user_id = ${userId}`;
+  // A contribution is named before its goal even though it cascades: an aporte
+  // that outlived its goal would be a leak no later count could explain.
+  await fixtureSql`
+    delete from goal_contributions
+    where goal_id in (select id from savings_goals where owner_user_id = ${userId})`;
+  await fixtureSql`delete from savings_goals where owner_user_id = ${userId}`;
+  await fixtureSql`delete from budgets where owner_user_id = ${userId}`;
+  await fixtureSql`delete from planned_payments where owner_user_id = ${userId}`;
+  // These three hang off an account rather than off a user. `debt_terms` goes
+  // before `accounts` in particular: its row is what makes an account's deletion
+  // fail rather than cascade.
+  await fixtureSql`
+    delete from installment_plans
+    where account_id in (select id from accounts where owner_user_id = ${userId})`;
+  await fixtureSql`
+    delete from debt_statements
+    where account_id in (select id from accounts where owner_user_id = ${userId})`;
+  await fixtureSql`
+    delete from debt_terms
+    where account_id in (select id from accounts where owner_user_id = ${userId})`;
   // Splits and labels ride the movement's cascade; see `clearLedger`.
   await fixtureSql`delete from transactions where owner_user_id = ${userId}`;
   await fixtureSql`delete from recurring_rules where owner_user_id = ${userId}`;
@@ -199,6 +239,13 @@ async function purge(userId: string): Promise<void> {
   await fixtureSql`delete from labels where owner_user_id = ${userId}`;
   await fixtureSql`delete from categories where owner_user_id = ${userId}`;
   await fixtureSql`delete from accounts where owner_user_id = ${userId}`;
+  // The group goes before its members: `assert_group_keeps_leader` refuses to
+  // leave a live group leaderless, and the cascade from a deleted group is the
+  // one path that may take a leader row with it.
+  await fixtureSql`
+    delete from groups
+    where id in (select group_id from group_members where user_id = ${userId})`;
+  await fixtureSql`delete from group_members where user_id = ${userId}`;
 }
 
 async function seedScope(userId: string): Promise<E2eScope> {
