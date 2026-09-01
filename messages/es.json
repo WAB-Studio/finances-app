@@ -113,23 +113,26 @@
     "noGroup": "Los aportes son una cifra del grupo. Todavía no tienes grupo."
   },
   "nav": {
-    "openLabel": "Abrir la navegación",
     "title": "Navegación",
     "close": "Cerrar",
-    "dashboard": "Panel",
     "home": "Inicio",
     "movements": "Movimientos",
-    "inbox": "Bandeja",
     "planning": "Planeación",
+    "reports": "Reportes",
+    "inbox": "Bandeja",
     "settings": "Ajustes",
     "quickEntry": "Anotar un gasto",
+    "record": "Registrar",
+    "pending": "{count, plural, one {# pendiente} other {# pendientes}}",
     "members": "Miembros",
     "accounts": "Cuentas",
     "categories": "Categorías",
     "labels": "Etiquetas",
     "data": "Datos",
     "audit": "Auditoría",
-    "webhooks": "Webhooks"
+    "webhooks": "Webhooks",
+    "roleLeader": "Líder",
+    "roleMember": "Miembro"
   },
   "audit": {
     "title": "Auditoría",

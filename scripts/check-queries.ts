@@ -14,6 +14,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { roundTrips } from "./harness/instrument";
 
 import { getAccountBalances } from "@/db/queries/account-balances";
+import { getShellSummary } from "@/db/queries/app-shell";
 import {
   archiveAccount,
   createAccount,
@@ -906,6 +907,7 @@ async function readSuite(
   await checkRead("getWebhookCredentialOptions", () => getWebhookCredentialOptions());
   await checkRead("listPendingDeliveries", () => listPendingDeliveries());
   await checkRead("countPendingDeliveries", () => countPendingDeliveries());
+  await checkRead("getShellSummary", () => getShellSummary());
   await checkRead("listOwnMerchants", () => listOwnMerchants());
   await checkReadValue(
     "listSilencedShapes",
@@ -1101,6 +1103,8 @@ async function timingSuite(): Promise<void> {
     await timed("  getUserGroup", () => getUserGroup());
     await timed("  countUnreviewedGenerated", () => countUnreviewedGenerated());
     await timed("  countPendingDeliveries", () => countPendingDeliveries());
+    // The shell's own read, on every route: the sidebar's name, role and count.
+    await timed("getShellSummary (the layout's sidebar)", () => getShellSummary());
 
     // The rest of what a request for `/es` costs: the layout and the page each
     // call `getTransactionFormOptions`, and it awaits `getUserGroup()` before its
