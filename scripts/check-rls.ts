@@ -1387,7 +1387,7 @@ async function checkSavingsGoalPolicies() {
         `inserted rows = ${contribution.length}, goal_progress.saved_cents = ${saved} (expected 5000)`,
       );
 
-      // 103: a virtual contribution earmarks no movement (RF-77); it still lands and goal_progress sums it.
+      // 103: a virtual contribution earmarks no movement (RF-87); it still lands and goal_progress sums it.
       const [{ saved_cents: beforeVirtual }] = await tx<{ saved_cents: string }[]>`
         select saved_cents from goal_progress where goal_id = ${personalGoal}`;
       const virtualContribution = await tx<{ id: string }[]>`
