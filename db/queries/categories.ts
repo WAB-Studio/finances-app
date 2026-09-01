@@ -1,8 +1,9 @@
 import "server-only";
 
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, or, sql } from "drizzle-orm";
 
 import { insertRow } from "@/db/insert-row";
+import { callerGroupId } from "@/db/queries/groups";
 import { categories } from "@/db/schema";
 import type { Category } from "@/db/schema";
 import type { Transaction } from "@/db/session";
@@ -21,6 +22,10 @@ export type CategoryNode = {
   color: string | null;
   children: { id: string; name: string; color: string | null }[];
 };
+
+// A node carries the scope it was read from, so a caller that asked for both
+// tells a personal category apart from the group's without a second lookup.
+export type ScopedCategoryNode = CategoryNode & { scope: "personal" | "group" };
 
 export type CreateCategoryArgs = {
   scope: CategoryScope;
@@ -78,6 +83,68 @@ export async function listCategories(
           name: row.name,
           kind,
           color: row.color,
+          children: [],
+        });
+      }
+    }
+    for (const row of rows) {
+      if (row.parentId !== null) {
+        parents.get(row.parentId)?.children.push({
+          id: row.id,
+          name: row.name,
+          color: row.color,
+        });
+      }
+    }
+
+    return [...parents.values()];
+  });
+}
+
+/**
+ * Every category a form offers, in ONE statement: both kinds and both scopes, the
+ * caller's group resolved by subselect rather than behind a transaction of its
+ * own. A personal-only caller matches no group row and gets their own set alone.
+ *
+ * The order reproduces what the four separate reads used to arrive in — personal
+ * before the group's, expense before income, then by name — so a picker built
+ * from this list reads the same as before.
+ */
+export async function listScopedCategories(
+  userId: string,
+): Promise<ScopedCategoryNode[]> {
+  return withUserDb(async (tx) => {
+    const rows = await tx
+      .select({
+        id: categories.id,
+        name: categories.name,
+        kind: categories.kind,
+        color: categories.color,
+        parentId: categories.parentId,
+        ownerUserId: categories.ownerUserId,
+      })
+      .from(categories)
+      .where(
+        or(
+          eq(categories.ownerUserId, userId),
+          eq(categories.groupId, callerGroupId(userId)),
+        ),
+      )
+      .orderBy(
+        asc(sql`${categories.ownerUserId} is null`),
+        asc(sql`${categories.kind} = 'income'`),
+        asc(categories.name),
+      );
+
+    const parents = new Map<string, ScopedCategoryNode>();
+    for (const row of rows) {
+      if (row.parentId === null) {
+        parents.set(row.id, {
+          id: row.id,
+          name: row.name,
+          kind: row.kind,
+          color: row.color,
+          scope: row.ownerUserId === null ? "group" : "personal",
           children: [],
         });
       }

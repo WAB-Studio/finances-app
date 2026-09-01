@@ -1,6 +1,7 @@
 import "server-only";
 
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
+import type { SQL } from "drizzle-orm";
 import { cache } from "react";
 
 import { groupMembers, groups } from "@/db/schema";
@@ -8,6 +9,28 @@ import type { Group } from "@/db/schema";
 import { getSessionUser, withUserDb } from "@/db/session";
 
 export type GroupSummary = Pick<Group, "id" | "name" | "currency" | "cashMode">;
+
+/**
+ * The caller's group id as a subselect, for a read that only needs to name the
+ * group scope. It resolves inside the statement that uses it, so the read costs
+ * one transaction instead of waiting behind `getUserGroup`'s. A personal-only
+ * caller resolves to null, which makes the predicate it feeds false — the same
+ * empty result the conditional branch used to produce.
+ *
+ * The policies still scope every row: this narrows, it never widens.
+ */
+export function callerGroupId(userId: string): SQL<string> {
+  return sql`(select gm.group_id from group_members gm
+    where gm.user_id = ${userId} and gm.archived_at is null limit 1)`;
+}
+
+// The caller's group cash mode (RF-56), resolved the same way, for the statement
+// that has to know where cash sits before it can look for it.
+export function callerCashMode(userId: string): SQL<Group["cashMode"]> {
+  return sql`(select g.cash_mode from groups g
+    join group_members gm on gm.group_id = g.id
+    where gm.user_id = ${userId} and gm.archived_at is null limit 1)`;
+}
 
 // A user belongs to at most one group (RF-55): this returns it, or null when
 // they run personal-only. `null` also covers a policy-filtered read, not just an

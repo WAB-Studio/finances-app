@@ -1,10 +1,11 @@
 import "server-only";
 
 import { and, asc, desc, eq, isNull, ne, or, sql } from "drizzle-orm";
+import type { SQL } from "drizzle-orm";
 
 import { insertRow } from "@/db/insert-row";
 import type { AccountRow } from "@/db/queries/accounts";
-import { getUserGroup } from "@/db/queries/groups";
+import { callerCashMode, callerGroupId } from "@/db/queries/groups";
 import { insertTransaction } from "@/db/queries/transactions";
 import { accounts } from "@/db/schema";
 import type { Transaction } from "@/db/session";
@@ -38,22 +39,25 @@ const accountRowColumns = {
 } as const;
 
 /**
- * Resolves a withdrawal's cash destination and its possible sources. The group
- * and its `cash_mode` come first because they name where the cash sits: shared
- * cash is the group's one `efectivo` account, per-member cash is the caller's
- * own, and a personal-only user (RF-55) draws to their own cash if it exists.
- * The target lookup and the source list are independent, so they fan out.
+ * Where the caller's cash sits, as a predicate: under 'shared' it is the group's
+ * one `efectivo` account, under every other mode — per-member, or personal-only
+ * (RF-55) — it is their own, which never resolves to another member's. Mode and
+ * membership resolve inside the statement, so naming the scope costs no read.
+ */
+function cashScope(userId: string): SQL {
+  return sql`case when ${callerCashMode(userId)} = 'shared'
+    then ${accounts.groupId} = ${callerGroupId(userId)}
+    else ${accounts.ownerUserId} = ${userId} end`;
+}
+
+/**
+ * Resolves a withdrawal's cash destination and its possible sources. The target
+ * lookup and the source list are independent, so they fan out — with nothing
+ * chained ahead of them.
  */
 export async function resolveWithdrawalTarget(): Promise<WithdrawalTarget> {
   const user = await requireUser();
-  const group = await getUserGroup();
-
-  // 'shared' points at the group's cash; every other case points at the caller's
-  // own, which never resolves to another member's account.
-  const targetScope =
-    group?.cashMode === "shared"
-      ? eq(accounts.groupId, group.id)
-      : eq(accounts.ownerUserId, user.id);
+  const targetScope = cashScope(user.id);
 
   const [targetCashAccountId, sourceAccounts] = await Promise.all([
     findCashAccountId(targetScope),
@@ -69,9 +73,7 @@ export async function resolveWithdrawalTarget(): Promise<WithdrawalTarget> {
 
 // The one live `efectivo` account inside the given scope, RLS-scoped on top. A
 // stable order keeps the pick deterministic if a scope ever holds more than one.
-async function findCashAccountId(
-  scope: ReturnType<typeof eq>,
-): Promise<string | null> {
+async function findCashAccountId(scope: SQL): Promise<string | null> {
   return withUserDb((tx) => findCashAccountIdTx(tx, scope));
 }
 
@@ -79,7 +81,7 @@ async function findCashAccountId(
 // can resolve, create and insert in one atomic round.
 async function findCashAccountIdTx(
   tx: Transaction,
-  scope: ReturnType<typeof eq>,
+  scope: SQL,
 ): Promise<string | null> {
   const [row] = await tx
     .select({ id: accounts.id })
@@ -120,12 +122,7 @@ export async function withdrawCash({
   cashAccountName,
 }: WithdrawCashArgs): Promise<WithdrawCashResult> {
   const user = await requireUser();
-  const group = await getUserGroup();
-
-  const targetScope =
-    group?.cashMode === "shared"
-      ? eq(accounts.groupId, group.id)
-      : eq(accounts.ownerUserId, user.id);
+  const targetScope = cashScope(user.id);
 
   return withUserDb(async (tx) => {
     let targetCashAccountId = await findCashAccountIdTx(tx, targetScope);

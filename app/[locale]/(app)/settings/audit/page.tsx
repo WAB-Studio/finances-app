@@ -55,8 +55,6 @@ export default async function AuditPage(
 
   setRequestLocale(locale);
 
-  await requireUser();
-
   const parsed = searchParamsSchema.parse(await props.searchParams);
 
   const filters: AuditLogFilters = {
@@ -68,7 +66,9 @@ export default async function AuditPage(
     offset: (parsed.page - 1) * PAGE_SIZE,
   };
 
-  const [{ rows, total }, options] = await Promise.all([
+  // The guard fans out with the reads it protects, never ahead of them.
+  const [, { rows, total }, options] = await Promise.all([
+    requireUser(),
     listAuditLog(filters),
     getAuditFilterOptions(),
   ]);
