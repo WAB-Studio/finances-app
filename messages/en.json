@@ -471,6 +471,7 @@
     "categoryLabel": "Category",
     "categoryPlaceholder": "Choose a category",
     "categoryLocked": "The category cannot be changed after the budget is created.",
+    "nameLabel": "Name",
     "limitLabel": "Limit",
     "periodLabel": "Period",
     "periodWeekly": "Weekly",

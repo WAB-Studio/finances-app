@@ -471,6 +471,7 @@
     "categoryLabel": "Categoría",
     "categoryPlaceholder": "Elige una categoría",
     "categoryLocked": "La categoría no se puede cambiar después de crear el presupuesto.",
+    "nameLabel": "Nombre",
     "limitLabel": "Límite",
     "periodLabel": "Periodo",
     "periodWeekly": "Semanal",
