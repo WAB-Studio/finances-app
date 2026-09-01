@@ -1,3 +1,4 @@
+import { isCivilDate } from "@/lib/dates";
 import { normalizeAmountInput } from "@/lib/money";
 
 // Quick entry reads one text field and proposes an editable movement (RF-22).
@@ -14,6 +15,9 @@ const ACCOUNT_TAIL_PATTERNS = [
   /\*+\s*(\d{4})\b/gu,
   /\btarjeta\s+cr[eé]dito\s+(\d{4})\b/giu,
 ];
+// Colombian banks write the day first: `el 24/08/26 a las 18:31` and
+// `el 25/08/2026 a las 20:07` both name a day in August.
+const DATE_PATTERN = /\b(\d{1,2})\/(\d{1,2})\/(\d{4}|\d{2})\b/u;
 
 interface InterpretContext {
   categories: { id: string; name: string; kind: string }[];
@@ -27,6 +31,19 @@ interface QuickEntryProposal {
   description: string;
   accountId: string | null;
   direction: "income" | "expense" | null;
+  occurredAt: string | null;
+}
+
+// The day the message names, as `YYYY-MM-DD`; null when it names none or names
+// a day no month holds. Whether that day is in the future needs a clock (RF-98).
+function readOccurredAt(text: string): string | null {
+  const match = DATE_PATTERN.exec(text);
+  if (!match) return null;
+
+  const [, day, month, year] = match;
+  const civil = `${year.length === 2 ? `20${year}` : year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+
+  return isCivilDate(civil) ? civil : null;
 }
 
 function escapeRegExp(value: string): string {
@@ -84,5 +101,6 @@ export function interpretQuickEntry(
       : EXPENSE_PATTERN.test(text)
         ? "expense"
         : null,
+    occurredAt: readOccurredAt(text),
   };
 }
