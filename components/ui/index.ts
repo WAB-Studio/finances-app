@@ -43,6 +43,8 @@ export type { Responsive } from "@radix-ui/themes/props";
 
 export { ToolbarSelect } from "./toolbar-select";
 
+export { FilterField } from "./filter-field";
+
 export { Theme } from "@radix-ui/themes";
 
 export { AppTheme } from "./theme";

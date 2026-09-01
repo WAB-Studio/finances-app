@@ -9,7 +9,7 @@ import {
 } from "@tanstack/react-table";
 import { ChevronLeft, ChevronRight, Search, SlidersHorizontal } from "lucide-react";
 import { useFormatter, useTranslations } from "next-intl";
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 
 import {
   Button,
@@ -17,6 +17,7 @@ import {
   CategoryTile,
   ColorSwatch,
   EmptyState,
+  FilterField,
   Flex,
   Heading,
   IconButton,
@@ -192,6 +193,7 @@ export function MovementsScreen({
           color="gray"
           size="3"
           aria-label={t("filtersLabel")}
+          aria-expanded={showFilters}
           onClick={() => setShowFilters((open) => !open)}
         >
           <SlidersHorizontal size={18} />
@@ -219,111 +221,125 @@ export function MovementsScreen({
           <Flex direction="column" gap="3">
             <Flex gap="3" wrap="wrap">
               <FilterField label={t("rangeFrom")}>
-                <TextField.Root
-                  type="date"
-                  value={filters.from ?? ""}
-                  onChange={(event) =>
-                    updateFilters({ from: event.target.value || null })
-                  }
-                />
+                {(id) => (
+                  <TextField.Root
+                    id={id}
+                    type="date"
+                    value={filters.from ?? ""}
+                    onChange={(event) =>
+                      updateFilters({ from: event.target.value || null })
+                    }
+                  />
+                )}
               </FilterField>
               <FilterField label={t("rangeTo")}>
-                <TextField.Root
-                  type="date"
-                  value={filters.to ?? ""}
-                  onChange={(event) =>
-                    updateFilters({ to: event.target.value || null })
-                  }
-                />
+                {(id) => (
+                  <TextField.Root
+                    id={id}
+                    type="date"
+                    value={filters.to ?? ""}
+                    onChange={(event) =>
+                      updateFilters({ to: event.target.value || null })
+                    }
+                  />
+                )}
               </FilterField>
             </Flex>
 
             <FilterField label={t("accountLabel")}>
-              <Select.Root
-                value={filters.account ?? ANY}
-                onValueChange={(value) =>
-                  updateFilters({ account: value === ANY ? null : value })
-                }
-              >
-                <Select.Trigger />
-                <Select.Content position="popper">
-                  <Select.Item value={ANY}>{t("allAccounts")}</Select.Item>
-                  {options.accounts.map((account) => (
-                    <Select.Item key={account.id} value={account.id}>
-                      {account.name}
-                    </Select.Item>
-                  ))}
-                </Select.Content>
-              </Select.Root>
+              {(id) => (
+                <Select.Root
+                  value={filters.account ?? ANY}
+                  onValueChange={(value) =>
+                    updateFilters({ account: value === ANY ? null : value })
+                  }
+                >
+                  <Select.Trigger id={id} />
+                  <Select.Content position="popper">
+                    <Select.Item value={ANY}>{t("allAccounts")}</Select.Item>
+                    {options.accounts.map((account) => (
+                      <Select.Item key={account.id} value={account.id}>
+                        {account.name}
+                      </Select.Item>
+                    ))}
+                  </Select.Content>
+                </Select.Root>
+              )}
             </FilterField>
 
             <FilterField label={t("categoryLabel")}>
-              <Select.Root
-                value={filters.category ?? ANY}
-                onValueChange={(value) =>
-                  updateFilters({ category: value === ANY ? null : value })
-                }
-              >
-                <Select.Trigger />
-                <Select.Content position="popper">
-                  <Select.Item value={ANY}>{t("allCategories")}</Select.Item>
-                  {[...categoryNames].map(([id, name]) => (
-                    <Select.Item key={id} value={id}>
-                      {name}
-                    </Select.Item>
-                  ))}
-                </Select.Content>
-              </Select.Root>
+              {(controlId) => (
+                <Select.Root
+                  value={filters.category ?? ANY}
+                  onValueChange={(value) =>
+                    updateFilters({ category: value === ANY ? null : value })
+                  }
+                >
+                  <Select.Trigger id={controlId} />
+                  <Select.Content position="popper">
+                    <Select.Item value={ANY}>{t("allCategories")}</Select.Item>
+                    {[...categoryNames].map(([id, name]) => (
+                      <Select.Item key={id} value={id}>
+                        {name}
+                      </Select.Item>
+                    ))}
+                  </Select.Content>
+                </Select.Root>
+              )}
             </FilterField>
 
             {/* The ledger spans both scopes, so the read filter offers every
                 label — unlike the write pickers, which narrow to one (RF-89). */}
             {options.labels.length > 0 && (
               <FilterField label={t("labelFilterLabel")}>
-                <Select.Root
-                  value={filters.label ?? ANY}
-                  onValueChange={(value) =>
-                    updateFilters({ label: value === ANY ? null : value })
-                  }
-                >
-                  <Select.Trigger />
-                  <Select.Content position="popper">
-                    <Select.Item value={ANY}>{t("allLabels")}</Select.Item>
-                    {options.labels.map((label) => (
-                      <Select.Item key={label.id} value={label.id}>
-                        <Flex as="span" align="center" gap="2">
-                          {/* `color` is a nullable column; a label stored
-                              without one keeps its name. */}
-                          {label.color && (
-                            <ColorSwatch color={label.color} />
-                          )}
-                          {label.name}
-                        </Flex>
-                      </Select.Item>
-                    ))}
-                  </Select.Content>
-                </Select.Root>
+                {(id) => (
+                  <Select.Root
+                    value={filters.label ?? ANY}
+                    onValueChange={(value) =>
+                      updateFilters({ label: value === ANY ? null : value })
+                    }
+                  >
+                    <Select.Trigger id={id} />
+                    <Select.Content position="popper">
+                      <Select.Item value={ANY}>{t("allLabels")}</Select.Item>
+                      {options.labels.map((label) => (
+                        <Select.Item key={label.id} value={label.id}>
+                          <Flex as="span" align="center" gap="2">
+                            {/* `color` is a nullable column; a label stored
+                                without one keeps its name. */}
+                            {label.color && (
+                              <ColorSwatch color={label.color} />
+                            )}
+                            {label.name}
+                          </Flex>
+                        </Select.Item>
+                      ))}
+                    </Select.Content>
+                  </Select.Root>
+                )}
               </FilterField>
             )}
 
             {options.members.length > 0 && (
               <FilterField label={t("createdBy")}>
-                <Select.Root
-                  value={filters.member ?? ANY}
-                  onValueChange={(value) =>
-                    updateFilters({ member: value === ANY ? null : value })
-                  }
-                >
-                  <Select.Trigger />
-                  <Select.Content position="popper">
-                    <Select.Item value={ANY}>{t("allMembers")}</Select.Item>
-                    {options.members.map((member) => (
-                      <Select.Item key={member.userId} value={member.userId}>
-                        {member.name}
-                      </Select.Item>
-                    ))}
-                  </Select.Content>
-                </Select.Root>
+                {(id) => (
+                  <Select.Root
+                    value={filters.member ?? ANY}
+                    onValueChange={(value) =>
+                      updateFilters({ member: value === ANY ? null : value })
+                    }
+                  >
+                    <Select.Trigger id={id} />
+                    <Select.Content position="popper">
+                      <Select.Item value={ANY}>{t("allMembers")}</Select.Item>
+                      {options.members.map((member) => (
+                        <Select.Item key={member.userId} value={member.userId}>
+                          {member.name}
+                        </Select.Item>
+                      ))}
+                    </Select.Content>
+                  </Select.Root>
+                )}
               </FilterField>
             )}
 
@@ -495,22 +511,5 @@ function MovementCard({
         />
       </LocaleLink>
     </Card>
-  );
-}
-
-function FilterField({
-  label,
-  children,
-}: {
-  label: string;
-  children: ReactNode;
-}) {
-  return (
-    <Flex direction="column" gap="1" flexGrow="1" minWidth="0">
-      <Text size="2" weight="medium" color="gray">
-        {label}
-      </Text>
-      {children}
-    </Flex>
   );
 }

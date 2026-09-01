@@ -72,7 +72,7 @@ export function DebtsScreen({
         <Text size="2" color="gray">
           {t("total")}
         </Text>
-        <Heading size="8" style={{ fontVariantNumeric: "tabular-nums" }}>
+        <Heading as="h2" size="8" style={{ fontVariantNumeric: "tabular-nums" }}>
           {format.number(centsToPesos(totals.owedCents), "currency")}
         </Heading>
         {totals.nextPayment !== null && (

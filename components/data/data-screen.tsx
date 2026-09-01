@@ -12,6 +12,7 @@ import {
   Button,
   Callout,
   Card,
+  FilterField,
   Flex,
   Heading,
   Spinner,
@@ -112,7 +113,7 @@ export function DataScreen({
 
       <Card>
         <Flex direction="column" gap="4">
-          <Heading size="3">{t("screen.exportHeading")}</Heading>
+          <Heading as="h2" size="3">{t("screen.exportHeading")}</Heading>
 
           <Flex direction="column" gap="1">
             <Text size="2" weight="medium" color="gray">
@@ -134,26 +135,26 @@ export function DataScreen({
           </Flex>
 
           <Flex gap="3" wrap="wrap">
-            <Flex direction="column" gap="1" flexGrow="1" minWidth="0">
-              <Text size="2" weight="medium" color="gray">
-                {t("screen.rangeFrom")}
-              </Text>
-              <TextField.Root
-                type="date"
-                value={from}
-                onChange={(event) => setFrom(event.target.value)}
-              />
-            </Flex>
-            <Flex direction="column" gap="1" flexGrow="1" minWidth="0">
-              <Text size="2" weight="medium" color="gray">
-                {t("screen.rangeTo")}
-              </Text>
-              <TextField.Root
-                type="date"
-                value={to}
-                onChange={(event) => setTo(event.target.value)}
-              />
-            </Flex>
+            <FilterField label={t("screen.rangeFrom")}>
+              {(id) => (
+                <TextField.Root
+                  id={id}
+                  type="date"
+                  value={from}
+                  onChange={(event) => setFrom(event.target.value)}
+                />
+              )}
+            </FilterField>
+            <FilterField label={t("screen.rangeTo")}>
+              {(id) => (
+                <TextField.Root
+                  id={id}
+                  type="date"
+                  value={to}
+                  onChange={(event) => setTo(event.target.value)}
+                />
+              )}
+            </FilterField>
           </Flex>
 
           <Button asChild>
@@ -167,7 +168,7 @@ export function DataScreen({
 
       <Card>
         <Flex direction="column" gap="3">
-          <Heading size="3">{t("screen.templateHeading")}</Heading>
+          <Heading as="h2" size="3">{t("screen.templateHeading")}</Heading>
           <Text size="2" color="gray">
             {t("screen.templateDescription")}
           </Text>
@@ -182,7 +183,7 @@ export function DataScreen({
 
       <Card>
         <Flex direction="column" gap="4">
-          <Heading size="3">{t("screen.importHeading")}</Heading>
+          <Heading as="h2" size="3">{t("screen.importHeading")}</Heading>
           <Text size="2" color="gray">
             {t("screen.importDescription")}
           </Text>

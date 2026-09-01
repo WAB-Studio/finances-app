@@ -135,6 +135,7 @@ export function MovementDetail({
       <Flex direction="column" align="center" gap="2" py="4">
         <CategoryTile color={tileColor} size={60} />
         <Heading
+          as="h2"
           size="8"
           color={amountColor}
           style={{ fontVariantNumeric: "tabular-nums" }}

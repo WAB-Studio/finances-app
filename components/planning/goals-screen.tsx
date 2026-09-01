@@ -198,7 +198,7 @@ function GoalCard({
                 type="button"
                 variant="ghost"
                 color="gray"
-                aria-label={tKey("common.actions")}
+                aria-label={tKey("common.actionsFor", { name: goal.name })}
               >
                 <EllipsisVertical size={16} />
               </IconButton>

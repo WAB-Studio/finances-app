@@ -174,7 +174,7 @@ export function DeliveryCard({
       <Flex direction="column" gap="4">
         <Flex justify="between" align="start" gap="3">
           <Flex direction="column" gap="1" minWidth="0">
-            <Heading size="3">
+            <Heading as="h2" size="3">
               {delivery.merchantLabel ?? t("noMerchant")}
             </Heading>
             <Text size="2" color="gray">
@@ -190,7 +190,9 @@ export function DeliveryCard({
                   variant="ghost"
                   color="gray"
                   size="3"
-                  aria-label={tKey("common.actions")}
+                  aria-label={tKey("common.actionsFor", {
+                    name: delivery.merchantLabel ?? t("noMerchant"),
+                  })}
                 >
                   <EllipsisVertical size={16} />
                 </IconButton>
@@ -216,11 +218,11 @@ export function DeliveryCard({
         </Flex>
 
         {delivery.proposedAmountCents === null ? (
-          <Heading size="6" color="amber">
+          <Heading as="h3" size="6" color="amber">
             {t("amountMissing")}
           </Heading>
         ) : (
-          <Heading size="6">
+          <Heading as="h3" size="6">
             {format.number(
               centsToPesos(delivery.proposedAmountCents),
               "currency",
@@ -280,6 +282,7 @@ export function DeliveryCard({
             size="3"
             variant="ghost"
             color="gray"
+            aria-expanded={rawTextOpen}
             onClick={() => setRawTextOpen((open) => !open)}
           >
             {rawTextOpen ? t("hideRawText") : t("showRawText")}

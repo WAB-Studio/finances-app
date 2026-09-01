@@ -55,15 +55,17 @@ export function LoginForm({ next }: { next?: string }) {
     form.reset();
   }
 
+  // The panel replaces the form, so the submit button that had focus unmounts
+  // with it: the live region is what carries the news instead.
   if (sentTo) {
     return (
-      <Flex direction="column" gap="4">
+      <Flex direction="column" gap="4" role="status">
         <Flex direction="column" align="center" gap="2">
           <Text>
             <MailCheckIcon size={24} aria-hidden />
           </Text>
-          <Text size="3" weight="medium">
-            {t("sentTitle")}
+          <Text size="3" weight="medium" asChild>
+            <h2>{t("sentTitle")}</h2>
           </Text>
           <Text size="2" color="gray" align="center">
             {t("sentDescription", { email: sentTo })}

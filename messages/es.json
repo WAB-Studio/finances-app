@@ -18,6 +18,7 @@
     "archive": "Archivar",
     "restore": "Restaurar",
     "actions": "Acciones",
+    "actionsFor": "Acciones de {name}",
     "fund": "Fondo",
     "optional": "Opcional"
   },
