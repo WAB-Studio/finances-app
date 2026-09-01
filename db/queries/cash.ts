@@ -2,6 +2,7 @@ import "server-only";
 
 import { and, asc, desc, eq, isNull, ne, or, sql } from "drizzle-orm";
 
+import { insertRow } from "@/db/insert-row";
 import type { AccountRow } from "@/db/queries/accounts";
 import { getUserGroup } from "@/db/queries/groups";
 import { insertTransaction } from "@/db/queries/transactions";
@@ -134,9 +135,10 @@ export async function withdrawCash({
     // and draw into it. 'shared' always has the group's cash, so this only ever
     // fires for a per-member or personal caller (RF-55, RF-56).
     if (targetCashAccountId === null) {
-      const [row] = await tx
-        .insert(accounts)
-        .values({
+      const [row] = await insertRow(
+        tx,
+        accounts,
+        {
           groupId: null,
           ownerUserId: user.id,
           isShared: false,
@@ -145,8 +147,9 @@ export async function withdrawCash({
           subtype: "efectivo",
           initialBalanceCents: 0,
           initialBalanceOn: sql`(now() at time zone ${TIME_ZONE})::date`,
-        })
-        .returning({ id: accounts.id });
+        },
+        { returning: { id: accounts.id } },
+      );
 
       targetCashAccountId = row.id;
       createdCashAccount = true;

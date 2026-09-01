@@ -2,8 +2,10 @@ import "server-only";
 
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 
+import { insertRow } from "@/db/insert-row";
 import { categories } from "@/db/schema";
 import type { Category } from "@/db/schema";
+import type { Transaction } from "@/db/session";
 import { withUserDb } from "@/db/session";
 
 type CategoryKind = Category["kind"];
@@ -123,31 +125,36 @@ export async function listUsedCategoryColors(scope: CategoryScope): Promise<stri
   });
 }
 
-export async function createCategory({
-  scope,
-  name,
-  kind,
-  parentId,
-  color,
-}: CreateCategoryArgs): Promise<{ categoryId: string }> {
+export async function createCategory(
+  args: CreateCategoryArgs,
+): Promise<{ categoryId: string }> {
+  return withUserDb((tx) => insertCategory(tx, args));
+}
+
+// The insert body of `createCategory`, against a caller-supplied transaction, so a
+// rolled-back proof drives the statement a screen commits.
+export async function insertCategory(
+  tx: Transaction,
+  { scope, name, kind, parentId, color }: CreateCategoryArgs,
+): Promise<{ categoryId: string }> {
   const ownerUserId = "ownerUserId" in scope ? scope.ownerUserId : null;
   const groupId = "groupId" in scope ? scope.groupId : null;
 
-  return withUserDb(async (tx) => {
-    const [row] = await tx
-      .insert(categories)
-      .values({
-        ownerUserId,
-        groupId,
-        name,
-        kind,
-        parentId,
-        color: parentId ? subcategoryColor(parentId) : color,
-      })
-      .returning({ id: categories.id });
+  const [row] = await insertRow(
+    tx,
+    categories,
+    {
+      ownerUserId,
+      groupId,
+      name,
+      kind,
+      parentId,
+      color: parentId ? subcategoryColor(parentId) : color,
+    },
+    { returning: { id: categories.id } },
+  );
 
-    return { categoryId: row.id };
-  });
+  return { categoryId: row.id };
 }
 
 export async function updateCategory({

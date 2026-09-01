@@ -2,6 +2,7 @@ import "server-only";
 
 import { and, asc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 
+import { insertRow } from "@/db/insert-row";
 import { groupMembers } from "@/db/schema";
 import type { GroupMember } from "@/db/schema";
 import { withUserDb } from "@/db/session";
@@ -59,10 +60,12 @@ export async function createMember({
   inviteEmail?: string;
 }): Promise<{ memberId: string }> {
   return withUserDb(async (tx) => {
-    const [row] = await tx
-      .insert(groupMembers)
-      .values({ groupId, name, inviteEmail: inviteEmail ?? null })
-      .returning({ id: groupMembers.id });
+    const [row] = await insertRow(
+      tx,
+      groupMembers,
+      { groupId, name, inviteEmail: inviteEmail ?? null },
+      { returning: { id: groupMembers.id } },
+    );
 
     return { memberId: row.id };
   });
