@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 
+import { insertRow } from "@/db/insert-row";
 import { claimInviteForUser } from "@/db/queries/group-members";
 import { appUsers } from "@/db/schema";
 import { withUserDb } from "@/db/session";
@@ -78,10 +79,12 @@ export async function GET(request: NextRequest) {
     // One statement, not check-then-insert: a second click or a mail client
     // prefetching the link would race a duplicate key. The id is the one
     // `verifyOtp` just verified, which is what the insert policy checks.
-    await tx
-      .insert(appUsers)
-      .values({ id: userId, locale: fallbackLocale })
-      .onConflictDoNothing({ target: appUsers.id });
+    await insertRow(
+      tx,
+      appUsers,
+      { id: userId, locale: fallbackLocale },
+      { onConflict: { target: appUsers.id } },
+    );
 
     const [row] = await tx
       .select({ locale: appUsers.locale })

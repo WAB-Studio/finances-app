@@ -5,6 +5,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { desc, eq, sql } from "drizzle-orm";
 
 import { db } from "@/db/client";
+import { insertRow } from "@/db/insert-row";
 import { listAccounts } from "@/db/queries/accounts";
 import { listCategories } from "@/db/queries/categories";
 import type { CategoryNode } from "@/db/queries/categories";
@@ -42,18 +43,14 @@ export async function issueWebhookCredential({
   const tokenHash = tokenHashOf(token);
 
   return withUserDb(async (tx) => {
-    const [row] = await tx
-      .insert(webhookCredentials)
-      // `owner_user_id` is stamped by the owner trigger and absent from the
-      // INSERT grant; drizzle types it required, so the payload is cast past it.
-      .values({
-        name,
-        tokenHash,
-        defaultAccountId,
-        defaultCategoryId,
-        rateLimitPerMin,
-      } as typeof webhookCredentials.$inferInsert)
-      .returning({ id: webhookCredentials.id });
+    // `owner_user_id` is stamped by the owner trigger and absent from the
+    // INSERT grant.
+    const [row] = await insertRow(
+      tx,
+      webhookCredentials,
+      { name, tokenHash, defaultAccountId, defaultCategoryId, rateLimitPerMin },
+      { returning: { id: webhookCredentials.id } },
+    );
 
     return { id: row.id, token };
   });

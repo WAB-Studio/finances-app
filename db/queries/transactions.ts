@@ -3,6 +3,7 @@ import "server-only";
 import { and, desc, eq, gte, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 
+import { insertRow } from "@/db/insert-row";
 import { transactionLabels, transactionSplits, transactions } from "@/db/schema";
 import type { Transaction } from "@/db/session";
 import { withUserDb } from "@/db/session";
@@ -129,9 +130,11 @@ export async function insertTransaction(
   }
 
   if (labelIds.length > 0) {
-    await tx
-      .insert(transactionLabels)
-      .values(labelIds.map((labelId) => ({ transactionId, labelId })));
+    await insertRow(
+      tx,
+      transactionLabels,
+      labelIds.map((labelId) => ({ transactionId, labelId })),
+    );
   }
 
   return { transactionId };
@@ -176,7 +179,9 @@ export async function updateTransaction({
       .delete(transactionSplits)
       .where(eq(transactionSplits.transactionId, transactionId));
     if (splits.length > 0) {
-      await tx.insert(transactionSplits).values(
+      await insertRow(
+        tx,
+        transactionSplits,
         splits.map((split) => ({
           transactionId,
           categoryId: split.categoryId,
@@ -189,9 +194,11 @@ export async function updateTransaction({
       .delete(transactionLabels)
       .where(eq(transactionLabels.transactionId, transactionId));
     if (labelIds.length > 0) {
-      await tx
-        .insert(transactionLabels)
-        .values(labelIds.map((labelId) => ({ transactionId, labelId })));
+      await insertRow(
+        tx,
+        transactionLabels,
+        labelIds.map((labelId) => ({ transactionId, labelId })),
+      );
     }
 
     return true;
