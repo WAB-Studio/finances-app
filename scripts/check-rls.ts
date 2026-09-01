@@ -177,6 +177,7 @@ async function main() {
   await checkIngestMerchantTrust();
   await checkInsertGrantMap();
   await checkInsertHelper();
+  await checkGroupMemberUserIdLock();
 }
 
 // Assertions 9-26: the repivoted schema. A group holds accounts and categories a user XOR a group
@@ -2417,39 +2418,43 @@ async function checkInviteClaimPolicies() {
         values (${busyGroupId}, ${busyUser}, 'rls invite busy leader', 'leader')`;
 
       // 98: the invited caller claims their own pending row. The SELECT policy still hides an unclaimed
-      // row from the outsider, so a WHERE that reads a column would match nothing; the claim policy alone
-      // bounds the write, so it is issued unqualified and lands on exactly the row addressed to their email.
+      // row from the outsider, so the caller could not name it even if the claim took a target; it takes
+      // none, and picks the row addressed to the email their magic link proved.
       await tx`reset role`;
       await enterUserContext(tx, invitedUser, invitedEmail);
       const [{ count: preClaimVisible }] = await tx<{ count: string }[]>`
         select count(*)::text as count from group_members where id = ${pendingInvited}`;
-      const claim = await tx`update group_members set user_id = ${invitedUser}, invite_email = null`;
+      const [{ claim_group_invite: claimedId }] = await tx<
+        { claim_group_invite: string | null }[]
+      >`select private.claim_group_invite()`;
       const [claimed] = await tx<{ user_id: string | null; invite_email: string | null; role: string }[]>`
         select user_id, invite_email, role from group_members where id = ${pendingInvited}`;
       assert(
         labels[0],
         preClaimVisible === "0" &&
-          claim.count === 1 &&
+          claimedId === pendingInvited &&
           claimed.user_id === invitedUser &&
           claimed.invite_email === null &&
           claimed.role === "member",
-        `pre-claim visible = ${preClaimVisible}, rows = ${claim.count}, user_id = ${claimed?.user_id === invitedUser ? "self" : claimed?.user_id}, invite_email = ${claimed?.invite_email}, role = ${claimed?.role}`,
+        `pre-claim visible = ${preClaimVisible}, claimed = ${claimedId === pendingInvited ? "the pending row" : claimedId}, user_id = ${claimed?.user_id === invitedUser ? "self" : claimed?.user_id}, invite_email = ${claimed?.invite_email}, role = ${claimed?.role}`,
       );
 
-      // 99: a caller whose email matches no invite claims nothing — neither the claim policy (email) nor
-      // the member policy (not a member) admits any row, so the unqualified update touches nothing.
+      // 99: a caller whose email matches no invite claims nothing — the function matches on auth.email()
+      // alone, so there is no row for it to pick.
       await tx`reset role`;
       await enterUserContext(tx, strangerUser, strangerEmail);
-      const stranger = await tx`update group_members set user_id = ${strangerUser}, invite_email = null`;
-      assert(labels[1], stranger.count === 0, `rows = ${stranger.count}`);
+      const [{ claim_group_invite: strangerId }] = await tx<
+        { claim_group_invite: string | null }[]
+      >`select private.claim_group_invite()`;
+      assert(labels[1], strangerId === null, `returned ${strangerId ?? "null"}`);
 
-      // 100: the busy caller's email matches the invite, so the claim policy admits the pending row; the
+      // 100: the busy caller's email matches the invite, so the function picks the pending row; the
       // one-group-per-user index then refuses it, since the caller already holds a live membership.
       await tx`reset role`;
       await enterUserContext(tx, busyUser, busyEmail);
       await tx
         .savepoint(async (sp) => {
-          await sp`update group_members set user_id = ${busyUser}, invite_email = null`;
+          await sp`select private.claim_group_invite()`;
           assert(labels[2], false, "a second live membership landed, which it must not");
         })
         .catch((error: unknown) => {
@@ -5090,6 +5095,160 @@ async function checkInsertHelper() {
       survivors.accounts === "0" &&
       survivors.terms === "0",
     `${upsertOutcome}; current_user = ${afterUser}, accounts surviving = ${survivors.accounts}, terms surviving = ${survivors.terms}`,
+  );
+}
+
+// Assertions 179-183: the `user_id` lock on group_members. `grant update (user_id, invite_email)`
+// served the invite claim, but a grant spans every UPDATE policy on the table, and
+// `group_members_update_member` admits every row in the group: a plain member could repoint the
+// leader's `user_id` at a second account of his own, evicting her and inheriting the group with the
+// `role = 'leader'` the row keeps. The attack is executed here, not read off the policy text.
+// Fixtures live in one transaction forced to roll back; each barred statement runs in its own savepoint.
+async function checkGroupMemberUserIdLock() {
+  console.log("");
+  const leaderUser = randomUUID();
+  const memberUser = randomUUID();
+  // The attacker's second sign-up: a real row, since `user_id` carries a foreign key.
+  const strangerUser = randomUUID();
+  const memberEmail = `member-${randomUUID()}@example.test`;
+  const groupId = randomUUID();
+  const forcedRollback = Symbol("forced rollback");
+
+  const labels = [
+    "179. the invited caller's claim lands on their own pending row and clears the invite",
+    "180. a second claim by the same caller returns null",
+    "181. a plain member cannot repoint the leader's user_id at an account of his own",
+    "182. a plain member still renames their own row and archives another",
+  ];
+  const tailLabel = "183. the rolled-back escalation transaction leaves no trace";
+
+  type OrmTx = Parameters<Parameters<typeof orm.transaction>[0]>[0];
+  const enter = (tx: OrmTx, subject: string, email?: string) =>
+    tx.execute(dsql`select
+      set_config('request.jwt.claims', ${JSON.stringify({ sub: subject, role: "authenticated", aud: "authenticated", ...(email ? { email } : {}) })}, true),
+      set_config('statement_timeout', '8000', true),
+      set_config('role', 'authenticated', true)`);
+
+  await orm
+    .transaction(async (tx) => {
+      const refusalOf = async (run: (sp: OrmTx) => Promise<unknown>): Promise<string> => {
+        let refusal = "no refusal — the statement was accepted";
+        await tx
+          .transaction(async (sp) => {
+            await run(sp);
+          })
+          .catch((error: unknown) => {
+            refusal = describeRefusal(error);
+          });
+        return refusal;
+      };
+
+      await tx.execute(
+        dsql`insert into auth.users (id) values (${leaderUser}), (${memberUser}), (${strangerUser})`,
+      );
+      await tx.execute(
+        dsql`insert into app_users (id) values (${leaderUser}), (${memberUser}), (${strangerUser})`,
+      );
+
+      // The leader opens the group and records two people (RF-07): the one she invites by email, and a
+      // spare with no login the member is free to archive.
+      await enter(tx, leaderUser);
+      await tx.execute(
+        dsql`insert into groups (id, name, cash_mode) values (${groupId}, 'rls escalation', 'shared')`,
+      );
+      const [leaderRow] = await tx.execute<{ id: string }>(
+        dsql`insert into group_members (group_id, user_id, name, role)
+          values (${groupId}, ${leaderUser}, 'rls escalation leader', 'leader') returning id`,
+      );
+      const [pending] = await tx.execute<{ id: string }>(
+        dsql`insert into group_members (group_id, name, role, invite_email)
+          values (${groupId}, 'rls escalation member', 'member', ${memberEmail}) returning id`,
+      );
+      const [spare] = await tx.execute<{ id: string }>(
+        dsql`insert into group_members (group_id, name, role)
+          values (${groupId}, 'rls escalation spare', 'member') returning id`,
+      );
+
+      // 179: the claim takes no argument, so the caller cannot aim it: the function reads auth.email()
+      // and picks the oldest pending row addressed to it.
+      await tx.execute(dsql`reset role`);
+      await enter(tx, memberUser, memberEmail);
+      const [{ claim_group_invite: claimedId }] = await tx.execute<{
+        claim_group_invite: string | null;
+      }>(dsql`select private.claim_group_invite()`);
+      const [claimedRow] = await tx.execute<{
+        user_id: string | null;
+        invite_email: string | null;
+        role: string;
+      }>(dsql`select user_id, invite_email, role from group_members where id = ${pending.id}`);
+      assert(
+        labels[0],
+        claimedId === pending.id &&
+          claimedRow.user_id === memberUser &&
+          claimedRow.invite_email === null &&
+          claimedRow.role === "member",
+        `claimed = ${claimedId === pending.id ? "the pending row" : claimedId}, user_id = ${claimedRow?.user_id === memberUser ? "self" : claimedRow?.user_id}, invite_email = ${claimedRow?.invite_email}, role = ${claimedRow?.role}`,
+      );
+
+      // 180: nothing pends on that email any more, so the same call claims nothing.
+      const [{ claim_group_invite: repeatId }] = await tx.execute<{
+        claim_group_invite: string | null;
+      }>(dsql`select private.claim_group_invite()`);
+      assert(labels[1], repeatId === null, `returned ${repeatId ?? "null"}`);
+
+      // 181: the escalation itself, run as the plain member it was proved with. Before the grant was
+      // narrowed this returned UPDATE 1 and left `role = 'leader'` on a row pointing at the stranger.
+      let attackRows = -1;
+      const attackRefusal = await refusalOf(async (sp) => {
+        const rows = await sp.execute<{ id: string }>(
+          dsql`update group_members set user_id = ${strangerUser}
+            where id = ${leaderRow.id} returning id`,
+        );
+        attackRows = rows.length;
+      });
+      const [leaderNow] = await tx.execute<{ user_id: string | null; role: string }>(
+        dsql`select user_id, role from group_members where id = ${leaderRow.id}`,
+      );
+      assert(
+        labels[2],
+        (attackRows === 0 || attackRefusal.includes("42501")) &&
+          leaderNow.user_id === leaderUser &&
+          leaderNow.role === "leader",
+        `rows = ${attackRows === -1 ? "none issued" : attackRows}, ${attackRefusal}, leader row user_id = ${leaderNow?.user_id === leaderUser ? "still hers" : leaderNow?.user_id}, role = ${leaderNow?.role}`,
+      );
+
+      // 182: the negative control — the fix narrowed the grant, it did not withdraw the feature.
+      const renamed = await tx.execute<{ id: string; name: string }>(
+        dsql`update group_members set name = 'rls escalation renamed'
+          where id = ${pending.id} returning id, name`,
+      );
+      const archived = await tx.execute<{ id: string; archived_at: string | null }>(
+        dsql`update group_members set archived_at = now()
+          where id = ${spare.id} returning id, archived_at::text`,
+      );
+      assert(
+        labels[3],
+        renamed.length === 1 &&
+          renamed[0].name === "rls escalation renamed" &&
+          archived.length === 1 &&
+          archived[0].archived_at !== null,
+        `renamed ${renamed.length} row to '${renamed[0]?.name}', archived ${archived.length} row at ${archived[0]?.archived_at ?? "nothing"}`,
+      );
+
+      // Nothing this section wrote may survive; force the ROLLBACK.
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`select current_user`;
+  const [{ count: probeCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from groups where name like 'rls escalation%'`;
+  assert(
+    tailLabel,
+    afterUser === "postgres" && probeCount === "0",
+    `current_user = ${afterUser}, rows named 'rls escalation%' = ${probeCount}`,
   );
 }
 
