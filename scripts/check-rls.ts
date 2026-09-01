@@ -3,10 +3,15 @@
 // `pgErrorCode` from the app.
 import { createHash, randomUUID } from "node:crypto";
 
-import { sql as dsql } from "drizzle-orm";
+import { getTableColumns, is, sql as dsql } from "drizzle-orm";
+import { CasingCache } from "drizzle-orm/casing";
+import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
+import type { PgColumn } from "drizzle-orm/pg-core";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 
+import { insertRow } from "@/db/insert-row";
+import type { InsertValues } from "@/db/insert-row";
 import { commitImport } from "@/db/queries/import-commit";
 import type { CommitInput, CommitScope } from "@/db/queries/import-commit";
 import * as schema from "@/db/schema";
@@ -170,6 +175,8 @@ async function main() {
   await checkWebhookCredentialOwnerWrites();
   await checkIngestDeliveryPolicies();
   await checkIngestMerchantTrust();
+  await checkInsertGrantMap();
+  await checkInsertHelper();
 }
 
 // Assertions 9-26: the repivoted schema. A group holds accounts and categories a user XOR a group
@@ -4668,6 +4675,421 @@ async function checkIngestMerchantTrust() {
       survivors.shapes === "0" &&
       survivors.merchants === "0",
     `current_user = ${afterUser}, deliveries = ${survivors.deliveries}, shapes = ${survivors.shapes}, merchants = ${survivors.merchants}`,
+  );
+}
+
+// A DrizzleQueryError names only the query it ran: the driver's message hangs off
+// the cause chain, like its sqlstate. Both are reported, because `permission denied
+// for table X` and `new row violates row-level security policy` are both 42501.
+function describeRefusal(error: unknown): string {
+  let current: unknown = error;
+  let message = String(error);
+
+  for (let hop = 0; hop < 5; hop++) {
+    if (typeof current !== "object" || current === null) break;
+    if ("message" in current && typeof current.message === "string") {
+      message = current.message;
+    }
+    current = "cause" in current ? current.cause : undefined;
+  }
+
+  return `sqlstate ${pgErrorCode(error) ?? "none"} — ${message.split("\n")[0]}`;
+}
+
+// The mapping `insertRow` writes through: a JS key becomes a column name here, and
+// nowhere else. `getTableConfig(...).columns[].name` returns the key itself, so a
+// proof built on it would agree with the helper while both were wrong.
+const insertCasing = new CasingCache("snake_case");
+
+// Every table `db/schema` exports, with the column names the helper would write.
+function schemaTables(): { name: string; columns: string[] }[] {
+  // Cast first: the exports are a union of concrete table types, and a predicate
+  // narrowing to the base class is not assignable to any one of them.
+  return (Object.values(schema) as unknown[])
+    .filter((value): value is PgTable => is(value, PgTable))
+    .map((table) => ({
+      name: getTableConfig(table).name,
+      columns: Object.values(getTableColumns(table) as Record<string, PgColumn>).map(
+        (column) => insertCasing.getColumnCasing(column),
+      ),
+    }))
+    .sort((first, second) => first.name.localeCompare(second.name));
+}
+
+// The columns `authenticated` holds NO INSERT on, per table, read off the live
+// database and pinned here. A migration that widens or narrows a grant fails 174
+// and has to change this map on purpose. An empty array is a table whose every
+// column may be written; a table absent from the app's schema is a failure too.
+const INSERT_GRANT_GAPS: Record<string, string[]> = {
+  accounts: ["archived_at", "created_at", "id", "updated_at"],
+  app_users: [],
+  audit_log: [
+    "action",
+    "actor_user_id",
+    "after_data",
+    "before_data",
+    "entity",
+    "group_id",
+    "id",
+    "occurred_at",
+    "owner_user_id",
+    "record_id",
+  ],
+  budgets: ["archived_at", "created_at", "id", "updated_at"],
+  categories: ["created_at", "id", "updated_at"],
+  debt_statements: ["closed_at", "id"],
+  debt_terms: ["created_at", "updated_at"],
+  goal_contributions: ["id"],
+  group_members: [],
+  groups: ["created_at", "currency", "updated_at"],
+  ingest_deliveries: [
+    "created_at",
+    "id",
+    "owner_user_id",
+    "resolved_at",
+    "status",
+    "transaction_id",
+    "updated_at",
+  ],
+  ingest_merchants: [
+    "candidate_category_id",
+    "created_at",
+    "id",
+    "merchant_key",
+    "merchant_label",
+    "owner_user_id",
+    "state",
+    "streak",
+    "trusted_category_id",
+    "updated_at",
+  ],
+  ingest_shapes: ["created_at", "id", "owner_user_id", "updated_at"],
+  installment_lines: ["created_at", "id", "paid_transaction_id"],
+  installment_plans: ["created_at", "id", "updated_at"],
+  labels: ["created_at", "id", "updated_at"],
+  planned_payments: [
+    "created_at",
+    "created_by",
+    "group_id",
+    "id",
+    "owner_user_id",
+    "settled_transaction_id",
+    "status",
+    "updated_at",
+  ],
+  recurring_rules: [
+    "created_at",
+    "created_by",
+    "group_id",
+    "id",
+    "is_active",
+    "owner_user_id",
+    "updated_at",
+  ],
+  savings_goals: ["archived_at", "created_at", "id", "updated_at"],
+  transaction_labels: [],
+  transaction_splits: ["id"],
+  transactions: [
+    "created_at",
+    "created_by",
+    "group_id",
+    "id",
+    "kind",
+    "owner_user_id",
+    "recurring_rule_id",
+    "reviewed_at",
+    "updated_at",
+  ],
+  webhook_credentials: [
+    "created_at",
+    "id",
+    "last_used_at",
+    "owner_user_id",
+    "rate_count",
+    "rate_window_started_at",
+    "revoked_at",
+    "updated_at",
+  ],
+};
+
+// Assertions 173-174: the two facts `insertRow` rests on — that its snake_case map
+// names real columns, and that the per-column INSERT grants are still the ones the
+// helper exists to satisfy. Catalogue reads only: no fixture, no write, no role switch.
+async function checkInsertGrantMap() {
+  console.log("");
+  const tables = schemaTables();
+
+  const live = await sql<{ table_name: string; column_name: string }[]>`
+    select c.table_name, c.column_name
+    from information_schema.columns c
+    join information_schema.tables t
+      on t.table_schema = c.table_schema
+     and t.table_name = c.table_name
+     and t.table_type = 'BASE TABLE'
+    where c.table_schema = 'public'`;
+
+  const realColumns = new Set(live.map((row) => `${row.table_name}.${row.column_name}`));
+  const unmapped = tables.flatMap((table) =>
+    table.columns
+      .map((column) => `${table.name}.${column}`)
+      .filter((qualified) => !realColumns.has(qualified)),
+  );
+  const mappedCount = tables.reduce((total, table) => total + table.columns.length, 0);
+
+  assert(
+    "173. every column name insertRow derives is a real column",
+    unmapped.length === 0,
+    `${tables.length} tables, ${mappedCount} columns mapped, ${unmapped.length} unmapped${
+      unmapped.length > 0 ? `: ${unmapped.join(", ")}` : ""
+    }`,
+  );
+
+  const gaps = await sql<{ table_name: string; column_name: string }[]>`
+    select c.table_name, c.column_name
+    from information_schema.columns c
+    join information_schema.tables t
+      on t.table_schema = c.table_schema
+     and t.table_name = c.table_name
+     and t.table_type = 'BASE TABLE'
+    where c.table_schema = 'public'
+      and not has_column_privilege(
+        'authenticated',
+        ('public.' || quote_ident(c.table_name))::regclass,
+        c.column_name,
+        'INSERT')`;
+
+  const liveGaps: Record<string, string[]> = {};
+  for (const { table_name } of live) liveGaps[table_name] ??= [];
+  for (const { table_name, column_name } of gaps) liveGaps[table_name].push(column_name);
+
+  const compared = [
+    ...new Set([...Object.keys(liveGaps), ...Object.keys(INSERT_GRANT_GAPS)]),
+  ].sort();
+  const drifted = compared.filter(
+    (table) =>
+      JSON.stringify((liveGaps[table] ?? ["<no such table>"]).sort()) !==
+      JSON.stringify((INSERT_GRANT_GAPS[table] ?? ["<not recorded>"]).sort()),
+  );
+
+  assert(
+    "174. the per-column INSERT grants are the ones recorded here",
+    drifted.length === 0,
+    `compared ${compared.length} tables (${compared.join(", ")})${
+      drifted.length > 0
+        ? `; drifted: ${drifted
+            .map(
+              (table) =>
+                `${table} recorded [${(INSERT_GRANT_GAPS[table] ?? []).join(", ")}] live [${(liveGaps[table] ?? []).join(", ")}]`,
+            )
+            .join("; ")}`
+        : ""
+    }`,
+  );
+}
+
+// Assertions 175-178: `insertRow` against the grants, and the Drizzle insert builder
+// against the same values as the negative control — without that refusal the suite
+// would pass on a database that granted INSERT on every column. Fixtures are seeded
+// inside one transaction that is forced to roll back, entered with the one-statement
+// settle `withUserDb` uses; each barred statement runs in its own savepoint.
+async function checkInsertHelper() {
+  console.log("");
+  const owner = randomUUID();
+  const today = "2026-01-01";
+  const forcedRollback = Symbol("forced rollback");
+
+  const labels = [
+    "175. insertRow writes the account the builder is refused",
+    "176. the columns insertRow omits are stamped, not lost",
+    "177. insertRow writes both splits the builder is refused",
+  ];
+  const tailLabel =
+    "178. insertRow upserts debt terms, updated_at in the SET is refused, and nothing survived";
+
+  type OrmTx = Parameters<Parameters<typeof orm.transaction>[0]>[0];
+  const enter = (tx: OrmTx, subject: string) =>
+    tx.execute(dsql`select
+      set_config('request.jwt.claims', ${JSON.stringify({ sub: subject, role: "authenticated", aud: "authenticated" })}, true),
+      set_config('statement_timeout', '8000', true),
+      set_config('role', 'authenticated', true)`);
+
+  // `permission denied for table X` and `new row violates row-level security
+  // policy` share sqlstate 42501, and only the first is the grant this suite is
+  // about — so every refusal carries its message too.
+  let upsertOutcome = "the transaction never ran";
+
+  await orm
+    .transaction(async (tx) => {
+      await tx.execute(dsql`insert into auth.users (id) values (${owner})`);
+      await tx.execute(dsql`insert into app_users (id) values (${owner})`);
+      await enter(tx, owner);
+
+      const refusalOf = async (run: (sp: OrmTx) => Promise<unknown>): Promise<string> => {
+        let refusal = "no refusal — the statement was accepted";
+        await tx
+          .transaction(async (sp) => {
+            await run(sp);
+          })
+          .catch((error: unknown) => {
+            refusal = describeRefusal(error);
+          });
+        return refusal;
+      };
+
+      // 175: `createAccount`'s exact key set — the ten columns a caller sends, with
+      // `id`, `created_at` and `updated_at` left to the triggers.
+      const cardValues = {
+        name: "RLS insert helper card",
+        kind: "liability" as const,
+        subtype: "bancaria" as const,
+        ownerUserId: owner,
+        groupId: null,
+        isShared: false,
+        institution: "Bancolombia",
+        lastFour: "4321",
+        initialBalanceCents: -150000,
+        initialBalanceOn: today,
+      };
+
+      const [card] = await insertRow(tx, schema.accounts, cardValues, {
+        returning: { id: schema.accounts.id },
+      });
+      const builderRefusal = await refusalOf((sp) =>
+        sp.insert(schema.accounts).values(cardValues),
+      );
+
+      assert(
+        labels[0],
+        card?.id !== undefined &&
+          builderRefusal.includes("42501") &&
+          builderRefusal.includes("permission denied for table accounts"),
+        `helper wrote ${card?.id ?? "nothing"}, builder ${builderRefusal}`,
+      );
+
+      // 176: the same row read back. `subtype` went in as 'bancaria' and comes out
+      // 'tarjeta' — `set_account_subtype` follows the kind, and the helper's
+      // statement reaches the trigger like any other.
+      const [stamped] = await tx.execute<{
+        id: string;
+        created_at: Date | null;
+        updated_at: Date | null;
+        subtype: string;
+      }>(
+        dsql`select id, created_at, updated_at, subtype from accounts where id = ${card.id}`,
+      );
+      assert(
+        labels[1],
+        stamped.id === card.id &&
+          stamped.created_at !== null &&
+          stamped.updated_at !== null &&
+          stamped.subtype === "tarjeta",
+        `created_at = ${stamped.created_at !== null}, updated_at = ${stamped.updated_at !== null}, subtype = ${stamped.subtype} from 'bancaria'`,
+      );
+
+      // 177: two rows, one statement, against a movement of the owner's own.
+      const [cash] = await tx.execute<{ id: string }>(
+        dsql`insert into accounts
+          (owner_user_id, name, kind, subtype, initial_balance_cents, initial_balance_on)
+          values (${owner}, 'RLS insert helper cash', 'asset', 'efectivo', 100000, ${today})
+          returning id`,
+      );
+      const [category] = await tx.execute<{ id: string }>(
+        dsql`insert into categories (owner_user_id, name, kind)
+          values (${owner}, 'RLS insert helper spend', 'expense') returning id`,
+      );
+      const [movement] = await tx.execute<{ id: string }>(
+        dsql`insert into transactions (from_account_id, amount_cents, occurred_at)
+          values (${cash.id}, 5000, ${today}) returning id`,
+      );
+
+      const splitValues = [
+        { transactionId: movement.id, categoryId: category.id, amountCents: 3000 },
+        { transactionId: movement.id, categoryId: category.id, amountCents: 2000 },
+      ];
+      await insertRow(tx, schema.transactionSplits, splitValues);
+      const [{ count: splitCount }] = await tx.execute<{ count: string }>(
+        dsql`select count(*)::text as count from transaction_splits
+          where transaction_id = ${movement.id}`,
+      );
+      const splitBuilderRefusal = await refusalOf((sp) =>
+        sp.insert(schema.transactionSplits).values(splitValues),
+      );
+
+      assert(
+        labels[2],
+        splitCount === "2" &&
+          splitBuilderRefusal.includes("42501") &&
+          splitBuilderRefusal.includes("permission denied for table transaction_splits"),
+        `helper wrote ${splitCount} splits, builder ${splitBuilderRefusal}`,
+      );
+
+      // 178: the upsert `upsertDebtTerms` runs, then the same statement with
+      // `updated_at` in the SET — no UPDATE grant covers that column, and Postgres
+      // checks the SET privileges whether or not a row conflicts.
+      const terms = {
+        debtKind: "revolving" as const,
+        annualRate: "0.2800",
+        minimumPaymentCents: 5000,
+        minimumPaymentPct: null,
+        creditLimitCents: 1000000,
+        statementCutOffDay: 15,
+        paymentDueDay: 5,
+        avalCents: null,
+      };
+      const upsert = (on: OrmTx, set: InsertValues<typeof schema.debtTerms>) =>
+        insertRow(
+          on,
+          schema.debtTerms,
+          { accountId: card.id, ...terms },
+          { onConflict: { target: schema.debtTerms.accountId, set } },
+        );
+
+      await upsert(tx, terms);
+      await upsert(tx, { ...terms, annualRate: "0.3500" });
+      const [{ count: termCount, rate }] = await tx.execute<{
+        count: string;
+        rate: string;
+      }>(
+        dsql`select count(*)::text as count, max(annual_rate)::text as rate
+          from debt_terms where account_id = ${card.id}`,
+      );
+      const stampedSetRefusal = await refusalOf((sp) =>
+        upsert(sp, { ...terms, updatedAt: dsql`now()` }),
+      );
+
+      upsertOutcome = `${termCount} row at rate ${rate}, updated_at in the SET ${stampedSetRefusal}`;
+      const upsertHeld =
+        termCount === "1" &&
+        Number(rate) === 0.35 &&
+        stampedSetRefusal.includes("42501") &&
+        stampedSetRefusal.includes("permission denied for table debt_terms");
+
+      // Nothing this section wrote may survive; force the ROLLBACK.
+      if (!upsertHeld) upsertOutcome = `${upsertOutcome} — not what was expected`;
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`
+    select current_user`;
+  const [survivors] = await sql<{ accounts: string; terms: string }[]>`
+    select
+      (select count(*)::text from accounts
+        where name like 'RLS insert helper%') as accounts,
+      (select count(*)::text from debt_terms t
+        join accounts a on a.id = t.account_id
+        where a.name like 'RLS insert helper%') as terms`;
+
+  assert(
+    tailLabel,
+    upsertOutcome.includes("permission denied for table debt_terms") &&
+      !upsertOutcome.includes("not what was expected") &&
+      afterUser === "postgres" &&
+      survivors.accounts === "0" &&
+      survivors.terms === "0",
+    `${upsertOutcome}; current_user = ${afterUser}, accounts surviving = ${survivors.accounts}, terms surviving = ${survivors.terms}`,
   );
 }
 
