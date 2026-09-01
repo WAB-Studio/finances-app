@@ -54,8 +54,10 @@ export type HarnessScope = {
   labelId: string;
 };
 
+export type HarnessUser = { id: string; email: string };
+
 const tracked = new Map<FixtureTable, string[]>();
-let harnessUserId: string | null = null;
+const harnessUsers: HarnessUser[] = [];
 
 export function track(table: FixtureTable, id: string): void {
   const ids = tracked.get(table);
@@ -69,18 +71,64 @@ export function track(table: FixtureTable, id: string): void {
  * requires; a real sign-in fills the rest and nothing here reads them.
  */
 export async function createHarnessUser(): Promise<string> {
+  const { id, email } = await createUser();
+
+  // The Supabase stub reads these, so they are set before any app module runs.
+  process.env.HARNESS_USER_ID = id;
+  process.env.HARNESS_USER_EMAIL = email;
+
+  return id;
+}
+
+/**
+ * A second user of the same make, left out of every group: `seedHarnessScope`
+ * turns the run's own user into a leader, and RF-55 holds a user to one live
+ * membership, so a create-a-fund path can only be driven by someone else.
+ * Sets no environment: `asUser` decides when a call speaks for this identity.
+ */
+export async function createMembershipFreeUser(): Promise<HarnessUser> {
+  return createUser();
+}
+
+async function createUser(): Promise<HarnessUser> {
   const id = randomUUID();
   const email = `harness-${id}@example.invalid`;
 
   await fixtureSql`insert into auth.users (id, email) values (${id}, ${email})`;
   await fixtureSql`insert into app_users (id) values (${id})`;
 
-  harnessUserId = id;
-  // The Supabase stub reads these, so they are set before any app module runs.
-  process.env.HARNESS_USER_ID = id;
-  process.env.HARNESS_USER_EMAIL = email;
+  harnessUsers.push({ id, email });
 
-  return id;
+  return { id, email };
+}
+
+/**
+ * Runs `fn` under another identity by moving the claims the Supabase stub reads.
+ * `getVerifiedClaims` memoises through React's `cache`, which no-ops outside a
+ * request, so each call re-reads the environment. Restores it even on a throw.
+ */
+export async function asUser<T>(
+  user: HarnessUser,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const previous = {
+    id: process.env.HARNESS_USER_ID,
+    email: process.env.HARNESS_USER_EMAIL,
+  };
+
+  process.env.HARNESS_USER_ID = user.id;
+  process.env.HARNESS_USER_EMAIL = user.email;
+
+  try {
+    return await fn();
+  } finally {
+    // Assigning `undefined` would store the string "undefined" and hand the stub
+    // a subject that is not a user.
+    if (previous.id === undefined) delete process.env.HARNESS_USER_ID;
+    else process.env.HARNESS_USER_ID = previous.id;
+    if (previous.email === undefined) delete process.env.HARNESS_USER_EMAIL;
+    else process.env.HARNESS_USER_EMAIL = previous.email;
+  }
 }
 
 /**
@@ -147,7 +195,7 @@ export async function seedHarnessScope(userId: string): Promise<HarnessScope> {
 }
 
 /**
- * Drops every tracked row, then the user itself. Runs from a `finally`, so a
+ * Drops every tracked row, then every user it made. Runs from a `finally`, so a
  * failed assertion still leaves the database at the row counts it found — with
  * `audit_log` excepted, which no harness ever deletes from.
  */
@@ -162,11 +210,11 @@ export async function cleanup(): Promise<void> {
         where ${fixtureSql(idColumn)} in ${fixtureSql(ids)}`;
     }
 
-    if (harnessUserId !== null) {
+    for (const { id } of harnessUsers) {
       // The auth row cascades to `app_users`; both are named so the deletion is
       // stated, not inferred from a foreign key.
-      await fixtureSql`delete from app_users where id = ${harnessUserId}`;
-      await fixtureSql`delete from auth.users where id = ${harnessUserId}`;
+      await fixtureSql`delete from app_users where id = ${id}`;
+      await fixtureSql`delete from auth.users where id = ${id}`;
     }
   } finally {
     await fixtureSql.end();

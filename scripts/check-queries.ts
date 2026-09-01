@@ -96,13 +96,16 @@ import {
 } from "@/db/queries/webhook-credentials";
 import { currentMonthRange, todayInBogota } from "@/lib/dates";
 import { pgErrorCode } from "@/lib/db-error";
+import { SEED_CATEGORIES } from "@/lib/fund/seed";
 import { SHEET_ENTITIES } from "@/lib/spreadsheet/schema";
 
 import { assert, report, skip } from "./harness/assert";
-import type { FixtureTable, HarnessScope } from "./harness/fixtures";
+import type { FixtureTable, HarnessScope, HarnessUser } from "./harness/fixtures";
 import {
+  asUser,
   cleanup,
   createHarnessUser,
+  createMembershipFreeUser,
   fixtureSql,
   seedHarnessScope,
   track,
@@ -220,6 +223,7 @@ type WriteResults = {
 async function writeSuite(
   userId: string,
   scope: HarnessScope,
+  groupless: HarnessUser,
 ): Promise<WriteResults> {
   const today = todayInBogota();
   const personal = { ownerUserId: userId } as const;
@@ -319,18 +323,63 @@ async function writeSuite(
     }),
   );
 
+  // Driven by the membership-free user, never the run's own: `seedHarnessScope`
+  // already made that one a leader, and RF-55 holds a user to one live
+  // membership — the refusal that follows is asserted in `invariantSuite`.
   await checkWrite(
     "createGroup",
     () =>
-      createGroup({
-        name: "Harness fondo nuevo",
-        leaderName: "Harness leader",
-        cashMode: "shared",
-        locale: "es",
-      }),
-    ({ groupId }) => {
-      keep("groups", groupId);
-      return { ok: true, detail: `group ${groupId}` };
+      asUser(groupless, () =>
+        createGroup({
+          name: "Harness fondo nuevo",
+          leaderName: "Harness leader",
+          cashMode: "shared",
+          locale: "es",
+        }),
+      ),
+    async ({ groupId }) => {
+      track("groups", groupId);
+
+      // Four rows in one round trip, read as the owner: the group, the leader
+      // the caller became, the cash account `cash_mode = 'shared'` seeds and the
+      // categories a new fund files against. Not `keep`: the audit invariant
+      // reads the trail of the run's own user, and none of this is written by it.
+      const [written] = await fixtureSql<
+        {
+          group_name: string | null;
+          member_id: string | null;
+          account_id: string | null;
+          category_ids: string[] | null;
+        }[]
+      >`
+        select
+          (select name from groups where id = ${groupId}) as group_name,
+          (select id from group_members
+             where group_id = ${groupId} and user_id = ${groupless.id}
+               and role = 'leader') as member_id,
+          (select id from accounts
+             where group_id = ${groupId} and subtype = 'efectivo') as account_id,
+          (select array_agg(id) from categories where group_id = ${groupId})
+            as category_ids`;
+
+      const categoryIds = written.category_ids ?? [];
+      if (written.member_id !== null) track("group_members", written.member_id);
+      if (written.account_id !== null) track("accounts", written.account_id);
+      for (const categoryId of categoryIds) track("categories", categoryId);
+
+      const expectedCategories = SEED_CATEGORIES.reduce(
+        (total, category) => total + 1 + (category.children?.length ?? 0),
+        0,
+      );
+
+      return {
+        ok:
+          written.group_name === "Harness fondo nuevo" &&
+          written.member_id !== null &&
+          written.account_id !== null &&
+          categoryIds.length === expectedCategories,
+        detail: `group ${groupId} named ${written.group_name}, leader member ${written.member_id}, cash account ${written.account_id}, ${categoryIds.length} of ${expectedCategories} categories`,
+      };
     },
   );
 
@@ -753,8 +802,9 @@ async function readSuite(
 
 /**
  * Suite Q-invariant: three §2 facts, read back from rows THIS run wrote through
- * the real functions. A refused write leaves nothing to read, so the assertion
- * skips rather than passing on an absent row.
+ * the real functions, then RF-55's one-membership rule, proven by the refusal it
+ * raises. A refused write leaves nothing to read, so a read-back assertion skips
+ * rather than passing on an absent row.
  */
 async function invariantSuite(writes: WriteResults): Promise<void> {
   const negativeOpening = next("a liability's opening balance is stored negative");
@@ -814,6 +864,30 @@ async function invariantSuite(writes: WriteResults): Promise<void> {
       }`,
     );
   }
+
+  // RF-55: a user belongs to at most one live optional group. The run's own user
+  // leads the seeded one, so the leader row `createGroup` writes second collides
+  // on `group_members_user_unique` — a partial unique index over the unarchived
+  // rows — and takes the whole transaction back with it.
+  const oneMembership = next("a leader's second createGroup is refused");
+  try {
+    const { groupId } = await createGroup({
+      name: "Harness fondo duplicado",
+      leaderName: "Harness leader",
+      cashMode: "shared",
+      locale: "es",
+    });
+    // Tracked, not left behind: an accepted call is the failure this asserts on.
+    track("groups", groupId);
+    assert(oneMembership, false, `it was accepted as group ${groupId}`);
+  } catch (error) {
+    assert(
+      oneMembership,
+      pgErrorCode(error) === "23505" &&
+        rootMessage(error).includes("group_members_user_unique"),
+      refusal(error),
+    );
+  }
 }
 
 async function main(): Promise<void> {
@@ -821,6 +895,12 @@ async function main(): Promise<void> {
   console.log(`REPORT  harness user ${userId}, created for this run and dropped after it.`);
 
   const scope = await seedHarnessScope(userId);
+  // The create-a-fund path needs a caller who is in no group; the seeding above
+  // made the run's own user a leader.
+  const groupless = await createMembershipFreeUser();
+  console.log(
+    `REPORT  membership-free user ${groupless.id}, who drives the create-a-fund path.`,
+  );
 
   // Read-only sanity, never an assertion: the seeded user's own rows are proof
   // that the connection points at the database the app uses.
@@ -833,7 +913,7 @@ async function main(): Promise<void> {
   );
   console.log("");
 
-  const writes = await writeSuite(userId, scope);
+  const writes = await writeSuite(userId, scope, groupless);
   console.log("");
   await readSuite(userId, scope, writes);
   console.log("");
