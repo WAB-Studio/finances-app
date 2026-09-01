@@ -169,20 +169,53 @@ export function FieldError({
   );
 }
 
+// One node of what React Hook Form stores under a field: a leaf carries the
+// message, an array field carries `root` or the elements that broke instead.
+type FieldErrorTree = {
+  message?: string;
+  root?: FieldErrorTree;
+  [key: string]: unknown;
+};
+
+// The first catalogue path the tree holds. An array field such as `splits` keeps
+// no message of its own: the empty-category error sits at `splits.0.categoryId`,
+// and a field that reports nothing tells the person nothing.
+function firstMessage(error: FieldErrorTree): string | undefined {
+  if (error.message) {
+    return error.message;
+  }
+
+  if (error.root) {
+    const rootMessage = firstMessage(error.root);
+    if (rootMessage) return rootMessage;
+  }
+
+  for (const [key, value] of Object.entries(error)) {
+    // `ref` holds the control itself, not an error.
+    if (key === "ref" || key === "root" || !value || typeof value !== "object") {
+      continue;
+    }
+
+    const nested = firstMessage(value as FieldErrorTree);
+    if (nested) return nested;
+  }
+
+  return undefined;
+}
+
 // React Hook Form carries the catalogue path, not the sentence: the message is
 // translated here, under the Field's error id.
-export function FieldMessage({ error }: { error?: { message?: string } }) {
+export function FieldMessage({ error }: { error?: FieldErrorTree }) {
   const { errorId } = useContext(FieldContext);
   const t = useTranslations();
 
-  if (!error?.message) {
+  const message = error && firstMessage(error);
+
+  if (!message) {
     return null;
   }
 
   return (
-    <FieldError
-      id={errorId}
-      errors={[{ message: t(error.message as MessageKey) }]}
-    />
+    <FieldError id={errorId} errors={[{ message: t(message as MessageKey) }]} />
   );
 }

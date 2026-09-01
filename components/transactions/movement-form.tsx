@@ -516,11 +516,9 @@ export function MovementForm({
           <Callout.Text>{t("kindDerivedHint")}</Callout.Text>
         </Callout.Root>
 
-        <Button
-          type="submit"
-          size="3"
-          disabled={!form.formState.isValid || isPending}
-        >
+        {/* Enabled while the form is still short of something: submitting is
+            what puts the missing field's message on screen. */}
+        <Button type="submit" size="3" disabled={isPending}>
           {isPending && <Spinner />}
           {isAccept ? tIngest("accept") : t("saveMovement")}
         </Button>
