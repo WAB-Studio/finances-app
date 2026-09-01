@@ -67,8 +67,10 @@ function reviewButton(page: import("@playwright/test").Page) {
 // The card's menu is the only way to the rejection, and the dialog it raises is
 // where both choices live.
 async function openRejectDialog(page: import("@playwright/test").Page) {
+  // The menu names its own row now, so match the prefix rather than the whole
+  // label: which delivery it belongs to varies per test.
   await page
-    .getByRole("button", { name: messages.common.actions, exact: true })
+    .getByRole("button", { name: messages.common.actionsFor.split("{")[0].trim() })
     .click();
   await page.getByRole("menuitem", { name: ingest.reject, exact: true }).click();
 
