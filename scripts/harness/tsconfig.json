@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": "../..",
+    "paths": {
+      "server-only": ["./scripts/harness/stubs/server-only.ts"],
+      "@/lib/supabase/server": ["./scripts/harness/stubs/supabase-server.ts"],
+      "@/*": ["./*"]
+    }
+  }
+}

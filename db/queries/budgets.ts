@@ -2,6 +2,7 @@ import "server-only";
 
 import { eq, sql } from "drizzle-orm";
 
+import { insertRow } from "@/db/insert-row";
 import { budgets } from "@/db/schema";
 import type { Budget } from "@/db/schema";
 import { withUserDb } from "@/db/session";
@@ -72,11 +73,11 @@ export async function listBudgetsWithStatus(
             and t.occurred_at >= (case b.period
               when 'weekly' then ${weekly.start}
               when 'yearly' then ${yearly.start}
-              else ${monthly.start} end)
+              else ${monthly.start} end)::date
             and t.occurred_at < (case b.period
               when 'weekly' then ${weekly.endExclusive}
               when 'yearly' then ${yearly.endExclusive}
-              else ${monthly.endExclusive} end)
+              else ${monthly.endExclusive} end)::date
             and (b.account_id is null
               or t.from_account_id = b.account_id or t.to_account_id = b.account_id)
             and (b.label_id is null or exists (
@@ -138,9 +139,10 @@ export async function createBudget({
   name,
 }: CreateBudgetArgs): Promise<{ budgetId: string }> {
   return withUserDb(async (tx) => {
-    const [row] = await tx
-      .insert(budgets)
-      .values({
+    const [row] = await insertRow(
+      tx,
+      budgets,
+      {
         ownerUserId,
         groupId,
         categoryId,
@@ -150,8 +152,9 @@ export async function createBudget({
         limitCents,
         thresholdPct,
         name,
-      })
-      .returning({ id: budgets.id });
+      },
+      { returning: { id: budgets.id } },
+    );
 
     return { budgetId: row.id };
   });

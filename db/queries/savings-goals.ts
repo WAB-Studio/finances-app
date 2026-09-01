@@ -2,6 +2,7 @@ import "server-only";
 
 import { eq, sql } from "drizzle-orm";
 
+import { insertRow } from "@/db/insert-row";
 import { goalContributions, savingsGoals } from "@/db/schema";
 import { withUserDb } from "@/db/session";
 
@@ -87,17 +88,21 @@ export async function createGoal({
   initialContributionCents = null,
 }: CreateGoalArgs): Promise<{ goalId: string }> {
   return withUserDb(async (tx) => {
-    const [row] = await tx
-      .insert(savingsGoals)
-      .values({ ownerUserId, groupId, name, targetAmountCents, targetDate, accountId })
-      .returning({ id: savingsGoals.id });
+    const [row] = await insertRow(
+      tx,
+      savingsGoals,
+      { ownerUserId, groupId, name, targetAmountCents, targetDate, accountId },
+      { returning: { id: savingsGoals.id } },
+    );
 
     // The opening aporte rides the goal's own transaction (RNF-09): one round
     // trip to the pooler, and a virtual entry so no movement is earmarked.
     if (initialContributionCents != null) {
-      await tx
-        .insert(goalContributions)
-        .values({ goalId: row.id, transactionId: null, amountCents: initialContributionCents });
+      await insertRow(tx, goalContributions, {
+        goalId: row.id,
+        transactionId: null,
+        amountCents: initialContributionCents,
+      });
     }
 
     return { goalId: row.id };
@@ -176,10 +181,12 @@ export async function addGoalContribution({
   amountCents: number;
 }): Promise<{ contributionId: string }> {
   return withUserDb(async (tx) => {
-    const [row] = await tx
-      .insert(goalContributions)
-      .values({ goalId, transactionId, amountCents })
-      .returning({ id: goalContributions.id });
+    const [row] = await insertRow(
+      tx,
+      goalContributions,
+      { goalId, transactionId, amountCents },
+      { returning: { id: goalContributions.id } },
+    );
 
     return { contributionId: row.id };
   });

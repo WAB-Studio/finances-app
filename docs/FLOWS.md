@@ -287,3 +287,6 @@ deliveries cannot undo the decision or appear in the inbox.
 A merchant earns its category after two consecutive agreeing approvals. The
 first disagreement makes that memory ambiguous for good; forgetting the
 merchant is the only way to teach it again.
+
+A proposal is dated the day its message names, and the day it arrived only
+when the message names none.

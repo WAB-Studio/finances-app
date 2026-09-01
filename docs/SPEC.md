@@ -155,6 +155,7 @@ accounting exports, native apps. None of this gets built or left
 - [x] **RF-95** — Quick entry accepts bank amounts written with comma or dot thousands separators and an optional zero-decimal suffix in either locale, without accepting fractional pesos.
 - [x] **RF-96** — Webhook ingest proposes income or expense only when the bank message carries a recognized direction verb; a caller-supplied direction overrides it, and an unknown verb leaves it empty.
 - [x] **RF-97** — An account may store its last four digits; webhook ingest proposes the uniquely matching account named by a bank message before falling back to the credential default, while an explicit account override still wins.
+- [x] **RF-98** — Webhook ingest proposes the date the bank message carries, written with a two- or four-digit year and interpreted in `America/Bogota`; a caller-supplied date still overrides it, and a message whose date is unreadable or later than the day of delivery falls back to that day.
 
 The webhook (RF-90) reuses RF-22 (quick entry), RF-25 (created_by) and RF-45 (no write bypasses audit) unchanged: the same interpreter reads the payload text and the same insert path records the movement, so the created-by stamp and the audit hold as on any manual write. RF-52's idempotency shape is mirrored, not reused — RF-52 stays a spreadsheet-import requirement; the webhook applies the same stable-external-reference rule to its own deliveries. The review queue keeps that reuse: it runs RF-22's interpreter to propose rather than to decide, and RF-25 and RF-45 hold unchanged because an accepted proposal is still written through the same insert path.
 
@@ -699,6 +700,9 @@ Principles, not recipes:
 | Environment | **@t3-oss/env-nextjs** | Fails at build time on a missing variable, not in production. |
 | Language | **next-intl** | Locale routing, server-side translations, date and number formatting. |
 | Spreadsheets (phase 2) | **ExcelJS** | Reading and writing `.xlsx` with valid options in the template. |
+| Browser verification | **Playwright** | Drives a real browser for the interface facts no server-side check reaches: clicks, dialogs, the mobile sheet, tap-target size and the narrow viewport. |
+
+Playwright is a development dependency: it never reaches the bundle, ships in no deployment and costs nothing to run, so RNF-01 and RNF-02 hold.
 
 ### Do not install
 

@@ -32,6 +32,21 @@ export type RecordIngestDeliveryArgs = {
 
 const MAX_DESCRIPTION_LENGTH = 200;
 
+// The one place the date's precedence lives: the caller's override, then the
+// day the message names, then the day it was delivered. A read date later than
+// the delivery day counts as unreadable — `occurredAtSchema` rejects a future
+// date on the accept path, and a proposal nobody can accept in one tap is worse
+// than one dated today. `YYYY-MM-DD` sorts as it reads, so no `Date` is built.
+export function resolveOccurredAt(
+  supplied: string | undefined,
+  read: string | null,
+  today: string,
+): string {
+  if (supplied) return supplied;
+
+  return read !== null && read <= today ? read : today;
+}
+
 export async function recordIngestDelivery({
   ownerUserId,
   credentialId,
@@ -40,6 +55,7 @@ export async function recordIngestDelivery({
   payload,
 }: RecordIngestDeliveryArgs): Promise<IngestDeliveryResult> {
   const fingerprint = fingerprintMessage(payload.text);
+  const today = todayInBogota();
   const externalRef = payload.external_ref ?? fingerprint.contentHash;
 
   return withImpersonatedDb(ownerUserId, async (tx) => {
@@ -94,7 +110,11 @@ export async function recordIngestDelivery({
 
     const proposedAccountId = payload.account_id ?? proposal.accountId;
     const proposedDirection = payload.direction ?? proposal.direction;
-    const proposedOccurredAt = payload.occurred_at ?? todayInBogota();
+    const proposedOccurredAt = resolveOccurredAt(
+      payload.occurred_at,
+      proposal.occurredAt,
+      today,
+    );
     const proposedDescription = description === "" ? null : description;
     const merchantKey = fingerprint.merchant?.key ?? null;
     const merchantLabel = fingerprint.merchant?.label ?? null;

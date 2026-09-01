@@ -2,8 +2,10 @@ import "server-only";
 
 import { asc, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 
+import { insertRow } from "@/db/insert-row";
 import { accounts } from "@/db/schema";
 import type { Account } from "@/db/schema";
+import type { Transaction } from "@/db/session";
 import { withUserDb } from "@/db/session";
 import { pesosToCents } from "@/lib/money";
 
@@ -70,44 +72,55 @@ export type CreateAccountArgs = {
   balanceOn: string;
 };
 
-export async function createAccount({
-  name,
-  kind,
-  subtype,
-  ownerUserId,
-  groupId,
-  isShared,
-  institution,
-  lastFour,
-  pesos,
-  balanceOn,
-}: CreateAccountArgs): Promise<{ accountId: string }> {
+export async function createAccount(
+  args: CreateAccountArgs,
+): Promise<{ accountId: string }> {
+  return withUserDb((tx) => insertAccount(tx, args));
+}
+
+// The insert body of `createAccount`, against a caller-supplied transaction, so a
+// rolled-back proof drives the statement a screen commits.
+export async function insertAccount(
+  tx: Transaction,
+  {
+    name,
+    kind,
+    subtype,
+    ownerUserId,
+    groupId,
+    isShared,
+    institution,
+    lastFour,
+    pesos,
+    balanceOn,
+  }: CreateAccountArgs,
+): Promise<{ accountId: string }> {
   const cents = pesosToCents(pesos);
 
-  return withUserDb(async (tx) => {
-    const [row] = await tx
-      .insert(accounts)
-      .values({
-        name,
-        kind,
-        // Passed explicitly; `set_account_subtype` only fills an omitted one.
-        subtype,
-        ownerUserId,
-        groupId,
-        isShared,
-        // A blank field means "no institution", the same as an absent one.
-        institution: institution === "" ? null : institution,
-        lastFour: lastFour ? lastFour : null,
-        // A liability opens negative so net worth stays a plain sum (RNF-05).
-        // `cents` is cast explicitly: an untyped param leaves unary minus with
-        // no single best operator, and Postgres refuses to parse the case.
-        initialBalanceCents: sql`case when ${kind} = 'liability' then -${cents}::bigint else ${cents}::bigint end`,
-        initialBalanceOn: balanceOn,
-      })
-      .returning({ id: accounts.id });
+  const [row] = await insertRow(
+    tx,
+    accounts,
+    {
+      name,
+      kind,
+      // Passed explicitly; `set_account_subtype` only fills an omitted one.
+      subtype,
+      ownerUserId,
+      groupId,
+      isShared,
+      // A blank field means "no institution", the same as an absent one.
+      institution: institution === "" ? null : institution,
+      lastFour: lastFour ? lastFour : null,
+      // A liability opens negative so net worth stays a plain sum (RNF-05).
+      // `cents` is cast explicitly: an untyped param leaves unary minus with
+      // no single best operator, and Postgres refuses to parse the case.
+      initialBalanceCents: sql`case when ${kind} = 'liability' then -${cents}::bigint else ${cents}::bigint end`,
+      initialBalanceOn: balanceOn,
+    },
+    { returning: { id: accounts.id } },
+  );
 
-    return { accountId: row.id };
-  });
+  return { accountId: row.id };
 }
 
 // Neither `kind` nor the owner/group pivot is in the update grant, so an edit

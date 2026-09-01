@@ -13,7 +13,11 @@
     "typecheck": "tsgo --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node --env-file=.env.local ./node_modules/drizzle-kit/bin.cjs migrate",
-    "db:check-rls": "node --import tsx --env-file=.env.local scripts/check-rls.ts"
+    "db:check-rls": "TSX_TSCONFIG_PATH=scripts/harness/tsconfig.json node --import tsx --env-file=.env.local scripts/check-rls.ts",
+    "check:queries": "TSX_TSCONFIG_PATH=scripts/harness/tsconfig.json node --import tsx --env-file=.env.local scripts/check-queries.ts",
+    "check:http": "TSX_TSCONFIG_PATH=scripts/harness/tsconfig.json node --import tsx --env-file=.env.local scripts/check-http.ts",
+    "check:e2e": "node --env-file=.env.local ./node_modules/@playwright/test/cli.js test",
+    "check": "npm run db:check-rls && npm run check:queries && npm run check:http"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.9.1",
@@ -37,6 +41,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",

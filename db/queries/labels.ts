@@ -2,6 +2,7 @@ import "server-only";
 
 import { asc, eq, sql } from "drizzle-orm";
 
+import { insertRow } from "@/db/insert-row";
 import { labels } from "@/db/schema";
 import { withUserDb } from "@/db/session";
 
@@ -110,10 +111,12 @@ export async function createLabel({
   const groupId = "groupId" in scope ? scope.groupId : null;
 
   return withUserDb(async (tx) => {
-    const [row] = await tx
-      .insert(labels)
-      .values({ ownerUserId, groupId, name, color })
-      .returning({ id: labels.id });
+    const [row] = await insertRow(
+      tx,
+      labels,
+      { ownerUserId, groupId, name, color },
+      { returning: { id: labels.id } },
+    );
 
     return { labelId: row.id };
   });

@@ -14,6 +14,25 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     "private/**",
   ]),
+  {
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector:
+            "CallExpression[callee.type='MemberExpression'][callee.property.name='insert']",
+          message:
+            "Insert through `insertRow` (db/insert-row.ts). Drizzle's insert builder names every column of the table and the per-column INSERT grants refuse it.",
+        },
+      ],
+    },
+  },
+  // The RLS harness calls the builder on purpose, as the negative control that
+  // shows the grants refusing it.
+  {
+    files: ["scripts/check-rls.ts"],
+    rules: { "no-restricted-syntax": "off" },
+  },
 ]);
 
 export default eslintConfig;
