@@ -48,8 +48,10 @@ export async function listMembers(
 }
 
 // `user_id` stays null and `role` stays at its default — the only shape
-// `group_members_insert_member` accepts (RF-07: a member need not have a login).
-// An `inviteEmail` pends on the row until the invited person signs in (RF-06).
+// `group_members_insert_member` accepts (RF-07: a member need not have a login),
+// and it accepts it from the leader alone (RF-100), who is the only caller whose
+// insert lands rather than raising 42501. An `inviteEmail` pends on the row until
+// the invited person signs in (RF-06).
 export async function createMember({
   groupId,
   name,
@@ -101,6 +103,8 @@ export async function claimInviteForUser({
   }
 }
 
+// RF-100: the leader renames anyone, everyone else their own row — the policy
+// filters the rest out, so a refused rename returns no row rather than raising.
 export async function updateMember({
   groupId,
   memberId,
@@ -122,8 +126,8 @@ export async function updateMember({
 }
 
 // Accounts no longer hang off a member — they name a user or the group — so
-// archiving one only sets its own flag; `group_members_update_member` still
-// refuses a caller archiving their own row.
+// archiving one only sets its own flag. The leader alone archives (RF-100), and
+// the policy raises 42501 on one row only: the caller's own.
 export async function archiveMember({
   groupId,
   memberId,
@@ -142,6 +146,8 @@ export async function archiveMember({
   });
 }
 
+// RF-100: restoring is the leader's, and the archived row is outside the update
+// policy's USING, so the person she archived cannot bring themselves back.
 export async function restoreMember({
   groupId,
   memberId,
@@ -160,7 +166,7 @@ export async function restoreMember({
   });
 }
 
-// The delete policy already refuses the caller's own row (RF-11).
+// The delete policy takes the leader alone (RF-100) and refuses even her own row (RF-11).
 export async function deleteMember({
   groupId,
   memberId,

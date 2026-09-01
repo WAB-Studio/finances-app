@@ -113,6 +113,13 @@
       "when": 1788294420954,
       "tag": "0016_lock_group_member_user_id",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1788298921820,
+      "tag": "0017_restrict_member_management_to_leader",
+      "breakpoints": true
     }
   ]
 }

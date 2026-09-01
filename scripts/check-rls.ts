@@ -178,6 +178,7 @@ async function main() {
   await checkInsertGrantMap();
   await checkInsertHelper();
   await checkGroupMemberUserIdLock();
+  await checkMemberManagementLeaderOnly();
 }
 
 // Assertions 9-26: the repivoted schema. A group holds accounts and categories a user XOR a group
@@ -5118,7 +5119,7 @@ async function checkGroupMemberUserIdLock() {
     "179. the invited caller's claim lands on their own pending row and clears the invite",
     "180. a second claim by the same caller returns null",
     "181. a plain member cannot repoint the leader's user_id at an account of his own",
-    "182. a plain member still renames their own row and archives another",
+    "182. a plain member still renames their own row",
   ];
   const tailLabel = "183. the rolled-back escalation transaction leaves no trace";
 
@@ -5150,8 +5151,7 @@ async function checkGroupMemberUserIdLock() {
         dsql`insert into app_users (id) values (${leaderUser}), (${memberUser}), (${strangerUser})`,
       );
 
-      // The leader opens the group and records two people (RF-07): the one she invites by email, and a
-      // spare with no login the member is free to archive.
+      // The leader opens the group and records the person she invites by email (RF-07).
       await enter(tx, leaderUser);
       await tx.execute(
         dsql`insert into groups (id, name, cash_mode) values (${groupId}, 'rls escalation', 'shared')`,
@@ -5163,10 +5163,6 @@ async function checkGroupMemberUserIdLock() {
       const [pending] = await tx.execute<{ id: string }>(
         dsql`insert into group_members (group_id, name, role, invite_email)
           values (${groupId}, 'rls escalation member', 'member', ${memberEmail}) returning id`,
-      );
-      const [spare] = await tx.execute<{ id: string }>(
-        dsql`insert into group_members (group_id, name, role)
-          values (${groupId}, 'rls escalation spare', 'member') returning id`,
       );
 
       // 179: the claim takes no argument, so the caller cannot aim it: the function reads auth.email()
@@ -5222,17 +5218,10 @@ async function checkGroupMemberUserIdLock() {
         dsql`update group_members set name = 'rls escalation renamed'
           where id = ${pending.id} returning id, name`,
       );
-      const archived = await tx.execute<{ id: string; archived_at: string | null }>(
-        dsql`update group_members set archived_at = now()
-          where id = ${spare.id} returning id, archived_at::text`,
-      );
       assert(
         labels[3],
-        renamed.length === 1 &&
-          renamed[0].name === "rls escalation renamed" &&
-          archived.length === 1 &&
-          archived[0].archived_at !== null,
-        `renamed ${renamed.length} row to '${renamed[0]?.name}', archived ${archived.length} row at ${archived[0]?.archived_at ?? "nothing"}`,
+        renamed.length === 1 && renamed[0].name === "rls escalation renamed",
+        `renamed ${renamed.length} row to '${renamed[0]?.name}'`,
       );
 
       // Nothing this section wrote may survive; force the ROLLBACK.
@@ -5249,6 +5238,211 @@ async function checkGroupMemberUserIdLock() {
     tailLabel,
     afterUser === "postgres" && probeCount === "0",
     `current_user = ${afterUser}, rows named 'rls escalation%' = ${probeCount}`,
+  );
+}
+
+// Assertions 184-190: RF-100. `group_members_update_member` used `is_group_member` in its USING and a
+// WITH CHECK that admitted any row but the caller's own, and `group_members_delete_member` the same,
+// so a plain member archived and removed every other member — the leader's row answered `UPDATE 1`
+// and `DELETE 1` on the live database, with only the deferred `assert_group_keeps_leader` between a
+// group and no leader at all. Both attacks are executed here, then the two negative controls that say
+// the feature survived. Fixtures live in one transaction forced to roll back; each barred statement
+// runs in its own savepoint.
+async function checkMemberManagementLeaderOnly() {
+  console.log("");
+  const leaderUser = randomUUID();
+  const memberUser = randomUUID();
+  const groupId = randomUUID();
+  const forcedRollback = Symbol("forced rollback");
+
+  const labels = [
+    "184. a plain member's archive of the leader's row touches nothing",
+    "185. a plain member's delete of the leader's row touches nothing",
+    "186. a plain member cannot add a member",
+    "187. a plain member still renames their own row",
+    "188. the leader still adds, archives and removes a member",
+    "189. a member the leader archived cannot restore herself",
+  ];
+  const tailLabel = "190. the rolled-back member management transaction leaves no trace";
+
+  type OrmTx = Parameters<Parameters<typeof orm.transaction>[0]>[0];
+  const enter = (tx: OrmTx, subject: string) =>
+    tx.execute(dsql`select
+      set_config('request.jwt.claims', ${JSON.stringify({ sub: subject, role: "authenticated", aud: "authenticated" })}, true),
+      set_config('statement_timeout', '8000', true),
+      set_config('role', 'authenticated', true)`);
+
+  await orm
+    .transaction(async (tx) => {
+      const refusalOf = async (run: (sp: OrmTx) => Promise<unknown>): Promise<string> => {
+        let refusal = "no refusal — the statement was accepted";
+        await tx
+          .transaction(async (sp) => {
+            await run(sp);
+          })
+          .catch((error: unknown) => {
+            refusal = describeRefusal(error);
+          });
+        return refusal;
+      };
+
+      await tx.execute(dsql`insert into auth.users (id) values (${leaderUser}), (${memberUser})`);
+      await tx.execute(dsql`insert into app_users (id) values (${leaderUser}), (${memberUser})`);
+
+      // The leader opens the group and records two people with no login: one for her to archive, one
+      // for her to remove. The plain member's own row carries a login, which no policy hands out, so
+      // it is seeded as `postgres`.
+      await enter(tx, leaderUser);
+      await tx.execute(
+        dsql`insert into groups (id, name, cash_mode) values (${groupId}, 'rls member mgmt', 'shared')`,
+      );
+      const [leaderRow] = await tx.execute<{ id: string }>(
+        dsql`insert into group_members (group_id, user_id, name, role)
+          values (${groupId}, ${leaderUser}, 'rls member mgmt leader', 'leader') returning id`,
+      );
+      const [toArchive] = await tx.execute<{ id: string }>(
+        dsql`insert into group_members (group_id, name, role)
+          values (${groupId}, 'rls member mgmt archivable', 'member') returning id`,
+      );
+      const [toRemove] = await tx.execute<{ id: string }>(
+        dsql`insert into group_members (group_id, name, role)
+          values (${groupId}, 'rls member mgmt removable', 'member') returning id`,
+      );
+      await tx.execute(dsql`reset role`);
+      const [memberRow] = await tx.execute<{ id: string }>(
+        dsql`insert into group_members (group_id, user_id, name, role)
+          values (${groupId}, ${memberUser}, 'rls member mgmt member', 'member') returning id`,
+      );
+
+      await enter(tx, memberUser);
+
+      // 184: the archive attack. Before the policies were narrowed this answered UPDATE 1 and left the
+      // leader out of her own group on the next request.
+      let archiveRows = -1;
+      const archiveRefusal = await refusalOf(async (sp) => {
+        const rows = await sp.execute<{ id: string }>(
+          dsql`update group_members set archived_at = now() where id = ${leaderRow.id} returning id`,
+        );
+        archiveRows = rows.length;
+      });
+      const [leaderAfterArchive] = await tx.execute<{ archived_at: string | null }>(
+        dsql`select archived_at::text from group_members where id = ${leaderRow.id}`,
+      );
+      assert(
+        labels[0],
+        (archiveRows === 0 || archiveRefusal.includes("42501")) &&
+          leaderAfterArchive.archived_at === null,
+        `rows = ${archiveRows === -1 ? "none issued" : archiveRows}, ${archiveRefusal}, leader archived_at = ${leaderAfterArchive?.archived_at ?? "null"}`,
+      );
+
+      // 185: the delete attack. It answered DELETE 1, and only the deferred keep-leader trigger stood
+      // between the group and no leader — and it stands for the last leader alone.
+      let deleteRows = -1;
+      const deleteRefusal = await refusalOf(async (sp) => {
+        const rows = await sp.execute<{ id: string }>(
+          dsql`delete from group_members where id = ${leaderRow.id} returning id`,
+        );
+        deleteRows = rows.length;
+      });
+      const [{ count: leaderSurvives }] = await tx.execute<{ count: string }>(
+        dsql`select count(*)::text as count from group_members where id = ${leaderRow.id}`,
+      );
+      assert(
+        labels[1],
+        (deleteRows === 0 || deleteRefusal.includes("42501")) && leaderSurvives === "1",
+        `rows = ${deleteRows === -1 ? "none issued" : deleteRows}, ${deleteRefusal}, leader rows surviving = ${leaderSurvives}`,
+      );
+
+      // 186: an INSERT has no USING to filter it, so the refusal is the WITH CHECK itself.
+      const insertRefusal = await refusalOf((sp) =>
+        sp.execute(
+          dsql`insert into group_members (group_id, name, role)
+            values (${groupId}, 'rls member mgmt smuggled', 'member')`,
+        ),
+      );
+      const [{ count: smuggled }] = await tx.execute<{ count: string }>(
+        dsql`select count(*)::text as count from group_members
+          where group_id = ${groupId} and name = 'rls member mgmt smuggled'`,
+      );
+      assert(
+        labels[2],
+        insertRefusal.includes("42501") && smuggled === "0",
+        `${insertRefusal}, rows landed = ${smuggled}`,
+      );
+
+      // 187: the first negative control — every member keeps their own name (RF-100).
+      const renamed = await tx.execute<{ id: string; name: string }>(
+        dsql`update group_members set name = 'rls member mgmt renamed'
+          where id = ${memberRow.id} returning id, name`,
+      );
+      assert(
+        labels[3],
+        renamed.length === 1 && renamed[0].name === "rls member mgmt renamed",
+        `renamed ${renamed.length} row to '${renamed[0]?.name}'`,
+      );
+
+      // 188: the second negative control — the leader keeps the whole feature.
+      await tx.execute(dsql`reset role`);
+      await enter(tx, leaderUser);
+      const added = await tx.execute<{ id: string }>(
+        dsql`insert into group_members (group_id, name, role)
+          values (${groupId}, 'rls member mgmt added', 'member') returning id`,
+      );
+      const archived = await tx.execute<{ archived_at: string | null }>(
+        dsql`update group_members set archived_at = now()
+          where id = ${toArchive.id} returning archived_at::text`,
+      );
+      const removed = await tx.execute<{ id: string }>(
+        dsql`delete from group_members where id = ${toRemove.id} returning id`,
+      );
+      assert(
+        labels[4],
+        added.length === 1 &&
+          archived.length === 1 &&
+          archived[0].archived_at !== null &&
+          removed.length === 1,
+        `added ${added.length}, archived ${archived.length} at ${archived[0]?.archived_at ?? "nothing"}, removed ${removed.length}`,
+      );
+
+      // 189: restoring is the leader's too, and the caller's own row is the one exception the update
+      // policy carries — so the USING drops it once it is archived, or an eviction would undo itself.
+      await tx.execute(
+        dsql`update group_members set archived_at = now() where id = ${memberRow.id}`,
+      );
+      await tx.execute(dsql`reset role`);
+      await enter(tx, memberUser);
+      let restoreRows = -1;
+      const restoreRefusal = await refusalOf(async (sp) => {
+        const rows = await sp.execute<{ id: string }>(
+          dsql`update group_members set archived_at = null
+            where id = ${memberRow.id} returning id`,
+        );
+        restoreRows = rows.length;
+      });
+      await tx.execute(dsql`reset role`);
+      const [selfNow] = await tx.execute<{ archived_at: string | null }>(
+        dsql`select archived_at::text from group_members where id = ${memberRow.id}`,
+      );
+      assert(
+        labels[5],
+        (restoreRows === 0 || restoreRefusal.includes("42501")) && selfNow.archived_at !== null,
+        `rows = ${restoreRows === -1 ? "none issued" : restoreRows}, ${restoreRefusal}, own archived_at = ${selfNow?.archived_at ?? "null"}`,
+      );
+
+      // Nothing this section wrote may survive; force the ROLLBACK.
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`select current_user`;
+  const [{ count: probeCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from groups where name like 'rls member mgmt%'`;
+  assert(
+    tailLabel,
+    afterUser === "postgres" && probeCount === "0",
+    `current_user = ${afterUser}, rows named 'rls member mgmt%' = ${probeCount}`,
   );
 }
 

@@ -69,27 +69,29 @@ export const groupMembers = pgTable(
       to: authenticatedRole,
       withCheck: sql`${authUid} = ${table.userId} and ${table.role} = 'leader' and (select private.group_is_unclaimed(${table.groupId}))`,
     }),
-    // RF-07: a member of the group records a person who has no login of their own.
+    // RF-07 and RF-100: the leader records a person who has no login of their own.
     pgPolicy("group_members_insert_member", {
       for: "insert",
       to: authenticatedRole,
-      withCheck: sql`(select private.is_group_member(${table.groupId})) and ${table.userId} is null and ${table.role} = 'member'`,
+      withCheck: sql`(select private.is_group_leader(${table.groupId})) and ${table.userId} is null and ${table.role} = 'member'`,
     }),
-    // Renaming your own row is fine; leaving it archived while claiming it back is not.
-    // This policy admits every row in the group, so the UPDATE grant — not the policy —
-    // is what keeps `user_id` out of a member's reach: it is writable on INSERT only, and
-    // RF-06's claim goes through `private.claim_group_invite()`, which picks its own row.
+    // RF-100: the leader renames, archives and restores anyone; everyone else reaches their own
+    // live row alone. The grant leaves `name`, `archived_at` and `invite_email` writable, and the
+    // last conjunct denies a caller archiving themselves, so an own row can only be renamed:
+    // `invite_email` is barred on it by `group_members_invite_email_unclaimed`. The USING skips an
+    // archived own row, or the person the leader archived would restore herself.
     pgPolicy("group_members_update_member", {
       for: "update",
       to: authenticatedRole,
-      using: sql`(select private.is_group_member(${table.groupId}))`,
-      withCheck: sql`(select private.is_group_member(${table.groupId})) and (${table.userId} is distinct from ${authUid} or ${table.archivedAt} is null)`,
+      using: sql`(select private.is_group_leader(${table.groupId})) or (${table.userId} = ${authUid} and ${table.archivedAt} is null)`,
+      withCheck: sql`((select private.is_group_leader(${table.groupId})) or ${table.userId} = ${authUid}) and (${table.userId} is distinct from ${authUid} or ${table.archivedAt} is null)`,
     }),
-    // RF-11: a member with movements is archived elsewhere; this policy only lets the row be dropped, never you.
+    // RF-11 and RF-100: a member with movements is archived elsewhere, and only the leader drops a
+    // row — never her own, which `assert_group_keeps_leader` would refuse a moment later anyway.
     pgPolicy("group_members_delete_member", {
       for: "delete",
       to: authenticatedRole,
-      using: sql`(select private.is_group_member(${table.groupId})) and ${table.userId} is distinct from ${authUid}`,
+      using: sql`(select private.is_group_leader(${table.groupId})) and ${table.userId} is distinct from ${authUid}`,
     }),
   ],
 );

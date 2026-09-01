@@ -54,6 +54,7 @@ accounting exports, native apps. None of this gets built or left
 - [x] **RF-10** — Creating an account captures its opening balance and the date that balance is true as of.
 - [ ] **RF-11** — Accounts and members that have movements are archived, not deleted.
 - [ ] **RF-61** — Archiving a member does not archive their accounts. The owner decides per account: archive it or hand it to the group.
+- [x] **RF-100** — Only the group `leader` adds, renames, archives, restores and removes a member; every member renames their own row and no other.
 
 #### Debts
 
