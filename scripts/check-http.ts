@@ -400,7 +400,9 @@ async function webhookSuite(userId: string): Promise<void> {
   });
   track("webhook_credentials", credentialId);
 
-  const text = `Bancolombia: Compraste COP12.345,00 en HARNESS HTTP ${randomUUID().slice(0, 8)}`;
+  // A verbatim T2 sample, its merchant made unique so each run hashes to its own
+  // external reference; the date it names is what RF-98 is read back against.
+  const text = `Bancolombia: Compraste COP122.000,00 en BOLD CO ONLINE ${randomUUID().slice(0, 8)} con tu T.Cred *4872, el 25/08/2026 a las 20:07. Si tienes dudas, encuentranos aqui: 6045109095 o 018000931987. Estamos cerca.`;
 
   async function post(bearer: string): Promise<{ status: number; body: Record<string, unknown> }> {
     const response = await fetch(`${HARNESS_BASE_URL}/api/webhooks/ingest`, {
@@ -429,6 +431,16 @@ async function webhookSuite(userId: string): Promise<void> {
       first.body.status === "pending" &&
       typeof first.body.deliveryId === "string",
     `it answered ${first.status} — ${JSON.stringify(first.body)}`,
+  );
+
+  const [landed] = await fixtureSql<{ occurredAt: string | null }[]>`
+    select proposed_occurred_at::text as "occurredAt"
+    from ingest_deliveries
+    where id = ${String(first.body.deliveryId)}`;
+  assert(
+    next("the delivery is dated the day the message names, not the day it ran"),
+    landed?.occurredAt === "2026-08-25",
+    `it landed dated ${landed?.occurredAt ?? "(no row)"}`,
   );
 
   const repeat = await post(token);
