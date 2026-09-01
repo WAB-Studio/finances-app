@@ -925,6 +925,13 @@
     "rejectAndSilence": "Discard and never ask again",
     "rejectedToast": "Message discarded.",
     "silencedToast": "Done: messages like this one no longer reach the inbox.",
+    "silencedTitle": "Silenced messages",
+    "silencedCount": "{count, plural, one {# silenced message} other {# silenced messages}}",
+    "silencedOn": "Silenced on {date}",
+    "silencedWaiting": "{count, plural, one {# message discarded by this rule} other {# messages discarded by this rule}}",
+    "restore": "Ask me again",
+    "restoredToast": "Done: messages like this one reach the inbox again.",
+    "restoredWithDeliveries": "{count, plural, one {Done: # message came back to the inbox.} other {Done: # messages came back to the inbox.}}",
     "errors": {
       "deliveryInvalid": "Choose a valid message.",
       "merchantInvalid": "Choose a valid merchant.",

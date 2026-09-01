@@ -3,15 +3,21 @@
 import { useTranslations } from "next-intl";
 
 import { DeliveryCard } from "@/components/ingest/delivery-card";
+import { SilencedShapes } from "@/components/ingest/silenced-shapes";
 import { EmptyState, Flex, Heading } from "@/components/ui";
-import type { PendingDeliveryRow } from "@/db/queries/ingest-review";
+import type {
+  PendingDeliveryRow,
+  SilencedShapeRow,
+} from "@/db/queries/ingest-review";
 import type { TransactionFormOptions } from "@/db/queries/transaction-form";
 
 export function InboxScreen({
   deliveries,
+  shapes,
   options,
 }: {
   deliveries: PendingDeliveryRow[];
+  shapes: SilencedShapeRow[];
   options: TransactionFormOptions;
 }) {
   const t = useTranslations("ingest");
@@ -36,6 +42,8 @@ export function InboxScreen({
           ))}
         </Flex>
       )}
+
+      <SilencedShapes shapes={shapes} />
     </Flex>
   );
 }
