@@ -71,35 +71,34 @@ export async function createMember({
   });
 }
 
-// RF-06: the invited person claims their pending row on first sign-in. The
-// UPDATE carries no WHERE — `group_members_update_claim` scopes it to the one
-// unclaimed row whose invite_email matches the caller's auth.email(), and the
-// SELECT policy hides that row, so a targeted WHERE would match nothing. Runs
-// under the caller's verified session so auth.email() reads their own address.
+// RF-06: the invited person claims their pending row on first sign-in. No row id
+// and no user id cross the boundary — `private.claim_group_invite` reads
+// auth.uid() and auth.email() from the caller's own verified session and picks
+// the one unclaimed row that matches, so a claim cannot be aimed at another row.
+// `email` only spares the round trip for a session that carries no address; the
+// claim keys on what the database reads, not on what is passed here.
 export async function claimInviteForUser({
-  userId,
   email,
 }: {
-  userId: string;
   email: string;
 }): Promise<"claimed" | "none" | "already-in-group"> {
   if (!email) return "none";
 
-  return withUserDb(async (tx) => {
-    try {
-      const rows = await tx
-        .update(groupMembers)
-        .set({ userId, inviteEmail: null })
-        .returning({ id: groupMembers.id });
+  // The catch sits OUTSIDE the transaction: postgres.js keeps the first query
+  // error of a transaction and rethrows it at commit, so catching inside the
+  // callback would let the refusal past this branch and out to the caller.
+  try {
+    const rows = await withUserDb((tx) =>
+      tx.execute<{ id: string | null }>(sql`select private.claim_group_invite() as id`),
+    );
 
-      return rows.length > 0 ? "claimed" : "none";
-    } catch (error) {
-      // `group_members_user_unique` rejects a caller who already holds a live
-      // membership: they cannot be claimed into a second group (RF-55).
-      if (pgErrorCode(error) === "23505") return "already-in-group";
-      throw error;
-    }
-  });
+    return rows[0]?.id ? "claimed" : "none";
+  } catch (error) {
+    // `group_members_user_unique` rejects a caller who already holds a live
+    // membership: they cannot be claimed into a second group (RF-55).
+    if (pgErrorCode(error) === "23505") return "already-in-group";
+    throw error;
+  }
 }
 
 export async function updateMember({
