@@ -209,10 +209,12 @@ export function MovementForm({
       return;
     }
 
+    // A row with no category yet is what the person came to fill, not a
+    // mistake to report: seeding it never validates, so the form opens quiet.
     if (lastKind.current !== kind && lastKind.current !== null) {
-      form.setValue("splits", [{ categoryId: "", amount }], { shouldValidate: true });
+      form.setValue("splits", [{ categoryId: "", amount }]);
     } else if (splits.length === 0) {
-      form.setValue("splits", [{ categoryId: "", amount }], { shouldValidate: true });
+      form.setValue("splits", [{ categoryId: "", amount }]);
     } else if (splits.length === 1 && splits[0].amount !== amount) {
       form.setValue("splits", [{ ...splits[0], amount }], { shouldValidate: true });
     }
@@ -516,8 +518,8 @@ export function MovementForm({
           <Callout.Text>{t("kindDerivedHint")}</Callout.Text>
         </Callout.Root>
 
-        {/* Enabled while the form is still short of something: submitting is
-            what puts the missing field's message on screen. */}
+        {/* Never dead: while the form is short of something, submitting is what
+            makes it say so. */}
         <Button type="submit" size="3" disabled={isPending}>
           {isPending && <Spinner />}
           {isAccept ? tIngest("accept") : t("saveMovement")}

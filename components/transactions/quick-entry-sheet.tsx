@@ -184,13 +184,7 @@ function QuickEntryForm({
   // A lone split always carries the whole amount, so editing the total keeps it
   // in step; two or more are the editor's to balance.
   useEffect(() => {
-    // An untouched empty set reports no error, so the row the interpreter did
-    // not fill is seeded here and its missing category reads at once (RF-69).
-    if (splits.length === 0) {
-      form.setValue("splits", [{ categoryId: "", amount }], {
-        shouldValidate: true,
-      });
-    } else if (splits.length === 1 && splits[0].amount !== amount) {
+    if (splits.length === 1 && splits[0].amount !== amount) {
       form.setValue("splits", [{ ...splits[0], amount }], { shouldValidate: true });
     }
 
@@ -378,8 +372,8 @@ function QuickEntryForm({
           </Link>
         </Flex>
 
-        {/* Enabled while the form is still short of something: submitting is
-            what puts the missing field's message on screen. */}
+        {/* Never dead: while the form is short of something, submitting is what
+            makes it say so. */}
         <Button type="submit" size="3" disabled={create.isPending}>
           {create.isPending && <Spinner />}
           {t("quickSave")}
