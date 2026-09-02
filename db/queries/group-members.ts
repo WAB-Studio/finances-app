@@ -137,6 +137,25 @@ export async function claimInviteForUser({
   }
 }
 
+// RF-59: the role moves in one statement. No group id and no source member cross
+// the boundary — `private.transfer_group_leadership` reads auth.uid() and demotes
+// the caller as it promotes the target, so the group is never left with two
+// leaders or none. A refusal is a 23514 the action layer reads; nothing is caught
+// here, and a catch would have to sit outside `withUserDb` anyway.
+export async function transferLeadership({
+  memberId,
+}: {
+  memberId: string;
+}): Promise<boolean> {
+  return withUserDb(async (tx) => {
+    const rows = await tx.execute<{ ok: boolean }>(
+      sql`select private.transfer_group_leadership(${memberId}) as ok`,
+    );
+
+    return rows[0]?.ok === true;
+  });
+}
+
 // RF-100: the leader renames anyone, everyone else their own row — the policy
 // filters the rest out, so a refused rename returns no row rather than raising.
 export async function updateMember({

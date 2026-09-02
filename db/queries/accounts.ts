@@ -181,6 +181,25 @@ export async function updateAccount({
   });
 }
 
+// RF-61: a personal account becomes the group's in one statement. No group id
+// crosses the boundary — `private.hand_account_to_group` reads auth.uid(), takes
+// the caller's own group and refuses an account carrying any history, which is
+// archived instead. `AccountRow` is unchanged: the next `listAccounts` reads the
+// new placement. A refusal is a 23514 the action layer reads.
+export async function handAccountToGroup({
+  accountId,
+}: {
+  accountId: string;
+}): Promise<boolean> {
+  return withUserDb(async (tx) => {
+    const rows = await tx.execute<{ ok: boolean }>(
+      sql`select private.hand_account_to_group(${accountId}) as ok`,
+    );
+
+    return rows[0]?.ok === true;
+  });
+}
+
 export async function archiveAccount({
   accountId,
 }: {

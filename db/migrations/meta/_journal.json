@@ -197,6 +197,13 @@
       "when": 1788383569510,
       "tag": "0027_hand_an_account_to_the_group",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1788385815916,
+      "tag": "0028_hand_over_reveals_only_the_callers_scope",
+      "breakpoints": true
     }
   ]
 }
