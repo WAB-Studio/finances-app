@@ -1,19 +1,25 @@
 /**
- * One pass over the six settings screens, none of which any check had opened.
+ * One pass over the seven settings screens, none of which any check had opened.
  * The HTTP layer already proves each route answers 200; what it cannot prove is
  * that the data reached the screen — the whole next-intl catalogue ships in the
  * page payload, so a title matches even when nothing rendered. Every assertion
  * here is therefore a seeded value or an interpolated message carrying one.
  *
- * The last two describes prove RF-100 on screen, under both roles. The database
- * half is proved by layer 1 (assertions 184-189); nothing until now rendered the
- * roster, and the row menu is only reachable here — Radix mounts a menu's items
- * when it opens and never puts them on the wire.
+ * The RF-100 describes prove that requirement on screen, under both roles. The
+ * database half is proved by layer 1 (assertions 184-189); nothing until now
+ * rendered the roster, and the row menu is only reachable here — Radix mounts a
+ * menu's items when it opens and never puts them on the wire.
+ *
+ * The last describe drives the group's own settings (RF-56, RF-57): its form is
+ * the one place where the two columns the leader may write are written at all,
+ * and every value it saves is read back from Postgres, never from the screen
+ * that wrote it.
  */
 import { createHash, randomUUID } from "node:crypto";
 
 import { expect, type Locator, type Page } from "@playwright/test";
 
+import { GROUP_CASH_ACCOUNT_NAME } from "@/lib/fund/seed";
 import messages from "@/messages/es.json";
 
 import { fixtureSql } from "../scripts/harness/fixtures";
@@ -30,6 +36,7 @@ import {
 
 const members = messages.members;
 const common = messages.common;
+const group = messages.group;
 
 const scope = readScope();
 const stamp = randomUUID().slice(0, 8);
@@ -282,6 +289,101 @@ test.describe("RF-100 on the roster", () => {
       ]);
 
       await expectRenameSubject(page, PLAIN_MEMBER_NAME);
+    });
+  });
+});
+
+test.describe("the group's own settings", () => {
+  // The one test that writes rewrites this group, and `seedGroup` opens by
+  // dropping whatever the last one left, so either test meets the fund named and
+  // moded as it was seeded whichever order they run in.
+  let groupId = "";
+
+  test.beforeEach(async () => {
+    ({ groupId } = await seedGroup());
+  });
+
+  test.afterAll(async () => {
+    await clearGroup();
+  });
+
+  test("saves the leader's name and cash mode, and the switch leaves the group one cash", async ({
+    page,
+  }) => {
+    const renamed = `Fondo renombrado ${stamp}`;
+
+    // The seeded row is what the fields are read against: a change only proves
+    // anything once the screen is carrying the two values it was given.
+    const [seeded] = await fixtureSql<{ name: string; cash_mode: string }[]>`
+      select name, cash_mode from groups where id = ${groupId}`;
+    expect(seeded.cash_mode).toBe("per_member");
+    // Cash per member holds no shared pot, so the one below is the switch's own
+    // work and not a row the seed left lying there.
+    expect(
+      await fixtureSql`select id from accounts where group_id = ${groupId}`,
+    ).toHaveLength(0);
+
+    await page.goto("/es/settings/group");
+
+    await expect(page.getByRole("textbox", { name: group.nameLabel })).toHaveValue(
+      seeded.name,
+    );
+    await expect(
+      page.getByRole("radio", { name: group.cashModePerMember, exact: true }),
+    ).toBeChecked();
+
+    await page.getByRole("textbox", { name: group.nameLabel }).fill(renamed);
+    await page
+      .getByRole("radio", { name: group.cashModeShared, exact: true })
+      .click();
+    await page.getByRole("button", { name: group.save, exact: true }).click();
+
+    await expect(page.getByText(group.saved, { exact: true })).toBeVisible();
+
+    const [saved] = await fixtureSql<{ name: string; cash_mode: string }[]>`
+      select name, cash_mode from groups where id = ${groupId}`;
+    expect(saved.name).toBe(renamed);
+    expect(saved.cash_mode).toBe("shared");
+
+    // 'shared' names one pot, so the save has to leave exactly one behind (RF-56):
+    // none sends the next withdrawal to an account nothing ever finds again, and
+    // a second splits the cash the mode just merged. The name carries the locale
+    // the form was submitted in, which is the request's, not the group's.
+    const cash = await fixtureSql<{ name: string }[]>`
+      select name from accounts
+      where group_id = ${groupId} and subtype = 'efectivo' and archived_at is null`;
+    expect(cash).toHaveLength(1);
+    expect(cash[0].name).toBe(GROUP_CASH_ACCOUNT_NAME.es);
+  });
+
+  test.describe("under a plain member", () => {
+    test.use({ storageState: MEMBER_STORAGE_STATE });
+
+    test("reads the two values and is offered no way to write them", async ({
+      page,
+    }) => {
+      const [seeded] = await fixtureSql<{ name: string }[]>`
+        select name from groups where id = ${groupId}`;
+
+      await page.goto("/es/settings/group");
+
+      // The sidebar names the fund too, so the pair is read from the screen's
+      // own landmark.
+      const settings = page.getByRole("main");
+
+      await expect(settings.getByText(seeded.name, { exact: true })).toBeVisible();
+      await expect(
+        settings.getByText(group.cashModePerMember, { exact: true }),
+      ).toBeVisible();
+
+      // RF-57: the configuration is the leader's, and this screen hands a plain
+      // member neither the field nor the button that would reach the action.
+      await expect(
+        page.getByRole("textbox", { name: group.nameLabel }),
+      ).toHaveCount(0);
+      await expect(
+        page.getByRole("button", { name: group.save, exact: true }),
+      ).toHaveCount(0);
     });
   });
 });
