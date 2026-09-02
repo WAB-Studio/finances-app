@@ -90,7 +90,6 @@ accounting exports, native apps. None of this gets built or left
 - [x] **RF-27** — Each category is either expense or income.
 - [x] **RF-64** — Creating a personal space or a group seeds an initial category set in the active language.
 - [x] **RF-70** — Labels, independent of category, attach to transactions through a transaction_labels join; a group's labels are managed by its leader, a user's by their owner.
-- [ ] **RF-116** — A category shows how many subcategories hang off it, and a label how many transactions and how many budgets use it; every count derives and is never stored.
 
 #### Recurring
 
@@ -103,7 +102,6 @@ accounting exports, native apps. None of this gets built or left
 
 - [x] **RF-71** — CRUD for budgets: a spending limit on a category for a repeating period (monthly, weekly or yearly), scoped to a user or a group, optionally narrowed to one account and/or one label.
 - [x] **RF-72** — A budget's spent and remaining amounts derive from the transaction splits that fall in the current period and match its category and any account or label narrowing; they are never stored.
-- [ ] **RF-115** — A budget's spent and remaining derive for a chosen period, not only the current one; the period is browsable into the past and the derivation is unchanged.
 - [x] **RF-73** — A budget carries an overspend alert threshold as a percentage of its limit; a budget is flagged once its derived spending crosses that threshold.
 - [x] **RF-74** — CRUD for one-off planned payments: a future movement — its accounts, amount, category and due date — with an optional reminder date, kept distinct from recurring rules.
 - [x] **RF-75** — Settling a planned payment records the transaction it planned, links the two, and marks the planned payment done; a settled or cancelled planned payment cannot be settled again.
