@@ -1,10 +1,14 @@
 import type { LucideIcon } from "lucide-react";
 import {
   ArrowRightLeft,
+  CalendarDays,
+  ChartColumnBig,
   ChartLine,
+  CreditCard,
   Database,
   House,
   Inbox,
+  Repeat,
   ScrollText,
   Tag,
   Tags,
@@ -26,6 +30,11 @@ const CATALOGUE = {
   home: { href: "/", icon: House },
   movements: { href: "/movements", icon: ArrowRightLeft },
   planning: { href: "/planning", icon: Target },
+  budgets: { href: "/planning/budgets", icon: ChartColumnBig },
+  goals: { href: "/planning/goals", icon: Target },
+  payments: { href: "/planning/payments", icon: CalendarDays },
+  recurring: { href: "/planning/recurring", icon: Repeat },
+  debts: { href: "/planning/debts", icon: CreditCard },
   reports: { href: "/reports", icon: ChartLine },
   inbox: { href: "/inbox", icon: Inbox },
   members: { href: "/settings/members", icon: Users },
@@ -49,16 +58,29 @@ export type Destination = {
 export const TAB_KEYS = ["home", "movements", "planning"] as const;
 
 // The sidebar's own list, in the order `private/design-desktop/SPEC-A3.md` fixes.
+// Planeación opens in place: a laptop has the height to offer its five screens
+// directly, so the hub behind the phone's tab is not a stop on the way here.
 export const PRIMARY_KEYS = [
   "home",
   "movements",
-  "planning",
+  "budgets",
+  "goals",
+  "payments",
+  "recurring",
+  "debts",
   "reports",
   "inbox",
 ] as const;
 
 // What the sidebar keeps below its separator, beside the settings panel's trigger.
-export const SIDEBAR_SECONDARY_KEYS = ["accounts"] as const;
+// Auditoría and Webhooks stay out of it: both are rare and stay in the panel.
+export const SIDEBAR_SECONDARY_KEYS = [
+  "accounts",
+  "members",
+  "categories",
+  "labels",
+  "data",
+] as const;
 
 // The settings panel, the only surface that reaches the rest of the app.
 export const SETTINGS_KEYS = [
@@ -71,6 +93,15 @@ export const SETTINGS_KEYS = [
   "data",
   "audit",
 ] as const;
+
+/**
+ * The fund's own settings have no screen yet: `cash_mode` (RF-56) is written once
+ * at group creation and edited nowhere afterwards. The sidebar reads this to
+ * decide whether its fund control opens that path or stands disabled, so the day
+ * the screen lands this flag is the only edit.
+ */
+export const GROUP_SETTINGS_READY: boolean = false;
+export const GROUP_SETTINGS_HREF = "/settings/group";
 
 // One group per user with no switching (RF-55), so every destination is a fixed
 // path. Members only exist inside a group, so that entry drops without one.
