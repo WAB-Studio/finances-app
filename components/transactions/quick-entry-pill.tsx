@@ -4,17 +4,15 @@ import { Plus } from "lucide-react";
 import { useTranslations } from "next-intl";
 
 import { useQuickEntry } from "@/components/transactions/quick-entry-provider";
-import { Card, CategoryTile, Flex, TapTarget, Text } from "@/components/ui";
-
-// A control that carries no chrome of its own: the row around it is the surface.
-const PLAIN_BUTTON = {
-  padding: 0,
-  border: 0,
-  background: "none",
-  font: "inherit",
-  textAlign: "start",
-  cursor: "pointer",
-} as const;
+import {
+  Card,
+  CategoryTile,
+  Flex,
+  Panel,
+  PanelButton,
+  TapTarget,
+  Text,
+} from "@/components/ui";
 
 // The dashboard's one tap into expense quick entry (RF-22): a card that reads like
 // the sheet's field but raises it in place, no route change. The provider wraps
@@ -33,19 +31,9 @@ export function QuickEntryPill({
 
   if (variant === "wide") {
     return (
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 14,
-          padding: "13px 18px",
-          backgroundColor: "var(--color-panel-solid)",
-          border: "1px solid var(--gray-a4)",
-          borderRadius: 16,
-        }}
-      >
+      <Panel variant="inline">
         <Flex asChild align="center" gap="3" flexGrow="1" minWidth="0">
-          <button type="button" onClick={openQuick} style={PLAIN_BUTTON}>
+          <PanelButton onClick={openQuick}>
             <CategoryTile
               color="var(--accent-9)"
               size={36}
@@ -54,26 +42,22 @@ export function QuickEntryPill({
             <Text size="3" color="gray" truncate>
               {t("quickPlaceholder")}
             </Text>
-          </button>
+          </PanelButton>
         </Flex>
-        <button type="button" onClick={openFull} style={PLAIN_BUTTON}>
+        <PanelButton onClick={openFull}>
           <TapTarget align="center" px="1">
             <Text size="2" weight="medium" color="jade">
               {t("quickTypeLink")}
             </Text>
           </TapTarget>
-        </button>
-      </div>
+        </PanelButton>
+      </Panel>
     );
   }
 
   return (
     <Card asChild>
-      <button
-        type="button"
-        onClick={openQuick}
-        style={{ width: "100%", textAlign: "start", font: "inherit", cursor: "pointer" }}
-      >
+      <PanelButton variant="surface" onClick={openQuick}>
         <Flex align="center" gap="3">
           <CategoryTile
             color="var(--accent-9)"
@@ -84,7 +68,7 @@ export function QuickEntryPill({
             {t("quickPlaceholder")}
           </Text>
         </Flex>
-      </button>
+      </PanelButton>
     </Card>
   );
 }

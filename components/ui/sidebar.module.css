@@ -36,3 +36,64 @@
   align-self: center;
   margin: 16px 0;
 }
+
+.head {
+  gap: 8px;
+  padding: 4px 10px 20px;
+}
+
+/* Doubled, here and below, to outrank Radix's own size and variant classes,
+   which land in another sheet at the same specificity and whichever order the
+   bundler chose. */
+.fund.fund {
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.foot {
+  margin-top: auto;
+  gap: 14px;
+}
+
+.action.action {
+  height: auto;
+  gap: 9px;
+  padding: 12px;
+  border-radius: 12px;
+  font-size: 14.5px;
+  font-weight: 600;
+}
+
+/* The whole row is the trigger, so it fills the foot and reads from its start. */
+.person.person {
+  width: 100%;
+  height: auto;
+  justify-content: flex-start;
+  gap: 9px;
+  margin: 0;
+  padding: 4px;
+  border-radius: 10px;
+}
+
+.avatar.avatar {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+}
+
+.name.name {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.role.role {
+  font-size: 11.5px;
+}
+
+/* Past the name, whatever the name measures. */
+.chevron {
+  margin-left: auto;
+  flex-shrink: 0;
+}
