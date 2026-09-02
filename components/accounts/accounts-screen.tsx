@@ -311,17 +311,21 @@ function AccountCard({
             </IconButton>
           </DropdownMenu.Trigger>
           <DropdownMenu.Content>
-            <DropdownMenu.Item onSelect={onEdit}>
-              {tKey("common.edit")}
-            </DropdownMenu.Item>
+            {/* An archived account is read-only: the way back is all it offers,
+                and a mistake is corrected by restoring it first. */}
             {archived ? (
               <DropdownMenu.Item onSelect={onRestore}>
                 {tKey("common.restore")}
               </DropdownMenu.Item>
             ) : (
-              <DropdownMenu.Item onSelect={onArchive}>
-                {tKey("common.archive")}
-              </DropdownMenu.Item>
+              <>
+                <DropdownMenu.Item onSelect={onEdit}>
+                  {tKey("common.edit")}
+                </DropdownMenu.Item>
+                <DropdownMenu.Item onSelect={onArchive}>
+                  {tKey("common.archive")}
+                </DropdownMenu.Item>
+              </>
             )}
             <DropdownMenu.Item color="red" onSelect={onDelete}>
               {tKey("common.delete")}

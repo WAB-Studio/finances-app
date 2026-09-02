@@ -124,7 +124,11 @@ export function MembersScreen({
             const isSelf = member.userId === currentUserId;
             // RF-100: the leader manages the roster; everyone else only renames their own row.
             const canEdit = isLeader || isSelf;
+            // The database refuses all three on a caller who is not the leader, and on the session user's own row.
             const canManage = isLeader && !isSelf;
+            // An archived row is read-only, and what it still offers is the
+            // leader's alone, so a member's own archived row carries no menu.
+            const hasMenu = member.archivedAt ? canManage : canEdit;
 
             return (
               <Card key={member.id}>
@@ -148,7 +152,7 @@ export function MembersScreen({
                   </Flex>
 
                   <Box flexShrink="0">
-                    {canEdit && (
+                    {hasMenu && (
                       <DropdownMenu.Root>
                         <DropdownMenu.Trigger>
                           <IconButton
@@ -164,32 +168,17 @@ export function MembersScreen({
                           </IconButton>
                         </DropdownMenu.Trigger>
                         <DropdownMenu.Content>
-                          <DropdownMenu.Item
-                            onSelect={() => setFormTarget(member)}
-                          >
-                            {tKey("common.edit")}
-                          </DropdownMenu.Item>
-                          {/* The database refuses both on the session user's own row, and all three on a caller who is not the leader. */}
-                          {canManage && (
+                          {/* An archived member is read-only: the way back is
+                              all the row offers, and a rename waits for it. */}
+                          {member.archivedAt ? (
                             <>
-                              <DropdownMenu.Separator />
-                              {member.archivedAt ? (
-                                <DropdownMenu.Item
-                                  onSelect={() =>
-                                    setRowAction({ kind: "restore", member })
-                                  }
-                                >
-                                  {tKey("common.restore")}
-                                </DropdownMenu.Item>
-                              ) : (
-                                <DropdownMenu.Item
-                                  onSelect={() =>
-                                    setRowAction({ kind: "archive", member })
-                                  }
-                                >
-                                  {tKey("common.archive")}
-                                </DropdownMenu.Item>
-                              )}
+                              <DropdownMenu.Item
+                                onSelect={() =>
+                                  setRowAction({ kind: "restore", member })
+                                }
+                              >
+                                {tKey("common.restore")}
+                              </DropdownMenu.Item>
                               <DropdownMenu.Item
                                 color="red"
                                 onSelect={() =>
@@ -198,6 +187,34 @@ export function MembersScreen({
                               >
                                 {tKey("common.delete")}
                               </DropdownMenu.Item>
+                            </>
+                          ) : (
+                            <>
+                              <DropdownMenu.Item
+                                onSelect={() => setFormTarget(member)}
+                              >
+                                {tKey("common.edit")}
+                              </DropdownMenu.Item>
+                              {canManage && (
+                                <>
+                                  <DropdownMenu.Separator />
+                                  <DropdownMenu.Item
+                                    onSelect={() =>
+                                      setRowAction({ kind: "archive", member })
+                                    }
+                                  >
+                                    {tKey("common.archive")}
+                                  </DropdownMenu.Item>
+                                  <DropdownMenu.Item
+                                    color="red"
+                                    onSelect={() =>
+                                      setRowAction({ kind: "delete", member })
+                                    }
+                                  >
+                                    {tKey("common.delete")}
+                                  </DropdownMenu.Item>
+                                </>
+                              )}
                             </>
                           )}
                         </DropdownMenu.Content>
