@@ -183,6 +183,7 @@ function renderCases(transactionId: string): RenderCase[] {
       status: 200,
       title: title("recurringRules.title"),
     },
+    { path: `/${LOCALE}/settings`, status: 200, title: title("nav.settings") },
     {
       path: `/${LOCALE}/settings/accounts`,
       status: 200,
