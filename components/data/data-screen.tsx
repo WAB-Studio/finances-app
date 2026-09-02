@@ -18,6 +18,7 @@ import {
   Spinner,
   Switch,
   Table,
+  TapTarget,
   Text,
   TextField,
   VisuallyHidden,
@@ -122,13 +123,15 @@ export function DataScreen({
             <Flex direction="column" gap="2" mt="1">
               {entities.map((entity) => (
                 <Text key={entity} as="label" size="2">
-                  <Flex align="center" gap="2">
+                  {/* The label is what a finger lands on, and a switch is shorter
+                      than the floor; the row carries it for the pair. */}
+                  <TapTarget align="center" gap="2">
                     <Switch
                       checked={selected.has(entity)}
                       onCheckedChange={(checked) => toggle(entity, checked)}
                     />
                     {t(`sheets.${entity}`)}
-                  </Flex>
+                  </TapTarget>
                 </Text>
               ))}
             </Flex>

@@ -407,6 +407,7 @@ function GoalCard({
             <DropdownMenu.Trigger>
               <IconButton
                 type="button"
+                tap
                 variant="ghost"
                 color="gray"
                 aria-label={tKey("common.actionsFor", { name: goal.name })}
@@ -471,6 +472,7 @@ function GoalCard({
           {!archived && (
             <Button
               type="button"
+              tap
               variant="ghost"
               size="2"
               onClick={onContribute}

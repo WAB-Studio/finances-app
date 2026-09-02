@@ -51,8 +51,8 @@ import {
   Money,
   MovementRow,
   ScreenHeader,
-  SegmentedControl,
   Select,
+  StackedSegmentedControl,
   Text,
   TextField,
   VisuallyHidden,
@@ -337,25 +337,28 @@ export function MovementsScreen({
             </IconButton>
           </Flex>
 
-          <SegmentedControl.Root
+          {/* Four kinds do not fit one line on a phone, and Radix's own root
+              refuses to shrink under them: stacked, each kind is a row of its
+              own until the pane is wide enough to hold the four side by side. */}
+          <StackedSegmentedControl.Root
             value={filters.type}
             onValueChange={(value) =>
               patchFilters({ type: value as MovementType })
             }
           >
-            <SegmentedControl.Item value="all">
+            <StackedSegmentedControl.Item value="all">
               {t("filterAll")}
-            </SegmentedControl.Item>
-            <SegmentedControl.Item value="expense">
+            </StackedSegmentedControl.Item>
+            <StackedSegmentedControl.Item value="expense">
               {t("filterExpenses")}
-            </SegmentedControl.Item>
-            <SegmentedControl.Item value="income">
+            </StackedSegmentedControl.Item>
+            <StackedSegmentedControl.Item value="income">
               {t("filterIncome")}
-            </SegmentedControl.Item>
-            <SegmentedControl.Item value="transfer">
+            </StackedSegmentedControl.Item>
+            <StackedSegmentedControl.Item value="transfer">
               {t("filterTransfers")}
-            </SegmentedControl.Item>
-          </SegmentedControl.Root>
+            </StackedSegmentedControl.Item>
+          </StackedSegmentedControl.Root>
 
           {showFilters && (
             <Card>

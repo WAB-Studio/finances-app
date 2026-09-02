@@ -110,7 +110,7 @@ export default async function HomePage(props: PageProps<"/[locale]">) {
 
   if (dashboardData.hasAccounts === false) {
     return (
-      <Page gutter="flush">
+      <Page gutter="flush-md">
         <Box display={{ initial: "none", md: "block" }}>
           <ScreenHeader title={td("title")} />
         </Box>
@@ -232,7 +232,7 @@ export default async function HomePage(props: PageProps<"/[locale]">) {
     PERSONAL_CASH_ACCOUNT_NAME[locale];
 
   return (
-    <Page gutter="flush">
+    <Page gutter="flush-md">
       <Box display={{ initial: "none", md: "block" }}>
         <ScreenHeader title={td("title")} />
       </Box>
@@ -262,7 +262,10 @@ export default async function HomePage(props: PageProps<"/[locale]">) {
             <Flex justify="between" align="baseline" gap="3">
               <Heading as="h2" size="4">{t("listTitle")}</Heading>
               <Link asChild size="2" weight="medium">
-                <LocaleLink href="/movements">{t("seeAll")}</LocaleLink>
+                <LocaleLink href="/movements">
+                  {/* A line of text has no control height of its own. */}
+                  <TapTarget align="center">{t("seeAll")}</TapTarget>
+                </LocaleLink>
               </Link>
             </Flex>
 

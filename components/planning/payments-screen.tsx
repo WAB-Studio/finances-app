@@ -249,6 +249,7 @@ function PaymentCard({
           <DropdownMenu.Trigger>
             <IconButton
               type="button"
+              tap
               variant="ghost"
               color="gray"
               aria-label={tKey("common.actionsFor", {

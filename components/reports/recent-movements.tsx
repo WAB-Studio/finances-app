@@ -6,6 +6,7 @@ import {
   EmptyState,
   Flex,
   Link,
+  TapTarget,
   Money,
   Panel,
   PanelRow,
@@ -51,10 +52,11 @@ export function RecentMovements({
       action={
         <Link asChild size="2" weight="medium">
           <LocaleLink href="/movements">
-            <Flex align="center" gap="1">
+            {/* A line of text has no control height of its own. */}
+            <TapTarget align="center" gap="1">
               {t("seeAll")}
               <ChevronRight size={13} strokeWidth={2.4} aria-hidden />
-            </Flex>
+            </TapTarget>
           </LocaleLink>
         </Link>
       }
