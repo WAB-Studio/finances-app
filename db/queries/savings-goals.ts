@@ -1,9 +1,9 @@
 import "server-only";
 
-import { eq, sql } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 
 import { insertRow } from "@/db/insert-row";
-import { goalContributions, savingsGoals } from "@/db/schema";
+import { goalContributions, savingsGoals, transactions } from "@/db/schema";
 import { withUserDb } from "@/db/session";
 
 export type GoalProgress = {
@@ -173,6 +173,47 @@ export async function addGoalContribution({
     );
 
     return { contributionId: row.id };
+  });
+}
+
+// One aporte as the undo list shows it (RF-119). `occurredAt` and `description`
+// come from the movement the entry earmarks; a virtual entry earmarks none and
+// leaves both null, since `goal_contributions` carries no date of its own.
+export type GoalContributionRow = {
+  id: string;
+  amountCents: number;
+  transactionId: string | null;
+  occurredAt: string | null;
+  description: string | null;
+};
+
+/**
+ * One goal's aportes, newest first, in ONE round trip (RF-119, RNF-09). The sum
+ * of what comes back is the goal's saved amount: `goal_progress` sums these very
+ * rows under the same policy, so progress keeps deriving and nothing is stored
+ * (RF-87, RNF-07). Scope is the policy's job — `goal_contributions_select_member`
+ * admits a row only when its goal is readable, so the goal id narrows the set and
+ * never widens it. A movement outside the caller's scope joins as null rather
+ * than dropping its aporte, which would break that sum.
+ */
+export async function listGoalContributions(
+  goalId: string,
+): Promise<GoalContributionRow[]> {
+  return withUserDb(async (tx) => {
+    return tx
+      .select({
+        id: goalContributions.id,
+        amountCents: goalContributions.amountCents,
+        transactionId: goalContributions.transactionId,
+        occurredAt: transactions.occurredAt,
+        description: transactions.description,
+      })
+      .from(goalContributions)
+      .leftJoin(transactions, eq(transactions.id, goalContributions.transactionId))
+      .where(eq(goalContributions.goalId, goalId))
+      // A dated aporte leads in date order; an undated one has nothing to sort
+      // by, so `desc` leaves it first and the id keeps the order stable.
+      .orderBy(desc(transactions.occurredAt), goalContributions.id);
   });
 }
 

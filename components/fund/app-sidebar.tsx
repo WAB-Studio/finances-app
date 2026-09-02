@@ -1,10 +1,12 @@
 "use client";
 
 import type { LucideIcon } from "lucide-react";
-import { Plus, Settings } from "lucide-react";
+import { ChevronDown, ChevronRight, Plus, Settings } from "lucide-react";
 import { useTranslations } from "next-intl";
 
 import {
+  GROUP_SETTINGS_HREF,
+  GROUP_SETTINGS_READY,
   PRIMARY_KEYS,
   SIDEBAR_SECONDARY_KEYS,
   destinations,
@@ -17,6 +19,7 @@ import {
   Badge,
   Button,
   Flex,
+  IconButton,
   NavList,
   type NavListItem,
   NavListTrigger,
@@ -25,12 +28,24 @@ import {
   Text,
   VisuallyHidden,
 } from "@/components/ui";
-import { usePathname } from "@/i18n/navigation";
+import { Link as LocaleLink, usePathname } from "@/i18n/navigation";
 
 // The stroke thickens on the current destination, which is the only weight the
 // row's icon carries; the pill behind it does the rest.
 function icon(Icon: LucideIcon, current: boolean) {
   return <Icon size={19} strokeWidth={current ? 2 : 1.8} />;
+}
+
+// The chevron of a row that opens something. `atEnd` sends it past the label,
+// which is where the person's row carries it.
+function chevron(Icon: LucideIcon, atEnd = false) {
+  return (
+    <Icon
+      size={16}
+      strokeWidth={2}
+      style={{ flexShrink: 0, marginLeft: atEnd ? "auto" : undefined }}
+    />
+  );
 }
 
 /**
@@ -85,13 +100,39 @@ export function AppSidebar({
 
   return (
     <Sidebar label={t("title")} display={{ initial: "none", md: "flex" }}>
-      <Flex align="center" style={{ padding: "4px 10px 20px" }}>
+      <Flex align="center" style={{ gap: 8, padding: "4px 10px 20px" }}>
         <Text
           truncate
           style={{ fontSize: 19, fontWeight: 700, letterSpacing: "-0.02em" }}
         >
           {fundName}
         </Text>
+        {/* Disabled until `/settings/group` exists: a control that opens nothing
+            says so, where a link would promise a screen and deliver an empty one. */}
+        {GROUP_SETTINGS_READY ? (
+          <IconButton
+            asChild
+            size="1"
+            variant="ghost"
+            color="gray"
+            aria-label={t("fundSettings")}
+          >
+            <LocaleLink href={GROUP_SETTINGS_HREF}>
+              {chevron(ChevronDown)}
+            </LocaleLink>
+          </IconButton>
+        ) : (
+          <IconButton
+            disabled
+            type="button"
+            size="1"
+            variant="ghost"
+            color="gray"
+            aria-label={t("fundSettings")}
+          >
+            {chevron(ChevronDown)}
+          </IconButton>
+        )}
       </Flex>
 
       <NavList variant="sidebar" items={items(PRIMARY_KEYS)} />
@@ -127,27 +168,56 @@ export function AppSidebar({
           <Plus size={18} strokeWidth={2.2} />
           {t("record")}
         </Button>
-        <Flex align="center" px="1" style={{ gap: 9 }}>
-          <Avatar
-            size="1"
-            radius="full"
-            fallback={personName.slice(0, 1).toUpperCase()}
-            style={{ width: 30, height: 30 }}
-          />
-          <Flex direction="column" minWidth="0">
-            <Text
-              truncate
-              style={{ fontSize: 13, fontWeight: 600, letterSpacing: "-0.01em" }}
+        {/* The whole row is the trigger, so the panel behind Ajustes is also a
+            click away from the person it belongs to. */}
+        <SettingsPanel
+          hasGroup={hasGroup}
+          trigger={
+            <Button
+              type="button"
+              variant="ghost"
+              color="gray"
+              highContrast
+              style={{
+                width: "100%",
+                height: "auto",
+                justifyContent: "flex-start",
+                gap: 9,
+                margin: 0,
+                padding: 4,
+                borderRadius: 10,
+              }}
             >
-              {personName}
-            </Text>
-            {role && (
-              <Text color="gray" truncate style={{ fontSize: "11.5px" }}>
-                {t(role === "leader" ? "roleLeader" : "roleMember")}
-              </Text>
-            )}
-          </Flex>
-        </Flex>
+              {/* The initial repeats the name beside it; a reader announces the
+                  row once. */}
+              <Avatar
+                aria-hidden
+                size="1"
+                radius="full"
+                fallback={personName.slice(0, 1).toUpperCase()}
+                style={{ width: 30, height: 30, flexShrink: 0 }}
+              />
+              <Flex direction="column" align="start" minWidth="0">
+                <Text
+                  truncate
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 600,
+                    letterSpacing: "-0.01em",
+                  }}
+                >
+                  {personName}
+                </Text>
+                {role && (
+                  <Text color="gray" truncate style={{ fontSize: "11.5px" }}>
+                    {t(role === "leader" ? "roleLeader" : "roleMember")}
+                  </Text>
+                )}
+              </Flex>
+              {chevron(ChevronRight, true)}
+            </Button>
+          }
+        />
       </Flex>
     </Sidebar>
   );

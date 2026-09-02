@@ -24,17 +24,19 @@ export type AccountRow = {
   isShared: boolean;
   initialBalanceCents: number;
   initialBalanceOn: string;
+  balanceCents: number;
   archivedAt: Date | null;
 };
 
 // Every account the caller may read: their personal accounts and their group's
 // (RF-58, universal read). The policy scopes the rows; ordering only groups
-// personal accounts ahead of the group's, then by name.
+// personal accounts ahead of the group's, then by name. The balance rides this
+// same statement (RNF-07, RNF-09) — the roster costs one round trip, as before.
 export async function listAccounts(
   options: { archived: boolean },
 ): Promise<AccountRow[]> {
-  return withUserDb(async (tx) =>
-    tx
+  return withUserDb(async (tx) => {
+    const rows = await tx
       .select({
         id: accounts.id,
         name: accounts.name,
@@ -47,14 +49,22 @@ export async function listAccounts(
         isShared: accounts.isShared,
         initialBalanceCents: accounts.initialBalanceCents,
         initialBalanceOn: accounts.initialBalanceOn,
+        balanceCents: sql<string>`b.balance_cents`,
         archivedAt: accounts.archivedAt,
       })
       .from(accounts)
+      // The view derives one row per account from movements, never a stored
+      // column, and runs `security_invoker`: the join drops nothing the account
+      // policy already showed.
+      .innerJoin(sql`account_balances b`, sql`b.id = ${accounts.id}`)
       .where(
         options.archived ? isNotNull(accounts.archivedAt) : isNull(accounts.archivedAt),
       )
-      .orderBy(desc(sql`${accounts.ownerUserId} is not null`), asc(accounts.name)),
-  );
+      .orderBy(desc(sql`${accounts.ownerUserId} is not null`), asc(accounts.name));
+
+    // A bigint sum arrives from the driver as a string; the ledger keeps cents a number.
+    return rows.map((row) => ({ ...row, balanceCents: Number(row.balanceCents) }));
+  });
 }
 
 // Placement is XOR, mirroring the schema check: a personal account names its

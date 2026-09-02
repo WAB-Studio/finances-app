@@ -3,3 +3,12 @@
 .page {
   padding-bottom: calc(var(--space-6) + env(safe-area-inset-bottom, 0px));
 }
+
+/* The phone keeps `p="6"` on every side; only the desktop pane hands the
+   horizontal gutter to the bands inside it. */
+@media (min-width: 1024px) {
+  .page[data-gutter="flush"] {
+    padding-left: 0;
+    padding-right: 0;
+  }
+}

@@ -1,14 +1,16 @@
 import "server-only";
 
-import { and, gte, lte } from "drizzle-orm";
+import { and, eq, exists, gte, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 import type { PgColumn } from "drizzle-orm/pg-core";
 import type { SQL } from "drizzle-orm";
 
+import type { TransactionListFilters } from "@/db/queries/transactions";
 import {
   accounts,
   categories,
   groupMembers,
   recurringRules,
+  transactionLabels,
   transactions,
   transactionSplits,
 } from "@/db/schema";
@@ -43,10 +45,17 @@ export type ExportRow<E extends SheetEntity> = Record<KeyOf<E>, CellValue>;
 // distinct from a key present with an empty array.
 export type ExportResult = Partial<{ [E in SheetEntity]: ExportRow<E>[] }>;
 
+// The movement list's own filters, less the range the export already bounds and
+// the single-id lookup only a detail page uses.
+export type TransactionExportFilters = Omit<TransactionListFilters, "id" | "from" | "to">;
+
 export type ExportInput = {
   entityKeys: SheetEntity[];
   from?: Date | string;
   to?: Date | string;
+  // Narrows the transactions sheet alone (RF-118); the other four entities stay
+  // the whole-fund dump RF-50 asks for.
+  transactionFilters?: TransactionExportFilters;
 };
 
 // The date range bounds only the two dated entities, on the field the descriptor
@@ -62,6 +71,49 @@ const dateColumn: Partial<Record<SheetEntity, PgColumn>> = {
 function toCivilDate(value: Date | string): string {
   if (typeof value === "string") return value;
   return new Intl.DateTimeFormat("en-CA", { timeZone: TIME_ZONE }).format(value);
+}
+
+// The ledger list's own predicates, rebuilt over the same columns so the export
+// narrows to exactly the rows the list shows (RF-23, RF-89). An absent filter
+// adds nothing, so an unfiltered export runs the query it ran before.
+function transactionConditions(filters?: TransactionExportFilters): SQL[] {
+  const conditions: SQL[] = [];
+  if (!filters) return conditions;
+
+  if (filters.memberUserId) {
+    conditions.push(eq(transactions.createdBy, filters.memberUserId));
+  }
+  if (filters.accountId) {
+    conditions.push(
+      or(
+        eq(transactions.fromAccountId, filters.accountId),
+        eq(transactions.toAccountId, filters.accountId),
+      ) as SQL,
+    );
+  }
+  if (filters.categoryId) {
+    conditions.push(
+      sql`exists (select 1 from ${transactionSplits} s
+        where s.transaction_id = ${transactions.id} and s.category_id = ${filters.categoryId})`,
+    );
+  }
+  if (filters.labelId) {
+    conditions.push(
+      sql`exists (select 1 from ${transactionLabels} tl
+        where tl.transaction_id = ${transactions.id} and tl.label_id = ${filters.labelId})`,
+    );
+  }
+  if (filters.kind) conditions.push(eq(transactions.kind, filters.kind));
+  if (filters.unreviewed) {
+    conditions.push(
+      and(
+        isNotNull(transactions.recurringRuleId),
+        isNull(transactions.reviewedAt),
+      ) as SQL,
+    );
+  }
+
+  return conditions;
 }
 
 // One column seen through the shared contract: `satisfies` narrows each literal, so
@@ -92,8 +144,9 @@ function referencesEntity(entity: SheetEntity, ref: "accounts" | "categories"): 
 // scope filter joins the range predicates; the policy alone bounds the read.
 async function readEntityRows<E extends SheetEntity>(
   entity: E,
-  from?: Date | string,
-  to?: Date | string,
+  from: Date | string | undefined,
+  to: Date | string | undefined,
+  extra: SQL[],
 ): Promise<Record<string, unknown>[]> {
   const descriptor = sheetDescriptors[entity];
   const table = exportTables[entity];
@@ -112,7 +165,7 @@ async function readEntityRows<E extends SheetEntity>(
   if (entity === "transactions") projection["id"] = columns["id"];
 
   const bound = dateColumn[entity];
-  const conditions: SQL[] = [];
+  const conditions: SQL[] = [...extra];
   if (bound) {
     if (from) conditions.push(gte(bound, toCivilDate(from)));
     if (to) conditions.push(lte(bound, toCivilDate(to)));
@@ -144,15 +197,33 @@ const emptyNameMap = new Map<string, string>();
 // Each transaction's split category ids, grouped by transaction (RF-69). Read in
 // the caller's RLS scope so a split resolves to a category the same scope reads
 // back. One round trip for every split; the category fill picks the ids of the
-// transactions it exports and ignores the rest.
-async function readSplitCategoryIds(): Promise<Map<string, string[]>> {
+// transactions it exports and ignores the rest. A filtered export carries the
+// list's predicates into the same round trip, so it never reads the whole
+// ledger's splits to fill a handful of cells (RNF-15).
+async function readSplitCategoryIds(conditions: SQL[]): Promise<Map<string, string[]>> {
   return withUserDb(async (tx) => {
+    const exported =
+      conditions.length === 0
+        ? undefined
+        : exists(
+            tx
+              .select({ present: sql`1` })
+              .from(transactions)
+              .where(
+                and(
+                  eq(transactions.id, transactionSplits.transactionId),
+                  ...conditions,
+                ),
+              ),
+          );
+
     const rows = await tx
       .select({
         transactionId: transactionSplits.transactionId,
         categoryId: transactionSplits.categoryId,
       })
-      .from(transactionSplits);
+      .from(transactionSplits)
+      .where(exported);
 
     const byTransaction = new Map<string, string[]>();
     for (const row of rows) {
@@ -221,7 +292,9 @@ function toExportRows<E extends SheetEntity>(
  * and no members, since the members policy shows only a group's roster. References
  * resolve to names (RF-49); money stays integer cents, the sheet's cents→pesos
  * boundary a later module's. Transfers stay in the transactions set: RF-19's
- * report-only exclusion does not reach a backup.
+ * report-only exclusion does not reach a backup. Filters narrow the transactions
+ * sheet to what the ledger list shows (RF-118) and leave the other four sheets
+ * whole; with none, every read is the one the unfiltered export already ran.
  */
 export async function readExport(input: ExportInput): Promise<ExportResult> {
   const requested = SHEET_ENTITIES.filter((entity) => input.entityKeys.includes(entity));
@@ -230,11 +303,23 @@ export async function readExport(input: ExportInput): Promise<ExportResult> {
   const needsCategories = requested.some((entity) => referencesEntity(entity, "categories"));
   const needsSplits = requested.includes("transactions");
 
+  // Built once so the rows and their splits are narrowed by the very same set.
+  const listed = transactionConditions(input.transactionFilters);
+
   const [sets, accountNames, categoryNames, splitCategoryIds] = await Promise.all([
-    Promise.all(requested.map((entity) => readEntityRows(entity, input.from, input.to))),
+    Promise.all(
+      requested.map((entity) =>
+        readEntityRows(
+          entity,
+          input.from,
+          input.to,
+          entity === "transactions" ? listed : [],
+        ),
+      ),
+    ),
     needsAccounts ? readNameMap(accounts) : Promise.resolve(emptyNameMap),
     needsCategories ? readNameMap(categories) : Promise.resolve(emptyNameMap),
-    needsSplits ? readSplitCategoryIds() : Promise.resolve(emptySplitMap),
+    needsSplits ? readSplitCategoryIds(listed) : Promise.resolve(emptySplitMap),
   ]);
 
   const result: ExportResult = {};

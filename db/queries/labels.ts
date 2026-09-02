@@ -22,11 +22,13 @@ export type LabelRow = {
 export type ScopedLabelRow = LabelRow & { scope: "personal" | "group" };
 
 // The management screen's row: the label plus what would break if it went away
-// (RF-70). Both counts derive from the join and the budgets narrowing on it.
+// (RF-70, RF-116). Both counts derive from the join and the budgets narrowing on
+// it, and neither is ever stored.
 export type LabelManagementRow = {
   id: string;
   name: string;
   color: string | null;
+  // How many transactions wear the label, through `transaction_labels`.
   movementCount: number;
   budgetCount: number;
 };
@@ -88,8 +90,12 @@ export async function listScopedLabels(userId: string): Promise<ScopedLabelRow[]
 
 /**
  * The scope's labels for the management screen, counts along, in ONE round trip:
- * both counts ride as correlated subqueries, never an N+1 follow-up. `listLabels`
- * stays countless so the movement form never pays for them.
+ * both counts ride as correlated subqueries, never an N+1 follow-up (RF-116).
+ * `listLabels` stays countless so the movement form never pays for them.
+ *
+ * Neither count can name a row the caller may not read: both subqueries run
+ * under the same session as the outer select, so `transaction_labels` and
+ * `budgets` answer through their own policies.
  */
 export async function listManagedLabels(
   scope: LabelScope,
