@@ -60,18 +60,19 @@ export async function generateMetadata(
   return { title: t("appName") };
 }
 
-// The three classes an account opens as, each its own tile in the first-account
-// guide. The names are the accounts screen's own (RF-56 names the cash one), and
-// the key rides the query the accounts screen opens its form from.
 // The desktop list runs the eight rows of the Inicio artboard; the phone's cards
 // keep the three it has always shown.
 const RECENT_LIMIT = 8;
 const PHONE_RECENT_LIMIT = 3;
 
-const ACCOUNT_KINDS = [
-  { key: "bancaria", label: "subtypeBancaria", surface: "var(--blue-3)", ink: "var(--blue-11)" },
-  { key: "efectivo", label: "subtypeEfectivo", surface: "var(--jade-3)", ink: "var(--jade-11)" },
-  { key: "tarjeta", label: "subtypeTarjeta", surface: "var(--violet-3)", ink: "var(--violet-11)" },
+// The three classes an account opens as — a subtype, never the asset/liability
+// kind `lib/validation/account` names — each its own tile in the first-account
+// guide. The names are the accounts screen's own (RF-56 names the cash one), and
+// the subtype rides the query the accounts screen opens its form from.
+const ACCOUNT_CLASSES = [
+  { subtype: "bancaria", label: "subtypeBancaria", surface: "var(--blue-3)", ink: "var(--blue-11)" },
+  { subtype: "efectivo", label: "subtypeEfectivo", surface: "var(--jade-3)", ink: "var(--jade-11)" },
+  { subtype: "tarjeta", label: "subtypeTarjeta", surface: "var(--violet-3)", ink: "var(--violet-11)" },
 ] as const;
 
 // The signed-in landing. A user may run personal-only (RF-55), so an absent
@@ -165,20 +166,20 @@ export default async function HomePage(props: PageProps<"/[locale]">) {
           </Flex>
 
           <Flex align="stretch" justify="center" gap="4" wrap="wrap">
-            {ACCOUNT_KINDS.map((kind) => (
-              <Card key={kind.key} asChild>
+            {ACCOUNT_CLASSES.map((tile) => (
+              <Card key={tile.subtype} asChild>
                 <LocaleLink
-                  href={`/settings/accounts?new=${kind.key}`}
+                  href={`/settings/accounts?new=${tile.subtype}`}
                   style={{ width: 240, textDecoration: "none", color: "inherit" }}
                 >
                   <Flex direction="column" align="center" gap="3">
                     <CategoryTile
-                      color={kind.surface}
+                      color={tile.surface}
                       size={46}
-                      icon={<AccountKindIcon kind={kind.key} color={kind.ink} />}
+                      icon={<AccountClassIcon subtype={tile.subtype} color={tile.ink} />}
                     />
                     <Text size="3" weight="medium">
-                      {ta(kind.label)}
+                      {ta(tile.label)}
                     </Text>
                     <Flex align="center" gap="1">
                       <Plus size={14} strokeWidth={2.4} color="var(--accent-11)" />
@@ -284,13 +285,17 @@ export default async function HomePage(props: PageProps<"/[locale]">) {
         </Box>
 
         <Box display={{ initial: "none", md: "block" }} px="6">
-          <RecentMovements
-            rows={rows}
-            kindLabels={kindLabels}
-            accountNames={accountNames}
-            categoryNames={categoryNames}
-            categoryColors={categoryColors}
-          />
+          <Flex direction="column" gap="4">
+            <QuickEntryPill variant="wide" />
+
+            <RecentMovements
+              rows={rows}
+              kindLabels={kindLabels}
+              accountNames={accountNames}
+              categoryNames={categoryNames}
+              categoryColors={categoryColors}
+            />
+          </Flex>
         </Box>
       </Flex>
     </Page>
@@ -298,15 +303,15 @@ export default async function HomePage(props: PageProps<"/[locale]">) {
 }
 
 // The glyph of one account class, drawn at the size the guide's tile holds.
-function AccountKindIcon({
-  kind,
+function AccountClassIcon({
+  subtype,
   color,
 }: {
-  kind: (typeof ACCOUNT_KINDS)[number]["key"];
+  subtype: (typeof ACCOUNT_CLASSES)[number]["subtype"];
   color: string;
 }) {
-  if (kind === "bancaria") return <Landmark size={22} strokeWidth={1.8} color={color} />;
-  if (kind === "efectivo") return <Banknote size={22} strokeWidth={1.8} color={color} />;
+  if (subtype === "bancaria") return <Landmark size={22} strokeWidth={1.8} color={color} />;
+  if (subtype === "efectivo") return <Banknote size={22} strokeWidth={1.8} color={color} />;
   return <CreditCard size={22} strokeWidth={1.8} color={color} />;
 }
 
