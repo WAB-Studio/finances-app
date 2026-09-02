@@ -48,6 +48,18 @@
       "memberNameTooLong": "The name cannot exceed 80 characters."
     }
   },
+  "group": {
+    "title": "Fund settings",
+    "nameLabel": "Fund name",
+    "cashModeLabel": "Cash",
+    "cashModeShared": "Group cash",
+    "cashModePerMember": "One cash account per person",
+    "save": "Save",
+    "saved": "Settings saved.",
+    "errors": {
+      "cashModeInvalid": "Choose where cash sits."
+    }
+  },
   "onboarding": {
     "title": "Create your fund",
     "subtitle": "A space for the accounts you share. You will be its owner.",

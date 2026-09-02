@@ -95,12 +95,11 @@ export const SETTINGS_KEYS = [
 ] as const;
 
 /**
- * The fund's own settings have no screen yet: `cash_mode` (RF-56) is written once
- * at group creation and edited nowhere afterwards. The sidebar reads this to
- * decide whether its fund control opens that path or stands disabled, so the day
- * the screen lands this flag is the only edit.
+ * The fund's own settings sit outside the catalogue: the chevron beside the fund
+ * name is what reaches them, and the settings panel owns the list of every other
+ * destination. No surface lists this one, so no surface can offer it twice.
  */
-export const GROUP_SETTINGS_READY: boolean = false;
+export const GROUP_SETTINGS_READY: boolean = true;
 export const GROUP_SETTINGS_HREF = "/settings/group";
 
 // One group per user with no switching (RF-55), so every destination is a fixed

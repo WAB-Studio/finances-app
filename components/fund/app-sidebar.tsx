@@ -6,7 +6,6 @@ import { useTranslations } from "next-intl";
 
 import {
   GROUP_SETTINGS_HREF,
-  GROUP_SETTINGS_READY,
   PRIMARY_KEYS,
   SIDEBAR_SECONDARY_KEYS,
   destinations,
@@ -107,32 +106,17 @@ export function AppSidebar({
         >
           {fundName}
         </Text>
-        {/* Disabled until `/settings/group` exists: a control that opens nothing
-            says so, where a link would promise a screen and deliver an empty one. */}
-        {GROUP_SETTINGS_READY ? (
-          <IconButton
-            asChild
-            size="1"
-            variant="ghost"
-            color="gray"
-            aria-label={t("fundSettings")}
-          >
-            <LocaleLink href={GROUP_SETTINGS_HREF}>
-              {chevron(ChevronDown)}
-            </LocaleLink>
-          </IconButton>
-        ) : (
-          <IconButton
-            disabled
-            type="button"
-            size="1"
-            variant="ghost"
-            color="gray"
-            aria-label={t("fundSettings")}
-          >
+        <IconButton
+          asChild
+          size="1"
+          variant="ghost"
+          color="gray"
+          aria-label={t("fundSettings")}
+        >
+          <LocaleLink href={GROUP_SETTINGS_HREF}>
             {chevron(ChevronDown)}
-          </IconButton>
-        )}
+          </LocaleLink>
+        </IconButton>
       </Flex>
 
       <NavList variant="sidebar" items={items(PRIMARY_KEYS)} />

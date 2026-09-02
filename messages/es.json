@@ -48,6 +48,18 @@
       "memberNameTooLong": "El nombre no puede pasar de 80 caracteres."
     }
   },
+  "group": {
+    "title": "Ajustes del fondo",
+    "nameLabel": "Nombre del fondo",
+    "cashModeLabel": "Efectivo",
+    "cashModeShared": "Efectivo del grupo",
+    "cashModePerMember": "Un efectivo por persona",
+    "save": "Guardar",
+    "saved": "Ajustes guardados.",
+    "errors": {
+      "cashModeInvalid": "Elige dónde vive el efectivo."
+    }
+  },
   "onboarding": {
     "title": "Crea tu fondo",
     "subtitle": "Un espacio para las cuentas que comparten. Serás su propietario.",
