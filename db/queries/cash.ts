@@ -35,6 +35,7 @@ const accountRowColumns = {
   isShared: accounts.isShared,
   initialBalanceCents: accounts.initialBalanceCents,
   initialBalanceOn: accounts.initialBalanceOn,
+  balanceCents: sql<string>`b.balance_cents`,
   archivedAt: accounts.archivedAt,
 } as const;
 
@@ -171,10 +172,13 @@ export async function withdrawCash({
 // FROM. Writable is own-or-shared, mirroring the accounts INSERT policy; the
 // `efectivo` subtype is excluded so cash never draws from cash.
 async function listWithdrawalSources(userId: string): Promise<AccountRow[]> {
-  return withUserDb(async (tx) =>
-    tx
+  return withUserDb(async (tx) => {
+    const rows = await tx
       .select(accountRowColumns)
       .from(accounts)
+      // The balance an `AccountRow` carries is derived by the view, in the same
+      // statement — the source list still costs the one round trip it did.
+      .innerJoin(sql`account_balances b`, sql`b.id = ${accounts.id}`)
       .where(
         and(
           eq(accounts.kind, "asset"),
@@ -183,6 +187,9 @@ async function listWithdrawalSources(userId: string): Promise<AccountRow[]> {
           or(eq(accounts.ownerUserId, userId), eq(accounts.isShared, true)),
         ),
       )
-      .orderBy(desc(sql`${accounts.ownerUserId} is not null`), asc(accounts.name)),
-  );
+      .orderBy(desc(sql`${accounts.ownerUserId} is not null`), asc(accounts.name));
+
+    // A bigint sum arrives from the driver as a string; the ledger keeps cents a number.
+    return rows.map((row) => ({ ...row, balanceCents: Number(row.balanceCents) }));
+  });
 }
