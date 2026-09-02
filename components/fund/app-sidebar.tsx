@@ -105,6 +105,7 @@ export function AppSidebar({
           hasGroup && (
             <IconButton
               asChild
+              tap
               size="1"
               variant="ghost"
               color="gray"

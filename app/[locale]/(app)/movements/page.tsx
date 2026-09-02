@@ -52,7 +52,7 @@ export default async function MovementsPage(
   ]);
 
   return (
-    <Page gutter="flush">
+    <Page gutter="flush-lg">
       <MovementsScreen
         rows={rows}
         options={options}

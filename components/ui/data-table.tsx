@@ -3,8 +3,9 @@
 import type { CSSProperties, ReactNode } from "react";
 import { ChevronDown, ChevronUp, EllipsisVertical } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { DropdownMenu, IconButton } from "@radix-ui/themes";
+import { DropdownMenu } from "@radix-ui/themes";
 
+import { IconButton } from "./button";
 import styles from "./data-table.module.css";
 
 export type DataColumn<Row> = {
@@ -209,6 +210,7 @@ export function RowMenu({
       <DropdownMenu.Trigger>
         <IconButton
           type="button"
+          tap
           variant="ghost"
           color="gray"
           size="2"

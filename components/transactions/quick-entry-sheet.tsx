@@ -62,8 +62,14 @@ export function QuickEntrySheet({
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       {/* The centred panel of the EntradaRapida artboard from `md` up; below it
-          the sheet keeps the width Radix gives every dialog on a phone. */}
-      <Dialog.Content maxWidth={{ initial: "600px", md: "576px" }}>
+          the sheet keeps the width Radix gives every dialog on a phone, minus
+          the overlay's own 16px on each side. Radix sizes a dialog to the
+          min-content of what it holds, and the split row's category trigger
+          carries a whole category name on one line, so without this the sheet
+          grows past the viewport instead of the row shrinking inside it. */}
+      <Dialog.Content
+        maxWidth={{ initial: "min(600px, 100vw - 32px)", md: "576px" }}
+      >
         <Flex align="center" justify="between" mb="4">
           <Dialog.Title mb="0">{t("quickTitle")}</Dialog.Title>
           <Dialog.Close>

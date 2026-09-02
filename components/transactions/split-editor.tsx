@@ -108,10 +108,11 @@ export function SplitEditor({
               value={split.categoryId || undefined}
               onValueChange={(categoryId) => updateSplit(index, { categoryId })}
             >
-              {/* Takes the row and gives it back: without the floor at zero the
-                  trigger never shrinks under its longest category name, and the
-                  row pushes the dialog past a phone's width. */}
-              <Flex asChild flexGrow="1" minWidth="0">
+              {/* Takes the row and gives it back. Radix pins `flex-shrink: 0`
+                  on its own trigger, so the floor at zero alone leaves the row
+                  as wide as the longest category name and the sheet grows past
+                  a phone's width to hold it. */}
+              <Flex asChild flexGrow="1" flexShrink="1" minWidth="0">
                 <Select.Trigger
                   placeholder={t("categoryLabel")}
                   aria-label={t("splitRowCategory", { position })}

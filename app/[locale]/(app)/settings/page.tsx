@@ -33,7 +33,7 @@ export default async function SettingsPage(
   const [, group] = await Promise.all([requireUser(), getUserGroup()]);
 
   return (
-    <Page gutter="flush">
+    <Page gutter="flush-md">
       <SettingsScreen hasGroup={group !== null} />
     </Page>
   );

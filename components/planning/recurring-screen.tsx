@@ -232,6 +232,7 @@ function RuleCard({
         </Flex>
         <IconButton
           type="button"
+          tap
           variant="ghost"
           color="gray"
           onClick={onEdit}

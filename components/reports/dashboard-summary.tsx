@@ -3,7 +3,15 @@
 import type { ReactNode } from "react";
 import { useTranslations } from "next-intl";
 
-import { Badge, Button, Flex, Heading, Money, Text } from "@/components/ui";
+import {
+  Badge,
+  Button,
+  Flex,
+  Heading,
+  Money,
+  TapTarget,
+  Text,
+} from "@/components/ui";
 import type { MoneyTone } from "@/components/ui";
 import type { DashboardData } from "@/db/queries/reports/dashboard";
 import type { OwnerNetWorthNamed } from "@/db/queries/reports/dashboard";
@@ -66,9 +74,11 @@ export function DashboardSummary({
                     href="/movements?unreviewed=1"
                     style={{ textDecoration: "none", alignSelf: "flex-start" }}
                   >
-                    <Badge color="amber" variant="soft" radius="full">
-                      {t("unreviewedBadge", { count: unreviewedCount })}
-                    </Badge>
+                    <TapTarget align="center">
+                      <Badge color="amber" variant="soft" radius="full">
+                        {t("unreviewedBadge", { count: unreviewedCount })}
+                      </Badge>
+                    </TapTarget>
                   </LocaleLink>
                 )}
                 {pendingDeliveryCount > 0 && (
@@ -76,11 +86,13 @@ export function DashboardSummary({
                     href="/inbox"
                     style={{ textDecoration: "none", alignSelf: "flex-start" }}
                   >
-                    <Badge color="amber" variant="soft" radius="full">
-                      {t("pendingDeliveriesBadge", {
-                        count: pendingDeliveryCount,
-                      })}
-                    </Badge>
+                    <TapTarget align="center">
+                      <Badge color="amber" variant="soft" radius="full">
+                        {t("pendingDeliveriesBadge", {
+                          count: pendingDeliveryCount,
+                        })}
+                      </Badge>
+                    </TapTarget>
                   </LocaleLink>
                 )}
               </Flex>
@@ -130,7 +142,7 @@ export function DashboardSummary({
         </div>
       </div>
 
-      <Button asChild variant="ghost" style={{ alignSelf: "flex-start" }}>
+      <Button asChild tap variant="ghost" style={{ alignSelf: "flex-start" }}>
         <LocaleLink href="/reports">{t("viewReports")}</LocaleLink>
       </Button>
     </Flex>
