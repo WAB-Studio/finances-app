@@ -191,3 +191,45 @@ export const deleteTransactionSchema = z.object({
 });
 
 export type DeleteTransactionInput = z.infer<typeof deleteTransactionSchema>;
+
+// A malformed value never reaches Postgres: a bad type falls back to "all", a
+// bad date or a repeated key drops to undefined, so the query filters on the
+// well-formed subset only (RF-23).
+const filterCivilDate = z
+  .string()
+  .refine(isCivilDate)
+  .catch(() => undefined as unknown as string)
+  .optional();
+
+const filterReference = z
+  .string()
+  .min(1)
+  .catch(() => undefined as unknown as string)
+  .optional();
+
+// The banner and the dashboard badge deep-link with `?unreviewed=1`; any other
+// value drops the flag, so the ledger stays unfiltered.
+const filterFlag = z
+  .literal("1")
+  .transform(() => true)
+  .catch(() => false);
+
+// The chip's value, mirrored one-to-one onto the movement's generated kind, with
+// the transfer a kind of its own so no income or expense chip surfaces it (RF-19).
+export const MOVEMENT_TYPES = ["all", "expense", "income", "transfer"] as const;
+
+// The movement list's filter set exactly as it travels in the URL (RF-23, RF-89).
+// The list page, the filter bar and the filtered export all parse this one
+// schema, so no second copy can drift from it (RNF-10).
+export const movementFiltersSchema = z.object({
+  type: z.enum(MOVEMENT_TYPES).catch("all"),
+  from: filterCivilDate,
+  to: filterCivilDate,
+  member: filterReference,
+  account: filterReference,
+  category: filterReference,
+  label: filterReference,
+  unreviewed: filterFlag,
+});
+
+export type MovementFilters = z.infer<typeof movementFiltersSchema>;

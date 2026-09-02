@@ -2,48 +2,14 @@ import { hasLocale } from "next-intl";
 import type { Metadata } from "next";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { notFound } from "next/navigation";
-import { z } from "zod";
 
 import { MovementsScreen } from "@/components/transactions/movements-screen";
 import { Page } from "@/components/ui";
 import { getTransactionFormOptions } from "@/db/queries/transaction-form";
 import { listTransactions } from "@/db/queries/transactions";
 import type { TransactionListFilters } from "@/db/queries/transactions";
-import { isCivilDate } from "@/lib/dates";
+import { movementFiltersSchema } from "@/lib/validation/transaction";
 import { routing } from "@/i18n/routing";
-
-// A malformed value never reaches Postgres: a bad type falls back to "all", a
-// bad date or a repeated key drops to undefined, so the query filters on the
-// well-formed subset only (RF-23).
-const civilDate = z
-  .string()
-  .refine(isCivilDate)
-  .catch(() => undefined as unknown as string)
-  .optional();
-
-const nonEmpty = z
-  .string()
-  .min(1)
-  .catch(() => undefined as unknown as string)
-  .optional();
-
-// The banner and the dashboard badge deep-link here with `?unreviewed=1`; any
-// other value drops the flag, so the ledger stays unfiltered.
-const flag = z
-  .literal("1")
-  .transform(() => true)
-  .catch(() => false);
-
-const searchParamsSchema = z.object({
-  type: z.enum(["all", "expense", "income", "transfer"]).catch("all"),
-  from: civilDate,
-  to: civilDate,
-  member: nonEmpty,
-  account: nonEmpty,
-  category: nonEmpty,
-  label: nonEmpty,
-  unreviewed: flag,
-});
 
 export async function generateMetadata(
   props: PageProps<"/[locale]/movements">,
@@ -64,7 +30,7 @@ export default async function MovementsPage(
 
   setRequestLocale(locale);
 
-  const parsed = searchParamsSchema.parse(await props.searchParams);
+  const parsed = movementFiltersSchema.parse(await props.searchParams);
 
   // The type chip maps to the generated `kind`; "all" drops the predicate so
   // the list carries every kind (RF-23). A transfer is a kind of its own, so
