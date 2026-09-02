@@ -44,12 +44,13 @@ export {
   Badge,
   type BadgeProps,
   SegmentedControl,
-  Switch,
   Table,
   VisuallyHidden,
 } from "@radix-ui/themes";
 
 export { Button, IconButton } from "./button";
+
+export { Switch } from "./switch";
 
 export { ConfirmDialog } from "./confirm-dialog";
 
