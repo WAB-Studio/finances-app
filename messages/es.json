@@ -92,7 +92,7 @@
     "createAccount": "Crear cuenta",
     "createFund": "Crear un fondo",
     "netWorthTitle": "Patrimonio del fondo",
-    "ownerChip": "{name} · {amount}",
+    "ownerChip": "{name} · <amount></amount>",
     "groupLabel": "El grupo",
     "selfLabel": "Tú",
     "monthIncome": "Ingresos del mes",
@@ -100,7 +100,10 @@
     "monthNet": "Neto del mes",
     "unreviewedBadge": "{count, plural, one {# sin revisar} other {# sin revisar}}",
     "pendingDeliveriesBadge": "{count, plural, one {# por revisar} other {# por revisar}}",
-    "viewReports": "Ver reportes"
+    "viewReports": "Ver reportes",
+    "title": "Inicio",
+    "firstAccountTitle": "Abre tu primera cuenta",
+    "addAccountKind": "Añadir"
   },
   "reports": {
     "title": "Reportes",
