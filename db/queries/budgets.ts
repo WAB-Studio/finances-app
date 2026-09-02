@@ -33,7 +33,7 @@ export type BudgetStatus = {
  * correlated subselect picks each row's window by its period. The window bounds
  * come from `periodRange` around `anchorDate` (today by default), so a stored
  * spent column never exists; the anchor only slides the window the split sum
- * derives over, never a budget's period or threshold (RF-72, RF-115).
+ * derives over, never a budget's period or threshold (RF-72).
  * Scope is the policy's job: `withUserDb` shows only the caller's readable rows.
  */
 export async function listBudgetsWithStatus(

@@ -48,8 +48,8 @@ accounting exports, native apps. None of this gets built or left
 
 #### Members and accounts
 
-- [x] **RF-07** — CRUD for members. A member need not have a user: you record on their behalf even if they never open the app.
-- [ ] **RF-60** — CRUD for accounts. An account is either personal (owned by a user) or a group account; a personal account can be marked shared so the group may write it.
+- [x] **RF-07** — CRUD for members. A member need not have a user.
+- [ ] **RF-60** — CRUD for accounts. An account is either personal (owned by a user) or a group account.
 - [x] **RF-09** — An account is either an asset (savings, cash) or a liability (card, loan).
 - [x] **RF-10** — Creating an account captures its opening balance and the date that balance is true as of.
 - [ ] **RF-11** — Accounts and members that have movements are archived, not deleted.
@@ -65,7 +65,7 @@ accounting exports, native apps. None of this gets built or left
 - [x] **RF-80** — A revolving card exposes its available credit — its limit less its derived balance — its statement cut-off and payment due day, and its minimum payment for the period. Interest, when charged, is a real movement, so the balance stays derived.
 - [ ] **RF-81** — A fixed-installment or BNPL debt carries a plan — principal, number of installments, frequency (monthly or fortnightly), interest, down payment, aval, start date and merchant — from which dated installment lines are generated.
 - [ ] **RF-82** — A payment into a debt account is allocated to its unpaid installment lines oldest-first, marking a line paid only when the payment fully covers it and linking the paying movement; a partial remainder is left unallocated, and a plan's pending is its unpaid lines, always derived, never stored.
-- [x] **RF-83** — Consolidated debt view: total owed across all debts, each card's available credit, the summed estimated monthly interest, and the next payment due — each debt's minimum plus the installment lines falling due.
+- [x] **RF-83** — Consolidated debt view: total owed across all debts, each card's available credit, the summed estimated monthly interest, and the next payment due — each debt's minimum.
 - [ ] **RF-117** — The consolidated debt view shows the summed available credit across the liability accounts that carry a credit limit.
 - [ ] **RF-84** — A liability account keeps a statement history: one record per statement period with its bounds, its payment due date and the balance, minimum and interest captured at the cut-off. A statement is an immutable historical snapshot, materialised for past periods, never rewritten.
 
@@ -78,7 +78,7 @@ accounting exports, native apps. None of this gets built or left
 - [x] **RF-101** — A transfer names two different accounts; a movement whose source and destination are the same account is refused.
 - [x] **RF-62** — Both accounts on a transaction belong to the caller's writable scope: their personal accounts and their group's shared accounts.
 - [x] **RF-22** — Quick entry: a single text field from which amount, category and description are inferred. Anything inferred stays editable before saving.
-- [x] **RF-23** — Listing with filters by date range, member, account, category and type.
+- [x] **RF-23** — Listing with filters by date range, creator, account, category and type.
 - [x] **RF-89** — The transaction listing also filters by label, alongside the RF-23 filters.
 - [x] **RF-24** — Edit and delete transactions.
 - [x] **RF-25** — Every transaction records which user created it.
@@ -106,8 +106,9 @@ accounting exports, native apps. None of this gets built or left
 - [x] **RF-74** — CRUD for one-off planned payments: a future movement — its accounts, amount, category and due date — with an optional reminder date, kept distinct from recurring rules.
 - [x] **RF-75** — Settling a planned payment records the transaction it planned, links the two, and marks the planned payment done; a settled or cancelled planned payment cannot be settled again.
 - [x] **RF-76** — CRUD for savings goals: a target amount and an optional target date, scoped to a user or a group.
-- [x] **RF-87** — A savings goal's progress — amount saved, amount remaining and whether it is on track for its target date — derives from its contributions (`goal_contributions`), each an amount set aside virtually with no movement required; it is never stored.
+- [x] **RF-87** — A savings goal's progress — amount saved and amount remaining — derives from its contributions (`goal_contributions`), each an amount set aside virtually with no movement required; it is never stored.
 - [ ] **RF-119** — A savings goal's contributions are listed with their amounts and dates and one is removed from that list; the goal's progress re-derives from what remains.
+- [ ] **RF-120** — A budget or a savings goal is archived instead of deleted, and restored from the archive; an archived one leaves the active list and stays readable in its own archived tab.
 
 #### Reports
 

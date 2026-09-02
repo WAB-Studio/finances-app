@@ -20,7 +20,7 @@ export type CategoryNode = {
   name: string;
   kind: CategoryKind;
   color: string | null;
-  // How much hangs off this category (RF-116). It counts the children below and
+  // How much hangs off this category (RF-63). It counts the children below and
   // nothing else, so it can never name a row the same read did not already hand
   // over — no count subselect reaches past the policy that filtered them.
   childCount: number;
@@ -65,7 +65,7 @@ function subcategoryColor(parentId: string) {
  *
  * `childCount` comes out of that same pass rather than a count subselect: the
  * children are already in hand, so the figure costs no round trip and no extra
- * scan (RF-116, RNF-09).
+ * scan (RF-63, RNF-09).
  */
 export async function listCategories(
   scope: CategoryScope,
