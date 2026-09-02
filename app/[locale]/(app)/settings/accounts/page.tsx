@@ -8,6 +8,7 @@ import { Page } from "@/components/ui";
 import { listAccounts } from "@/db/queries/accounts";
 import { getUserGroup } from "@/db/queries/groups";
 import { routing } from "@/i18n/routing";
+import { createAccountSchema } from "@/lib/validation/account";
 
 export async function generateMetadata(
   props: PageProps<"/[locale]/settings/accounts">,
@@ -28,8 +29,14 @@ export default async function AccountsPage(
 
   setRequestLocale(locale);
 
-  const { tab } = await props.searchParams;
+  const { tab, new: requestedSubtype } = await props.searchParams;
   const archived = tab === "archived";
+
+  // The dashboard's first-account tiles name the class to open the form with.
+  // It is read through the create form's own field schema, so a fabricated value
+  // is dropped here and the screen simply opens with no class chosen.
+  const parsed = createAccountSchema.shape.subtype.safeParse(requestedSubtype);
+  const newSubtype = parsed.success ? parsed.data : null;
 
   // The policies scope the rows: a personal-only caller sees only their own
   // accounts, a group member sees the group's too (RF-58).
@@ -44,6 +51,7 @@ export default async function AccountsPage(
         accounts={accounts}
         groupName={group?.name ?? null}
         archived={archived}
+        newSubtype={newSubtype}
       />
     </Page>
   );

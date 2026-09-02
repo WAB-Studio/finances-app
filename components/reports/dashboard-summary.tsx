@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { useTranslations } from "next-intl";
 
 import { Badge, Button, Flex, Heading, Money, Text } from "@/components/ui";
@@ -16,10 +17,18 @@ import styles from "./dashboard-summary.module.css";
  * derived and stays integer cents; the peso reading is `Money`'s. No per-account
  * balance list lives here.
  *
- * From `md` up the two blocks become the side-by-side cards of the Inicio
- * artboard; below it they stack as they always have.
+ * From `md` up the blocks become the three side-by-side cards of the Inicio
+ * artboard, `cash` filling the third; below it the two figure blocks stack as they
+ * always have and the cash card, which the phone reaches through its own dialog,
+ * is not displayed.
  */
-export function DashboardSummary({ data }: { data: DashboardData }) {
+export function DashboardSummary({
+  data,
+  cash,
+}: {
+  data: DashboardData;
+  cash?: ReactNode;
+}) {
   const t = useTranslations("dashboard");
 
   const {
@@ -114,6 +123,10 @@ export function DashboardSummary({ data }: { data: DashboardData }) {
               tone={signTone(monthFlow.netCents, "income")}
             />
           </Flex>
+        </div>
+
+        <div className={styles.card} data-card="cash">
+          {cash}
         </div>
       </div>
 

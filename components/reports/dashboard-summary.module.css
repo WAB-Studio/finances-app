@@ -6,9 +6,15 @@
   display: contents;
 }
 
+/* The cash panel is the desktop row's third card and has no phone counterpart:
+   below `md` a withdrawal is the dialog further down the dashboard. */
+.card[data-card="cash"] {
+  display: none;
+}
+
 @media (min-width: 1024px) {
-  /* The desktop pane hands the gutter to the bands inside it, and these two cards
-     are a band of their own. */
+  /* The desktop pane hands the gutter to the bands inside it, and these three
+     cards are a band of their own. */
   .summary {
     padding: 0 32px;
   }
@@ -29,15 +35,21 @@
     border-radius: 16px;
   }
 
-  /* The 1.35 : 0.9 of the Inicio artboard, off a zero basis so the ratio is the
-     grow factors alone. */
+  /* The 1.35 / 1 / 0.9 of the Inicio artboard, off a zero basis so the ratio is
+     the grow factors alone. */
   .card[data-card="net"] {
     flex: 1.35 1 0;
   }
 
   .card[data-card="month"] {
-    flex: 0.9 1 0;
+    flex: 1 1 0;
     justify-content: center;
+  }
+
+  /* Restated: the hiding rule above outranks `.card` at any width. */
+  .card[data-card="cash"] {
+    display: flex;
+    flex: 0.9 1 0;
   }
 
   /* Doubled to outrank Radix's own size class, which lands in another sheet at

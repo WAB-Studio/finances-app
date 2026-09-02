@@ -61,7 +61,13 @@ export async function generateMetadata(
 }
 
 // The three classes an account opens as, each its own tile in the first-account
-// guide. The names are the accounts screen's own (RF-56 names the cash one).
+// guide. The names are the accounts screen's own (RF-56 names the cash one), and
+// the key rides the query the accounts screen opens its form from.
+// The desktop list runs the eight rows of the Inicio artboard; the phone's cards
+// keep the three it has always shown.
+const RECENT_LIMIT = 8;
+const PHONE_RECENT_LIMIT = 3;
+
 const ACCOUNT_KINDS = [
   { key: "bancaria", label: "subtypeBancaria", surface: "var(--blue-3)", ink: "var(--blue-11)" },
   { key: "efectivo", label: "subtypeEfectivo", surface: "var(--jade-3)", ink: "var(--jade-11)" },
@@ -72,8 +78,8 @@ const ACCOUNT_KINDS = [
 // group is expected, not a redirect to create one. With no account yet the
 // create-first-account guide stands (FLOWS §9); once an account exists the screen
 // leads with the per-owner net-worth and month summary (RF-88, RF-67; per-account
-// balances stay off the dashboard) over the quick-entry pill and the three most
-// recent lines (RF-23).
+// balances stay off the dashboard) over the quick-entry pill and the most recent
+// lines (RF-23).
 //
 // The summary re-flows into its two cards from `md` up; everything under it is a
 // pair — the phone's cards and the desktop's panel and rows — of which exactly
@@ -92,7 +98,7 @@ export default async function HomePage(props: PageProps<"/[locale]">) {
       requireUser(),
       getUserGroup(),
       getDashboardData(),
-      listTransactions({}, { limit: 3 }),
+      listTransactions({}, { limit: RECENT_LIMIT }),
       getTransactionFormOptions(),
       resolveWithdrawalTarget(),
       getTranslations("transactions"),
@@ -162,7 +168,7 @@ export default async function HomePage(props: PageProps<"/[locale]">) {
             {ACCOUNT_KINDS.map((kind) => (
               <Card key={kind.key} asChild>
                 <LocaleLink
-                  href="/settings/accounts"
+                  href={`/settings/accounts?new=${kind.key}`}
                   style={{ width: 240, textDecoration: "none", color: "inherit" }}
                 >
                   <Flex direction="column" align="center" gap="3">
@@ -231,7 +237,16 @@ export default async function HomePage(props: PageProps<"/[locale]">) {
       </Box>
 
       <Flex direction="column" gap="4">
-        <DashboardSummary data={dashboardData} />
+        <DashboardSummary
+          data={dashboardData}
+          cash={
+            <WithdrawPanel
+              sources={withdrawal.sourceAccounts}
+              destinationName={withdrawDestinationName}
+              willCreate={willCreateCash}
+            />
+          }
+        />
 
         <Box display={{ initial: "block", md: "none" }}>
           <Flex direction="column" gap="4">
@@ -251,7 +266,7 @@ export default async function HomePage(props: PageProps<"/[locale]">) {
             </Flex>
 
             <Flex direction="column" gap="2">
-              {rows.map((row) => (
+              {rows.slice(0, PHONE_RECENT_LIMIT).map((row) => (
                 <Card key={row.id} asChild>
                   <LocaleLink href={`/movements/${row.id}`}>
                     <MovementRow
@@ -269,21 +284,13 @@ export default async function HomePage(props: PageProps<"/[locale]">) {
         </Box>
 
         <Box display={{ initial: "none", md: "block" }} px="6">
-          <Flex direction="column" gap="4">
-            <WithdrawPanel
-              sources={withdrawal.sourceAccounts}
-              destinationName={withdrawDestinationName}
-              willCreate={willCreateCash}
-            />
-
-            <RecentMovements
-              rows={rows}
-              kindLabels={kindLabels}
-              accountNames={accountNames}
-              categoryNames={categoryNames}
-              categoryColors={categoryColors}
-            />
-          </Flex>
+          <RecentMovements
+            rows={rows}
+            kindLabels={kindLabels}
+            accountNames={accountNames}
+            categoryNames={categoryNames}
+            categoryColors={categoryColors}
+          />
         </Box>
       </Flex>
     </Page>
