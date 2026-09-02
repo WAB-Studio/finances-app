@@ -176,11 +176,15 @@ test.describe("the members screen", () => {
   test("renders the roster of the caller's fund", async ({ page }) => {
     await page.goto("/es/settings/members");
 
-    await expect(page.getByText(memberName, { exact: true })).toBeVisible();
-    await expect(page.getByText(leaderName, { exact: true })).toBeVisible();
+    // The sidebar names the signed-in person, so their name is on the screen
+    // twice by design; the roster is the one under test.
+    const roster = page.getByRole("main");
+
+    await expect(roster.getByText(memberName, { exact: true })).toBeVisible();
+    await expect(roster.getByText(leaderName, { exact: true })).toBeVisible();
     // The invited member has claimed no login yet, which the row says out loud.
     await expect(
-      page.getByText(messages.members.noLoginBadge, { exact: true }),
+      roster.getByText(messages.members.noLoginBadge, { exact: true }),
     ).toBeVisible();
   });
 });
@@ -193,9 +197,13 @@ function rowMenus(page: Page): Locator {
   });
 }
 
+// Whichever of the two the browser signs in as is named by the sidebar as well,
+// so both rows are read from the screen's own landmark.
 async function expectRosterRendered(page: Page): Promise<void> {
-  await expect(page.getByText(LEADER_MEMBER_NAME, { exact: true })).toBeVisible();
-  await expect(page.getByText(PLAIN_MEMBER_NAME, { exact: true })).toBeVisible();
+  const roster = page.getByRole("main");
+
+  await expect(roster.getByText(LEADER_MEMBER_NAME, { exact: true })).toBeVisible();
+  await expect(roster.getByText(PLAIN_MEMBER_NAME, { exact: true })).toBeVisible();
 }
 
 // Whose row an open menu belonged to: the name its rename arrives prefilled with.
