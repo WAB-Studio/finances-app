@@ -398,6 +398,7 @@
     "previousPage": "Anteriores",
     "nextPage": "Siguientes",
     "pageStatus": "{page} de {pages}",
+    "pageRange": "{from}–{to} de {total}",
     "detailTitle": "Movimiento",
     "createdBy": "Registrado por",
     "note": "Nota",
@@ -441,7 +442,15 @@
     "labelsLabel": "Etiquetas",
     "labelsNone": "Crea etiquetas en Ajustes para usarlas aquí.",
     "labelFilterLabel": "Etiqueta",
-    "allLabels": "Todas las etiquetas"
+    "allLabels": "Todas las etiquetas",
+    "typeLabel": "Tipo",
+    "descriptionLabel": "Descripción",
+    "listMeta": "{count} · neto",
+    "export": "Exportar",
+    "emptyTitle": "Todavía no hay movimientos",
+    "unreviewedFilter": "Sin revisar",
+    "chipFrom": "Desde {date}",
+    "chipTo": "Hasta {date}"
   },
   "cash": {
     "withdrawAction": "Retirar efectivo",

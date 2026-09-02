@@ -13,6 +13,8 @@ export type DataColumn<Row> = {
   // One CSS grid track: "96px" or "1fr". Header and rows share the template.
   width: string;
   align?: "start" | "end";
+  // Figures line up column-wise: the cell reads in tabular numerals (SPEC-A3).
+  numeric?: boolean;
   sort?: "asc" | "desc";
   onSort?: () => void;
   cell: (row: Row) => ReactNode;
@@ -35,6 +37,7 @@ export function DataTable<Row>({
   sections,
   rowKey,
   total,
+  empty,
   footer,
 }: {
   label: string;
@@ -43,6 +46,9 @@ export function DataTable<Row>({
   sections?: DataSection<Row>[];
   rowKey: (row: Row) => string;
   total?: ReactNode[];
+  // Drawn in place of the rows, under the column headers and inside the same
+  // frame, when every section came back empty (SPEC-A3, RF-48).
+  empty?: ReactNode;
   // Drawn under the container, inside the same gutter: the pagination of
   // SPEC-A3 lines up with the table's edges without a screen padding it.
   footer?: ReactNode;
@@ -54,6 +60,8 @@ export function DataTable<Row>({
   // The zebra runs across the whole table, not per section, so a band never
   // restarts the alternation under it.
   let position = 0;
+
+  const isEmpty = groups.every((group) => group.rows.length === 0);
 
   return (
     <div className={styles.gutter}>
@@ -99,6 +107,7 @@ export function DataTable<Row>({
                       key={column.key}
                       className={styles.cell}
                       data-align={column.align}
+                      data-numeric={column.numeric || undefined}
                     >
                       {column.cell(row)}
                     </div>
@@ -109,6 +118,16 @@ export function DataTable<Row>({
           </div>
         ))}
 
+        {empty && isEmpty && (
+          <div role="rowgroup">
+            <div role="row">
+              <div role="cell" aria-colspan={columns.length}>
+                {empty}
+              </div>
+            </div>
+          </div>
+        )}
+
         {total && (
           <div role="rowgroup">
             <div role="row" className={`${styles.grid} ${styles.total}`}>
@@ -118,6 +137,7 @@ export function DataTable<Row>({
                   key={columns[index]?.key ?? index}
                   className={styles.cell}
                   data-align={columns[index]?.align}
+                  data-numeric={columns[index]?.numeric || undefined}
                 >
                   {cell}
                 </div>

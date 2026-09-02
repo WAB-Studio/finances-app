@@ -398,6 +398,7 @@
     "previousPage": "Previous",
     "nextPage": "Next",
     "pageStatus": "{page} of {pages}",
+    "pageRange": "{from}–{to} of {total}",
     "detailTitle": "Movement",
     "createdBy": "Recorded by",
     "note": "Note",
@@ -441,7 +442,15 @@
     "labelsLabel": "Labels",
     "labelsNone": "Create labels in Settings to use them here.",
     "labelFilterLabel": "Label",
-    "allLabels": "All labels"
+    "allLabels": "All labels",
+    "typeLabel": "Type",
+    "descriptionLabel": "Description",
+    "listMeta": "{count} · net",
+    "export": "Export",
+    "emptyTitle": "No movements yet",
+    "unreviewedFilter": "Unreviewed",
+    "chipFrom": "From {date}",
+    "chipTo": "To {date}"
   },
   "cash": {
     "withdrawAction": "Withdraw cash",

@@ -21,13 +21,16 @@ import {
   IconButton,
   NavList,
   type NavListItem,
-  NavListTrigger,
   Sidebar,
   SidebarSeparator,
   Text,
   VisuallyHidden,
 } from "@/components/ui";
 import { Link as LocaleLink, usePathname } from "@/i18n/navigation";
+
+// Ajustes reaches every destination the panel lists, so the catalogue — which
+// holds only what a surface offers directly — does not name it.
+const SETTINGS_HREF = "/settings";
 
 // The stroke thickens on the current destination, which is the only weight the
 // row's icon carries; the pill behind it does the rest.
@@ -49,9 +52,10 @@ function chevron(Icon: LucideIcon, atEnd = false) {
 
 /**
  * The desktop shell (`private/design-desktop/SPEC-A3.md`): every primary screen one
- * click away from every other, the settings panel behind one row, and quick entry
- * (RF-22) without leaving the screen. Below `md` it does not render — the bottom
- * bar owns navigation there.
+ * click away from every other, Ajustes among them, and quick entry (RF-22)
+ * without leaving the screen. The person's own row keeps the settings panel, which
+ * is their menu and not an index of destinations. Below `md` it does not render —
+ * the bottom bar owns navigation there.
  */
 export function AppSidebar({
   fundName,
@@ -82,6 +86,17 @@ export function AppSidebar({
       <VisuallyHidden>{t("pending", { count: pendingCount })}</VisuallyHidden>
     </Badge>
   );
+
+  // Ajustes is a screen of its own on a laptop, so its row is a destination like
+  // the ones above it. Every settings path opens with the same segment, so only
+  // an exact match lights this row and not Cuentas or Datos.
+  const settings: NavListItem = {
+    key: "settings",
+    href: SETTINGS_HREF,
+    icon: icon(Settings, pathname === SETTINGS_HREF),
+    label: t("settings"),
+    current: pathname === SETTINGS_HREF,
+  };
 
   function items(keys: Parameters<typeof destinations>[0]): NavListItem[] {
     return destinations(keys, hasGroup).map(({ key, href, icon: Icon }) => {
@@ -125,19 +140,10 @@ export function AppSidebar({
 
       <NavList variant="sidebar" items={items(PRIMARY_KEYS)} />
       <SidebarSeparator />
-      {/* The trigger is a row of the same group, so it shares the group's gap. */}
-      <Flex direction="column" style={{ gap: 2 }}>
-        <NavList variant="sidebar" items={items(SIDEBAR_SECONDARY_KEYS)} />
-        <SettingsPanel
-          hasGroup={hasGroup}
-          trigger={
-            <NavListTrigger
-              icon={<Settings size={19} strokeWidth={1.8} />}
-              label={t("settings")}
-            />
-          }
-        />
-      </Flex>
+      <NavList
+        variant="sidebar"
+        items={[...items(SIDEBAR_SECONDARY_KEYS), settings]}
+      />
 
       <Flex direction="column" style={{ marginTop: "auto", gap: 14 }}>
         <Button
