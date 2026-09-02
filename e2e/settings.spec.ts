@@ -252,8 +252,11 @@ test.describe("RF-100 on the roster", () => {
 
       // The second row by name is the plain member's, which is not the leader's own.
       await rowMenus(page).nth(1).click();
+      // The transfer sits between the rename and the archive on a live member
+      // who has a login, and on no other row (RF-59).
       await expect(page.getByRole("menu").getByRole("menuitem")).toHaveText([
         common.edit,
+        members.transfer,
         common.archive,
         common.delete,
       ]);

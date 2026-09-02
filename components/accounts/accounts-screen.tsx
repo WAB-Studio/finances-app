@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import {
   archiveAccountAction,
   deleteAccountAction,
+  handAccountToGroupAction,
   restoreAccountAction,
 } from "@/app/actions/accounts";
 import { AccountFormDialog } from "@/components/accounts/account-form-dialog";
@@ -39,7 +40,8 @@ type Group = { key: string; label: string; accounts: AccountRow[] };
 type RowAction =
   | { kind: "archive"; account: AccountRow }
   | { kind: "restore"; account: AccountRow }
-  | { kind: "delete"; account: AccountRow };
+  | { kind: "delete"; account: AccountRow }
+  | { kind: "handOver"; account: AccountRow };
 
 // `listAccounts` already orders personal accounts ahead of the group's, then by
 // name, so one pass that starts a new group on a placement change reproduces
@@ -118,6 +120,14 @@ export function AccountsScreen({
     onError: onActionError,
   });
 
+  const handOverState = useAction(handAccountToGroupAction, {
+    onSuccess() {
+      toast.success(t("handedOver"));
+      setRowAction(null);
+    },
+    onError: onActionError,
+  });
+
   // Rewrites the query string instead of holding the tab in state, so a
   // reload or a shared link lands on the same tab.
   function onTabChange(value: string) {
@@ -188,6 +198,15 @@ export function AccountsScreen({
                     onArchive={() => setRowAction({ kind: "archive", account })}
                     onRestore={() => setRowAction({ kind: "restore", account })}
                     onDelete={() => setRowAction({ kind: "delete", account })}
+                    // Only a personal, live account of a caller who has a
+                    // group has anywhere to go (RF-60, RF-61).
+                    onHandOver={
+                      groupName !== null &&
+                      account.ownerUserId !== null &&
+                      !archived
+                        ? () => setRowAction({ kind: "handOver", account })
+                        : null
+                    }
                   />
                 ))}
               </Flex>
@@ -238,6 +257,22 @@ export function AccountsScreen({
         />
       )}
 
+      {rowAction?.kind === "handOver" && (
+        <ConfirmDialog
+          open
+          onOpenChange={(open) => !open && setRowAction(null)}
+          title={t("handOverTitle")}
+          description={t("handOverDescription")}
+          confirmLabel={t("handOver")}
+          cancelLabel={tKey("common.cancel")}
+          tone="neutral"
+          pending={handOverState.isPending}
+          onConfirm={() =>
+            handOverState.execute({ accountId: rowAction.account.id })
+          }
+        />
+      )}
+
       {rowAction?.kind === "delete" && (
         <ConfirmDialog
           open
@@ -263,6 +298,7 @@ function AccountCard({
   onArchive,
   onRestore,
   onDelete,
+  onHandOver,
 }: {
   account: AccountRow;
   archived: boolean;
@@ -270,6 +306,7 @@ function AccountCard({
   onArchive: () => void;
   onRestore: () => void;
   onDelete: () => void;
+  onHandOver: (() => void) | null;
 }) {
   const t = useTranslations("accounts");
   const tKey = useTranslations();
@@ -344,6 +381,11 @@ function AccountCard({
                 <DropdownMenu.Item onSelect={onArchive}>
                   {tKey("common.archive")}
                 </DropdownMenu.Item>
+                {onHandOver && (
+                  <DropdownMenu.Item onSelect={onHandOver}>
+                    {t("handOver")}
+                  </DropdownMenu.Item>
+                )}
               </>
             )}
             <DropdownMenu.Item color="red" onSelect={onDelete}>
