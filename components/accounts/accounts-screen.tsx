@@ -22,13 +22,13 @@ import {
   Flex,
   Heading,
   IconButton,
+  Money,
   SegmentedControl,
   Text,
 } from "@/components/ui";
 import type { AccountRow } from "@/db/queries/accounts";
 import { usePathname, useRouter } from "@/i18n/navigation";
 import { civilDateToDate } from "@/lib/dates";
-import { centsToPesos } from "@/lib/money";
 import { useActionErrorToast } from "@/lib/use-action-toast";
 import type { ACCOUNT_SUBTYPES } from "@/lib/validation/account";
 
@@ -290,17 +290,27 @@ function AccountCard({
               {account.institution}
             </Text>
           )}
-          {/* Names the opening figure, never a balance: no movement exists
-              yet, so nothing on this screen derives an actual balance. */}
+          {/* The magnitude only: the badge above already states the kind, and a
+              liability stores what it owes as a negative figure (RF-114). */}
+          <Flex align="center" gap="1" wrap="wrap">
+            <Text size="2" color="gray">
+              {t("balanceLabel")}
+            </Text>
+            <Money cents={account.balanceCents} tone="plain" signed={false} />
+          </Flex>
           <Flex align="center" gap="1" wrap="wrap">
             <Text size="2" color="gray">
               {t("openingBalanceLabel")}
             </Text>
             <Text size="2" color="gray">
-              {t("openingBalanceRow", {
-                amount: format.number(
-                  centsToPesos(Math.abs(account.initialBalanceCents)),
-                  "currency",
+              {t.rich("openingBalanceRow", {
+                amount: () => (
+                  <Money
+                    cents={account.initialBalanceCents}
+                    tone="plain"
+                    size="inherit"
+                    signed={false}
+                  />
                 ),
                 date: format.dateTime(civilDateToDate(account.initialBalanceOn)),
               })}
