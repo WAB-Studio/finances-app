@@ -241,6 +241,42 @@ export function MovementsScreen({
   exportQuery.set("entities", "transactions");
   const exportHref = `/${locale}/settings/data/export?${exportQuery.toString()}`;
 
+  // `framed` is the table's slot: the stack keeps its own height there, and only
+  // the pane's own copy grows to fill it.
+  function emptyState(framed: boolean) {
+    if (filtersActive) {
+      return (
+        <EmptyState
+          variant="filtered"
+          icon={<Search size={40} strokeWidth={1.6} />}
+          title={t("filteredEmptyTitle")}
+          description={t("filteredEmptyDescription")}
+          action={
+            <Button type="button" mt="2" onClick={clearFilters}>
+              {t("clearFilters")}
+            </Button>
+          }
+        />
+      );
+    }
+
+    // Nothing is filtered, so nothing here names a filter: the ledger is empty
+    // because no movement has been recorded yet (FLOWS §9).
+    return (
+      <EmptyState
+        variant={framed ? "filtered" : "first"}
+        icon={<ArrowRightLeft size={40} strokeWidth={1.6} />}
+        title={t("emptyTitle")}
+        action={
+          <Button type="button" size="3" mt="2" onClick={openQuick}>
+            <Plus size={18} strokeWidth={2.2} />
+            {t("quickTitle")}
+          </Button>
+        }
+      />
+    );
+  }
+
   const editing = rows.find((row) => row.id === editingId) ?? null;
 
   return (
@@ -465,106 +501,84 @@ export function MovementsScreen({
         </Flex>
       </Box>
 
-      {rows.length === 0 ? (
-        filtersActive ? (
-          <EmptyState
-            variant="filtered"
-            icon={<Search size={40} strokeWidth={1.6} />}
-            title={t("filteredEmptyTitle")}
-            description={t("filteredEmptyDescription")}
-            action={
-              <Button type="button" mt="2" onClick={clearFilters}>
-                {t("clearFilters")}
-              </Button>
-            }
-          />
+      {/* Both shapes stay mounted and one is displayed: the laptop keeps the
+          ledger's frame and headers with the empty state inside them, the phone
+          drops straight to the state (SPEC-A3). */}
+      <Box display={{ initial: "none", lg: "block" }}>
+        <MovementsTable
+          rows={tableRows}
+          page={table.state.pagination.pageIndex + 1}
+          pageSize={PAGE_SIZE}
+          total={rows.length}
+          empty={emptyState(true)}
+          onPrev={() => table.previousPage()}
+          onNext={() => table.nextPage()}
+          onEdit={setEditingId}
+          onDelete={setRemovingId}
+        />
+      </Box>
+
+      <Box display={{ initial: "block", lg: "none" }}>
+        {rows.length === 0 ? (
+          emptyState(false)
         ) : (
-          // Nothing is filtered, so nothing here names a filter: the ledger is
-          // empty because no movement has been recorded yet (FLOWS §9).
-          <EmptyState
-            icon={<ArrowRightLeft size={40} strokeWidth={1.6} />}
-            title={t("emptyTitle")}
-            action={
-              <Button type="button" size="3" mt="2" onClick={openQuick}>
-                <Plus size={18} strokeWidth={2.2} />
-                {t("quickTitle")}
-              </Button>
-            }
-          />
-        )
-      ) : (
-        <>
-          <Box display={{ initial: "none", lg: "block" }}>
-            <MovementsTable
-              rows={tableRows}
-              page={table.state.pagination.pageIndex + 1}
-              pageCount={table.getPageCount()}
-              onPrev={() => table.previousPage()}
-              onNext={() => table.nextPage()}
-              onEdit={setEditingId}
-              onDelete={setRemovingId}
-            />
-          </Box>
-
-          <Box display={{ initial: "block", lg: "none" }}>
-            <Flex direction="column" gap="5">
-              {groups.map((group) => (
-                <Flex key={group.key} direction="column" gap="2">
-                  <Text size="1" weight="bold" color="gray">
-                    {group.label.toUpperCase()}
-                  </Text>
-                  <Flex direction="column" gap="2">
-                    {group.rows.map((row) => (
-                      <MovementCard
-                        key={row.id}
-                        row={row}
-                        title={rowTitle(row, categoryNames, t)}
-                        subtitle={rowSubtitle(row, accountNames)}
-                        color={rowColor(row, categoryColors)}
-                        amount={rowAmount(row, format)}
-                        badge={
-                          row.recurringRuleId !== null ? t("autoBadge") : undefined
-                        }
-                      />
-                    ))}
-                  </Flex>
+          <Flex direction="column" gap="5">
+            {groups.map((group) => (
+              <Flex key={group.key} direction="column" gap="2">
+                <Text size="1" weight="bold" color="gray">
+                  {group.label.toUpperCase()}
+                </Text>
+                <Flex direction="column" gap="2">
+                  {group.rows.map((row) => (
+                    <MovementCard
+                      key={row.id}
+                      row={row}
+                      title={rowTitle(row, categoryNames, t)}
+                      subtitle={rowSubtitle(row, accountNames)}
+                      color={rowColor(row, categoryColors)}
+                      amount={rowAmount(row, format)}
+                      badge={
+                        row.recurringRuleId !== null ? t("autoBadge") : undefined
+                      }
+                    />
+                  ))}
                 </Flex>
-              ))}
+              </Flex>
+            ))}
 
-              {table.getPageCount() > 1 && (
-                <Flex justify="between" align="center" gap="3">
-                  <Button
-                    type="button"
-                    variant="soft"
-                    color="gray"
-                    disabled={!table.getCanPreviousPage()}
-                    onClick={() => table.previousPage()}
-                  >
-                    <ChevronLeft size={16} />
-                    {t("previousPage")}
-                  </Button>
-                  <Text size="2" color="gray">
-                    {t("pageStatus", {
-                      page: table.state.pagination.pageIndex + 1,
-                      pages: table.getPageCount(),
-                    })}
-                  </Text>
-                  <Button
-                    type="button"
-                    variant="soft"
-                    color="gray"
-                    disabled={!table.getCanNextPage()}
-                    onClick={() => table.nextPage()}
-                  >
-                    {t("nextPage")}
-                    <ChevronRight size={16} />
-                  </Button>
-                </Flex>
-              )}
-            </Flex>
-          </Box>
-        </>
-      )}
+            {table.getPageCount() > 1 && (
+              <Flex justify="between" align="center" gap="3">
+                <Button
+                  type="button"
+                  variant="soft"
+                  color="gray"
+                  disabled={!table.getCanPreviousPage()}
+                  onClick={() => table.previousPage()}
+                >
+                  <ChevronLeft size={16} />
+                  {t("previousPage")}
+                </Button>
+                <Text size="2" color="gray">
+                  {t("pageStatus", {
+                    page: table.state.pagination.pageIndex + 1,
+                    pages: table.getPageCount(),
+                  })}
+                </Text>
+                <Button
+                  type="button"
+                  variant="soft"
+                  color="gray"
+                  disabled={!table.getCanNextPage()}
+                  onClick={() => table.nextPage()}
+                >
+                  {t("nextPage")}
+                  <ChevronRight size={16} />
+                </Button>
+              </Flex>
+            )}
+          </Flex>
+        )}
+      </Box>
 
       <Dialog.Root
         open={editing !== null}

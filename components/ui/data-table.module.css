@@ -79,6 +79,10 @@
   min-width: 0;
 }
 
+.cell[data-numeric] {
+  font-variant-numeric: tabular-nums;
+}
+
 .cell[data-align="end"] {
   justify-self: end;
   text-align: right;

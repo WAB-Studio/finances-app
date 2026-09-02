@@ -60,6 +60,42 @@ export function FilterSelect({
 }
 
 /**
+ * One date bound of a range filter. It wears the bar's own label and field
+ * chrome instead of the theme's, so DESDE and HASTA read as part of the row
+ * rather than as a form dropped into it (SPEC-A3).
+ */
+export function FilterDate({
+  label,
+  value,
+  onValueChange,
+  width,
+}: {
+  label: string;
+  // The civil date the URL carries, or "" when the bound is not set.
+  value: string;
+  onValueChange: (v: string) => void;
+  width?: number;
+}) {
+  const controlId = useId();
+
+  return (
+    <div className={styles.field}>
+      <label htmlFor={controlId} className={styles.label}>
+        {label}
+      </label>
+      <input
+        id={controlId}
+        type="date"
+        className={styles.date}
+        value={value}
+        onChange={(event) => onValueChange(event.target.value)}
+        style={width ? { width } : undefined}
+      />
+    </div>
+  );
+}
+
+/**
  * A narrowing already applied, or the dashed chip that adds one. An active chip
  * that can be removed is the control that removes it, named for the filter it
  * clears — no button nests inside another.

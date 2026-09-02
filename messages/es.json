@@ -398,6 +398,7 @@
     "previousPage": "Anteriores",
     "nextPage": "Siguientes",
     "pageStatus": "{page} de {pages}",
+    "pageRange": "{from}–{to} de {total}",
     "detailTitle": "Movimiento",
     "createdBy": "Registrado por",
     "note": "Nota",

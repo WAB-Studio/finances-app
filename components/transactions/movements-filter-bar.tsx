@@ -3,12 +3,10 @@
 import { useFormatter, useTranslations } from "next-intl";
 
 import {
-  Box,
   FilterBar,
   FilterChip,
-  FilterField,
+  FilterDate,
   FilterSelect,
-  TextField,
 } from "@/components/ui";
 import type { TransactionFormOptions } from "@/db/queries/transaction-form";
 import { civilDateToDate } from "@/lib/dates";
@@ -220,31 +218,17 @@ export function MovementsFilterBar({
         />
       )}
 
-      <Box width="150px">
-        <FilterField label={t("rangeFrom")}>
-          {(id) => (
-            <TextField.Root
-              id={id}
-              type="date"
-              value={filters.from ?? ""}
-              onChange={(event) => set({ from: event.target.value || null })}
-            />
-          )}
-        </FilterField>
-      </Box>
+      <FilterDate
+        label={t("rangeFrom")}
+        value={filters.from ?? ""}
+        onValueChange={(value) => set({ from: value || null })}
+      />
 
-      <Box width="150px">
-        <FilterField label={t("rangeTo")}>
-          {(id) => (
-            <TextField.Root
-              id={id}
-              type="date"
-              value={filters.to ?? ""}
-              onChange={(event) => set({ to: event.target.value || null })}
-            />
-          )}
-        </FilterField>
-      </Box>
+      <FilterDate
+        label={t("rangeTo")}
+        value={filters.to ?? ""}
+        onValueChange={(value) => set({ to: value || null })}
+      />
 
       {chips.map((chip) => (
         <FilterChip

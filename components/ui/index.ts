@@ -101,7 +101,7 @@ export {
 
 export { TablePagination } from "./table-pagination";
 
-export { FilterBar, FilterSelect, FilterChip } from "./filter-bar";
+export { FilterBar, FilterSelect, FilterDate, FilterChip } from "./filter-bar";
 
 export { StatTiles } from "./stat-tiles";
 

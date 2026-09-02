@@ -398,6 +398,7 @@
     "previousPage": "Previous",
     "nextPage": "Next",
     "pageStatus": "{page} of {pages}",
+    "pageRange": "{from}–{to} of {total}",
     "detailTitle": "Movement",
     "createdBy": "Recorded by",
     "note": "Note",

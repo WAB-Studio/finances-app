@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { useFormatter, useTranslations } from "next-intl";
 
 import {
@@ -59,7 +60,9 @@ const WIDTHS = {
 export function MovementsTable({
   rows,
   page,
-  pageCount,
+  pageSize,
+  total,
+  empty,
   onPrev,
   onNext,
   onEdit,
@@ -68,7 +71,11 @@ export function MovementsTable({
   rows: MovementTableRow[];
   // One-based, as the caption reads it.
   page: number;
-  pageCount: number;
+  pageSize: number;
+  // Every row the filters selected, not this page's: the caption names the range
+  // out of the whole (SPEC-A3).
+  total: number;
+  empty?: ReactNode;
   onPrev: () => void;
   onNext: () => void;
   onEdit: (id: string) => void;
@@ -77,11 +84,16 @@ export function MovementsTable({
   const t = useTranslations("transactions");
   const format = useFormatter();
 
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  const from = (page - 1) * pageSize + 1;
+  const to = Math.min(page * pageSize, total);
+
   const columns: DataColumn<MovementTableRow>[] = [
     {
       key: "date",
       header: t("dateLabel"),
       width: WIDTHS.date,
+      numeric: true,
       // The rows arrive newest first out of Postgres, and no other order is on
       // offer, so the chevron reports the sort rather than opening one.
       sort: "desc",
@@ -181,10 +193,11 @@ export function MovementsTable({
       columns={columns}
       rows={rows}
       rowKey={(row) => row.id}
+      empty={empty}
       footer={
         pageCount > 1 && (
           <TablePagination
-            caption={t("pageStatus", { page, pages: pageCount })}
+            caption={t("pageRange", { from, to, total })}
             onPrev={page > 1 ? onPrev : undefined}
             onNext={page < pageCount ? onNext : undefined}
             prevLabel={t("previousPage")}
