@@ -20,6 +20,10 @@ export type CategoryNode = {
   name: string;
   kind: CategoryKind;
   color: string | null;
+  // How much hangs off this category (RF-116). It counts the children below and
+  // nothing else, so it can never name a row the same read did not already hand
+  // over — no count subselect reaches past the policy that filtered them.
+  childCount: number;
   children: { id: string; name: string; color: string | null }[];
 };
 
@@ -58,6 +62,10 @@ function subcategoryColor(parentId: string) {
  * One query for the scope's categories of a kind, split in TypeScript into
  * parents and children — the trigger, not this function, keeps nesting at one
  * level, so a single pass is enough to tell a parent from a child.
+ *
+ * `childCount` comes out of that same pass rather than a count subselect: the
+ * children are already in hand, so the figure costs no round trip and no extra
+ * scan (RF-116, RNF-09).
  */
 export async function listCategories(
   scope: CategoryScope,
@@ -75,7 +83,7 @@ export async function listCategories(
       .where(and(scopeWhere(scope), eq(categories.kind, kind)))
       .orderBy(asc(categories.name));
 
-    const parents = new Map<string, CategoryNode>();
+    const parents = new Map<string, Omit<CategoryNode, "childCount">>();
     for (const row of rows) {
       if (row.parentId === null) {
         parents.set(row.id, {
@@ -97,7 +105,10 @@ export async function listCategories(
       }
     }
 
-    return [...parents.values()];
+    return [...parents.values()].map((node) => ({
+      ...node,
+      childCount: node.children.length,
+    }));
   });
 }
 
@@ -136,7 +147,7 @@ export async function listScopedCategories(
         asc(categories.name),
       );
 
-    const parents = new Map<string, ScopedCategoryNode>();
+    const parents = new Map<string, Omit<ScopedCategoryNode, "childCount">>();
     for (const row of rows) {
       if (row.parentId === null) {
         parents.set(row.id, {
@@ -159,7 +170,10 @@ export async function listScopedCategories(
       }
     }
 
-    return [...parents.values()];
+    return [...parents.values()].map((node) => ({
+      ...node,
+      childCount: node.children.length,
+    }));
   });
 }
 

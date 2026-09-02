@@ -33,15 +33,23 @@ export type BudgetStatus = {
  * correlated subselect picks each row's window by its period. The window bounds
  * come from `periodRange` around `anchorDate` (today by default), so a stored
  * spent column never exists; the anchor only slides the window the split sum
- * derives over, never a budget's period or threshold (RF-72).
+ * derives over, never a budget's period or threshold (RF-72, RF-115).
  * Scope is the policy's job: `withUserDb` shows only the caller's readable rows.
  */
 export async function listBudgetsWithStatus(
-  anchorDate: string = todayInBogota(),
+  anchorDate?: string,
 ): Promise<BudgetStatus[]> {
-  const monthly = periodRange("monthly", anchorDate);
-  const weekly = periodRange("weekly", anchorDate);
-  const yearly = periodRange("yearly", anchorDate);
+  // The clock is read once, so an anchor cannot be compared against one Bogotá
+  // day and windowed against the next.
+  const today = todayInBogota();
+  // No future period is served: an anchor past today collapses onto today. Both
+  // sides are civil `YYYY-MM-DD`, so the ordering is the calendar's (RNF-06) and
+  // no instant — hence no zone offset — enters the comparison.
+  const anchor = anchorDate !== undefined && anchorDate < today ? anchorDate : today;
+
+  const monthly = periodRange("monthly", anchor);
+  const weekly = periodRange("weekly", anchor);
+  const yearly = periodRange("yearly", anchor);
 
   return withUserDb(async (tx) => {
     const rows = await tx.execute<{
