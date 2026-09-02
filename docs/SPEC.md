@@ -107,7 +107,7 @@ accounting exports, native apps. None of this gets built or left
 - [x] **RF-75** — Settling a planned payment records the transaction it planned, links the two, and marks the planned payment done; a settled or cancelled planned payment cannot be settled again.
 - [x] **RF-76** — CRUD for savings goals: a target amount and an optional target date, scoped to a user or a group.
 - [x] **RF-87** — A savings goal's progress — amount saved and amount remaining — derives from its contributions (`goal_contributions`), each an amount set aside virtually with no movement required; it is never stored.
-- [ ] **RF-119** — A savings goal's contributions are listed with their amounts and dates and one is removed from that list; the goal's progress re-derives from what remains.
+- [x] **RF-119** — A savings goal's contributions are listed with their amounts and dates and one is removed from that list; the goal's progress re-derives from what remains.
 - [x] **RF-120** — A budget or a savings goal is archived instead of deleted, and restored from the archive; an archived one leaves the active list and stays readable in its own archived tab.
 
 #### Reports

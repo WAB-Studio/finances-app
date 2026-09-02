@@ -1,6 +1,13 @@
 "use client";
 
-import { EllipsisVertical, Info, Plus } from "lucide-react";
+import {
+  createColumnHelper,
+  createPaginatedRowModel,
+  rowPaginationFeature,
+  tableFeatures,
+  useTable,
+} from "@tanstack/react-table";
+import { EllipsisVertical, Plus } from "lucide-react";
 import { useFormatter, useTranslations } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
 import { useState } from "react";
@@ -12,11 +19,13 @@ import {
   restoreGoalAction,
 } from "@/app/actions/savings-goals";
 import { GoalContributeDialog } from "@/components/planning/goal-contribute-dialog";
+import { GoalContributionsDialog } from "@/components/planning/goal-contributions-dialog";
 import { GoalFormDialog } from "@/components/planning/goal-form-dialog";
+import { GoalsTable } from "@/components/planning/goals-table";
 import {
   Badge,
+  Box,
   Button,
-  Callout,
   Card,
   ConfirmDialog,
   DropdownMenu,
@@ -25,7 +34,9 @@ import {
   FundChip,
   Heading,
   IconButton,
+  Money,
   Progress,
+  ScreenHeader,
   SegmentedControl,
   Text,
 } from "@/components/ui";
@@ -35,6 +46,17 @@ import { usePathname, useRouter } from "@/i18n/navigation";
 import { centsToPesos } from "@/lib/money";
 import { useActionErrorToast } from "@/lib/use-action-toast";
 
+const PAGE_SIZE = 10;
+
+// Paging is the only client model the table needs: the rows arrive ordered and
+// scoped from Postgres, so no sorting or filtering feature is registered here.
+const features = tableFeatures({
+  rowPaginationFeature,
+  paginatedRowModel: createPaginatedRowModel(),
+});
+const columnHelper = createColumnHelper<typeof features, GoalProgress>();
+const columns = columnHelper.columns([columnHelper.accessor("id", {})]);
+
 // The subject of a menu action, not a dialog's own field state: closing any of
 // the dialogs below clears this, and reopening one always names a goal.
 type RowAction =
@@ -43,11 +65,13 @@ type RowAction =
   | { kind: "delete"; goal: GoalProgress };
 
 /**
- * The savings-goals area: each goal reads as a virtual-envelope card whose bar
- * and apartado derive server-side from the `goal_progress` view — money earmarked,
- * never moved (RF-76, RF-87). A goal is created, edited, contributed to, archived,
- * restored or deleted through the dialogs and the confirms below (RF-120). Money
- * stays integer cents; the peso figure is display only.
+ * The savings-goals area: each goal reads as a virtual-envelope card on a phone
+ * and as a row of the dense table of SPEC-A3 on a laptop, both drawn from the same
+ * server-derived apartado, avance and ritmo — money earmarked, never moved and
+ * never stored (RF-76, RF-87, RNF-07). A goal is created, edited, contributed to,
+ * archived, restored or deleted through the dialogs and the confirms below
+ * (RF-120), and an aporte is undone from the list its row menu opens (RF-119).
+ * Money stays integer cents; the peso figure is display only.
  */
 export function GoalsScreen({
   goals,
@@ -74,7 +98,18 @@ export function GoalsScreen({
   const [contributeTarget, setContributeTarget] = useState<GoalProgress | null>(
     null,
   );
+  const [undoTarget, setUndoTarget] = useState<GoalProgress | null>(null);
   const [rowAction, setRowAction] = useState<RowAction | null>(null);
+
+  const table = useTable(
+    {
+      features,
+      data: goals,
+      columns,
+      initialState: { pagination: { pageIndex: 0, pageSize: PAGE_SIZE } },
+    },
+    (state) => ({ pagination: state.pagination }),
+  );
 
   const archiveState = useAction(archiveGoalAction, {
     onSuccess() {
@@ -114,65 +149,143 @@ export function GoalsScreen({
     </Button>
   );
 
+  // The band's datum spans every goal on this side of the tabs, not the page's.
+  const savedTotalCents = goals.reduce((sum, goal) => sum + goal.savedCents, 0);
+  const targetTotalCents = goals.reduce(
+    (sum, goal) => sum + goal.targetAmountCents,
+    0,
+  );
+
+  // `framed` is the table's slot: the stack keeps its own height there, and only
+  // the pane's own copy grows to fill it.
+  function emptyState(framed: boolean) {
+    if (archived) {
+      return (
+        <EmptyState
+          variant={framed ? "filtered" : "first"}
+          title={t("archivedEmpty")}
+        />
+      );
+    }
+
+    return (
+      <EmptyState
+        variant={framed ? "filtered" : "first"}
+        title={t("emptyTitle")}
+        description={t("emptyDescription")}
+        action={addButton}
+      />
+    );
+  }
+
+  const pageGoals = table
+    .getPaginatedRowModel()
+    .rows.map((row) => row.original);
+
+  function rowHandlers(goal: GoalProgress) {
+    return {
+      onContribute: () => setContributeTarget(goal),
+      onUndo: () => setUndoTarget(goal),
+      onEdit: () => setFormTarget(goal),
+      onArchive: () => setRowAction({ kind: "archive", goal }),
+      onRestore: () => setRowAction({ kind: "restore", goal }),
+      onDelete: () => setRowAction({ kind: "delete", goal }),
+    };
+  }
+
   return (
     <Flex direction="column" gap="4">
-      <Flex justify="between" align="center" gap="3" wrap="wrap">
-        <Flex align="center" gap="2">
-          <Heading size="5">{t("title")}</Heading>
-          {hasGroup && <FundChip label={tKey("fund.label")} />}
+      {/* The laptop's band and table, and the phone's header and cards: exactly
+          one set is displayed at any width. */}
+      <Box display={{ initial: "none", lg: "block" }}>
+        <ScreenHeader
+          title={t("title")}
+          meta={
+            <>
+              {t("listMeta", { count: goals.length })} ·{" "}
+              <Money cents={savedTotalCents} size="inherit" signed={false} />{" "}
+              {t("savedOf")}{" "}
+              <Money cents={targetTotalCents} size="inherit" signed={false} />
+            </>
+          }
+          actions={
+            !archived && (
+              <Button
+                type="button"
+                variant="surface"
+                color="gray"
+                onClick={() => setFormTarget("new")}
+              >
+                <Plus size={15} />
+                {t("add")}
+              </Button>
+            )
+          }
+        />
+      </Box>
+
+      <Box display={{ initial: "block", lg: "none" }}>
+        <Flex justify="between" align="center" gap="3" wrap="wrap">
+          <Flex align="center" gap="2">
+            <Heading size="5">{t("title")}</Heading>
+            {hasGroup && <FundChip label={tKey("fund.label")} />}
+          </Flex>
+          {/* Add would create an active goal, so the archived tab offers none. */}
+          {!archived && addButton}
         </Flex>
-        {/* Add would create an active goal, so the archived tab offers none. */}
-        {!archived && addButton}
+      </Box>
+
+      {/* The band the header and the table carry from `lg` up, where the page
+          hands the gutter over; below it the page's own padding still holds. */}
+      <Flex direction="column" px={{ initial: "0", lg: "6" }}>
+        <SegmentedControl.Root
+          value={archived ? "archived" : "active"}
+          onValueChange={onTabChange}
+        >
+          <SegmentedControl.Item value="active">
+            {t("activeTab")}
+          </SegmentedControl.Item>
+          <SegmentedControl.Item value="archived">
+            {t("archivedTab")}
+          </SegmentedControl.Item>
+        </SegmentedControl.Root>
       </Flex>
 
-      <SegmentedControl.Root
-        value={archived ? "archived" : "active"}
-        onValueChange={onTabChange}
-      >
-        <SegmentedControl.Item value="active">
-          {t("activeTab")}
-        </SegmentedControl.Item>
-        <SegmentedControl.Item value="archived">
-          {t("archivedTab")}
-        </SegmentedControl.Item>
-      </SegmentedControl.Root>
+      <Box display={{ initial: "none", lg: "block" }}>
+        <GoalsTable
+          rows={pageGoals}
+          archived={archived}
+          page={table.state.pagination.pageIndex + 1}
+          pageSize={PAGE_SIZE}
+          total={goals.length}
+          empty={emptyState(true)}
+          onPrev={() => table.previousPage()}
+          onNext={() => table.nextPage()}
+          onContribute={(goal) => setContributeTarget(goal)}
+          onUndo={(goal) => setUndoTarget(goal)}
+          onEdit={(goal) => setFormTarget(goal)}
+          onArchive={(goal) => setRowAction({ kind: "archive", goal })}
+          onRestore={(goal) => setRowAction({ kind: "restore", goal })}
+          onDelete={(goal) => setRowAction({ kind: "delete", goal })}
+        />
+      </Box>
 
-      {goals.length === 0 ? (
-        archived ? (
-          <EmptyState title={t("archivedEmpty")} />
+      <Box display={{ initial: "block", lg: "none" }}>
+        {goals.length === 0 ? (
+          emptyState(false)
         ) : (
-          <EmptyState
-            title={t("emptyTitle")}
-            description={t("emptyDescription")}
-            action={addButton}
-          />
-        )
-      ) : (
-        <Flex direction="column" gap="3">
-          {goals.map((goal) => (
-            <GoalCard
-              key={goal.id}
-              goal={goal}
-              archived={archived}
-              onContribute={() => setContributeTarget(goal)}
-              onEdit={() => setFormTarget(goal)}
-              onArchive={() => setRowAction({ kind: "archive", goal })}
-              onRestore={() => setRowAction({ kind: "restore", goal })}
-              onDelete={() => setRowAction({ kind: "delete", goal })}
-            />
-          ))}
-        </Flex>
-      )}
-
-      {/* The hint answers Aportar, which the archived tab no longer offers. */}
-      {!archived && (
-        <Callout.Root color="jade" variant="soft">
-          <Callout.Icon>
-            <Info size={16} aria-hidden />
-          </Callout.Icon>
-          <Callout.Text>{t("virtualHint")}</Callout.Text>
-        </Callout.Root>
-      )}
+          <Flex direction="column" gap="3">
+            {goals.map((goal) => (
+              <GoalCard
+                key={goal.id}
+                goal={goal}
+                archived={archived}
+                {...rowHandlers(goal)}
+              />
+            ))}
+          </Flex>
+        )}
+      </Box>
 
       <GoalFormDialog
         open={formTarget !== null}
@@ -189,6 +302,14 @@ export function GoalsScreen({
           if (!open) setContributeTarget(null);
         }}
         goal={contributeTarget ?? undefined}
+      />
+
+      <GoalContributionsDialog
+        open={undoTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setUndoTarget(null);
+        }}
+        goal={undoTarget ?? undefined}
       />
 
       {rowAction?.kind === "archive" && (
@@ -239,6 +360,7 @@ function GoalCard({
   goal,
   archived,
   onContribute,
+  onUndo,
   onEdit,
   onArchive,
   onRestore,
@@ -247,6 +369,7 @@ function GoalCard({
   goal: GoalProgress;
   archived: boolean;
   onContribute: () => void;
+  onUndo: () => void;
   onEdit: () => void;
   onArchive: () => void;
   onRestore: () => void;
@@ -255,15 +378,6 @@ function GoalCard({
   const t = useTranslations("goals");
   const tKey = useTranslations();
   const format = useFormatter();
-
-  // The bar and the percentage read the derived apartado against the meta,
-  // clamped so a reached goal never runs the bar past its track (RF-87).
-  const pct =
-    goal.targetAmountCents > 0
-      ? Math.min(100, Math.round((goal.savedCents / goal.targetAmountCents) * 100))
-      : goal.savedCents > 0
-        ? 100
-        : 0;
 
   return (
     <Card>
@@ -287,7 +401,7 @@ function GoalCard({
             variant="soft"
             radius="full"
           >
-            {t("percent", { pct })}
+            {t("percent", { pct: goal.progressPct })}
           </Badge>
           <DropdownMenu.Root>
             <DropdownMenu.Trigger>
@@ -309,6 +423,12 @@ function GoalCard({
                 </DropdownMenu.Item>
               ) : (
                 <>
+                  {/* A goal nobody has contributed to has nothing to undo. */}
+                  {goal.savedCents > 0 && (
+                    <DropdownMenu.Item onSelect={onUndo}>
+                      {t("undoContribution")}
+                    </DropdownMenu.Item>
+                  )}
                   <DropdownMenu.Item onSelect={onEdit}>
                     {tKey("common.edit")}
                   </DropdownMenu.Item>
@@ -324,7 +444,17 @@ function GoalCard({
           </DropdownMenu.Root>
         </Flex>
 
-        <Progress value={pct} color={goal.reachedTarget ? "jade" : undefined} />
+        {/* The bar reads the apartado the server derived against the meta,
+            capped there so a reached goal never runs past its track (RF-87). */}
+        <Progress
+          value={goal.progressPct}
+          color={goal.behindPace ? "amber" : undefined}
+          aria-label={t("progressLabel", {
+            name: goal.name,
+            amount: format.number(centsToPesos(goal.savedCents), "currency"),
+            pct: goal.progressPct,
+          })}
+        />
 
         <Flex align="center" justify="between" gap="3">
           <Text size="2" color="gray">

@@ -8,9 +8,11 @@ import {
   archiveGoal,
   createGoal,
   deleteGoal,
+  listGoalContributions,
   removeGoalContribution,
   restoreGoal,
   updateGoal,
+  type GoalContributionRow,
 } from "@/db/queries/savings-goals";
 import { pgErrorCode } from "@/lib/db-error";
 import { ActionError } from "@/lib/errors";
@@ -21,6 +23,7 @@ import {
   contributeGoalSchema,
   createGoalSchema,
   deleteGoalSchema,
+  goalContributionsSchema,
   removeGoalContributionSchema,
   restoreGoalSchema,
   updateGoalSchema,
@@ -162,6 +165,18 @@ export const contributeGoalAction = authActionClient
 
     refresh();
     return { contributionId };
+  });
+
+/**
+ * One goal's aportes for the undo list (RF-119). A read: it writes nothing and
+ * refreshes nothing, and the select policy — not the goal id — decides which rows
+ * come back. The list is fetched when a person opens it, so a screen full of
+ * goals costs no round trip for the ones nobody asks about.
+ */
+export const listGoalContributionsAction = authActionClient
+  .inputSchema(goalContributionsSchema)
+  .action(async ({ parsedInput: { goalId } }): Promise<GoalContributionRow[]> => {
+    return listGoalContributions(goalId);
   });
 
 // A false row count is a contribution that was denied or already gone (RF-87).
