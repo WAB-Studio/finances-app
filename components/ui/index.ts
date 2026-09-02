@@ -60,7 +60,14 @@ export { BottomNav, BottomNavTrigger, type BottomNavTab } from "./bottom-nav";
 
 export { NavList, NavListTrigger, type NavListItem } from "./nav-list";
 
-export { Sidebar, SidebarSeparator } from "./sidebar";
+export {
+  Sidebar,
+  SidebarSeparator,
+  SidebarHead,
+  SidebarFoot,
+  SidebarAction,
+  SidebarPerson,
+} from "./sidebar";
 
 export { ColorSwatchPicker, ColorSwatch } from "./color-swatch-picker";
 
@@ -102,6 +109,8 @@ export {
 export { TablePagination } from "./table-pagination";
 
 export { FilterBar, FilterSelect, FilterDate, FilterChip } from "./filter-bar";
+
+export { Panel, PanelRow, PanelButton, type PanelCell } from "./panel";
 
 export { StatTiles } from "./stat-tiles";
 

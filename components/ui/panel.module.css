@@ -1,0 +1,71 @@
+/* The card of SPEC-A3: one hairline, no shadow, 16px on the corner. */
+.panel {
+  background-color: var(--color-panel-solid);
+  border: 1px solid var(--gray-a4);
+  border-radius: 16px;
+}
+
+/* Only a stack clips: its rows run edge to edge and the last one has to meet the
+   corner. An inline panel keeps its overflow so a focus ring is never cut. */
+.panel[data-variant="stack"] {
+  overflow: hidden;
+}
+
+.panel[data-variant="inline"] {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 13px 18px;
+}
+
+.head {
+  padding: 14px 18px;
+}
+
+/* One row on the caller's tracks, the whole row a link. The rule sits on top of
+   each row rather than under it, so the head carries no rule of its own. */
+.row {
+  display: grid;
+  grid-template-columns: var(--panel-row-columns);
+  align-items: center;
+  gap: 14px;
+  height: 54px;
+  padding: 0 18px;
+  border-top: 1px solid var(--gray-a3);
+  color: inherit;
+  text-decoration: none;
+}
+
+.cell {
+  min-width: 0;
+}
+
+.cell[data-numeric] {
+  font-variant-numeric: tabular-nums;
+}
+
+.cell[data-align="end"] {
+  justify-self: end;
+  text-align: right;
+}
+
+/* Doubled to outrank Radix's own reset, which lands in another sheet at the same
+   specificity and whichever order the bundler chose. */
+.button.button {
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+/* A bare button in a surface: the browser draws it no chrome of its own. */
+.button[data-variant="inset"] {
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+/* A button that is the surface. The card around it already stripped the chrome,
+   so touching the padding here would take the card's own with it. */
+.button[data-variant="surface"] {
+  width: 100%;
+}
