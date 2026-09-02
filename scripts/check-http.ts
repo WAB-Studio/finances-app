@@ -31,6 +31,8 @@ import {
 } from "./harness/session";
 
 const LOCALE = "es";
+// A movement no one owns, so the detail page refuses it.
+const UNKNOWN_ID = "00000000-0000-0000-0000-000000000000";
 const APP_GROUP_DIR = resolve(process.cwd(), "app/[locale]/(app)");
 
 let counter = 0;
@@ -65,11 +67,19 @@ function isErrorShell(body: string): boolean {
   return body.includes("__next_error__");
 }
 
+// What Next injects in place of the status it can no longer set, once a refusal
+// arrives mid-stream. It is the only thing a soft 404 and a rendered screen do
+// not share, so it is what tells the two apart on the wire.
+function isNoindex(body: string): boolean {
+  return body.includes('name="robots" content="noindex"');
+}
+
 type Rendered = {
   status: number;
   landedOn: string;
   title: string;
   errorShell: boolean;
+  noindex: boolean;
 };
 
 async function get(path: string, cookie?: string): Promise<Rendered> {
@@ -83,6 +93,7 @@ async function get(path: string, cookie?: string): Promise<Rendered> {
     landedOn: new URL(response.url).pathname,
     title: documentTitle(body),
     errorShell: isErrorShell(body),
+    noindex: isNoindex(body),
   };
 }
 
@@ -126,6 +137,8 @@ type RenderCase = {
   title: string;
   // Where the follow ended, when the route answers a redirect of its own.
   landsOn?: string;
+  // Named only where the body has to prove a refusal the status cannot.
+  noindex?: boolean;
   why?: string;
 };
 
@@ -200,14 +213,32 @@ function renderCases(transactionId: string): RenderCase[] {
       status: 200,
       title: title("webhooks.title"),
     },
-    // 404 by design: `page.tsx` calls `notFound()` for a caller with no group
-    // (RF-55), and the harness user leads none. Asserting 200 would make this
-    // transcript lie about the screen.
+    // 404 by design: the harness user leads no group (RF-55). The refusal is the
+    // shell layout's, not the page's — a `loading.tsx` fallback commits the
+    // response to 200 before any page under `(app)` runs, and the layout of that
+    // same segment is the last thing the boundary does not wrap. Asserting 200
+    // would make this transcript lie about the screen.
     {
       path: `/${LOCALE}/settings/members`,
       status: 404,
       title: title("metadata.title"),
-      why: "RF-55: no group, so the page calls notFound()",
+      why: "RF-55: no group, so the shell layout refuses the route",
+    },
+    // The same refusal one segment too low, and what it costs. `page.tsx` calls
+    // `notFound()` for a movement it did not find, but by then the fallback has
+    // flushed: "When a `<Suspense>` fallback renders ... the server must commit to
+    // `200 OK` in order to start sending the HTML stream. If a `notFound()` fires
+    // mid-stream, Next.js cannot go back and change the status to 404. Instead, it
+    // injects `<meta name="robots" content="noindex">`" (Next 16, `streaming.md`,
+    // The HTTP contract). The layout above the boundary refuses a route it knows
+    // by path; an id it cannot check without the query the page itself runs. So
+    // this one stays a soft 404, and this case says so out loud.
+    {
+      path: `/${LOCALE}/movements/${UNKNOWN_ID}`,
+      status: 200,
+      title: title("transactions.detailTitle"),
+      noindex: true,
+      why: "a streamed notFound(): noindex in the body, 200 on the wire",
     },
     // The proxy sends a signed-in caller away from the login, and `bienvenida`
     // sends one with no claimed invite home. Both answer 200 at the dashboard,
@@ -338,19 +369,23 @@ async function renderSuite(cases: RenderCase[], cookie: string): Promise<void> {
   for (const expected of cases) {
     const seen = await get(expected.path, cookie);
     const landedOn = expected.landsOn ?? expected.path;
-    // A refusal comes in the shell; a render never does.
+    // A refusal comes in the shell; a render never does. A refusal that arrived
+    // too late for a status carries neither, and is read by its `noindex`.
     const bodyIsRight =
       expected.status === 404 ? seen.errorShell : !seen.errorShell;
+    const indexingIsRight =
+      expected.noindex === undefined || seen.noindex === expected.noindex;
 
     assert(
       next(`${expected.path} renders${expected.why ? ` — ${expected.why}` : ""}`),
       seen.status === expected.status &&
         seen.landedOn === landedOn &&
         seen.title === expected.title &&
-        bodyIsRight,
+        bodyIsRight &&
+        indexingIsRight,
       `it answered ${seen.status} at ${seen.landedOn} titled ${JSON.stringify(seen.title)} over ${
         seen.errorShell ? "Next's refusal shell" : "its own screen"
-      }`,
+      }, ${seen.noindex ? "marked noindex" : "indexable"}`,
     );
   }
 }

@@ -1,5 +1,6 @@
 import { hasLocale } from "next-intl";
 import { getTranslations, setRequestLocale } from "next-intl/server";
+import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 
 import { AppSidebar } from "@/components/fund/app-sidebar";
@@ -11,6 +12,28 @@ import { getUserGroup } from "@/db/queries/groups";
 import { getTransactionFormOptions } from "@/db/queries/transaction-form";
 import { requireUser } from "@/db/session";
 import { routing } from "@/i18n/routing";
+
+// Written by `proxy.ts` under this name, on every request it matches.
+const PATHNAME_HEADER = "x-pathname";
+
+/**
+ * The routes that presume a fund, listed here instead of guarded in their own
+ * page. `loading.tsx` wraps every page of this group in a Suspense boundary, and
+ * a fallback that renders commits the response to 200 before the page runs, so a
+ * page's `notFound()` can no longer answer 404. The boundary does not wrap the
+ * layout of its own segment, which leaves this the last place a status can still
+ * be set.
+ */
+const GROUP_ONLY_ROUTES = ["/settings/members"];
+
+// The path without its locale, which is how the list above is written.
+function routeOf(pathname: string, locale: string): string {
+  const route = pathname.startsWith(`/${locale}`)
+    ? pathname.slice(locale.length + 1)
+    : pathname;
+
+  return route.length > 1 && route.endsWith("/") ? route.slice(0, -1) : route;
+}
 
 /**
  * The signed-in shell. The route group carries the guard, so every route added
@@ -29,13 +52,24 @@ export default async function AppLayout(props: LayoutProps<"/[locale]">) {
   // The proxy already redirected an anonymous visitor; this is what enforces it.
   // Quick-entry options are fetched here so every route opens the sheet or form
   // without a second round trip (RF-22).
-  const [user, group, options, summary, t] = await Promise.all([
+  const [user, group, options, summary, t, requestHeaders] = await Promise.all([
     requireUser(),
     getUserGroup(),
     getTransactionFormOptions(),
     getShellSummary(),
     getTranslations("common"),
+    headers(),
   ]);
+
+  // RF-55: a personal-only caller reaches every other screen, and this refusal
+  // rides the group already read above rather than a second query. The page keeps
+  // its own check: without the header there is nothing to match, and the screen
+  // still refuses — over a 200, as it does today.
+  const route = routeOf(requestHeaders.get(PATHNAME_HEADER) ?? "", locale);
+  const needsGroup = GROUP_ONLY_ROUTES.some(
+    (one) => route === one || route.startsWith(`${one}/`),
+  );
+  if (!group && needsGroup) notFound();
 
   const fundName = group?.name ?? t("appName");
 

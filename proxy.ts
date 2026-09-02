@@ -8,6 +8,13 @@ import { env } from "@/lib/env";
 
 const handleLocaleRouting = createMiddleware(routing);
 
+// The requested path, handed to the signed-in shell. A layout has no other way
+// to learn which route is rendering under it, and `app/[locale]/(app)/layout.tsx`
+// is the last place that can still set a status: everything below it is wrapped
+// by `loading.tsx`'s Suspense boundary. The layout reads this same name back with
+// `headers()`, and assertion H40 of `check:http` is what proves the two agree.
+const PATHNAME_HEADER = "x-pathname";
+
 // The pathname next-intl settled on, which is what the locale segment is read from.
 function resolvedPathname(
   request: NextRequest,
@@ -38,6 +45,10 @@ function carryOver(
  * data layer is imported here.
  */
 export async function proxy(request: NextRequest) {
+  // Set before next-intl runs, which clones these onto the request it forwards,
+  // and set on every request, so a caller cannot smuggle in a path of their own.
+  request.headers.set(PATHNAME_HEADER, request.nextUrl.pathname);
+
   // URL first, then the `NEXT_LOCALE` cookie, then `accept-language`, then Spanish.
   const response = handleLocaleRouting(request);
 
