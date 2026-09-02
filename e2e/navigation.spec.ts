@@ -39,26 +39,35 @@ function atOne(message: string): string {
 
 const PENDING_BADGE = atOne(messages.dashboard.pendingDeliveriesBadge);
 
-test.describe("the desktop navigation panel", () => {
+test.describe("the desktop sidebar", () => {
   test.skip(
     ({ viewport }) => viewport?.width !== 1280,
-    "the panel renders from md up",
+    "the sidebar renders from md up",
   );
 
-  test("lists the inbox and marks it current when open", async ({ page }) => {
-    await page.goto("/es");
-    await page.getByRole("button", { name: nav.openLabel }).click();
+  // Both were unreachable on a laptop before the sidebar: neither had a link
+  // anywhere outside the bottom bar, which never renders at this width.
+  test("reaches movements and reports from another screen, and lights the one it lands on", async ({
+    page,
+  }) => {
+    await page.goto("/es/planning");
+    const sidebar = page.getByRole("navigation", { name: nav.title });
 
-    const entry = page.getByRole("link", { name: nav.inbox, exact: true });
-    await expect(entry).toHaveAttribute("href", "/es/inbox");
-
-    await entry.click();
-    await expect(page).toHaveURL("/es/inbox");
-
-    await page.getByRole("button", { name: nav.openLabel }).click();
     await expect(
-      page.getByRole("link", { name: nav.inbox, exact: true }),
-    ).toHaveAttribute("aria-current", "page");
+      sidebar.getByRole("link", { name: nav.reports, exact: true }),
+    ).toHaveAttribute("href", "/es/reports");
+
+    const movements = sidebar.getByRole("link", { name: nav.movements, exact: true });
+    await movements.click();
+    await expect(page).toHaveURL("/es/movements");
+    await expect(movements).toHaveAttribute("aria-current", "page");
+  });
+
+  test("opens quick entry away from the dashboard", async ({ page }) => {
+    await page.goto("/es/planning");
+    await page.getByRole("button", { name: nav.record, exact: true }).click();
+
+    await expect(page.getByRole("dialog")).toBeVisible();
   });
 });
 

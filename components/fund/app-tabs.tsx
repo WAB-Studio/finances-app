@@ -1,106 +1,33 @@
 "use client";
 
-import type { LucideIcon } from "lucide-react";
-import {
-  ArrowRightLeft,
-  Database,
-  House,
-  Inbox,
-  Plus,
-  ScrollText,
-  SlidersHorizontal,
-  Tag,
-  Tags,
-  Target,
-  Users,
-  Wallet,
-  Webhook,
-} from "lucide-react";
+import { Plus, SlidersHorizontal } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { useState } from "react";
 
-import { SignOutButton } from "@/components/auth/sign-out-button";
-import { LanguageSwitcher } from "@/components/language-switcher";
-import { ThemeSwitcher } from "@/components/theme-switcher";
+import { TAB_KEYS, destinations, isCurrent } from "@/components/fund/destinations";
+import { SettingsPanel } from "@/components/fund/settings-panel";
 import { useQuickEntry } from "@/components/transactions/quick-entry-provider";
 import {
   BottomNav,
   type BottomNavTab,
   BottomNavTrigger,
-  Flex,
   IconButton,
-  Link,
-  NavPanel,
-  TapTarget,
 } from "@/components/ui";
-import { Link as LocaleLink, usePathname } from "@/i18n/navigation";
-
-type SettingKey =
-  | "inbox"
-  | "members"
-  | "accounts"
-  | "categories"
-  | "labels"
-  | "webhooks"
-  | "data"
-  | "audit";
-
-// The settings sheet mirrors AppNav's destinations minus the dashboard, which the
-// Inicio tab already owns. Members only exist inside a group. The panel renders
-// from `md` up, so a destination missing here is unreachable on a phone (RNF-08).
-function settings(
-  hasGroup: boolean,
-): { key: SettingKey; href: string; icon: LucideIcon }[] {
-  return [
-    { key: "inbox", href: "/inbox", icon: Inbox },
-    ...(hasGroup
-      ? [{ key: "members" as const, href: "/settings/members", icon: Users }]
-      : []),
-    { key: "accounts", href: "/settings/accounts", icon: Wallet },
-    { key: "categories", href: "/settings/categories", icon: Tags },
-    { key: "labels", href: "/settings/labels", icon: Tag },
-    { key: "webhooks", href: "/settings/webhooks", icon: Webhook },
-    { key: "data", href: "/settings/data", icon: Database },
-    { key: "audit", href: "/settings/audit", icon: ScrollText },
-  ];
-}
+import { usePathname } from "@/i18n/navigation";
 
 export function AppTabs({ hasGroup }: { hasGroup: boolean }) {
   const t = useTranslations("nav");
   const { openQuick } = useQuickEntry();
   const pathname = usePathname();
-  const [open, setOpen] = useState(false);
-  const [renderedPathname, setRenderedPathname] = useState(pathname);
 
-  // Closes the sheet on any navigation, the browser back gesture included.
-  if (pathname !== renderedPathname) {
-    setRenderedPathname(pathname);
-    setOpen(false);
-  }
-
-  const tabs: BottomNavTab[] = [
-    {
-      key: "home",
-      href: "/",
-      active: pathname === "/",
-      icon: <House size={22} />,
-      label: t("home"),
-    },
-    {
-      key: "movements",
-      href: "/movements",
-      active: pathname.startsWith("/movements"),
-      icon: <ArrowRightLeft size={22} />,
-      label: t("movements"),
-    },
-    {
-      key: "planning",
-      href: "/planning",
-      active: pathname.startsWith("/planning"),
-      icon: <Target size={22} />,
-      label: t("planning"),
-    },
-  ];
+  const tabs: BottomNavTab[] = destinations(TAB_KEYS, hasGroup).map(
+    ({ key, href, icon: Icon }) => ({
+      key,
+      href,
+      active: isCurrent(pathname, href),
+      icon: <Icon size={22} />,
+      label: t(key),
+    }),
+  );
 
   // The raised action opens the expense quick sheet in place (RF-22): one tap, no
   // route change. Income and transfer live behind the sheet's link.
@@ -117,46 +44,12 @@ export function AppTabs({ hasGroup }: { hasGroup: boolean }) {
   );
 
   const moreTrigger = (
-    <NavPanel
-      open={open}
-      onOpenChange={setOpen}
-      title={t("settings")}
-      closeLabel={t("close")}
+    <SettingsPanel
+      hasGroup={hasGroup}
       trigger={
         <BottomNavTrigger icon={<SlidersHorizontal size={22} />} label={t("settings")} />
       }
-    >
-      <Flex direction="column" gap="1">
-        {settings(hasGroup).map(({ key, href, icon: Icon }) => {
-          const current = pathname === href;
-          return (
-            <Link
-              key={key}
-              asChild
-              color={current ? undefined : "gray"}
-              weight={current ? "bold" : undefined}
-              highContrast={current}
-            >
-              <LocaleLink
-                href={href}
-                aria-current={current ? "page" : undefined}
-                onClick={() => setOpen(false)}
-              >
-                <TapTarget align="center" gap="2">
-                  <Icon size={18} />
-                  {t(key)}
-                </TapTarget>
-              </LocaleLink>
-            </Link>
-          );
-        })}
-      </Flex>
-      <Flex direction="column" gap="2">
-        <LanguageSwitcher width="100%" />
-        <ThemeSwitcher width="100%" />
-        <SignOutButton />
-      </Flex>
-    </NavPanel>
+    />
   );
 
   return (

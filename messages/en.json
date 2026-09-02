@@ -113,23 +113,26 @@
     "noGroup": "Contributions are a group figure. You have no group yet."
   },
   "nav": {
-    "openLabel": "Open navigation",
     "title": "Navigation",
     "close": "Close",
-    "dashboard": "Dashboard",
     "home": "Home",
     "movements": "Movements",
-    "inbox": "Inbox",
     "planning": "Planning",
+    "reports": "Reports",
+    "inbox": "Inbox",
     "settings": "Settings",
     "quickEntry": "Record a movement",
+    "record": "Record",
+    "pending": "{count, plural, one {# waiting} other {# waiting}}",
     "members": "Members",
     "accounts": "Accounts",
     "categories": "Categories",
     "labels": "Labels",
     "data": "Data",
     "audit": "Audit log",
-    "webhooks": "Webhooks"
+    "webhooks": "Webhooks",
+    "roleLeader": "Leader",
+    "roleMember": "Member"
   },
   "audit": {
     "title": "Audit log",

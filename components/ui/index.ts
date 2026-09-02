@@ -37,6 +37,7 @@ export { AppTheme } from "./theme";
 export { Toaster } from "./toaster";
 
 export {
+  Avatar,
   Dialog,
   DropdownMenu,
   IconButton,
@@ -55,6 +56,10 @@ export { EmptyState } from "./empty-state";
 export { NavPanel } from "./nav-panel";
 
 export { BottomNav, BottomNavTrigger, type BottomNavTab } from "./bottom-nav";
+
+export { NavList, NavListTrigger, type NavListItem } from "./nav-list";
+
+export { Sidebar, SidebarSeparator } from "./sidebar";
 
 export { ColorSwatchPicker, ColorSwatch } from "./color-swatch-picker";
 

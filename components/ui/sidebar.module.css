@@ -1,0 +1,19 @@
+/* Sticky rather than fixed: the document keeps its own scroll, so nothing beside
+   the column has to become a scroller for the column's foot to stay in view. */
+.sidebar {
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  flex-shrink: 0;
+  width: 248px;
+  height: 100dvh;
+  padding: 22px 14px 18px;
+  background-color: var(--color-panel-solid);
+  border-right: 1px solid var(--gray-a4);
+}
+
+.separator {
+  width: calc(100% - 20px);
+  align-self: center;
+  margin: 16px 0;
+}
