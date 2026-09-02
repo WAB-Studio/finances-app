@@ -92,7 +92,7 @@
     "createAccount": "Create account",
     "createFund": "Create a fund",
     "netWorthTitle": "Net worth",
-    "ownerChip": "{name} · {amount}",
+    "ownerChip": "{name} · <amount></amount>",
     "groupLabel": "The group",
     "selfLabel": "You",
     "monthIncome": "Income this month",
@@ -100,7 +100,10 @@
     "monthNet": "Net this month",
     "unreviewedBadge": "{count, plural, one {# to review} other {# to review}}",
     "pendingDeliveriesBadge": "{count, plural, one {# to review} other {# to review}}",
-    "viewReports": "View reports"
+    "viewReports": "View reports",
+    "title": "Home",
+    "firstAccountTitle": "Open your first account",
+    "addAccountKind": "Add"
   },
   "reports": {
     "title": "Reports",
