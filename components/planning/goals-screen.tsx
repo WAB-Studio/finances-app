@@ -164,13 +164,15 @@ export function GoalsScreen({
         </Flex>
       )}
 
-      {/* The virtual-envelope hint: apartar earmarks, it never empties an account. */}
-      <Callout.Root color="jade" variant="soft">
-        <Callout.Icon>
-          <Info size={16} aria-hidden />
-        </Callout.Icon>
-        <Callout.Text>{t("virtualHint")}</Callout.Text>
-      </Callout.Root>
+      {/* The hint answers Aportar, which the archived tab no longer offers. */}
+      {!archived && (
+        <Callout.Root color="jade" variant="soft">
+          <Callout.Icon>
+            <Info size={16} aria-hidden />
+          </Callout.Icon>
+          <Callout.Text>{t("virtualHint")}</Callout.Text>
+        </Callout.Root>
+      )}
 
       <GoalFormDialog
         open={formTarget !== null}
@@ -299,18 +301,21 @@ function GoalCard({
               </IconButton>
             </DropdownMenu.Trigger>
             <DropdownMenu.Content>
-              <DropdownMenu.Item onSelect={onEdit}>
-                {tKey("common.edit")}
-              </DropdownMenu.Item>
-              {/* The tab names the side the row is on, so one item is ever offered. */}
+              {/* An archived goal is read-only: the way back is all it offers,
+                  and a mistake is corrected by restoring it first. */}
               {archived ? (
                 <DropdownMenu.Item onSelect={onRestore}>
                   {tKey("common.restore")}
                 </DropdownMenu.Item>
               ) : (
-                <DropdownMenu.Item onSelect={onArchive}>
-                  {tKey("common.archive")}
-                </DropdownMenu.Item>
+                <>
+                  <DropdownMenu.Item onSelect={onEdit}>
+                    {tKey("common.edit")}
+                  </DropdownMenu.Item>
+                  <DropdownMenu.Item onSelect={onArchive}>
+                    {tKey("common.archive")}
+                  </DropdownMenu.Item>
+                </>
               )}
               <DropdownMenu.Item color="red" onSelect={onDelete}>
                 {tKey("common.delete")}
@@ -332,9 +337,17 @@ function GoalCard({
               {format.number(centsToPesos(goal.savedCents), "currency")}
             </Text>
           </Text>
-          <Button type="button" variant="ghost" size="2" onClick={onContribute}>
-            {t("contribute")}
-          </Button>
+          {/* Archiving is what stops money reaching the goal, so it stops here too. */}
+          {!archived && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="2"
+              onClick={onContribute}
+            >
+              {t("contribute")}
+            </Button>
+          )}
         </Flex>
       </Flex>
     </Card>

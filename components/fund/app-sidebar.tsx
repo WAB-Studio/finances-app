@@ -106,17 +106,21 @@ export function AppSidebar({
         >
           {fundName}
         </Text>
-        <IconButton
-          asChild
-          size="1"
-          variant="ghost"
-          color="gray"
-          aria-label={t("fundSettings")}
-        >
-          <LocaleLink href={GROUP_SETTINGS_HREF}>
-            {chevron(ChevronDown)}
-          </LocaleLink>
-        </IconButton>
+        {/* `/settings/group` refuses a caller without one, so the chevron drops
+            with it: the list already drops Miembros the same way. */}
+        {hasGroup && (
+          <IconButton
+            asChild
+            size="1"
+            variant="ghost"
+            color="gray"
+            aria-label={t("fundSettings")}
+          >
+            <LocaleLink href={GROUP_SETTINGS_HREF}>
+              {chevron(ChevronDown)}
+            </LocaleLink>
+          </IconButton>
+        )}
       </Flex>
 
       <NavList variant="sidebar" items={items(PRIMARY_KEYS)} />
