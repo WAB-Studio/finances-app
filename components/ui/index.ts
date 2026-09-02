@@ -6,7 +6,7 @@ export {
   Text,
   Link,
   Card,
-  Button,
+  Grid,
   Select,
   Progress,
   Slider,
@@ -41,7 +41,6 @@ export {
   Avatar,
   Dialog,
   DropdownMenu,
-  IconButton,
   Badge,
   type BadgeProps,
   SegmentedControl,
@@ -49,6 +48,8 @@ export {
   Table,
   VisuallyHidden,
 } from "@radix-ui/themes";
+
+export { Button, IconButton } from "./button";
 
 export { ConfirmDialog } from "./confirm-dialog";
 

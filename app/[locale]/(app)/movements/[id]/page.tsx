@@ -46,7 +46,8 @@ export default async function MovementPage(
   const creatorNames = await resolveCreatorNames([movement.createdBy]);
 
   return (
-    <Page>
+    // The desktop detail carries the gutter itself, band by band (SPEC-A3).
+    <Page gutter="flush">
       <MovementDetail
         movement={movement}
         options={options}

@@ -21,7 +21,10 @@ import { useAction } from "next-safe-action/hooks";
 import { useState } from "react";
 
 import { deleteTransactionAction } from "@/app/actions/transactions";
-import { MovementForm } from "@/components/transactions/movement-form";
+import {
+  MovementForm,
+  movementFormDialogWidth,
+} from "@/components/transactions/movement-form";
 import {
   MovementsFilterBar,
   type MovementsFilters,
@@ -584,7 +587,7 @@ export function MovementsScreen({
         open={editing !== null}
         onOpenChange={(open) => !open && setEditingId(null)}
       >
-        <Dialog.Content>
+        <Dialog.Content maxWidth={movementFormDialogWidth}>
           {/* The form carries its own heading; the title stays for the a11y tree. */}
           <VisuallyHidden>
             <Dialog.Title>{t("formTitle")}</Dialog.Title>

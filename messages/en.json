@@ -416,6 +416,8 @@
     "splitRowAmount": "Amount {position}",
     "splitRowRemove": "Remove category {position}",
     "splitUnassigned": "Unassigned",
+    "splitsTitle": "Categories",
+    "splitsTotal": "<amount></amount> total",
     "saved": "Movement saved",
     "undo": "Undo",
     "errors": {
