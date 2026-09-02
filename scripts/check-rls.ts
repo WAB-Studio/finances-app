@@ -12,9 +12,14 @@ import postgres from "postgres";
 
 import { insertRow } from "@/db/insert-row";
 import type { InsertValues } from "@/db/insert-row";
+// The two report functions this file drives instead of replicating; both open
+// their own `withUserDb` over the app pool, which is why their fixtures commit.
+import { listBudgetsWithStatus } from "@/db/queries/budgets";
 import { commitImport } from "@/db/queries/import-commit";
 import type { CommitInput, CommitScope } from "@/db/queries/import-commit";
+import { getSixMonthFlow } from "@/db/queries/reports/monthly-flow";
 import * as schema from "@/db/schema";
+import { todayInBogota } from "@/lib/dates";
 import { pgErrorCode } from "@/lib/db-error";
 import { CATEGORY_COLORS } from "@/lib/fund/category-color";
 import { GROUP_CASH_ACCOUNT_NAME } from "@/lib/fund/seed";
@@ -189,6 +194,7 @@ async function main() {
   await checkInstallmentAllocation();
   await checkGoalAccountScope();
   await checkIngestShapeRestore();
+  await checkReportFunctionsExcludeTransfers();
 }
 
 // Assertions 9-26: the repivoted schema. A group holds accounts and categories a user XOR a group
@@ -6931,6 +6937,130 @@ async function checkIngestShapeRestore() {
     .catch((error: unknown) => {
       if (error !== forcedRollback) throw error;
     });
+}
+
+// Assertions 233-235: RF-19 read back through the functions that ship, not through a copy of their
+// SQL. Assertions 38-39 and 124-125 prove the same exclusion against the replicas above, which would
+// stay green the day `getSixMonthFlow` lost its `filter`; these call it, and `listBudgetsWithStatus`,
+// and read the number they hand a screen. The fixtures are therefore COMMITTED — each function opens
+// its own transaction over the app pool and can see nothing this file has not committed — and dropped
+// in the `finally` below. RLS still decides every row: `withUserDb` settles the same claims and the
+// same `authenticated` role `enterUserContext` sets by hand, so the reads meet the policies here too.
+async function checkReportFunctionsExcludeTransfers() {
+  console.log("");
+  const reader = randomUUID();
+  const email = `rls-report-${reader}@example.invalid`;
+
+  const labels = [
+    "233. getSixMonthFlow reads this month at the income and the expense; the transfer joins neither",
+    "234. listBudgetsWithStatus spends the expense split alone; the transfer over its account adds nothing",
+  ];
+  const tailLabel = "235. the committed report fixtures are gone";
+
+  const INCOME_CENTS = 10000;
+  const EXPENSE_CENTS = 6000;
+  const TRANSFER_CENTS = 5000;
+  const LIMIT_CENTS = 100000;
+
+  const budgetId = randomUUID();
+  const claims = JSON.stringify({ sub: reader, role: "authenticated", aud: "authenticated" });
+
+  // The Supabase stub reads these, and it throws rather than query as nobody.
+  process.env.HARNESS_USER_ID = reader;
+  process.env.HARNESS_USER_EMAIL = email;
+
+  try {
+    await sql.begin(async (tx) => {
+      await tx`insert into auth.users (id, email) values (${reader}, ${email})`;
+      await tx`insert into app_users (id) values (${reader})`;
+
+      // Claims without the role switch: the stamping triggers read `auth.uid()` while the owner's
+      // privileges do the writing, so a fixture never has to satisfy a column grant of its own.
+      await tx`select set_config('request.jwt.claims', ${claims}, true)`;
+
+      const today = tx`(now() at time zone 'America/Bogota')::date`;
+      const [{ id: fromAccount }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_cents, initial_balance_on)
+        values (${reader}, 'rls report bank', 'asset', 500000, ${today}) returning id`;
+      const [{ id: toAccount }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_cents, initial_balance_on)
+        values (${reader}, 'rls report savings', 'asset', 0, ${today}) returning id`;
+      const [{ id: expenseCat }] = await tx<{ id: string }[]>`
+        insert into categories (owner_user_id, name, kind)
+        values (${reader}, 'rls report groceries', 'expense') returning id`;
+      const [{ id: incomeCat }] = await tx<{ id: string }[]>`
+        insert into categories (owner_user_id, name, kind)
+        values (${reader}, 'rls report salary', 'income') returning id`;
+
+      const [{ id: incomeTxn }] = await tx<{ id: string }[]>`
+        insert into transactions (to_account_id, amount_cents, occurred_at)
+        values (${fromAccount}, ${INCOME_CENTS}, ${today}) returning id`;
+      await tx`insert into transaction_splits (transaction_id, category_id, amount_cents)
+        values (${incomeTxn}, ${incomeCat}, ${INCOME_CENTS})`;
+
+      const [{ id: expenseTxn }] = await tx<{ id: string }[]>`
+        insert into transactions (from_account_id, amount_cents, occurred_at)
+        values (${fromAccount}, ${EXPENSE_CENTS}, ${today}) returning id`;
+      await tx`insert into transaction_splits (transaction_id, category_id, amount_cents)
+        values (${expenseTxn}, ${expenseCat}, ${EXPENSE_CENTS})`;
+
+      // The transfer sits in both windows and leaves the very account the budget names.
+      await tx`insert into transactions (from_account_id, to_account_id, amount_cents, occurred_at)
+        values (${fromAccount}, ${toAccount}, ${TRANSFER_CENTS}, ${today})`;
+
+      await tx`insert into budgets (
+          id, owner_user_id, category_id, account_id, period, limit_cents, threshold_pct, name)
+        values (
+          ${budgetId}, ${reader}, ${expenseCat}, ${fromAccount}, 'monthly',
+          ${LIMIT_CENTS}, 80, 'rls report budget')`;
+    });
+
+    // 233 (RF-19, RF-35): the six buckets the trend renders, the last of them this month. A transfer
+    // summed as either total would put 15000 of income or 11000 of expense in it.
+    const flow = await getSixMonthFlow();
+    const thisMonth = flow[flow.length - 1];
+    assert(
+      labels[0],
+      flow.length === 6 &&
+        thisMonth.monthStart.slice(0, 7) === todayInBogota().slice(0, 7) &&
+        thisMonth.incomeCents === INCOME_CENTS &&
+        thisMonth.expenseCents === EXPENSE_CENTS,
+      `${flow.length} months, ${thisMonth?.monthStart} reads income = ${thisMonth?.incomeCents}, expense = ${thisMonth?.expenseCents} (expected ${INCOME_CENTS} and ${EXPENSE_CENTS}, the ${TRANSFER_CENTS} transfer in neither)`,
+    );
+
+    // 234 (RF-19, RF-72): spent is the one expense split. The transfer leaves the budget's account
+    // inside its window and carries no split of its own — assertion 32 is why it can carry none.
+    const budgets = await listBudgetsWithStatus();
+    const budget = budgets.find((row) => row.id === budgetId);
+    assert(
+      labels[1],
+      budget?.spentCents === EXPENSE_CENTS &&
+        budget.remainingCents === LIMIT_CENTS - EXPENSE_CENTS,
+      `spent = ${budget?.spentCents}, remaining = ${budget?.remainingCents} (expected ${EXPENSE_CENTS} and ${LIMIT_CENTS - EXPENSE_CENTS}, the ${TRANSFER_CENTS} transfer in neither)`,
+    );
+  } finally {
+    delete process.env.HARNESS_USER_ID;
+    delete process.env.HARNESS_USER_EMAIL;
+
+    // Child before parent, and the splits ride the movements' cascade. No rollback undoes any of
+    // this: the reads above could only see it because it was committed.
+    await sql`delete from budgets where owner_user_id = ${reader}`;
+    await sql`delete from transactions where owner_user_id = ${reader}`;
+    await sql`delete from categories where owner_user_id = ${reader}`;
+    await sql`delete from accounts where owner_user_id = ${reader}`;
+    await sql`delete from app_users where id = ${reader}`;
+    await sql`delete from auth.users where id = ${reader}`;
+  }
+
+  const [{ count: probeCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from accounts where name like 'rls report%'`;
+  const [{ count: userCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from app_users where id = ${reader}`;
+  assert(
+    tailLabel,
+    probeCount === "0" && userCount === "0",
+    `rows named 'rls report%' = ${probeCount}, the reader's own row = ${userCount}`,
+  );
 }
 
 // Wrapped in an async IIFE (not top-level await) so the runner can transpile
