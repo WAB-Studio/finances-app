@@ -46,15 +46,21 @@ test("reads the amount and the category out of one line and records the movement
 
   // Both proposals land in fields, editable. Two of them carry the amount: the
   // movement's own and the lone split's, which the sheet keeps equal to it (RF-69).
-  const amounts = sheet.getByRole("textbox", {
-    name: transactions.amountLabel,
-    exact: true,
-  });
-  await expect(amounts).toHaveCount(2);
-  await expect(amounts.nth(0)).toHaveValue(AMOUNT_PESOS);
-  await expect(amounts.nth(1)).toHaveValue(AMOUNT_PESOS);
+  // A split row names itself by its position, so the two answer to two names.
   await expect(
-    sheet.getByRole("combobox", { name: transactions.categoryLabel, exact: true }),
+    sheet.getByRole("textbox", { name: transactions.amountLabel, exact: true }),
+  ).toHaveValue(AMOUNT_PESOS);
+  await expect(
+    sheet.getByRole("textbox", {
+      name: transactions.splitRowAmount.replace("{position}", "1"),
+      exact: true,
+    }),
+  ).toHaveValue(AMOUNT_PESOS);
+  await expect(
+    sheet.getByRole("combobox", {
+      name: transactions.splitRowCategory.replace("{position}", "1"),
+      exact: true,
+    }),
   ).toHaveText(scope.categoryName);
 
   // Nothing has been recorded yet, so the account has no last-used to fall back

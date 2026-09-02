@@ -41,7 +41,11 @@ import { listStatements } from "@/db/queries/debt-statements";
 import { getDebtTerms, upsertDebtTerms } from "@/db/queries/debt-terms";
 import { getDebtsScreenData } from "@/db/queries/debts-screen";
 import { readExport } from "@/db/queries/export";
-import { createMember, listMembers } from "@/db/queries/group-members";
+import {
+  claimInviteForUser,
+  createMember,
+  listMembers,
+} from "@/db/queries/group-members";
 import { getUserGroup } from "@/db/queries/groups";
 import { readImportScope } from "@/db/queries/import-preview";
 import {
@@ -105,6 +109,9 @@ import { currentMonthRange, todayInBogota } from "@/lib/dates";
 import { pgErrorCode } from "@/lib/db-error";
 import { SEED_CATEGORIES } from "@/lib/fund/seed";
 import { SHEET_ENTITIES } from "@/lib/spreadsheet/schema";
+import { createTransactionSchema } from "@/lib/validation/transaction";
+import en from "@/messages/en.json";
+import es from "@/messages/es.json";
 
 import { assert, report, skip } from "./harness/assert";
 import type { FixtureTable, HarnessScope, HarnessUser } from "./harness/fixtures";
@@ -287,6 +294,57 @@ type SilencedFixtures = {
   // Left silenced, so the read has rows of its own to be asserted on.
   listed: SilencedFixture;
 };
+
+// A pending invitation, written as the owner but under the leader's claims, the
+// way `seedHarnessScope` writes its rows: the stamping triggers read auth.uid()
+// while the owner's privileges do the insert.
+async function seedPendingInvite({
+  groupId,
+  memberId,
+  actorId,
+  name,
+  email,
+  archived,
+}: {
+  groupId: string;
+  memberId: string;
+  actorId: string;
+  name: string;
+  email: string;
+  archived: boolean;
+}): Promise<void> {
+  const claims = JSON.stringify({
+    sub: actorId,
+    role: "authenticated",
+    aud: "authenticated",
+  });
+
+  await fixtureSql.begin(async (tx) => {
+    await tx`select set_config('request.jwt.claims', ${claims}, true)`;
+    await tx`
+      insert into group_members (id, group_id, name, role, invite_email, archived_at)
+      values (${memberId}, ${groupId}, ${name}, 'member', ${email},
+        ${archived ? tx`now()` : null})`;
+  });
+
+  track("group_members", memberId);
+}
+
+type MemberSnapshot = {
+  id: string;
+  user_id: string | null;
+  invite_email: string | null;
+  name: string;
+  archived_at: string | null;
+};
+
+// Every row of a group, archived ones included: the UPDATE this replaced carried
+// no WHERE, so the whole group is the blast radius a claim has to leave alone.
+async function readGroupMembers(groupId: string): Promise<MemberSnapshot[]> {
+  return fixtureSql<MemberSnapshot[]>`
+    select id, user_id, invite_email, name, archived_at::text as archived_at
+    from group_members where group_id = ${groupId} order by id`;
+}
 
 type WriteResults = {
   accountId: string | null;
@@ -476,6 +534,90 @@ async function writeSuite(
       keep("group_members", memberId);
       return { ok: true, detail: `member ${memberId}` };
     },
+  );
+
+  // RF-06 from the three sides that decide it, driven by three sessions rather
+  // than three arguments: the claim reads the caller's own identity, so who runs
+  // it IS the input. The middle call is why this assertion exists — the UPDATE it
+  // replaced carried no WHERE, and for a caller already in the group it stamped
+  // her user_id onto every row of it and then reported "claimed".
+  const invitee = await createMembershipFreeUser();
+  const leaderEmail = process.env.HARNESS_USER_EMAIL ?? "";
+
+  await checkWrite(
+    "claimInviteForUser",
+    async () => {
+      const invitedId = randomUUID();
+      const archivedId = randomUUID();
+      const leaderInviteId = randomUUID();
+
+      await seedPendingInvite({
+        groupId: scope.groupId,
+        memberId: invitedId,
+        actorId: userId,
+        name: "Harness invitada con login",
+        email: invitee.email,
+        archived: false,
+      });
+      // Archived and invited: the row the proved escalation wrote onto.
+      await seedPendingInvite({
+        groupId: scope.groupId,
+        memberId: archivedId,
+        actorId: userId,
+        name: "Harness invitada archivada",
+        email: `harness-${randomUUID()}@example.invalid`,
+        archived: true,
+      });
+
+      const claimed = await asUser(invitee, () =>
+        claimInviteForUser({ email: invitee.email }),
+      );
+      const [claimedRow] = await fixtureSql<
+        { user_id: string | null; invite_email: string | null }[]
+      >`select user_id, invite_email from group_members where id = ${invitedId}`;
+
+      // The leader is in the group and holds no invitation: nothing may move.
+      const before = await readGroupMembers(scope.groupId);
+      const none = await claimInviteForUser({ email: leaderEmail });
+      const after = await readGroupMembers(scope.groupId);
+
+      // Now she does hold one, and her live leader row already carries her
+      // user_id, so `group_members_user_unique` refuses the claim (RF-55).
+      await seedPendingInvite({
+        groupId: scope.groupId,
+        memberId: leaderInviteId,
+        actorId: userId,
+        name: "Harness lider invitada",
+        email: leaderEmail,
+        archived: false,
+      });
+      const already = await claimInviteForUser({ email: leaderEmail });
+
+      return {
+        claimed,
+        claimedRow,
+        before,
+        untouched: JSON.stringify(before) === JSON.stringify(after),
+        none,
+        already,
+      };
+    },
+    (result) => ({
+      ok:
+        result.claimed === "claimed" &&
+        result.claimedRow.user_id === invitee.id &&
+        result.claimedRow.invite_email === null &&
+        result.none === "none" &&
+        result.untouched &&
+        result.already === "already-in-group",
+      detail: `invited caller = ${result.claimed}, her row carries her user_id = ${
+        result.claimedRow.user_id === invitee.id
+      } and invite_email = ${result.claimedRow.invite_email}; uninvited member = ${
+        result.none
+      }, ${result.before.length} group rows unchanged = ${
+        result.untouched
+      }; member holding a live membership = ${result.already}`,
+    }),
   );
 
   const label = await checkWrite(
@@ -976,6 +1118,36 @@ async function invariantSuite(
       `kind = ${row.kind}, from = ${row.from_account_id !== null}, to = ${row.to_account_id !== null}`,
     );
   }
+
+  // RF-101, on the schema side: the database refuses the pair with a check
+  // constraint, and the very schema the form binds to refuses it first, with a
+  // message. Same schema on both ends of the action (RNF-10), so one parse
+  // proves the form and the server together.
+  const selfTransfer = next("the shared schema refuses a transfer to the same account");
+  const sameAccount = writes.accountId ?? randomUUID();
+  const parsed = createTransactionSchema.safeParse({
+    fromAccountId: sameAccount,
+    toAccountId: sameAccount,
+    amount: "10000",
+    occurredAt: todayInBogota(),
+    description: null,
+    splits: [],
+    labelIds: [],
+  });
+  const issues = parsed.success ? [] : parsed.error.issues;
+  const sameIssue = issues.find(
+    (issue) => issue.message === "transactions.errors.accountSame",
+  );
+  assert(
+    selfTransfer,
+    sameIssue !== undefined &&
+      sameIssue.path.join(".") === "toAccountId" &&
+      es.transactions.errors.accountSame.length > 0 &&
+      en.transactions.errors.accountSame.length > 0,
+    parsed.success
+      ? "the payload parsed, which it must not"
+      : `${issues.length} issue(s), accountSame at path ${sameIssue?.path.join(".") ?? "none"}, es "${es.transactions.errors.accountSame}", en "${en.transactions.errors.accountSame}"`,
+  );
 
   const audited = next("every write left an audit_log row naming its record");
   if (written.length === 0) {

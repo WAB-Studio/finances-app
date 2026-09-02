@@ -41,10 +41,12 @@ export function MembersScreen({
   members,
   currentUserId,
   archived,
+  isLeader,
 }: {
   members: MemberRow[];
   currentUserId: string;
   archived: boolean;
+  isLeader: boolean;
 }) {
   const t = useTranslations("members");
   // Root-scoped: `common` is a full catalogue path, not this component's namespace.
@@ -93,8 +95,8 @@ export function MembersScreen({
     <Flex direction="column" gap="4">
       <Flex justify="between" align="center" gap="3" wrap="wrap">
         <Heading size="5">{t("title")}</Heading>
-        {/* Add would create an active member, so the archived tab offers none. */}
-        {!archived && (
+        {/* Add would create an active member, so the archived tab offers none; RF-100 keeps it from anyone but the leader. */}
+        {isLeader && !archived && (
           <Button type="button" onClick={() => setFormTarget("new")}>
             <Plus size={16} />
             {t("add")}
@@ -120,6 +122,9 @@ export function MembersScreen({
         <Flex direction="column" gap="3">
           {members.map((member) => {
             const isSelf = member.userId === currentUserId;
+            // RF-100: the leader manages the roster; everyone else only renames their own row.
+            const canEdit = isLeader || isSelf;
+            const canManage = isLeader && !isSelf;
 
             return (
               <Card key={member.id}>
@@ -143,59 +148,61 @@ export function MembersScreen({
                   </Flex>
 
                   <Box flexShrink="0">
-                    <DropdownMenu.Root>
-                      <DropdownMenu.Trigger>
-                        <IconButton
-                          type="button"
-                          variant="ghost"
-                          color="gray"
-                          size="3"
-                          aria-label={tKey("common.actionsFor", {
-                            name: member.name,
-                          })}
-                        >
-                          <EllipsisVertical size={16} />
-                        </IconButton>
-                      </DropdownMenu.Trigger>
-                      <DropdownMenu.Content>
-                        <DropdownMenu.Item
-                          onSelect={() => setFormTarget(member)}
-                        >
-                          {tKey("common.edit")}
-                        </DropdownMenu.Item>
-                        {/* The database refuses both on the session user's own row: offering them would only fail. */}
-                        {!isSelf && (
-                          <>
-                            <DropdownMenu.Separator />
-                            {member.archivedAt ? (
+                    {canEdit && (
+                      <DropdownMenu.Root>
+                        <DropdownMenu.Trigger>
+                          <IconButton
+                            type="button"
+                            variant="ghost"
+                            color="gray"
+                            size="3"
+                            aria-label={tKey("common.actionsFor", {
+                              name: member.name,
+                            })}
+                          >
+                            <EllipsisVertical size={16} />
+                          </IconButton>
+                        </DropdownMenu.Trigger>
+                        <DropdownMenu.Content>
+                          <DropdownMenu.Item
+                            onSelect={() => setFormTarget(member)}
+                          >
+                            {tKey("common.edit")}
+                          </DropdownMenu.Item>
+                          {/* The database refuses both on the session user's own row, and all three on a caller who is not the leader. */}
+                          {canManage && (
+                            <>
+                              <DropdownMenu.Separator />
+                              {member.archivedAt ? (
+                                <DropdownMenu.Item
+                                  onSelect={() =>
+                                    setRowAction({ kind: "restore", member })
+                                  }
+                                >
+                                  {tKey("common.restore")}
+                                </DropdownMenu.Item>
+                              ) : (
+                                <DropdownMenu.Item
+                                  onSelect={() =>
+                                    setRowAction({ kind: "archive", member })
+                                  }
+                                >
+                                  {tKey("common.archive")}
+                                </DropdownMenu.Item>
+                              )}
                               <DropdownMenu.Item
+                                color="red"
                                 onSelect={() =>
-                                  setRowAction({ kind: "restore", member })
+                                  setRowAction({ kind: "delete", member })
                                 }
                               >
-                                {tKey("common.restore")}
+                                {tKey("common.delete")}
                               </DropdownMenu.Item>
-                            ) : (
-                              <DropdownMenu.Item
-                                onSelect={() =>
-                                  setRowAction({ kind: "archive", member })
-                                }
-                              >
-                                {tKey("common.archive")}
-                              </DropdownMenu.Item>
-                            )}
-                            <DropdownMenu.Item
-                              color="red"
-                              onSelect={() =>
-                                setRowAction({ kind: "delete", member })
-                              }
-                            >
-                              {tKey("common.delete")}
-                            </DropdownMenu.Item>
-                          </>
-                        )}
-                      </DropdownMenu.Content>
-                    </DropdownMenu.Root>
+                            </>
+                          )}
+                        </DropdownMenu.Content>
+                      </DropdownMenu.Root>
+                    )}
                   </Box>
                 </Flex>
               </Card>

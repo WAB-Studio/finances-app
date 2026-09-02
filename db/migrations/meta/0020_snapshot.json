@@ -1,6 +1,6 @@
 {
-  "id": "f03d40a8-019f-4ccf-83c7-3de24258f2cc",
-  "prevId": "26cc499b-0be4-4808-a712-b4a5ea57ff31",
+  "id": "cb8accc3-1547-414b-b32d-98b4b826975e",
+  "prevId": "c7d0f615-777a-4071-b299-7c606394ef67",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -156,6 +156,16 @@
             "authenticated"
           ],
           "withCheck": "true"
+        },
+        "groups_update_leader": {
+          "name": "groups_update_leader",
+          "as": "PERMISSIVE",
+          "for": "UPDATE",
+          "to": [
+            "authenticated"
+          ],
+          "using": "(select private.is_group_leader(\"groups\".\"id\"))",
+          "withCheck": "(select private.is_group_leader(\"groups\".\"id\"))"
         }
       },
       "checkConstraints": {
@@ -1410,6 +1420,10 @@
           "name": "transactions_owner_xor_group",
           "value": "(\"transactions\".\"owner_user_id\" is not null)::int + (\"transactions\".\"group_id\" is not null)::int = 1"
         },
+        "transactions_accounts_distinct": {
+          "name": "transactions_accounts_distinct",
+          "value": "\"transactions\".\"from_account_id\" is distinct from \"transactions\".\"to_account_id\""
+        },
         "transactions_description_length": {
           "name": "transactions_description_length",
           "value": "length(\"transactions\".\"description\") <= 200"
@@ -2389,6 +2403,10 @@
         "planned_payments_at_least_one_account": {
           "name": "planned_payments_at_least_one_account",
           "value": "num_nonnulls(\"planned_payments\".\"from_account_id\", \"planned_payments\".\"to_account_id\") >= 1"
+        },
+        "planned_payments_accounts_distinct": {
+          "name": "planned_payments_accounts_distinct",
+          "value": "\"planned_payments\".\"from_account_id\" is distinct from \"planned_payments\".\"to_account_id\""
         },
         "planned_payments_owner_xor_group": {
           "name": "planned_payments_owner_xor_group",

@@ -413,6 +413,7 @@
       "splitAmountTooLarge": "The category's amount is too large.",
       "accountInvalid": "Choose a valid account.",
       "accountRequired": "Choose at least one account.",
+      "accountSame": "Choose a different destination account.",
       "dateRequired": "Choose a date.",
       "dateInvalid": "Choose a valid date.",
       "dateInFuture": "The date cannot be in the future.",

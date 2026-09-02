@@ -96,12 +96,9 @@ export async function GET(request: NextRequest) {
   });
 
   // RF-06: link this user to the pending member their magic link's email matches,
-  // if any. Runs under their now-verified session so the claim policy sees their
-  // own auth.email(); "none"/"already-in-group" fall through to the usual landing.
-  const claim = await claimInviteForUser({
-    userId,
-    email: data.user.email ?? "",
-  });
+  // if any. Runs under their now-verified session, which is the only identity the
+  // claim reads; "none"/"already-in-group" fall through to the usual landing.
+  const claim = await claimInviteForUser({ email: data.user.email ?? "" });
 
   const cookieStore = await cookies();
   const postLogin = cookieStore.get("post_login_redirect")?.value;

@@ -67,7 +67,8 @@ export type WebhookCredentialRow = {
 };
 
 // The caller's own credentials, newest first. `token_hash` is never selected —
-// it is not even granted to `authenticated` — so a leak has nothing to carry.
+// it is not even granted to `authenticated` — and the audit viewer leaves the
+// snapshot that holds it in the table, so no read path carries it.
 export async function listWebhookCredentials(): Promise<WebhookCredentialRow[]> {
   return withUserDb(async (tx) =>
     tx

@@ -4,15 +4,32 @@
  * that the data reached the screen — the whole next-intl catalogue ships in the
  * page payload, so a title matches even when nothing rendered. Every assertion
  * here is therefore a seeded value or an interpolated message carrying one.
+ *
+ * The last two describes prove RF-100 on screen, under both roles. The database
+ * half is proved by layer 1 (assertions 184-189); nothing until now rendered the
+ * roster, and the row menu is only reachable here — Radix mounts a menu's items
+ * when it opens and never puts them on the wire.
  */
 import { createHash, randomUUID } from "node:crypto";
 
-import { expect } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 
 import messages from "@/messages/es.json";
 
 import { fixtureSql } from "../scripts/harness/fixtures";
-import { asHarnessUser, readScope, test } from "./global-setup";
+import {
+  LEADER_MEMBER_NAME,
+  MEMBER_STORAGE_STATE,
+  PLAIN_MEMBER_NAME,
+  asHarnessUser,
+  clearGroup,
+  readScope,
+  seedGroup,
+  test,
+} from "./global-setup";
+
+const members = messages.members;
+const common = messages.common;
 
 const scope = readScope();
 const stamp = randomUUID().slice(0, 8);
@@ -165,5 +182,98 @@ test.describe("the members screen", () => {
     await expect(
       page.getByText(messages.members.noLoginBadge, { exact: true }),
     ).toBeVisible();
+  });
+});
+
+// The menu names its own row, so match the prefix: the count is what says how
+// many rows carry a menu at all, and the rename below says which row it was.
+function rowMenus(page: Page): Locator {
+  return page.getByRole("button", {
+    name: common.actionsFor.split("{")[0].trim(),
+  });
+}
+
+async function expectRosterRendered(page: Page): Promise<void> {
+  await expect(page.getByText(LEADER_MEMBER_NAME, { exact: true })).toBeVisible();
+  await expect(page.getByText(PLAIN_MEMBER_NAME, { exact: true })).toBeVisible();
+}
+
+// Whose row an open menu belonged to: the name its rename arrives prefilled with.
+async function expectRenameSubject(page: Page, name: string): Promise<void> {
+  await page
+    .getByRole("menu")
+    .getByRole("menuitem", { name: common.edit, exact: true })
+    .click();
+
+  await expect(
+    page.getByRole("dialog").getByRole("textbox", { name: members.nameLabel }),
+  ).toHaveValue(name);
+}
+
+test.describe("RF-100 on the roster", () => {
+  // The two identities and their one group, held for these describes alone: a
+  // group alive during the tests above would move their scope from personal to
+  // the fund's, and the categories screen reads a different set under each.
+  test.beforeAll(async () => {
+    await seedGroup();
+  });
+
+  test.afterAll(async () => {
+    await clearGroup();
+  });
+
+  test.describe("the members roster under its leader", () => {
+    test("offers the add control and a menu over another member's row", async ({
+      page,
+    }) => {
+      await page.goto("/es/settings/members");
+      await expectRosterRendered(page);
+
+      await expect(
+        page.getByRole("button", { name: members.add, exact: true }),
+      ).toBeVisible();
+
+      await expect(rowMenus(page)).toHaveCount(2);
+
+      // The second row by name is the plain member's, which is not the leader's own.
+      await rowMenus(page).nth(1).click();
+      await expect(page.getByRole("menu").getByRole("menuitem")).toHaveText([
+        common.edit,
+        common.archive,
+        common.delete,
+      ]);
+
+      await expectRenameSubject(page, PLAIN_MEMBER_NAME);
+    });
+  });
+
+  test.describe("the members roster under a plain member", () => {
+    test.use({ storageState: MEMBER_STORAGE_STATE });
+
+    test("renders the roster and offers no add control", async ({ page }) => {
+      await page.goto("/es/settings/members");
+      await expectRosterRendered(page);
+
+      await expect(
+        page.getByRole("button", { name: members.add, exact: true }),
+      ).toHaveCount(0);
+    });
+
+    test("offers one menu, over their own row, and it renames and nothing else", async ({
+      page,
+    }) => {
+      await page.goto("/es/settings/members");
+      await expectRosterRendered(page);
+
+      // Two rows, one menu: the other member's row carries none.
+      await expect(rowMenus(page)).toHaveCount(1);
+
+      await rowMenus(page).click();
+      await expect(page.getByRole("menu").getByRole("menuitem")).toHaveText([
+        common.edit,
+      ]);
+
+      await expectRenameSubject(page, PLAIN_MEMBER_NAME);
+    });
   });
 });

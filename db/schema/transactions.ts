@@ -61,6 +61,12 @@ export const transactions = pgTable(
       "transactions_owner_xor_group",
       sql`(${table.ownerUserId} is not null)::int + (${table.groupId} is not null)::int = 1`,
     ),
+    // A transfer names two different accounts (RF-101). `is distinct from` leaves a one-sided
+    // movement legal: one side is null, so the pair still differs.
+    check(
+      "transactions_accounts_distinct",
+      sql`${table.fromAccountId} is distinct from ${table.toAccountId}`,
+    ),
     check("transactions_description_length", sql`length(${table.description}) <= 200`),
     check("transactions_external_ref_length", sql`length(${table.externalRef}) <= 200`),
     index("transactions_occurred_at_idx").on(table.occurredAt),

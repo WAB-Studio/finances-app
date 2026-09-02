@@ -177,6 +177,17 @@ async function main() {
   await checkIngestMerchantTrust();
   await checkInsertGrantMap();
   await checkInsertHelper();
+  await checkGroupMemberUserIdLock();
+  await checkMemberManagementLeaderOnly();
+  await checkDefaultPrivileges();
+  await checkSlippedGrants();
+  await checkGroupUpdatePolicy();
+  await checkWriteGrantMap();
+  await checkSelfTransferRefused();
+  await checkCategoryParentScope();
+  await checkGroupCommitsWithLeader();
+  await checkInstallmentAllocation();
+  await checkGoalAccountScope();
   await checkIngestShapeRestore();
 }
 
@@ -2418,39 +2429,43 @@ async function checkInviteClaimPolicies() {
         values (${busyGroupId}, ${busyUser}, 'rls invite busy leader', 'leader')`;
 
       // 98: the invited caller claims their own pending row. The SELECT policy still hides an unclaimed
-      // row from the outsider, so a WHERE that reads a column would match nothing; the claim policy alone
-      // bounds the write, so it is issued unqualified and lands on exactly the row addressed to their email.
+      // row from the outsider, so the caller could not name it even if the claim took a target; it takes
+      // none, and picks the row addressed to the email their magic link proved.
       await tx`reset role`;
       await enterUserContext(tx, invitedUser, invitedEmail);
       const [{ count: preClaimVisible }] = await tx<{ count: string }[]>`
         select count(*)::text as count from group_members where id = ${pendingInvited}`;
-      const claim = await tx`update group_members set user_id = ${invitedUser}, invite_email = null`;
+      const [{ claim_group_invite: claimedId }] = await tx<
+        { claim_group_invite: string | null }[]
+      >`select private.claim_group_invite()`;
       const [claimed] = await tx<{ user_id: string | null; invite_email: string | null; role: string }[]>`
         select user_id, invite_email, role from group_members where id = ${pendingInvited}`;
       assert(
         labels[0],
         preClaimVisible === "0" &&
-          claim.count === 1 &&
+          claimedId === pendingInvited &&
           claimed.user_id === invitedUser &&
           claimed.invite_email === null &&
           claimed.role === "member",
-        `pre-claim visible = ${preClaimVisible}, rows = ${claim.count}, user_id = ${claimed?.user_id === invitedUser ? "self" : claimed?.user_id}, invite_email = ${claimed?.invite_email}, role = ${claimed?.role}`,
+        `pre-claim visible = ${preClaimVisible}, claimed = ${claimedId === pendingInvited ? "the pending row" : claimedId}, user_id = ${claimed?.user_id === invitedUser ? "self" : claimed?.user_id}, invite_email = ${claimed?.invite_email}, role = ${claimed?.role}`,
       );
 
-      // 99: a caller whose email matches no invite claims nothing — neither the claim policy (email) nor
-      // the member policy (not a member) admits any row, so the unqualified update touches nothing.
+      // 99: a caller whose email matches no invite claims nothing — the function matches on auth.email()
+      // alone, so there is no row for it to pick.
       await tx`reset role`;
       await enterUserContext(tx, strangerUser, strangerEmail);
-      const stranger = await tx`update group_members set user_id = ${strangerUser}, invite_email = null`;
-      assert(labels[1], stranger.count === 0, `rows = ${stranger.count}`);
+      const [{ claim_group_invite: strangerId }] = await tx<
+        { claim_group_invite: string | null }[]
+      >`select private.claim_group_invite()`;
+      assert(labels[1], strangerId === null, `returned ${strangerId ?? "null"}`);
 
-      // 100: the busy caller's email matches the invite, so the claim policy admits the pending row; the
+      // 100: the busy caller's email matches the invite, so the function picks the pending row; the
       // one-group-per-user index then refuses it, since the caller already holds a live membership.
       await tx`reset role`;
       await enterUserContext(tx, busyUser, busyEmail);
       await tx
         .savepoint(async (sp) => {
-          await sp`update group_members set user_id = ${busyUser}, invite_email = null`;
+          await sp`select private.claim_group_invite()`;
           assert(labels[2], false, "a second live membership landed, which it must not");
         })
         .catch((error: unknown) => {
@@ -4723,7 +4738,7 @@ function schemaTables(): { name: string; columns: string[] }[] {
 // column may be written; a table absent from the app's schema is a failure too.
 const INSERT_GRANT_GAPS: Record<string, string[]> = {
   accounts: ["archived_at", "created_at", "id", "updated_at"],
-  app_users: [],
+  app_users: ["created_at", "updated_at"],
   audit_log: [
     "action",
     "actor_user_id",
@@ -4741,7 +4756,7 @@ const INSERT_GRANT_GAPS: Record<string, string[]> = {
   debt_statements: ["closed_at", "id"],
   debt_terms: ["created_at", "updated_at"],
   goal_contributions: ["id"],
-  group_members: [],
+  group_members: ["archived_at", "created_at", "id", "updated_at"],
   groups: ["created_at", "currency", "updated_at"],
   ingest_deliveries: [
     "created_at",
@@ -4814,6 +4829,223 @@ const INSERT_GRANT_GAPS: Record<string, string[]> = {
   ],
 };
 
+// The columns `authenticated` holds NO UPDATE on, in the same shape as the INSERT map.
+// `ingest_deliveries.silenced_on_arrival` is deliberately absent: it carries an UPDATE
+// grant, so it is no gap here — the trigger alone writes it on the way in, which is why
+// the INSERT map above lists it.
+const UPDATE_GRANT_GAPS: Record<string, string[]> = {
+  accounts: ["created_at", "group_id", "id", "kind", "owner_user_id", "updated_at"],
+  app_users: ["created_at", "id", "updated_at"],
+  audit_log: [
+    "action",
+    "actor_user_id",
+    "after_data",
+    "before_data",
+    "entity",
+    "group_id",
+    "id",
+    "occurred_at",
+    "owner_user_id",
+    "record_id",
+  ],
+  budgets: ["category_id", "created_at", "group_id", "id", "owner_user_id", "updated_at"],
+  categories: ["created_at", "group_id", "id", "kind", "owner_user_id", "updated_at"],
+  debt_statements: [
+    "account_id",
+    "closed_at",
+    "cut_off_date",
+    "id",
+    "interest_estimate_cents",
+    "minimum_payment_cents",
+    "payment_due_date",
+    "period_start",
+    "statement_balance_cents",
+  ],
+  debt_terms: ["account_id", "created_at", "updated_at"],
+  goal_contributions: ["amount_cents", "goal_id", "id", "transaction_id"],
+  group_members: [
+    "created_at",
+    "external_ref",
+    "group_id",
+    "id",
+    "role",
+    "updated_at",
+    "user_id",
+  ],
+  groups: ["created_at", "currency", "id", "updated_at"],
+  ingest_deliveries: [
+    "category_source",
+    "created_at",
+    "credential_id",
+    "external_ref",
+    "id",
+    "merchant_key",
+    "merchant_label",
+    "owner_user_id",
+    "proposed_account_id",
+    "proposed_amount_cents",
+    "proposed_category_id",
+    "proposed_description",
+    "proposed_direction",
+    "proposed_occurred_at",
+    "raw_text",
+    "shape_hash",
+    "updated_at",
+  ],
+  ingest_merchants: [
+    "candidate_category_id",
+    "created_at",
+    "id",
+    "merchant_key",
+    "merchant_label",
+    "owner_user_id",
+    "state",
+    "streak",
+    "trusted_category_id",
+    "updated_at",
+  ],
+  ingest_shapes: ["created_at", "id", "owner_user_id", "sample_text", "shape_hash", "updated_at"],
+  installment_lines: ["amount_cents", "created_at", "due_date", "id", "plan_id", "seq"],
+  installment_plans: [
+    "account_id",
+    "aval_cents",
+    "created_at",
+    "down_payment_cents",
+    "frequency",
+    "id",
+    "interest_rate",
+    "n_installments",
+    "principal_cents",
+    "start_date",
+    "updated_at",
+  ],
+  labels: ["created_at", "group_id", "id", "owner_user_id", "updated_at"],
+  planned_payments: ["created_at", "created_by", "group_id", "id", "owner_user_id", "updated_at"],
+  recurring_rules: ["created_at", "created_by", "group_id", "id", "owner_user_id", "updated_at"],
+  savings_goals: ["created_at", "group_id", "id", "owner_user_id", "updated_at"],
+  transaction_labels: ["label_id", "transaction_id"],
+  transaction_splits: ["id", "transaction_id"],
+  transactions: [
+    "created_at",
+    "created_by",
+    "external_ref",
+    "group_id",
+    "id",
+    "kind",
+    "owner_user_id",
+    "recurring_rule_id",
+    "updated_at",
+  ],
+  webhook_credentials: [
+    "created_at",
+    "id",
+    "last_used_at",
+    "owner_user_id",
+    "rate_count",
+    "rate_window_started_at",
+    "token_hash",
+    "updated_at",
+  ],
+};
+
+// DELETE and TRUNCATE have no column form, so these are table lists. A row leaves through a
+// DELETE the policies filter; TRUNCATE consults neither a policy nor a row trigger, so the
+// audit trail (RF-45) has nothing to record — the list stays empty.
+const DELETE_GRANTS: string[] = [
+  "accounts",
+  "budgets",
+  "categories",
+  "debt_statements",
+  "debt_terms",
+  "goal_contributions",
+  "group_members",
+  "ingest_merchants",
+  "ingest_shapes",
+  "installment_lines",
+  "installment_plans",
+  "labels",
+  "planned_payments",
+  "recurring_rules",
+  "savings_goals",
+  "transaction_labels",
+  "transaction_splits",
+  "transactions",
+  "webhook_credentials",
+];
+
+const TRUNCATE_GRANTS: string[] = [];
+
+// One catalogue read per privilege, keyed by every base table in `public` so a table with no
+// gap at all is still compared and a table that vanished is drift, not silence.
+async function columnGapMap(privilege: "INSERT" | "UPDATE"): Promise<Record<string, string[]>> {
+  const rows = await sql<{ table_name: string; column_name: string; barred: boolean }[]>`
+    select c.table_name, c.column_name,
+      not has_column_privilege(
+        'authenticated',
+        ('public.' || quote_ident(c.table_name))::regclass,
+        c.column_name,
+        ${privilege}) as barred
+    from information_schema.columns c
+    join information_schema.tables t
+      on t.table_schema = c.table_schema
+     and t.table_name = c.table_name
+     and t.table_type = 'BASE TABLE'
+    where c.table_schema = 'public'`;
+
+  const map: Record<string, string[]> = {};
+  for (const row of rows) {
+    map[row.table_name] ??= [];
+    if (row.barred) map[row.table_name].push(row.column_name);
+  }
+  return map;
+}
+
+// Takes the executor so the negative control can read the catalogue from inside its own
+// transaction, where the grant it adds is visible and nowhere else.
+async function tableGrantList(
+  privilege: "DELETE" | "TRUNCATE",
+  on: postgres.Sql | postgres.TransactionSql = sql,
+): Promise<string[]> {
+  const rows = await on<{ table_name: string }[]>`
+    select t.table_name
+    from information_schema.tables t
+    where t.table_schema = 'public'
+      and t.table_type = 'BASE TABLE'
+      and has_table_privilege(
+        'authenticated',
+        ('public.' || quote_ident(t.table_name))::regclass,
+        ${privilege})
+    order by t.table_name`;
+  return rows.map((row) => row.table_name);
+}
+
+// Names every table that differs, so a failure says which grant moved and not merely that one did.
+function compareGrantMaps(
+  live: Record<string, string[]>,
+  recorded: Record<string, string[]>,
+): { drifted: string[]; detail: string } {
+  const compared = [...new Set([...Object.keys(live), ...Object.keys(recorded)])].sort();
+  const drifted = compared.filter(
+    (table) =>
+      JSON.stringify((live[table] ?? ["<no such table>"]).sort()) !==
+      JSON.stringify((recorded[table] ?? ["<not recorded>"]).sort()),
+  );
+
+  return {
+    drifted,
+    detail: `compared ${compared.length} tables (${compared.join(", ")})${
+      drifted.length > 0
+        ? `; drifted: ${drifted
+            .map(
+              (table) =>
+                `${table} recorded [${(recorded[table] ?? []).join(", ")}] live [${(live[table] ?? []).join(", ")}]`,
+            )
+            .join("; ")}`
+        : ""
+    }`,
+  };
+}
+
 // Assertions 173-174: the two facts `insertRow` rests on — that its snake_case map
 // names real columns, and that the per-column INSERT grants are still the ones the
 // helper exists to satisfy. Catalogue reads only: no fixture, no write, no role switch.
@@ -4846,46 +5078,12 @@ async function checkInsertGrantMap() {
     }`,
   );
 
-  const gaps = await sql<{ table_name: string; column_name: string }[]>`
-    select c.table_name, c.column_name
-    from information_schema.columns c
-    join information_schema.tables t
-      on t.table_schema = c.table_schema
-     and t.table_name = c.table_name
-     and t.table_type = 'BASE TABLE'
-    where c.table_schema = 'public'
-      and not has_column_privilege(
-        'authenticated',
-        ('public.' || quote_ident(c.table_name))::regclass,
-        c.column_name,
-        'INSERT')`;
-
-  const liveGaps: Record<string, string[]> = {};
-  for (const { table_name } of live) liveGaps[table_name] ??= [];
-  for (const { table_name, column_name } of gaps) liveGaps[table_name].push(column_name);
-
-  const compared = [
-    ...new Set([...Object.keys(liveGaps), ...Object.keys(INSERT_GRANT_GAPS)]),
-  ].sort();
-  const drifted = compared.filter(
-    (table) =>
-      JSON.stringify((liveGaps[table] ?? ["<no such table>"]).sort()) !==
-      JSON.stringify((INSERT_GRANT_GAPS[table] ?? ["<not recorded>"]).sort()),
-  );
+  const inserts = compareGrantMaps(await columnGapMap("INSERT"), INSERT_GRANT_GAPS);
 
   assert(
     "174. the per-column INSERT grants are the ones recorded here",
-    drifted.length === 0,
-    `compared ${compared.length} tables (${compared.join(", ")})${
-      drifted.length > 0
-        ? `; drifted: ${drifted
-            .map(
-              (table) =>
-                `${table} recorded [${(INSERT_GRANT_GAPS[table] ?? []).join(", ")}] live [${(liveGaps[table] ?? []).join(", ")}]`,
-            )
-            .join("; ")}`
-        : ""
-    }`,
+    inserts.drifted.length === 0,
+    inserts.detail,
   );
 }
 
@@ -5095,7 +5293,1384 @@ async function checkInsertHelper() {
   );
 }
 
-// Assertions 179-184: RF-99, the undo of a silenced shape. Every claim here is about
+// Assertions 179-183: the `user_id` lock on group_members. `grant update (user_id, invite_email)`
+// served the invite claim, but a grant spans every UPDATE policy on the table, and
+// `group_members_update_member` admits every row in the group: a plain member could repoint the
+// leader's `user_id` at a second account of his own, evicting her and inheriting the group with the
+// `role = 'leader'` the row keeps. The attack is executed here, not read off the policy text.
+// Fixtures live in one transaction forced to roll back; each barred statement runs in its own savepoint.
+async function checkGroupMemberUserIdLock() {
+  console.log("");
+  const leaderUser = randomUUID();
+  const memberUser = randomUUID();
+  // The attacker's second sign-up: a real row, since `user_id` carries a foreign key.
+  const strangerUser = randomUUID();
+  const memberEmail = `member-${randomUUID()}@example.test`;
+  const groupId = randomUUID();
+  const forcedRollback = Symbol("forced rollback");
+
+  const labels = [
+    "179. the invited caller's claim lands on their own pending row and clears the invite",
+    "180. a second claim by the same caller returns null",
+    "181. a plain member cannot repoint the leader's user_id at an account of his own",
+    "182. a plain member still renames their own row",
+  ];
+  const tailLabel = "183. the rolled-back escalation transaction leaves no trace";
+
+  type OrmTx = Parameters<Parameters<typeof orm.transaction>[0]>[0];
+  const enter = (tx: OrmTx, subject: string, email?: string) =>
+    tx.execute(dsql`select
+      set_config('request.jwt.claims', ${JSON.stringify({ sub: subject, role: "authenticated", aud: "authenticated", ...(email ? { email } : {}) })}, true),
+      set_config('statement_timeout', '8000', true),
+      set_config('role', 'authenticated', true)`);
+
+  await orm
+    .transaction(async (tx) => {
+      const refusalOf = async (run: (sp: OrmTx) => Promise<unknown>): Promise<string> => {
+        let refusal = "no refusal — the statement was accepted";
+        await tx
+          .transaction(async (sp) => {
+            await run(sp);
+          })
+          .catch((error: unknown) => {
+            refusal = describeRefusal(error);
+          });
+        return refusal;
+      };
+
+      await tx.execute(
+        dsql`insert into auth.users (id) values (${leaderUser}), (${memberUser}), (${strangerUser})`,
+      );
+      await tx.execute(
+        dsql`insert into app_users (id) values (${leaderUser}), (${memberUser}), (${strangerUser})`,
+      );
+
+      // The leader opens the group and records the person she invites by email (RF-07).
+      await enter(tx, leaderUser);
+      await tx.execute(
+        dsql`insert into groups (id, name, cash_mode) values (${groupId}, 'rls escalation', 'shared')`,
+      );
+      const [leaderRow] = await tx.execute<{ id: string }>(
+        dsql`insert into group_members (group_id, user_id, name, role)
+          values (${groupId}, ${leaderUser}, 'rls escalation leader', 'leader') returning id`,
+      );
+      const [pending] = await tx.execute<{ id: string }>(
+        dsql`insert into group_members (group_id, name, role, invite_email)
+          values (${groupId}, 'rls escalation member', 'member', ${memberEmail}) returning id`,
+      );
+
+      // 179: the claim takes no argument, so the caller cannot aim it: the function reads auth.email()
+      // and picks the oldest pending row addressed to it.
+      await tx.execute(dsql`reset role`);
+      await enter(tx, memberUser, memberEmail);
+      const [{ claim_group_invite: claimedId }] = await tx.execute<{
+        claim_group_invite: string | null;
+      }>(dsql`select private.claim_group_invite()`);
+      const [claimedRow] = await tx.execute<{
+        user_id: string | null;
+        invite_email: string | null;
+        role: string;
+      }>(dsql`select user_id, invite_email, role from group_members where id = ${pending.id}`);
+      assert(
+        labels[0],
+        claimedId === pending.id &&
+          claimedRow.user_id === memberUser &&
+          claimedRow.invite_email === null &&
+          claimedRow.role === "member",
+        `claimed = ${claimedId === pending.id ? "the pending row" : claimedId}, user_id = ${claimedRow?.user_id === memberUser ? "self" : claimedRow?.user_id}, invite_email = ${claimedRow?.invite_email}, role = ${claimedRow?.role}`,
+      );
+
+      // 180: nothing pends on that email any more, so the same call claims nothing.
+      const [{ claim_group_invite: repeatId }] = await tx.execute<{
+        claim_group_invite: string | null;
+      }>(dsql`select private.claim_group_invite()`);
+      assert(labels[1], repeatId === null, `returned ${repeatId ?? "null"}`);
+
+      // 181: the escalation itself, run as the plain member it was proved with. Before the grant was
+      // narrowed this returned UPDATE 1 and left `role = 'leader'` on a row pointing at the stranger.
+      let attackRows = -1;
+      const attackRefusal = await refusalOf(async (sp) => {
+        const rows = await sp.execute<{ id: string }>(
+          dsql`update group_members set user_id = ${strangerUser}
+            where id = ${leaderRow.id} returning id`,
+        );
+        attackRows = rows.length;
+      });
+      const [leaderNow] = await tx.execute<{ user_id: string | null; role: string }>(
+        dsql`select user_id, role from group_members where id = ${leaderRow.id}`,
+      );
+      assert(
+        labels[2],
+        (attackRows === 0 || attackRefusal.includes("42501")) &&
+          leaderNow.user_id === leaderUser &&
+          leaderNow.role === "leader",
+        `rows = ${attackRows === -1 ? "none issued" : attackRows}, ${attackRefusal}, leader row user_id = ${leaderNow?.user_id === leaderUser ? "still hers" : leaderNow?.user_id}, role = ${leaderNow?.role}`,
+      );
+
+      // 182: the negative control — the fix narrowed the grant, it did not withdraw the feature.
+      const renamed = await tx.execute<{ id: string; name: string }>(
+        dsql`update group_members set name = 'rls escalation renamed'
+          where id = ${pending.id} returning id, name`,
+      );
+      assert(
+        labels[3],
+        renamed.length === 1 && renamed[0].name === "rls escalation renamed",
+        `renamed ${renamed.length} row to '${renamed[0]?.name}'`,
+      );
+
+      // Nothing this section wrote may survive; force the ROLLBACK.
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`select current_user`;
+  const [{ count: probeCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from groups where name like 'rls escalation%'`;
+  assert(
+    tailLabel,
+    afterUser === "postgres" && probeCount === "0",
+    `current_user = ${afterUser}, rows named 'rls escalation%' = ${probeCount}`,
+  );
+}
+
+// Assertions 184-190: RF-100. `group_members_update_member` used `is_group_member` in its USING and a
+// WITH CHECK that admitted any row but the caller's own, and `group_members_delete_member` the same,
+// so a plain member archived and removed every other member — the leader's row answered `UPDATE 1`
+// and `DELETE 1` on the live database, with only the deferred `assert_group_keeps_leader` between a
+// group and no leader at all. Both attacks are executed here, then the two negative controls that say
+// the feature survived. Fixtures live in one transaction forced to roll back; each barred statement
+// runs in its own savepoint.
+async function checkMemberManagementLeaderOnly() {
+  console.log("");
+  const leaderUser = randomUUID();
+  const memberUser = randomUUID();
+  const groupId = randomUUID();
+  const forcedRollback = Symbol("forced rollback");
+
+  const labels = [
+    "184. a plain member's archive of the leader's row touches nothing",
+    "185. a plain member's delete of the leader's row touches nothing",
+    "186. a plain member cannot add a member",
+    "187. a plain member still renames their own row",
+    "188. the leader still adds, archives and removes a member",
+    "189. a member the leader archived cannot restore herself",
+  ];
+  const tailLabel = "190. the rolled-back member management transaction leaves no trace";
+
+  type OrmTx = Parameters<Parameters<typeof orm.transaction>[0]>[0];
+  const enter = (tx: OrmTx, subject: string) =>
+    tx.execute(dsql`select
+      set_config('request.jwt.claims', ${JSON.stringify({ sub: subject, role: "authenticated", aud: "authenticated" })}, true),
+      set_config('statement_timeout', '8000', true),
+      set_config('role', 'authenticated', true)`);
+
+  await orm
+    .transaction(async (tx) => {
+      const refusalOf = async (run: (sp: OrmTx) => Promise<unknown>): Promise<string> => {
+        let refusal = "no refusal — the statement was accepted";
+        await tx
+          .transaction(async (sp) => {
+            await run(sp);
+          })
+          .catch((error: unknown) => {
+            refusal = describeRefusal(error);
+          });
+        return refusal;
+      };
+
+      await tx.execute(dsql`insert into auth.users (id) values (${leaderUser}), (${memberUser})`);
+      await tx.execute(dsql`insert into app_users (id) values (${leaderUser}), (${memberUser})`);
+
+      // The leader opens the group and records two people with no login: one for her to archive, one
+      // for her to remove. The plain member's own row carries a login, which no policy hands out, so
+      // it is seeded as `postgres`.
+      await enter(tx, leaderUser);
+      await tx.execute(
+        dsql`insert into groups (id, name, cash_mode) values (${groupId}, 'rls member mgmt', 'shared')`,
+      );
+      const [leaderRow] = await tx.execute<{ id: string }>(
+        dsql`insert into group_members (group_id, user_id, name, role)
+          values (${groupId}, ${leaderUser}, 'rls member mgmt leader', 'leader') returning id`,
+      );
+      const [toArchive] = await tx.execute<{ id: string }>(
+        dsql`insert into group_members (group_id, name, role)
+          values (${groupId}, 'rls member mgmt archivable', 'member') returning id`,
+      );
+      const [toRemove] = await tx.execute<{ id: string }>(
+        dsql`insert into group_members (group_id, name, role)
+          values (${groupId}, 'rls member mgmt removable', 'member') returning id`,
+      );
+      await tx.execute(dsql`reset role`);
+      const [memberRow] = await tx.execute<{ id: string }>(
+        dsql`insert into group_members (group_id, user_id, name, role)
+          values (${groupId}, ${memberUser}, 'rls member mgmt member', 'member') returning id`,
+      );
+
+      await enter(tx, memberUser);
+
+      // 184: the archive attack. Before the policies were narrowed this answered UPDATE 1 and left the
+      // leader out of her own group on the next request.
+      let archiveRows = -1;
+      const archiveRefusal = await refusalOf(async (sp) => {
+        const rows = await sp.execute<{ id: string }>(
+          dsql`update group_members set archived_at = now() where id = ${leaderRow.id} returning id`,
+        );
+        archiveRows = rows.length;
+      });
+      const [leaderAfterArchive] = await tx.execute<{ archived_at: string | null }>(
+        dsql`select archived_at::text from group_members where id = ${leaderRow.id}`,
+      );
+      assert(
+        labels[0],
+        (archiveRows === 0 || archiveRefusal.includes("42501")) &&
+          leaderAfterArchive.archived_at === null,
+        `rows = ${archiveRows === -1 ? "none issued" : archiveRows}, ${archiveRefusal}, leader archived_at = ${leaderAfterArchive?.archived_at ?? "null"}`,
+      );
+
+      // 185: the delete attack. It answered DELETE 1, and only the deferred keep-leader trigger stood
+      // between the group and no leader — and it stands for the last leader alone.
+      let deleteRows = -1;
+      const deleteRefusal = await refusalOf(async (sp) => {
+        const rows = await sp.execute<{ id: string }>(
+          dsql`delete from group_members where id = ${leaderRow.id} returning id`,
+        );
+        deleteRows = rows.length;
+      });
+      const [{ count: leaderSurvives }] = await tx.execute<{ count: string }>(
+        dsql`select count(*)::text as count from group_members where id = ${leaderRow.id}`,
+      );
+      assert(
+        labels[1],
+        (deleteRows === 0 || deleteRefusal.includes("42501")) && leaderSurvives === "1",
+        `rows = ${deleteRows === -1 ? "none issued" : deleteRows}, ${deleteRefusal}, leader rows surviving = ${leaderSurvives}`,
+      );
+
+      // 186: an INSERT has no USING to filter it, so the refusal is the WITH CHECK itself.
+      const insertRefusal = await refusalOf((sp) =>
+        sp.execute(
+          dsql`insert into group_members (group_id, name, role)
+            values (${groupId}, 'rls member mgmt smuggled', 'member')`,
+        ),
+      );
+      const [{ count: smuggled }] = await tx.execute<{ count: string }>(
+        dsql`select count(*)::text as count from group_members
+          where group_id = ${groupId} and name = 'rls member mgmt smuggled'`,
+      );
+      assert(
+        labels[2],
+        insertRefusal.includes("42501") && smuggled === "0",
+        `${insertRefusal}, rows landed = ${smuggled}`,
+      );
+
+      // 187: the first negative control — every member keeps their own name (RF-100).
+      const renamed = await tx.execute<{ id: string; name: string }>(
+        dsql`update group_members set name = 'rls member mgmt renamed'
+          where id = ${memberRow.id} returning id, name`,
+      );
+      assert(
+        labels[3],
+        renamed.length === 1 && renamed[0].name === "rls member mgmt renamed",
+        `renamed ${renamed.length} row to '${renamed[0]?.name}'`,
+      );
+
+      // 188: the second negative control — the leader keeps the whole feature.
+      await tx.execute(dsql`reset role`);
+      await enter(tx, leaderUser);
+      const added = await tx.execute<{ id: string }>(
+        dsql`insert into group_members (group_id, name, role)
+          values (${groupId}, 'rls member mgmt added', 'member') returning id`,
+      );
+      const archived = await tx.execute<{ archived_at: string | null }>(
+        dsql`update group_members set archived_at = now()
+          where id = ${toArchive.id} returning archived_at::text`,
+      );
+      const removed = await tx.execute<{ id: string }>(
+        dsql`delete from group_members where id = ${toRemove.id} returning id`,
+      );
+      assert(
+        labels[4],
+        added.length === 1 &&
+          archived.length === 1 &&
+          archived[0].archived_at !== null &&
+          removed.length === 1,
+        `added ${added.length}, archived ${archived.length} at ${archived[0]?.archived_at ?? "nothing"}, removed ${removed.length}`,
+      );
+
+      // 189: restoring is the leader's too, and the caller's own row is the one exception the update
+      // policy carries — so the USING drops it once it is archived, or an eviction would undo itself.
+      await tx.execute(
+        dsql`update group_members set archived_at = now() where id = ${memberRow.id}`,
+      );
+      await tx.execute(dsql`reset role`);
+      await enter(tx, memberUser);
+      let restoreRows = -1;
+      const restoreRefusal = await refusalOf(async (sp) => {
+        const rows = await sp.execute<{ id: string }>(
+          dsql`update group_members set archived_at = null
+            where id = ${memberRow.id} returning id`,
+        );
+        restoreRows = rows.length;
+      });
+      await tx.execute(dsql`reset role`);
+      const [selfNow] = await tx.execute<{ archived_at: string | null }>(
+        dsql`select archived_at::text from group_members where id = ${memberRow.id}`,
+      );
+      assert(
+        labels[5],
+        (restoreRows === 0 || restoreRefusal.includes("42501")) && selfNow.archived_at !== null,
+        `rows = ${restoreRows === -1 ? "none issued" : restoreRows}, ${restoreRefusal}, own archived_at = ${selfNow?.archived_at ?? "null"}`,
+      );
+
+      // Nothing this section wrote may survive; force the ROLLBACK.
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`select current_user`;
+  const [{ count: probeCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from groups where name like 'rls member mgmt%'`;
+  assert(
+    tailLabel,
+    afterUser === "postgres" && probeCount === "0",
+    `current_user = ${afterUser}, rows named 'rls member mgmt%' = ${probeCount}`,
+  );
+}
+
+// Assertions 191-192: the default privileges Supabase attaches to `public`. Every table here
+// clears them with an explicit REVOKE ALL, so nothing is exposed — but the next CREATE TABLE that
+// forgets one hands `authenticated` TRUNCATE, which consults no policy and fires no row trigger:
+// the table empties and `capture_audit` records nothing (RF-45). The second assertion creates a
+// table inside a transaction forced to roll back and reads what the catalogue attached to it.
+async function checkDefaultPrivileges() {
+  console.log("");
+  const probeTable = `default_acl_probe_${randomUUID().replace(/-/g, "")}`;
+  const forcedRollback = Symbol("forced rollback");
+
+  const handouts = await sql<{ objtype: string; role: string; priv: string }[]>`
+    select d.defaclobjtype::text as objtype, a.grantee::regrole::text as role,
+      a.privilege_type as priv
+    from pg_default_acl d
+    cross join lateral aclexplode(d.defaclacl) a
+    where d.defaclrole = 'postgres'::regrole
+      and d.defaclnamespace = 'public'::regnamespace
+      and a.grantee::regrole::text in ('anon', 'authenticated', 'service_role')
+    order by d.defaclobjtype, a.grantee::regrole::text, a.privilege_type`;
+
+  assert(
+    "191. no default privilege in public hands the client roles anything",
+    handouts.length === 0,
+    handouts.length === 0
+      ? "pg_default_acl for postgres in public grants none of the three roles a privilege"
+      : `${handouts.length} handouts: ${handouts
+          .map((row) => `${row.objtype}:${row.role}:${row.priv}`)
+          .join(", ")}`,
+  );
+
+  let attached = "the transaction never ran";
+  await sql
+    .begin(async (tx) => {
+      await tx.unsafe(`create table public.${probeTable} (id int)`);
+      const granted = await tx<{ role: string; priv: string }[]>`
+        select a.grantee::regrole::text as role, a.privilege_type as priv
+        from pg_class c
+        cross join lateral aclexplode(c.relacl) a
+        where c.oid = ${`public.${probeTable}`}::regclass
+          and a.grantee::regrole::text in ('anon', 'authenticated', 'service_role')
+        order by a.grantee::regrole::text, a.privilege_type`;
+      attached =
+        granted.length === 0
+          ? "no privilege at all"
+          : granted.map((row) => `${row.role}:${row.priv}`).join(", ");
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const [{ still }] = await sql<{ still: string | null }[]>`
+    select to_regclass(${`public.${probeTable}`})::text as still`;
+
+  assert(
+    "192. a table created now inherits nothing for the client roles",
+    attached === "no privilege at all" && still === null,
+    `a fresh table gave the three roles ${attached}; the probe table after the rollback = ${still ?? "gone"}`,
+  );
+}
+
+// Assertions 193-197: the grants that slipped outside the per-column discipline. `goal_progress`
+// revoked from three roles and left `authenticated` holding the default TRUNCATE, REFERENCES and
+// TRIGGER on top of its SELECT; `app_users` and `group_members` granted INSERT table-wide, so a
+// caller stamped their own `created_at` where every other table leaves it to a trigger. Fixtures
+// live in one transaction forced to roll back; each barred statement runs in its own savepoint.
+async function checkSlippedGrants() {
+  console.log("");
+  const owner = randomUUID();
+  const leaderUser = randomUUID();
+  const groupId = randomUUID();
+  const forgedAt = "2000-01-01T00:00:00Z";
+  const forcedRollback = Symbol("forced rollback");
+
+  const labels = [
+    "193. authenticated holds SELECT and nothing else on goal_progress",
+    "194. app_users refuses a forged created_at and stamps its own",
+    "195. the caller still writes their locale, and updated_at in the SET is refused",
+    "196. group_members refuses a forged created_at and stamps its own",
+  ];
+  const tailLabel = "197. the rolled-back slipped-grant transaction leaves no trace";
+
+  const viewGrants = await sql<{ priv: string }[]>`
+    select a.privilege_type as priv
+    from pg_class c
+    cross join lateral aclexplode(c.relacl) a
+    where c.oid = 'public.goal_progress'::regclass
+      and a.grantee = 'authenticated'::regrole
+    order by a.privilege_type`;
+
+  const held = viewGrants.map((row) => row.priv);
+  assert(
+    labels[0],
+    held.length === 1 && held[0] === "SELECT",
+    `holds [${held.join(", ")}]`,
+  );
+
+  type OrmTx = Parameters<Parameters<typeof orm.transaction>[0]>[0];
+  const enter = (tx: OrmTx, subject: string) =>
+    tx.execute(dsql`select
+      set_config('request.jwt.claims', ${JSON.stringify({ sub: subject, role: "authenticated", aud: "authenticated" })}, true),
+      set_config('statement_timeout', '8000', true),
+      set_config('role', 'authenticated', true)`);
+
+  await orm
+    .transaction(async (tx) => {
+      // The savepoint is discarded whether or not the statement was refused, so a forged write
+      // that is not yet barred leaves no row for the statement after it to collide with.
+      const refusalOf = async (run: (sp: OrmTx) => Promise<unknown>): Promise<string> => {
+        const discard = Symbol("discard the savepoint");
+        let refusal = "no refusal — the statement was accepted";
+        await tx
+          .transaction(async (sp) => {
+            await run(sp);
+            throw discard;
+          })
+          .catch((error: unknown) => {
+            if (error !== discard) refusal = describeRefusal(error);
+          });
+        return refusal;
+      };
+
+      await tx.execute(dsql`insert into auth.users (id) values (${owner}), (${leaderUser})`);
+
+      // 194: the caller's own sign-in row, which no seed precedes — `app_users_insert_self` is the
+      // one policy a session leans on before it has any other row at all.
+      await enter(tx, owner);
+      const forgedInsert = await refusalOf((sp) =>
+        sp.execute(
+          dsql`insert into app_users (id, created_at) values (${owner}, ${forgedAt}::timestamptz)`,
+        ),
+      );
+      await tx.execute(dsql`insert into app_users (id, locale) values (${owner}, 'es')`);
+      const [born] = await tx.execute<{ forged: boolean; stamped: boolean }>(
+        dsql`select created_at = ${forgedAt}::timestamptz as forged, created_at is not null as stamped
+          from app_users where id = ${owner}`,
+      );
+      assert(
+        labels[1],
+        forgedInsert.includes("42501") &&
+          forgedInsert.includes("permission denied for table app_users") &&
+          born.forged === false &&
+          born.stamped,
+        `${forgedInsert}; the row that landed carries the forged timestamp = ${born?.forged}, stamped = ${born?.stamped}`,
+      );
+
+      // 195: the negative control on the same table — narrowing the grant may not cost the caller
+      // the locale switch `upsertUserLocale` runs on every language change.
+      const relocated = await tx.execute<{ locale: string }>(
+        dsql`update app_users set locale = 'en' where id = ${owner} returning locale`,
+      );
+      const stampedSetRefusal = await refusalOf((sp) =>
+        sp.execute(
+          dsql`update app_users set locale = 'es', updated_at = now() where id = ${owner}`,
+        ),
+      );
+      assert(
+        labels[2],
+        relocated.length === 1 &&
+          relocated[0].locale === "en" &&
+          stampedSetRefusal.includes("42501") &&
+          stampedSetRefusal.includes("permission denied for table app_users"),
+        `wrote locale = ${relocated[0]?.locale ?? "nothing"}, updated_at in the SET ${stampedSetRefusal}`,
+      );
+
+      // 196: the same on the one table that carried a table-wide INSERT, from the leader who is the
+      // only caller `group_members_insert_member` admits.
+      await tx.execute(dsql`reset role`);
+      await tx.execute(dsql`insert into app_users (id) values (${leaderUser})`);
+      await enter(tx, leaderUser);
+      await tx.execute(
+        dsql`insert into groups (id, name, cash_mode) values (${groupId}, 'rls slipped grants', 'shared')`,
+      );
+      await tx.execute(
+        dsql`insert into group_members (group_id, user_id, name, role)
+          values (${groupId}, ${leaderUser}, 'rls slipped grants leader', 'leader')`,
+      );
+      const forgedMember = await refusalOf((sp) =>
+        sp.execute(
+          dsql`insert into group_members (group_id, name, role, created_at)
+            values (${groupId}, 'rls slipped grants forged', 'member', ${forgedAt}::timestamptz)`,
+        ),
+      );
+      const [invited] = await tx.execute<{ forged: boolean; stamped: boolean }>(
+        dsql`insert into group_members (group_id, name, role)
+          values (${groupId}, 'rls slipped grants invited', 'member')
+          returning created_at = ${forgedAt}::timestamptz as forged, created_at is not null as stamped`,
+      );
+      assert(
+        labels[3],
+        forgedMember.includes("42501") &&
+          forgedMember.includes("permission denied for table group_members") &&
+          invited.forged === false &&
+          invited.stamped,
+        `${forgedMember}; the row that landed carries the forged timestamp = ${invited?.forged}, stamped = ${invited?.stamped}`,
+      );
+
+      // Nothing this section wrote may survive; force the ROLLBACK.
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`select current_user`;
+  const [{ count: probeCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from groups where name like 'rls slipped grants%'`;
+  assert(
+    tailLabel,
+    afterUser === "postgres" && probeCount === "0",
+    `current_user = ${afterUser}, rows named 'rls slipped grants%' = ${probeCount}`,
+  );
+}
+
+// Assertions 198-201: `GRANT UPDATE (name, cash_mode)` has stood on `groups` since the first
+// migration with no UPDATE policy behind it, so a leader's rename answered UPDATE 0 and the name
+// chosen at creation was the only one the group would ever have. The rename is executed here as
+// the leader and as a plain member. Fixtures live in one transaction forced to roll back; each
+// barred statement runs in its own savepoint.
+async function checkGroupUpdatePolicy() {
+  console.log("");
+  const leaderUser = randomUUID();
+  const memberUser = randomUUID();
+  const groupId = randomUUID();
+  const forcedRollback = Symbol("forced rollback");
+
+  const labels = [
+    "198. the leader renames her own group",
+    "199. a plain member's rename of the group touches nothing",
+    "200. the leader cannot rewrite the group's currency",
+  ];
+  const tailLabel = "201. the rolled-back group rename transaction leaves no trace";
+
+  type OrmTx = Parameters<Parameters<typeof orm.transaction>[0]>[0];
+  const enter = (tx: OrmTx, subject: string) =>
+    tx.execute(dsql`select
+      set_config('request.jwt.claims', ${JSON.stringify({ sub: subject, role: "authenticated", aud: "authenticated" })}, true),
+      set_config('statement_timeout', '8000', true),
+      set_config('role', 'authenticated', true)`);
+
+  await orm
+    .transaction(async (tx) => {
+      const refusalOf = async (run: (sp: OrmTx) => Promise<unknown>): Promise<string> => {
+        let refusal = "no refusal — the statement was accepted";
+        await tx
+          .transaction(async (sp) => {
+            await run(sp);
+          })
+          .catch((error: unknown) => {
+            refusal = describeRefusal(error);
+          });
+        return refusal;
+      };
+
+      await tx.execute(dsql`insert into auth.users (id) values (${leaderUser}), (${memberUser})`);
+      await tx.execute(dsql`insert into app_users (id) values (${leaderUser}), (${memberUser})`);
+
+      await enter(tx, leaderUser);
+      await tx.execute(
+        dsql`insert into groups (id, name, cash_mode) values (${groupId}, 'rls group rename', 'shared')`,
+      );
+      await tx.execute(
+        dsql`insert into group_members (group_id, user_id, name, role)
+          values (${groupId}, ${leaderUser}, 'rls group rename leader', 'leader')`,
+      );
+      // A member's row carries a login, which no policy hands out, so it is seeded as `postgres`.
+      await tx.execute(dsql`reset role`);
+      await tx.execute(
+        dsql`insert into group_members (group_id, user_id, name, role)
+          values (${groupId}, ${memberUser}, 'rls group rename member', 'member')`,
+      );
+
+      // 198: before the policy landed this returned UPDATE 0 against a grant no policy served.
+      await enter(tx, leaderUser);
+      const renamed = await tx.execute<{ name: string }>(
+        dsql`update groups set name = 'rls group rename taken' where id = ${groupId} returning name`,
+      );
+      assert(
+        labels[0],
+        renamed.length === 1 && renamed[0].name === "rls group rename taken",
+        `renamed ${renamed.length} row to '${renamed[0]?.name}'`,
+      );
+
+      // 200: `currency` sits outside the grant, so the refusal is the grant and not the policy —
+      // which is why the message is read as well as the sqlstate.
+      const currencyRefusal = await refusalOf((sp) =>
+        sp.execute(dsql`update groups set currency = 'USD' where id = ${groupId}`),
+      );
+      const [{ currency }] = await tx.execute<{ currency: string }>(
+        dsql`select currency from groups where id = ${groupId}`,
+      );
+      assert(
+        labels[2],
+        currencyRefusal.includes("42501") &&
+          currencyRefusal.includes("permission denied for table groups") &&
+          currency === "COP",
+        `${currencyRefusal}, currency = ${currency}`,
+      );
+
+      // 199: the USING is what keeps the rename the leader's — the member holds the same grant.
+      await tx.execute(dsql`reset role`);
+      await enter(tx, memberUser);
+      let memberRows = -1;
+      const memberRefusal = await refusalOf(async (sp) => {
+        const rows = await sp.execute<{ id: string }>(
+          dsql`update groups set name = 'rls group rename seized' where id = ${groupId} returning id`,
+        );
+        memberRows = rows.length;
+      });
+      const [{ name: nameNow }] = await tx.execute<{ name: string }>(
+        dsql`select name from groups where id = ${groupId}`,
+      );
+      assert(
+        labels[1],
+        (memberRows === 0 || memberRefusal.includes("42501")) &&
+          nameNow === "rls group rename taken",
+        `rows = ${memberRows === -1 ? "none issued" : memberRows}, ${memberRefusal}, name = '${nameNow}'`,
+      );
+
+      // Nothing this section wrote may survive; force the ROLLBACK.
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`select current_user`;
+  const [{ count: probeCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from groups where name like 'rls group rename%'`;
+  assert(
+    tailLabel,
+    afterUser === "postgres" && probeCount === "0",
+    `current_user = ${afterUser}, rows named 'rls group rename%' = ${probeCount}`,
+  );
+}
+
+// Assertions 202-205: assertion 174 pinned INSERT columns alone, so a slipped UPDATE, DELETE or
+// TRUNCATE grant went green — which is how `goal_progress` and the default privileges lasted until
+// a person read the catalogue. The same comparison now runs on the other three privileges, and the
+// last assertion adds a DELETE grant inside a transaction forced to roll back to show the
+// comparison can go red at all. Catalogue reads only: no fixture, no role switch, no write that survives.
+async function checkWriteGrantMap() {
+  console.log("");
+  const updates = compareGrantMaps(await columnGapMap("UPDATE"), UPDATE_GRANT_GAPS);
+
+  assert(
+    "202. the per-column UPDATE grants are the ones recorded here",
+    updates.drifted.length === 0,
+    updates.detail,
+  );
+
+  const deletes = await tableGrantList("DELETE");
+  const deleteDrift = [
+    ...deletes.filter((table) => !DELETE_GRANTS.includes(table)).map((table) => `+${table}`),
+    ...DELETE_GRANTS.filter((table) => !deletes.includes(table)).map((table) => `-${table}`),
+  ];
+
+  assert(
+    "203. the table-level DELETE grants are the ones recorded here",
+    deleteDrift.length === 0,
+    `${deletes.length} tables grant DELETE${deleteDrift.length > 0 ? `; drifted: ${deleteDrift.join(", ")}` : ""}`,
+  );
+
+  const truncates = await tableGrantList("TRUNCATE");
+  assert(
+    "204. no table in public grants authenticated TRUNCATE",
+    truncates.length === TRUNCATE_GRANTS.length && truncates.length === 0,
+    `${truncates.length} tables grant TRUNCATE${truncates.length > 0 ? `: ${truncates.join(", ")}` : ""}`,
+  );
+
+  // The control: without it these three assertions would pass on a catalogue read that returned
+  // the recorded list by construction.
+  const forcedRollback = Symbol("forced rollback");
+  let seeded: string[] = [];
+  await sql
+    .begin(async (tx) => {
+      await tx`grant delete on table groups to authenticated`;
+      seeded = await tableGrantList("DELETE", tx);
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const after = await tableGrantList("DELETE");
+  assert(
+    "205. a DELETE grant added inside the control transaction is reported as drift",
+    seeded.includes("groups") &&
+      !DELETE_GRANTS.includes("groups") &&
+      !after.includes("groups") &&
+      after.length === DELETE_GRANTS.length,
+    `inside the transaction ${seeded.length} tables granted DELETE including groups; after the rollback ${after.length}, groups included = ${after.includes("groups")}`,
+  );
+}
+
+// Assertions 206-209: RF-101. `num_nonnulls(from_account_id, to_account_id) >= 1` counted the accounts
+// and never compared them, so a movement naming one account on both sides committed, took
+// `kind = 'transfer'` from the generated column and entered the ledger as a real entry netting zero —
+// one row returned on the live database. The pair is executed here, then the two legal shapes it must
+// not have cost. Fixtures live in one transaction forced to roll back; each barred statement runs in
+// its own savepoint.
+async function checkSelfTransferRefused() {
+  console.log("");
+  const owner = randomUUID();
+  const today = "2026-01-01";
+  const forcedRollback = Symbol("forced rollback");
+
+  const labels = [
+    "206. a movement naming one account on both sides is refused",
+    "207. a planned payment naming one account on both sides is refused",
+    "208. a transfer between two different accounts and a one-sided income still land",
+  ];
+  const tailLabel = "209. the rolled-back self-transfer transaction leaves no trace";
+
+  type OrmTx = Parameters<Parameters<typeof orm.transaction>[0]>[0];
+  const enter = (tx: OrmTx, subject: string) =>
+    tx.execute(dsql`select
+      set_config('request.jwt.claims', ${JSON.stringify({ sub: subject, role: "authenticated", aud: "authenticated" })}, true),
+      set_config('statement_timeout', '8000', true),
+      set_config('role', 'authenticated', true)`);
+
+  await orm
+    .transaction(async (tx) => {
+      const refusalOf = async (run: (sp: OrmTx) => Promise<unknown>): Promise<string> => {
+        let refusal = "no refusal — the statement was accepted";
+        await tx
+          .transaction(async (sp) => {
+            await run(sp);
+          })
+          .catch((error: unknown) => {
+            refusal = describeRefusal(error);
+          });
+        return refusal;
+      };
+
+      await tx.execute(dsql`insert into auth.users (id) values (${owner})`);
+      await tx.execute(dsql`insert into app_users (id) values (${owner})`);
+      await enter(tx, owner);
+
+      const [bank] = await tx.execute<{ id: string }>(
+        dsql`insert into accounts (owner_user_id, name, kind, initial_balance_cents, initial_balance_on)
+          values (${owner}, 'rls self transfer bank', 'asset', 500000, ${today}) returning id`,
+      );
+      const [cash] = await tx.execute<{ id: string }>(
+        dsql`insert into accounts (owner_user_id, name, kind, initial_balance_cents, initial_balance_on)
+          values (${owner}, 'rls self transfer cash', 'asset', 100000, ${today}) returning id`,
+      );
+
+      // 206: the entry that netted zero. `is distinct from` is what refuses it, so the message names
+      // the constraint and not a policy.
+      const selfRefusal = await refusalOf((sp) =>
+        sp.execute(
+          dsql`insert into transactions (from_account_id, to_account_id, amount_cents, occurred_at)
+            values (${bank.id}, ${bank.id}, 500000, ${today})`,
+        ),
+      );
+      assert(
+        labels[0],
+        selfRefusal.includes("23514") &&
+          selfRefusal.includes("transactions_accounts_distinct"),
+        selfRefusal,
+      );
+
+      // 207: the deferred twin carried the identical `num_nonnulls` shape.
+      const plannedRefusal = await refusalOf((sp) =>
+        sp.execute(
+          dsql`insert into planned_payments (from_account_id, to_account_id, amount_cents, due_date)
+            values (${bank.id}, ${bank.id}, 500000, ${today})`,
+        ),
+      );
+      assert(
+        labels[1],
+        plannedRefusal.includes("23514") &&
+          plannedRefusal.includes("planned_payments_accounts_distinct"),
+        plannedRefusal,
+      );
+
+      // 208: the negative control — the fix refuses one pair, it does not withdraw the transfer.
+      const transfer = await tx.execute<{ id: string; kind: string }>(
+        dsql`insert into transactions (from_account_id, to_account_id, amount_cents, occurred_at)
+          values (${bank.id}, ${cash.id}, 200000, ${today}) returning id, kind`,
+      );
+      const income = await tx.execute<{ id: string; kind: string }>(
+        dsql`insert into transactions (to_account_id, amount_cents, occurred_at)
+          values (${bank.id}, 300000, ${today}) returning id, kind`,
+      );
+      assert(
+        labels[2],
+        transfer.length === 1 &&
+          transfer[0].kind === "transfer" &&
+          income.length === 1 &&
+          income[0].kind === "income",
+        `transfer landed ${transfer.length} row as ${transfer[0]?.kind}, income landed ${income.length} row as ${income[0]?.kind}`,
+      );
+
+      // Nothing this section wrote may survive; force the ROLLBACK.
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`select current_user`;
+  const [{ count: probeCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from accounts where name like 'rls self transfer%'`;
+  assert(
+    tailLabel,
+    afterUser === "postgres" && probeCount === "0",
+    `current_user = ${afterUser}, rows named 'rls self transfer%' = ${probeCount}`,
+  );
+}
+
+// Assertions 210-214: RF-63's written clause, "a subcategory shares its parent's scope". The composite
+// foreign key on `(parent_id, group_id)` is MATCH SIMPLE, so it is not evaluated at all when `group_id`
+// is null — every personal category — and `assert_category_depth` checked self-reference, depth and
+// kind and never scope. A personal category naming a group category, and one naming a uuid held by no
+// row, each landed on the live database, and the picker then dropped them in silence. Both are executed
+// here, then the two subcategories the app actually writes. Fixtures live in one transaction forced to
+// roll back; each barred statement runs in its own savepoint.
+async function checkCategoryParentScope() {
+  console.log("");
+  const leaderUser = randomUUID();
+  const groupId = randomUUID();
+  const forcedRollback = Symbol("forced rollback");
+
+  const labels = [
+    "210. a personal category naming a group category as parent is refused",
+    "211. a category naming a parent held by no row is refused",
+    "212. a personal subcategory of its owner's own parent lands",
+    "213. a group subcategory of that group's parent lands",
+  ];
+  const tailLabel = "214. the rolled-back category-scope transaction leaves no trace";
+
+  type OrmTx = Parameters<Parameters<typeof orm.transaction>[0]>[0];
+  const enter = (tx: OrmTx, subject: string) =>
+    tx.execute(dsql`select
+      set_config('request.jwt.claims', ${JSON.stringify({ sub: subject, role: "authenticated", aud: "authenticated" })}, true),
+      set_config('statement_timeout', '8000', true),
+      set_config('role', 'authenticated', true)`);
+
+  await orm
+    .transaction(async (tx) => {
+      const refusalOf = async (run: (sp: OrmTx) => Promise<unknown>): Promise<string> => {
+        let refusal = "no refusal — the statement was accepted";
+        await tx
+          .transaction(async (sp) => {
+            await run(sp);
+          })
+          .catch((error: unknown) => {
+            refusal = describeRefusal(error);
+          });
+        return refusal;
+      };
+
+      await tx.execute(dsql`insert into auth.users (id) values (${leaderUser})`);
+      await tx.execute(dsql`insert into app_users (id) values (${leaderUser})`);
+      await enter(tx, leaderUser);
+      await tx.execute(
+        dsql`insert into groups (id, name, cash_mode) values (${groupId}, 'rls category scope', 'shared')`,
+      );
+      await tx.execute(
+        dsql`insert into group_members (group_id, user_id, name, role)
+          values (${groupId}, ${leaderUser}, 'rls category scope leader', 'leader')`,
+      );
+
+      const [groupParent] = await tx.execute<{ id: string }>(
+        dsql`insert into categories (group_id, name, kind)
+          values (${groupId}, 'rls category scope group parent', 'expense') returning id`,
+      );
+      const [ownParent] = await tx.execute<{ id: string }>(
+        dsql`insert into categories (owner_user_id, name, kind)
+          values (${leaderUser}, 'rls category scope own parent', 'expense') returning id`,
+      );
+
+      // 210: the group's category, named as parent by a personal one. Both are the caller's to write,
+      // which is why no policy ever stood in the way.
+      const crossRefusal = await refusalOf((sp) =>
+        sp.execute(
+          dsql`insert into categories (owner_user_id, parent_id, name, kind)
+            values (${leaderUser}, ${groupParent.id}, 'rls category scope escapee', 'expense')`,
+        ),
+      );
+      assert(
+        labels[0],
+        crossRefusal.includes("23514") && crossRefusal.includes("scope"),
+        crossRefusal,
+      );
+
+      // 211: MATCH SIMPLE skipped existence too, so the parent need not have been a row at all.
+      const ghostRefusal = await refusalOf((sp) =>
+        sp.execute(
+          dsql`insert into categories (owner_user_id, parent_id, name, kind)
+            values (${leaderUser}, ${randomUUID()}, 'rls category scope ghost', 'expense')`,
+        ),
+      );
+      assert(
+        labels[1],
+        ghostRefusal.includes("23514") && ghostRefusal.includes("does not exist"),
+        ghostRefusal,
+      );
+
+      // 212, 213: the negative controls — one level of subcategory still saves, in either scope.
+      const ownChild = await tx.execute<{ id: string }>(
+        dsql`insert into categories (owner_user_id, parent_id, name, kind)
+          values (${leaderUser}, ${ownParent.id}, 'rls category scope own child', 'expense') returning id`,
+      );
+      assert(labels[2], ownChild.length === 1, `landed ${ownChild.length} row`);
+
+      const groupChild = await tx.execute<{ id: string }>(
+        dsql`insert into categories (group_id, parent_id, name, kind)
+          values (${groupId}, ${groupParent.id}, 'rls category scope group child', 'expense') returning id`,
+      );
+      assert(labels[3], groupChild.length === 1, `landed ${groupChild.length} row`);
+
+      // Nothing this section wrote may survive; force the ROLLBACK.
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`select current_user`;
+  const [{ count: probeCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from categories where name like 'rls category scope%'`;
+  assert(
+    tailLabel,
+    afterUser === "postgres" && probeCount === "0",
+    `current_user = ${afterUser}, rows named 'rls category scope%' = ${probeCount}`,
+  );
+}
+
+// Assertions 215-217: RF-59 at the moment a group is born. `groups_insert_any` is `WITH CHECK true` and
+// `assert_group_keeps_leader` fires only on UPDATE and DELETE, so an insert into `groups` not followed
+// by its leader row committed an orphan — proved on the live database as a row nobody can see, since it
+// fails its own SELECT policy, and nobody can remove, since `groups` carries no DELETE policy and no
+// DELETE grant. The new trigger is deferred, so it is `set constraints ... immediate` that reaches it
+// inside a transaction which never commits. Fixtures roll back; each barred statement has its savepoint.
+async function checkGroupCommitsWithLeader() {
+  console.log("");
+  const creator = randomUUID();
+  const orphanGroup = randomUUID();
+  const properGroup = randomUUID();
+  const forcedRollback = Symbol("forced rollback");
+
+  const labels = [
+    "215. a group inserted without its leader row is refused at commit",
+    "216. a group inserted with its leader row commits and is visible to its creator",
+  ];
+  const tailLabel = "217. the rolled-back orphan-group transaction leaves no trace";
+
+  type OrmTx = Parameters<Parameters<typeof orm.transaction>[0]>[0];
+  const enter = (tx: OrmTx, subject: string) =>
+    tx.execute(dsql`select
+      set_config('request.jwt.claims', ${JSON.stringify({ sub: subject, role: "authenticated", aud: "authenticated" })}, true),
+      set_config('statement_timeout', '8000', true),
+      set_config('role', 'authenticated', true)`);
+
+  await orm
+    .transaction(async (tx) => {
+      await tx.execute(dsql`insert into auth.users (id) values (${creator})`);
+      await tx.execute(dsql`insert into app_users (id) values (${creator})`);
+      await enter(tx, creator);
+
+      // 215: the orphan. No RETURNING on the insert — that would apply the SELECT policy the creator
+      // does not satisfy yet, and the refusal under test is the trigger's, not a policy's.
+      let orphanVisible = "not read";
+      let orphanRefusal = "no refusal — the orphan group stood at commit";
+      await tx
+        .transaction(async (sp) => {
+          await sp.execute(
+            dsql`insert into groups (id, name, cash_mode)
+              values (${orphanGroup}, 'rls orphan group', 'shared')`,
+          );
+          const [own] = await sp.execute<{ count: string }>(
+            dsql`select count(*)::text as count from groups where id = ${orphanGroup}`,
+          );
+          orphanVisible = own.count;
+          await sp.execute(dsql`set constraints "assert_group_has_leader" immediate`);
+        })
+        .catch((error: unknown) => {
+          orphanRefusal = describeRefusal(error);
+        });
+      assert(
+        labels[0],
+        orphanRefusal.includes("23514") &&
+          orphanRefusal.includes("without a leader") &&
+          orphanVisible === "0",
+        `${orphanRefusal}; rows its own creator could see = ${orphanVisible}`,
+      );
+
+      // 216: the negative control — `createGroup` writes the group and its leader in one transaction,
+      // and the deferral is what lets it keep writing them in that order.
+      let properOutcome = "the pair never ran";
+      let properVisible = "not read";
+      await tx
+        .transaction(async (sp) => {
+          await sp.execute(
+            dsql`insert into groups (id, name, cash_mode)
+              values (${properGroup}, 'rls proper group', 'shared')`,
+          );
+          await sp.execute(
+            dsql`insert into group_members (group_id, user_id, name, role)
+              values (${properGroup}, ${creator}, 'rls proper group leader', 'leader')`,
+          );
+          await sp.execute(dsql`set constraints "assert_group_has_leader" immediate`);
+          const [own] = await sp.execute<{ count: string }>(
+            dsql`select count(*)::text as count from groups where id = ${properGroup}`,
+          );
+          properVisible = own.count;
+          properOutcome = "accepted";
+        })
+        .catch((error: unknown) => {
+          properOutcome = describeRefusal(error);
+        });
+      assert(
+        labels[1],
+        properOutcome === "accepted" && properVisible === "1",
+        `${properOutcome}, rows its creator can see = ${properVisible}`,
+      );
+
+      // Nothing this section wrote may survive; force the ROLLBACK.
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`select current_user`;
+  const [{ count: probeCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from groups where name like 'rls orphan group%' or name like 'rls proper group%'`;
+  assert(
+    tailLabel,
+    afterUser === "postgres" && probeCount === "0",
+    `current_user = ${afterUser}, rows named 'rls orphan group%' or 'rls proper group%' = ${probeCount}`,
+  );
+}
+
+// Assertions 218-221: RF-82 in the engine. "Paid in full or not at all, oldest first" lived only in a
+// TypeScript loop; `assert_installment_line_payment` checked nothing but that the movement touches the
+// plan's account, and `paid_transaction_id` is the one column `authenticated` may UPDATE on
+// `installment_lines`. One 100-cent movement marked all three 100000-cent lines paid on the live
+// database and the derived pending read 0 against an untouched debt. The new trigger is deferred so the
+// allocator's multi-row UPDATE is judged whole, which is why `set constraints ... immediate` is what
+// reaches it here. Fixtures roll back; each barred statement has its savepoint.
+async function checkInstallmentAllocation() {
+  console.log("");
+  const owner = randomUUID();
+  const today = "2026-01-16";
+  const forcedRollback = Symbol("forced rollback");
+
+  const labels = [
+    "218. one 100-cent movement cannot mark three 100000-cent lines paid",
+    "219. a line is refused while an older unpaid line of the same account stands",
+    "220. the allocator's oldest-first, in-full assignment of two lines to one covering movement commits",
+  ];
+  const tailLabel = "221. the rolled-back allocation transaction leaves no trace";
+
+  type OrmTx = Parameters<Parameters<typeof orm.transaction>[0]>[0];
+  const enter = (tx: OrmTx, subject: string) =>
+    tx.execute(dsql`select
+      set_config('request.jwt.claims', ${JSON.stringify({ sub: subject, role: "authenticated", aud: "authenticated" })}, true),
+      set_config('statement_timeout', '8000', true),
+      set_config('role', 'authenticated', true)`);
+
+  await orm
+    .transaction(async (tx) => {
+      const refusalOf = async (run: (sp: OrmTx) => Promise<unknown>): Promise<string> => {
+        let refusal = "no refusal — the statement was accepted";
+        await tx
+          .transaction(async (sp) => {
+            await run(sp);
+          })
+          .catch((error: unknown) => {
+            refusal = describeRefusal(error);
+          });
+        return refusal;
+      };
+
+      await tx.execute(dsql`insert into auth.users (id) values (${owner})`);
+      await tx.execute(dsql`insert into app_users (id) values (${owner})`);
+      await enter(tx, owner);
+
+      const [card] = await tx.execute<{ id: string }>(
+        dsql`insert into accounts (owner_user_id, name, kind, initial_balance_cents, initial_balance_on)
+          values (${owner}, 'rls allocation card', 'liability', -900000, ${today}) returning id`,
+      );
+      const [cash] = await tx.execute<{ id: string }>(
+        dsql`insert into accounts (owner_user_id, name, kind, initial_balance_cents, initial_balance_on)
+          values (${owner}, 'rls allocation cash', 'asset', 1000000, ${today}) returning id`,
+      );
+      const [plan] = await tx.execute<{ id: string }>(
+        dsql`insert into installment_plans (account_id, principal_cents, n_installments, frequency, start_date)
+          values (${card.id}, 300000, 3, 'monthly', ${today}) returning id`,
+      );
+      await tx.execute(
+        dsql`insert into installment_lines (plan_id, seq, due_date, amount_cents) values
+          (${plan.id}, 1, '2026-02-15', 100000),
+          (${plan.id}, 2, '2026-03-15', 100000),
+          (${plan.id}, 3, '2026-04-15', 100000)`,
+      );
+      const [coin] = await tx.execute<{ id: string }>(
+        dsql`insert into transactions (from_account_id, to_account_id, amount_cents, occurred_at)
+          values (${cash.id}, ${card.id}, 100, ${today}) returning id`,
+      );
+      const [covering] = await tx.execute<{ id: string }>(
+        dsql`insert into transactions (from_account_id, to_account_id, amount_cents, occurred_at)
+          values (${cash.id}, ${card.id}, 200000, ${today}) returning id`,
+      );
+
+      // 218: the whole plan marked paid by a movement of one peso. Both statements pass
+      // `assert_installment_line_payment`: the movement does touch the plan's account.
+      let sweptRows = -1;
+      let sweepRefusal = "no refusal — the sweep stood at commit";
+      await tx
+        .transaction(async (sp) => {
+          const rows = await sp.execute<{ id: string }>(
+            dsql`update installment_lines set paid_transaction_id = ${coin.id}
+              where plan_id = ${plan.id} returning id`,
+          );
+          sweptRows = rows.length;
+          await sp.execute(dsql`set constraints "assert_installment_allocation" immediate`);
+        })
+        .catch((error: unknown) => {
+          sweepRefusal = describeRefusal(error);
+        });
+      assert(
+        labels[0],
+        sweepRefusal.includes("23514") && sweepRefusal.includes("cannot pay lines totalling"),
+        `the UPDATE reached ${sweptRows === -1 ? "no" : sweptRows} lines, ${sweepRefusal}`,
+      );
+
+      // 219: the order. The movement covers the line twice over; what refuses it is the older line of
+      // the same account left unpaid behind it.
+      const skipRefusal = await refusalOf(async (sp) => {
+        await sp.execute(
+          dsql`update installment_lines set paid_transaction_id = ${covering.id}
+            where plan_id = ${plan.id} and seq = 2`,
+        );
+        await sp.execute(dsql`set constraints "assert_installment_allocation" immediate`);
+      });
+      assert(
+        labels[1],
+        skipRefusal.includes("23514") && skipRefusal.includes("older unpaid line"),
+        skipRefusal,
+      );
+
+      // 220: the negative control — the walk `recordDebtPayment` runs, which pays the two oldest lines
+      // in full and stops at the third. A trigger that refused this would have removed the feature.
+      let fifoOutcome = "the allocation never ran";
+      let fifoState = "not read";
+      await tx
+        .transaction(async (sp) => {
+          await sp.execute(
+            dsql`update installment_lines set paid_transaction_id = ${covering.id}
+              where plan_id = ${plan.id} and seq in (1, 2)`,
+          );
+          await sp.execute(dsql`set constraints "assert_installment_allocation" immediate`);
+          const rows = await sp.execute<{ seq: number; paid: boolean }>(
+            dsql`select seq, paid_transaction_id is not null as paid from installment_lines
+              where plan_id = ${plan.id} order by seq`,
+          );
+          fifoState = rows.map((row) => `${row.seq}:${row.paid}`).join(", ");
+          fifoOutcome = "accepted";
+        })
+        .catch((error: unknown) => {
+          fifoOutcome = describeRefusal(error);
+        });
+      assert(
+        labels[2],
+        fifoOutcome === "accepted" && fifoState === "1:true, 2:true, 3:false",
+        `${fifoOutcome}, paid by seq = ${fifoState}`,
+      );
+
+      // Nothing this section wrote may survive; force the ROLLBACK.
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`select current_user`;
+  const [{ count: probeCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from accounts where name like 'rls allocation%'`;
+  assert(
+    tailLabel,
+    afterUser === "postgres" && probeCount === "0",
+    `current_user = ${afterUser}, rows named 'rls allocation%' = ${probeCount}`,
+  );
+}
+
+// Assertions 222-226: the goal's account. `assert_goal_contribution_scope` guards the movement a
+// contribution earmarks and never the account the goal names, and nothing else looked: the hole was
+// suspected, not proved, so it was opened first — a personal goal naming a group account, and a second
+// naming another person's personal account, each landed one row on the live database under RLS. Both
+// are executed here against the guard that now stands. Fixtures live in one transaction forced to roll
+// back; each barred statement runs in its own savepoint.
+async function checkGoalAccountScope() {
+  console.log("");
+  const leaderUser = randomUUID();
+  const strangerUser = randomUUID();
+  const groupId = randomUUID();
+  const today = "2026-01-01";
+  const forcedRollback = Symbol("forced rollback");
+
+  const labels = [
+    "222. a personal goal naming a group account is refused",
+    "223. a personal goal naming another person's account is refused",
+    "224. a goal naming its owner's own account, and one naming no account, both land",
+    "225. a group goal naming that group's account lands",
+  ];
+  const tailLabel = "226. the rolled-back goal-scope transaction leaves no trace";
+
+  type OrmTx = Parameters<Parameters<typeof orm.transaction>[0]>[0];
+  const enter = (tx: OrmTx, subject: string) =>
+    tx.execute(dsql`select
+      set_config('request.jwt.claims', ${JSON.stringify({ sub: subject, role: "authenticated", aud: "authenticated" })}, true),
+      set_config('statement_timeout', '8000', true),
+      set_config('role', 'authenticated', true)`);
+
+  await orm
+    .transaction(async (tx) => {
+      const refusalOf = async (run: (sp: OrmTx) => Promise<unknown>): Promise<string> => {
+        let refusal = "no refusal — the statement was accepted";
+        await tx
+          .transaction(async (sp) => {
+            await run(sp);
+          })
+          .catch((error: unknown) => {
+            refusal = describeRefusal(error);
+          });
+        return refusal;
+      };
+
+      await tx.execute(
+        dsql`insert into auth.users (id) values (${leaderUser}), (${strangerUser})`,
+      );
+      await tx.execute(
+        dsql`insert into app_users (id) values (${leaderUser}), (${strangerUser})`,
+      );
+
+      // The stranger's own account, written by the stranger: nobody else could have.
+      await enter(tx, strangerUser);
+      const [strangerAccount] = await tx.execute<{ id: string }>(
+        dsql`insert into accounts (owner_user_id, name, kind, initial_balance_cents, initial_balance_on)
+          values (${strangerUser}, 'rls goal scope stranger', 'asset', 100000, ${today}) returning id`,
+      );
+
+      await tx.execute(dsql`reset role`);
+      await enter(tx, leaderUser);
+      await tx.execute(
+        dsql`insert into groups (id, name, cash_mode) values (${groupId}, 'rls goal scope', 'shared')`,
+      );
+      await tx.execute(
+        dsql`insert into group_members (group_id, user_id, name, role)
+          values (${groupId}, ${leaderUser}, 'rls goal scope leader', 'leader')`,
+      );
+      const [groupAccount] = await tx.execute<{ id: string }>(
+        dsql`insert into accounts (group_id, is_shared, name, kind, initial_balance_cents, initial_balance_on)
+          values (${groupId}, true, 'rls goal scope group', 'asset', 100000, ${today}) returning id`,
+      );
+      const [ownAccount] = await tx.execute<{ id: string }>(
+        dsql`insert into accounts (owner_user_id, name, kind, initial_balance_cents, initial_balance_on)
+          values (${leaderUser}, 'rls goal scope own', 'asset', 100000, ${today}) returning id`,
+      );
+
+      // 222: the group's account is one the caller may write, which is why no policy stopped this.
+      const groupRefusal = await refusalOf((sp) =>
+        sp.execute(
+          dsql`insert into savings_goals (owner_user_id, name, target_amount_cents, account_id)
+            values (${leaderUser}, 'rls goal scope on group account', 500000, ${groupAccount.id})`,
+        ),
+      );
+      assert(
+        labels[0],
+        groupRefusal.includes("23514") && groupRefusal.includes("its own scope"),
+        groupRefusal,
+      );
+
+      // 223: an account the caller cannot read, let alone write, named by a goal that is entirely his.
+      const strangerRefusal = await refusalOf((sp) =>
+        sp.execute(
+          dsql`insert into savings_goals (owner_user_id, name, target_amount_cents, account_id)
+            values (${leaderUser}, 'rls goal scope on stranger account', 500000, ${strangerAccount.id})`,
+        ),
+      );
+      assert(
+        labels[1],
+        strangerRefusal.includes("23514") && strangerRefusal.includes("its own scope"),
+        strangerRefusal,
+      );
+
+      // 224, 225: the negative controls — the account a goal may name is still nameable, in either
+      // scope, and a goal naming none at all is still legal (RF-77).
+      const onOwn = await tx.execute<{ id: string }>(
+        dsql`insert into savings_goals (owner_user_id, name, target_amount_cents, account_id)
+          values (${leaderUser}, 'rls goal scope own goal', 500000, ${ownAccount.id}) returning id`,
+      );
+      const onNone = await tx.execute<{ id: string }>(
+        dsql`insert into savings_goals (owner_user_id, name, target_amount_cents)
+          values (${leaderUser}, 'rls goal scope accountless goal', 500000) returning id`,
+      );
+      assert(
+        labels[2],
+        onOwn.length === 1 && onNone.length === 1,
+        `on its owner's account ${onOwn.length} row, on no account ${onNone.length} row`,
+      );
+
+      const onGroup = await tx.execute<{ id: string }>(
+        dsql`insert into savings_goals (group_id, name, target_amount_cents, account_id)
+          values (${groupId}, 'rls goal scope group goal', 500000, ${groupAccount.id}) returning id`,
+      );
+      assert(labels[3], onGroup.length === 1, `landed ${onGroup.length} row`);
+
+      // Nothing this section wrote may survive; force the ROLLBACK.
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`select current_user`;
+  const [{ count: probeCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from savings_goals where name like 'rls goal scope%'`;
+  assert(
+    tailLabel,
+    afterUser === "postgres" && probeCount === "0",
+    `current_user = ${afterUser}, rows named 'rls goal scope%' = ${probeCount}`,
+  );
+}
+
+// Assertions 227-232: RF-99, the undo of a silenced shape. Every claim here is about
 // `silenced_on_arrival`, the column that tells the machine's rejection from a person's:
 // who writes it, who can reach a row carrying it, and what a restore is allowed to move.
 async function checkIngestShapeRestore() {
@@ -5108,12 +6683,12 @@ async function checkIngestShapeRestore() {
   const forcedRollback = Symbol("forced rollback");
 
   const labels = [
-    "179. the shape memory settles the arrival: silenced under a rejected shape, pending under none",
-    "180. neither review path reaches a silenced delivery",
-    "181. a restore keeping the flag is refused and the same one clearing it lands",
-    "182. a second user's delete filters to nothing and their restore returns nothing",
-    "183. the owner's restore drops one shape and returns only what the silence discarded",
-    "184. the same shape arrives pending once the silence is undone",
+    "227. the shape memory settles the arrival: silenced under a rejected shape, pending under none",
+    "228. neither review path reaches a silenced delivery",
+    "229. a restore keeping the flag is refused and the same one clearing it lands",
+    "230. a second user's delete filters to nothing and their restore returns nothing",
+    "231. the owner's restore drops one shape and returns only what the silence discarded",
+    "232. the same shape arrives pending once the silence is undone",
   ];
 
   type OrmTx = Parameters<Parameters<typeof orm.transaction>[0]>[0];
@@ -5167,7 +6742,7 @@ async function checkIngestShapeRestore() {
           select (select count(*)::int from dropped)  as shapes,
                  (select count(*)::int from restored) as deliveries`);
 
-      // 179: the trigger's two branches on one hash. The human-rejected delivery is
+      // 227: the trigger's two branches on one hash. The human-rejected delivery is
       // inserted BEFORE the shape exists, so it arrives pending — that is the negative
       // control, and it is the row the restore below must leave alone.
       const [human] = await tx.execute<{
@@ -5207,7 +6782,7 @@ async function checkIngestShapeRestore() {
         `shape ${silencedHash.slice(0, 12)} under a rejected memory stored ${silenced.map((row) => `${row.status}/${row.silenced_on_arrival}`).join(" and ")}, the same shape under no memory stored ${human.status}/${human.silenced_on_arrival}`,
       );
 
-      // 180: both review paths carry `and status = 'pending'`, so a silenced row is out of
+      // 228: both review paths carry `and status = 'pending'`, so a silenced row is out of
       // a person's reach without any policy having to say so. The account and the movement
       // exist only to make the accept path's statement the real one.
       const [account] = await tx.execute<{ id: string }>(
@@ -5248,7 +6823,7 @@ async function checkIngestShapeRestore() {
         `the accept guard locked ${guard.rows.length} rows (${guard.refusal}), the reject update changed ${rejectPath.rows.length} (${rejectPath.refusal}), the accept update changed ${acceptPath.rows.length} (${acceptPath.refusal})`,
       );
 
-      // 181: on a shape of its own, so the counts the restore returns below stay untouched.
+      // 229: on a shape of its own, so the counts the restore returns below stay untouched.
       // Turning a silenced row pending while it keeps the flag is the database's refusal,
       // not the writer's discipline — a restored delivery is indistinguishable from one
       // that never arrived silenced.
@@ -5278,7 +6853,7 @@ async function checkIngestShapeRestore() {
         `keeping the flag ${keptFlag.refusal}, clearing it stored ${clearedFlag.rows[0]?.status ?? "nothing"}/${clearedFlag.rows[0]?.silenced_on_arrival ?? "nothing"}`,
       );
 
-      // 182: the delete policy filters, it does not refuse — a second user's statement is
+      // 230: the delete policy filters, it does not refuse — a second user's statement is
       // well-formed, touches nothing and raises nothing. Run before the owner's restore,
       // while the shape and its silenced deliveries are still there to be taken.
       await enter(tx, other);
@@ -5298,7 +6873,7 @@ async function checkIngestShapeRestore() {
         `their delete removed ${otherDelete.rows.length} shapes (${otherDelete.refusal}), their restore returned ${otherRestore.rows[0]?.shapes ?? "nothing"} shapes and ${otherRestore.rows[0]?.deliveries ?? "nothing"} deliveries (${otherRestore.refusal})`,
       );
 
-      // 183: the owner's own restore. Two silenced deliveries come back, the person's
+      // 231: the owner's own restore. Two silenced deliveries come back, the person's
       // rejection of the same shape does not, and the probe shape is proof the delete
       // took one row rather than every rejected memory the owner holds.
       await enter(tx, owner);
@@ -5336,7 +6911,7 @@ async function checkIngestShapeRestore() {
         `it dropped ${owned.rows[0]?.shapes ?? "nothing"} shape and returned ${owned.rows[0]?.deliveries ?? "nothing"} deliveries, now ${restoredRows.map((row) => row.status).join(" and ")}; the person's rejection stayed ${humanRow?.status}/${humanRow?.silenced_on_arrival}; ${shapesLeft.silenced} silenced memory left, ${shapesLeft.probe} other memory untouched (${owned.refusal})`,
       );
 
-      // 184: RF-99's forward half. Nothing was written to say the shape is welcome again;
+      // 232: RF-99's forward half. Nothing was written to say the shape is welcome again;
       // the absent memory is what `private.set_ingest_delivery_state` reads as never seen.
       const [returning] = await tx.execute<{
         status: string;

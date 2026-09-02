@@ -382,13 +382,23 @@ async function localeSuite(cookie: string): Promise<void> {
   );
 }
 
+// What the webhook suite wrote and the audit viewer must never repeat: the hash
+// the credential is resolved by, and the fragment that makes each run's SMS its
+// own. Both live in the snapshot columns of the rows that suite left behind.
+type WebhookSecrets = {
+  credentialId: string;
+  deliveryId: string;
+  tokenHash: string;
+  smsFragment: string;
+};
+
 /**
  * The ingest endpoint end to end: a credential the harness mints, one delivery,
  * the same text again landing nothing new, and a token that resolves to nothing.
  * The route answers 200 to both the first delivery and its repeat — the repeat is
  * told apart by `duplicate`, never by a status.
  */
-async function webhookSuite(userId: string): Promise<void> {
+async function webhookSuite(userId: string): Promise<WebhookSecrets> {
   const credentialId = randomUUID();
   const token = `whk_${randomBytes(32).toString("base64url")}`;
   const tokenHash = createHash("sha256").update(token).digest("hex");
@@ -408,7 +418,8 @@ async function webhookSuite(userId: string): Promise<void> {
 
   // A verbatim T2 sample, its merchant made unique so each run hashes to its own
   // external reference; the date it names is what RF-98 is read back against.
-  const text = `Bancolombia: Compraste COP122.000,00 en BOLD CO ONLINE ${randomUUID().slice(0, 8)} con tu T.Cred *4872, el 25/08/2026 a las 20:07. Si tienes dudas, encuentranos aqui: 6045109095 o 018000931987. Estamos cerca.`;
+  const smsFragment = randomUUID().slice(0, 8);
+  const text = `Bancolombia: Compraste COP122.000,00 en BOLD CO ONLINE ${smsFragment} con tu T.Cred *4872, el 25/08/2026 a las 20:07. Si tienes dudas, encuentranos aqui: 6045109095 o 018000931987. Estamos cerca.`;
 
   async function post(bearer: string): Promise<{ status: number; body: Record<string, unknown> }> {
     const response = await fetch(`${HARNESS_BASE_URL}/api/webhooks/ingest`, {
@@ -483,6 +494,58 @@ async function webhookSuite(userId: string): Promise<void> {
     next("the revoked credential is refused with the same generic answer"),
     revoked.status === 401 && revoked.body.error === "unauthorized",
     `it answered ${revoked.status} — ${JSON.stringify(revoked.body)}`,
+  );
+
+  return {
+    credentialId,
+    deliveryId: String(first.body.deliveryId),
+    tokenHash,
+    smsFragment,
+  };
+}
+
+/**
+ * What the audit viewer puts on the wire (RF-53). The webhook suite has just
+ * written the newest rows in the log, so its credential and its delivery are on
+ * the first page: the payload names both records and carries neither the token
+ * hash nor the bank message their snapshot columns hold.
+ */
+async function auditPayloadSuite(
+  cookie: string,
+  secrets: WebhookSecrets,
+): Promise<void> {
+  const response = await fetch(
+    `${HARNESS_BASE_URL}/${LOCALE}/settings/audit`,
+    { headers: { cookie } },
+  );
+  const body = await response.text();
+
+  const named = [
+    ["the credential", secrets.credentialId],
+    ["the delivery", secrets.deliveryId],
+  ].filter(([, id]) => !body.includes(id));
+
+  assert(
+    next("the audit page carries the rows the webhook suite just wrote"),
+    response.status === 200 && named.length === 0,
+    named.length === 0
+      ? `it answered ${response.status} over ${body.length} bytes naming both records`
+      : `it answered ${response.status} without ${named.map(([what]) => what).join(" or ")}`,
+  );
+
+  // The literal secrets, never a column name: a projection that stops selecting
+  // them and a viewer that stops rendering them both read the same here.
+  const leaked = [
+    ["the credential's token hash", secrets.tokenHash],
+    ["the delivery's bank message", secrets.smsFragment],
+  ].filter(([, secret]) => body.includes(secret));
+
+  assert(
+    next("no audited snapshot rides the audit payload"),
+    leaked.length === 0,
+    leaked.length === 0
+      ? "neither the token hash nor the message text appears in the response"
+      : `the response carries ${leaked.map(([what]) => what).join(" and ")}`,
   );
 }
 
@@ -587,7 +650,8 @@ async function main(): Promise<void> {
   await renderSuite(cases, cookie);
   console.log("");
   await localeSuite(cookie);
-  await webhookSuite(userId);
+  const secrets = await webhookSuite(userId);
+  await auditPayloadSuite(cookie, secrets);
   console.log("");
   await timingSuite(cases, cookie, userId);
 }

@@ -3,13 +3,15 @@
  * teardown that drops them. Playwright calls the default export once, before any
  * spec, and calls the function it returns once after the last one.
  *
- * The login uses no mailbox. `magicLinkUrl()` formats the app's own
- * `/auth/confirm` link from the token hash layer 2 reads over the direct
- * connection, a browser visits it, and the cookies that land are saved as the
- * storage state every spec starts from. No special user, no email, no fixture
- * that fakes a session.
+ * The login uses no mailbox and sends nothing. The storage state a spec starts
+ * from carries the session cookie `@supabase/ssr` would have written, over an
+ * access token the project itself signed — so the proxy, `requireUser()` and
+ * every policy see a real `auth.uid()`, and the auth server is never asked to
+ * deliver a link to an address that bounces into someone's inbox. Two identities
+ * get one state each: the one every spec runs as, and the one RF-100 needs a
+ * second role for.
  *
- * Every row here belongs to the harness's own user, which nothing else writes,
+ * Every row here belongs to one of those two users, which nothing else writes,
  * so the purge below is a reset rather than a deletion of someone's data. It runs
  * at both ends: a crashed run leaves the next one a clean queue.
  */
@@ -17,20 +19,31 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
-import { chromium, test as base } from "@playwright/test";
+import { test as base } from "@playwright/test";
 import type { TransactionSql } from "postgres";
 
 import { TIME_ZONE } from "@/lib/locales";
 
 import { fixtureSql } from "../scripts/harness/fixtures";
-import { harnessSession, magicLinkUrl } from "../scripts/harness/session";
+import {
+  HARNESS_BASE_URL,
+  HARNESS_EMAIL,
+  HARNESS_MEMBER_EMAIL,
+  harnessSession,
+  sessionCookies,
+} from "../scripts/harness/session";
 
 export const STORAGE_STATE = "private/harness-storage.json";
+
+// The second identity's cookies. A spec that reads the roster as a plain member
+// names this state; every other spec keeps the first identity's.
+export const MEMBER_STORAGE_STATE = "private/harness-member-storage.json";
 
 const SCOPE_FILE = resolve(process.cwd(), "private/harness-e2e.json");
 
 export type E2eScope = {
   userId: string;
+  memberUserId: string;
   accountId: string;
   accountName: string;
   categoryId: string;
@@ -159,6 +172,58 @@ export async function clearQueue(): Promise<void> {
   await fixtureSql`delete from ingest_merchants where owner_user_id = ${userId}`;
 }
 
+// The roster the members specs read: the harness user leads, the second identity
+// belongs. Names sort in this order, which is the order `listMembers` renders, so
+// a spec can name a row by its position without reading the DOM around it.
+export const LEADER_MEMBER_NAME = "Harness lider";
+export const PLAIN_MEMBER_NAME = "Harness miembro";
+
+/**
+ * One group with both roles on its roster, replacing whatever a crashed run left
+ * behind. Written under the leader's claims so the stamping triggers see them,
+ * and in one transaction because `assert_group_keeps_leader` refuses a group that
+ * commits without a leader.
+ */
+export async function seedGroup(): Promise<{ groupId: string }> {
+  const scope = readScope();
+  const groupId = randomUUID();
+
+  await clearGroup();
+
+  await fixtureSql.begin(async (tx) => {
+    await tx`select set_config('request.jwt.claims', ${claimsFor(scope.userId)}, true)`;
+
+    await tx`
+      insert into groups (id, name, cash_mode)
+      values (${groupId}, 'Fondo de la prueba', 'per_member')`;
+
+    await tx`
+      insert into group_members (group_id, user_id, name, role)
+      values
+        (${groupId}, ${scope.userId}, ${LEADER_MEMBER_NAME}, 'leader'),
+        (${groupId}, ${scope.memberUserId}, ${PLAIN_MEMBER_NAME}, 'member')`;
+  });
+
+  return { groupId };
+}
+
+/**
+ * Every group either harness identity belongs to, with its roster on the cascade.
+ * Runs at both ends of the run and before each seeding: layer 2 asserts the
+ * members page 404s for the first identity, so a group left behind here is that
+ * layer's failure tomorrow.
+ */
+export async function clearGroup(): Promise<void> {
+  const scope = readScope();
+  const users = [scope.userId, scope.memberUserId];
+
+  await fixtureSql`
+    delete from groups
+    where id in (
+      select group_id from group_members where user_id in ${fixtureSql(users)})`;
+  await fixtureSql`delete from group_members where user_id in ${fixtureSql(users)}`;
+}
+
 export async function clearLedger(): Promise<void> {
   const { userId } = readScope();
 
@@ -248,9 +313,10 @@ async function purge(userId: string): Promise<void> {
   await fixtureSql`delete from group_members where user_id = ${userId}`;
 }
 
-async function seedScope(userId: string): Promise<E2eScope> {
+async function seedScope(userId: string, memberUserId: string): Promise<E2eScope> {
   const scope: E2eScope = {
     userId,
+    memberUserId,
     accountId: randomUUID(),
     accountName: "Cuenta de la bandeja",
     categoryId: randomUUID(),
@@ -275,34 +341,61 @@ async function seedScope(userId: string): Promise<E2eScope> {
   return scope;
 }
 
+/**
+ * One identity's storage state, written from the session layer 2 already drives
+ * the app with. The browser never visits a magic link: obtaining one means asking
+ * the auth server to SEND it, and these addresses bounce into a real mailbox.
+ */
+async function signIn(email: string, storageState: string): Promise<void> {
+  const cookies = await sessionCookies(email);
+  const { hostname } = new URL(HARNESS_BASE_URL);
+
+  const state = {
+    cookies: cookies.map(({ name, value }) => ({
+      name,
+      value,
+      domain: hostname,
+      path: "/",
+      // A session cookie, so nothing survives the browser that read it.
+      expires: -1,
+      // The browser client reads the same cookie from `document.cookie`.
+      httpOnly: false,
+      secure: false,
+      sameSite: "Lax" as const,
+    })),
+    origins: [],
+  };
+
+  mkdirSync(dirname(storageState), { recursive: true });
+  writeFileSync(storageState, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+}
+
 export default async function globalSetup(): Promise<() => Promise<void>> {
-  const session = await harnessSession();
+  const [session, memberSession] = await Promise.all([
+    harnessSession(),
+    harnessSession(HARNESS_MEMBER_EMAIL),
+  ]);
   const userId = session.user.id;
+  const memberUserId = memberSession.user.id;
 
   await purge(userId);
-  const scope = await seedScope(userId);
+  const scope = await seedScope(userId, memberUserId);
   // `private/` is gitignored, so a fresh clone reaches this write without it.
   mkdirSync(dirname(SCOPE_FILE), { recursive: true });
   writeFileSync(SCOPE_FILE, `${JSON.stringify(scope, null, 2)}\n`, "utf8");
+  // After the scope file, which is what `clearGroup` reads both ids from.
+  await clearGroup();
 
-  const link = await magicLinkUrl();
-  const browser = await chromium.launch();
-  const page = await browser.newPage();
-  await page.goto(link);
-  await page.waitForLoadState("networkidle");
+  await signIn(HARNESS_EMAIL, STORAGE_STATE);
+  await signIn(HARNESS_MEMBER_EMAIL, MEMBER_STORAGE_STATE);
 
-  if (page.url().includes("/login")) {
-    await browser.close();
-    throw new Error(`the magic link landed on the login: ${page.url()}`);
-  }
-
-  await page.context().storageState({ path: STORAGE_STATE });
-  await browser.close();
-
-  console.log(`harness user ${userId} <${session.user.email}> signed in through /auth/confirm`);
+  console.log(
+    `harness users ${userId} <${session.user.email}> and ${memberUserId} <${memberSession.user.email}> carry their own session cookie`,
+  );
 
   return async () => {
     try {
+      await clearGroup();
       await purge(userId);
     } finally {
       await fixtureSql.end();

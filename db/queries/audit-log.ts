@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, desc, eq, getTableColumns, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 
 import { listCallerMembers } from "@/db/queries/group-members";
@@ -20,6 +20,14 @@ export type AuditLogFilters = {
   limit: number;
   offset: number;
 };
+
+// What the viewer renders, and all it is handed: the `before_data`/`after_data`
+// snapshots stay in the table, where a token hash or a bank message never reaches
+// a client bundle (RNF-13).
+export type AuditLogRow = Pick<
+  AuditLog,
+  "id" | "entity" | "recordId" | "action" | "actorUserId" | "occurredAt"
+>;
 
 // The entities the caller can actually read, and the actors to name a row by.
 export type AuditFilterOptions = {
@@ -64,17 +72,26 @@ function auditConditions(filters: AuditLogFilters): SQL[] {
  */
 export async function listAuditLog(
   filters: AuditLogFilters,
-): Promise<{ rows: AuditLog[]; total: number }> {
+): Promise<{ rows: AuditLogRow[]; total: number }> {
   const conditions = auditConditions(filters);
   const where = conditions.length > 0 ? and(...conditions) : undefined;
 
   return withUserDb(async (tx) => {
     const rows = await tx
-      // The row nests under a key of its own so the window column never has to
-      // be stripped back off it. The cast is not decoration: a bigint arrives
+      // The six columns the viewer renders and no more: `before_data`/`after_data`
+      // hold whole rows, a token hash or a bank message among them (RNF-13). The
+      // row nests under a key of its own so the window column never has to be
+      // stripped back off it, and the cast is not decoration: a bigint arrives
       // from the driver as a string, and the pager counts pages with it.
       .select({
-        row: getTableColumns(auditLog),
+        row: {
+          id: auditLog.id,
+          entity: auditLog.entity,
+          recordId: auditLog.recordId,
+          action: auditLog.action,
+          actorUserId: auditLog.actorUserId,
+          occurredAt: auditLog.occurredAt,
+        },
         total: sql<number>`(count(*) over ())::int`,
       })
       .from(auditLog)

@@ -1,6 +1,6 @@
 {
-  "id": "f03d40a8-019f-4ccf-83c7-3de24258f2cc",
-  "prevId": "26cc499b-0be4-4808-a712-b4a5ea57ff31",
+  "id": "c7d0f615-777a-4071-b299-7c606394ef67",
+  "prevId": "f03d40a8-019f-4ccf-83c7-3de24258f2cc",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -156,6 +156,16 @@
             "authenticated"
           ],
           "withCheck": "true"
+        },
+        "groups_update_leader": {
+          "name": "groups_update_leader",
+          "as": "PERMISSIVE",
+          "for": "UPDATE",
+          "to": [
+            "authenticated"
+          ],
+          "using": "(select private.is_group_leader(\"groups\".\"id\"))",
+          "withCheck": "(select private.is_group_leader(\"groups\".\"id\"))"
         }
       },
       "checkConstraints": {

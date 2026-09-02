@@ -1,6 +1,6 @@
 {
-  "id": "f03d40a8-019f-4ccf-83c7-3de24258f2cc",
-  "prevId": "26cc499b-0be4-4808-a712-b4a5ea57ff31",
+  "id": "586a9afa-14cf-4c85-85e4-af9e5b167dec",
+  "prevId": "cb387b64-cbdf-453e-9631-9ca9cf1449e3",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -387,7 +387,7 @@
           "to": [
             "authenticated"
           ],
-          "withCheck": "(select private.is_group_leader(\"group_members\".\"group_id\")) and \"group_members\".\"user_id\" is null and \"group_members\".\"role\" = 'member'"
+          "withCheck": "(select private.is_group_member(\"group_members\".\"group_id\")) and \"group_members\".\"user_id\" is null and \"group_members\".\"role\" = 'member'"
         },
         "group_members_update_member": {
           "name": "group_members_update_member",
@@ -396,8 +396,8 @@
           "to": [
             "authenticated"
           ],
-          "using": "(select private.is_group_leader(\"group_members\".\"group_id\")) or (\"group_members\".\"user_id\" = (select auth.uid()) and \"group_members\".\"archived_at\" is null)",
-          "withCheck": "((select private.is_group_leader(\"group_members\".\"group_id\")) or \"group_members\".\"user_id\" = (select auth.uid())) and (\"group_members\".\"user_id\" is distinct from (select auth.uid()) or \"group_members\".\"archived_at\" is null)"
+          "using": "(select private.is_group_member(\"group_members\".\"group_id\"))",
+          "withCheck": "(select private.is_group_member(\"group_members\".\"group_id\")) and (\"group_members\".\"user_id\" is distinct from (select auth.uid()) or \"group_members\".\"archived_at\" is null)"
         },
         "group_members_delete_member": {
           "name": "group_members_delete_member",
@@ -406,7 +406,7 @@
           "to": [
             "authenticated"
           ],
-          "using": "(select private.is_group_leader(\"group_members\".\"group_id\")) and \"group_members\".\"user_id\" is distinct from (select auth.uid())"
+          "using": "(select private.is_group_member(\"group_members\".\"group_id\")) and \"group_members\".\"user_id\" is distinct from (select auth.uid())"
         }
       },
       "checkConstraints": {
@@ -1133,38 +1133,6 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "transactions_from_account_id_idx": {
-          "name": "transactions_from_account_id_idx",
-          "columns": [
-            {
-              "expression": "from_account_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "from_account_id is not null",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "transactions_to_account_id_idx": {
-          "name": "transactions_to_account_id_idx",
-          "columns": [
-            {
-              "expression": "to_account_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "to_account_id is not null",
           "concurrently": false,
           "method": "btree",
           "with": {}

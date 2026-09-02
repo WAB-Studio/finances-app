@@ -31,10 +31,10 @@ function addButton(page: Page, label: string): Locator {
   return page.getByRole("button", { name: label, exact: true }).first();
 }
 
-// Every row on these screens carries the same "Acciones" trigger, so a test pins
-// how many rows it expects before reaching for one.
+// Every row on these screens carries the same trigger, which names its own row
+// now, so match the prefix and let a test pin how many rows it expects.
 function rowMenus(page: Page): Locator {
-  return page.getByRole("button", { name: common.actions, exact: true });
+  return page.getByRole("button", { name: common.actionsFor.split("{")[0].trim() });
 }
 
 /**
