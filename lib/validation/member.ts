@@ -51,3 +51,12 @@ export const deleteMemberSchema = z.object({
 });
 
 export type DeleteMemberInput = z.infer<typeof deleteMemberSchema>;
+
+// RF-59: only the member who takes the role travels. The outgoing leader is the
+// caller, read from the session, and the swap is one call the engine makes.
+export const transferLeadershipSchema = z.object({
+  memberId: z.uuid(),
+});
+
+export type TransferLeadershipInput = z.infer<typeof transferLeadershipSchema>;
+
