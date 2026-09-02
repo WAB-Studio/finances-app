@@ -24,6 +24,7 @@ import {
 } from "@/db/queries/accounts";
 import { getAuditFilterOptions, listAuditLog } from "@/db/queries/audit-log";
 import {
+  archiveBudget,
   createBudget,
   listBudgetsWithStatus,
   updateBudget,
@@ -47,7 +48,7 @@ import {
   createMember,
   listMembers,
 } from "@/db/queries/group-members";
-import { getUserGroup } from "@/db/queries/groups";
+import { getUserGroup, updateGroupSettings } from "@/db/queries/groups";
 import { readImportScope } from "@/db/queries/import-preview";
 import {
   countPendingDeliveries,
@@ -68,6 +69,7 @@ import {
   listUsedLabelColors,
   updateLabel,
 } from "@/db/queries/labels";
+import { seedPersonalCategories } from "@/db/queries/personal-space";
 import {
   createPlannedPayment,
   listPlannedPayments,
@@ -86,6 +88,7 @@ import { netWorthByOwner } from "@/db/queries/reports/net-worth";
 import { getReportsData } from "@/db/queries/reports/reports-screen";
 import {
   addGoalContribution,
+  archiveGoal,
   createGoal,
   listGoalsWithProgress,
 } from "@/db/queries/savings-goals";
@@ -106,6 +109,7 @@ import {
   issueWebhookCredential,
   listWebhookCredentials,
 } from "@/db/queries/webhook-credentials";
+import { withUserDb } from "@/db/session";
 import { currentMonthRange, todayInBogota } from "@/lib/dates";
 import { pgErrorCode } from "@/lib/db-error";
 import { SEED_CATEGORIES } from "@/lib/fund/seed";
@@ -523,6 +527,39 @@ async function writeSuite(
     },
   );
 
+  // The other half of what `createGroup` writes, for the personal-only user RF-55 allows:
+  // the confirm route calls this inside its own `withUserDb`, so the proof opens one too.
+  const seeded = await createMembershipFreeUser();
+
+  await checkWrite(
+    "seedPersonalCategories",
+    () =>
+      asUser(seeded, () =>
+        withUserDb((tx) => seedPersonalCategories(tx, { userId: seeded.id, locale: "es" })),
+      ),
+    async (written) => {
+      const rows = await fixtureSql<
+        { id: string; owner_user_id: string | null; group_id: string | null }[]
+      >`
+        select id, owner_user_id, group_id from categories
+        where owner_user_id = ${seeded.id}`;
+      for (const row of rows) track("categories", row.id);
+
+      const expected = SEED_CATEGORIES.reduce(
+        (total, category) => total + 1 + (category.children?.length ?? 0),
+        0,
+      );
+      const personal = rows.every(
+        (row) => row.owner_user_id === seeded.id && row.group_id === null,
+      );
+
+      return {
+        ok: written === expected && rows.length === expected && personal,
+        detail: `reported ${written} rows, ${rows.length} of ${expected} landed, every one owned by the user and in no group = ${personal}`,
+      };
+    },
+  );
+
   await checkWrite(
     "createMember",
     () =>
@@ -684,6 +721,47 @@ async function writeSuite(
     }),
   );
 
+  // RF-120 from the read that has to honour it: the two calls partition the caller's
+  // readable budgets, and an archived one derives its spent the same way a live one does.
+  await checkWrite(
+    "listBudgetsWithStatus partitions the archived from the live",
+    async () => {
+      const { budgetId: archivedId } = await createBudget({
+        ownerUserId: userId,
+        groupId: null,
+        categoryId: scope.categoryId,
+        accountId: null,
+        labelId: null,
+        period: "monthly",
+        limitCents: 30000000,
+        thresholdPct: 70,
+        name: "Harness mercado archivado",
+      });
+      keep("budgets", archivedId);
+      await archiveBudget({ budgetId: archivedId });
+
+      const [live, archived] = await Promise.all([
+        listBudgetsWithStatus(),
+        listBudgetsWithStatus(undefined, { archived: true }),
+      ]);
+
+      return { archivedId, live, archived };
+    },
+    ({ archivedId, live, archived }) => {
+      const liveIds = live.map((budget) => budget.id);
+      const archivedIds = archived.map((budget) => budget.id);
+      const overlap = liveIds.filter((id) => archivedIds.includes(id));
+
+      return {
+        ok:
+          overlap.length === 0 &&
+          archivedIds.includes(archivedId) &&
+          liveIds.includes(budgetId),
+        detail: `${liveIds.length} live and ${archivedIds.length} archived, ${overlap.length} named by both; the archived one is on the archived side = ${archivedIds.includes(archivedId)}, the edited one on the live side = ${liveIds.includes(budgetId)}`,
+      };
+    },
+  );
+
   const goal = await checkWrite(
     "createGoal",
     () =>
@@ -712,6 +790,51 @@ async function writeSuite(
       return {
         ok: true,
         detail: `contribution ${contributionId}, amount_cents = ${await readColumn("goal_contributions", "id", contributionId, "amount_cents")}`,
+      };
+    },
+  );
+
+  // The same partition on the goals, plus the identity RF-120 rests on: archiving writes no
+  // aporte, so an archived goal's progress is still the sum of the rows it always had.
+  await checkWrite(
+    "listGoalsWithProgress partitions the archived from the live",
+    async () => {
+      const { goalId: archivedId } = await createGoal({
+        ownerUserId: userId,
+        groupId: null,
+        name: "Harness viaje archivado",
+        targetAmountCents: 100000000,
+        targetDate: null,
+        accountId: null,
+        initialContributionCents: 2500000,
+      });
+      keep("savings_goals", archivedId);
+      await archiveGoal({ goalId: archivedId });
+
+      const [live, archived] = await Promise.all([
+        listGoalsWithProgress(),
+        listGoalsWithProgress({ archived: true }),
+      ]);
+      // Read as the owner: the sum the progress must equal, taken from the rows themselves.
+      const [{ sum }] = await fixtureSql<{ sum: string }[]>`
+        select coalesce(sum(amount_cents), 0)::text as sum
+        from goal_contributions where goal_id = ${archivedId}`;
+
+      return { archivedId, live, archived, contributed: Number(sum) };
+    },
+    ({ archivedId, live, archived, contributed }) => {
+      const liveIds = live.map((goal) => goal.id);
+      const archivedIds = archived.map((goal) => goal.id);
+      const overlap = liveIds.filter((id) => archivedIds.includes(id));
+      const savedCents = archived.find((goal) => goal.id === archivedId)?.savedCents;
+
+      return {
+        ok:
+          overlap.length === 0 &&
+          archivedIds.includes(archivedId) &&
+          liveIds.includes(goalId) &&
+          savedCents === contributed,
+        detail: `${liveIds.length} live and ${archivedIds.length} archived, ${overlap.length} named by both; the archived one reads ${savedCents} cents against ${contributed} summed from its aportes, the live one is on the live side = ${liveIds.includes(goalId)}`,
       };
     },
   );
@@ -975,6 +1098,43 @@ async function writeSuite(
     async () => ({
       ok: (await readColumn("app_users", "id", userId, "locale")) === "en",
       detail: `locale = ${await readColumn("app_users", "id", userId, "locale")}`,
+    }),
+  );
+
+  // RF-56 from the side that has to write something: `per_member` names no shared pot, so the
+  // switch to `shared` has to land one — and the second call has to find it rather than add a
+  // second, which is what `withdrawCash` needs to keep hitting the same account. Last in the
+  // suite: it changes where the group's cash sits, and every path above reads that.
+  await checkWrite(
+    "updateGroupSettings",
+    async () => {
+      const settings = {
+        groupId: scope.groupId,
+        name: "Harness fondo compartido",
+        cashMode: "shared",
+        locale: "es",
+      } as const;
+      const cashAccounts = async () =>
+        fixtureSql<{ id: string }[]>`
+          select id from accounts
+          where group_id = ${scope.groupId} and subtype = 'efectivo' and archived_at is null`;
+
+      const first = await updateGroupSettings(settings);
+      const afterFirst = await cashAccounts();
+      const second = await updateGroupSettings(settings);
+      const afterSecond = await cashAccounts();
+      for (const row of afterSecond) keep("accounts", row.id);
+
+      return { first, second, afterFirst, afterSecond };
+    },
+    async ({ first, second, afterFirst, afterSecond }) => ({
+      ok:
+        first &&
+        second &&
+        afterFirst.length === 1 &&
+        afterSecond.length === 1 &&
+        afterSecond[0].id === afterFirst[0].id,
+      detail: `both calls admitted = ${first && second}, ${afterFirst.length} cash account after the first and ${afterSecond.length} after the second, the same one = ${afterSecond[0]?.id === afterFirst[0]?.id}, cash_mode = ${await readColumn("groups", "id", scope.groupId, "cash_mode")}`,
     }),
   );
 

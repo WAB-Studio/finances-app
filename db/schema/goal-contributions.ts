@@ -30,10 +30,12 @@ export const goalContributions = pgTable(
       using: sql`exists (select 1 from ${savingsGoals} g where g.id = ${table.goalId} and (g.owner_user_id = ${authUid} or private.is_group_member(coalesce(g.group_id, private.owner_group_id(g.owner_user_id)))))`,
     }),
     // Writable when the goal it earmarks is writable — an inline mirror of the savings_goals write rule.
+    // An archived goal is closed to new aportes (RF-120): removing the button left the client as the
+    // only guard, and progress must not move under a goal a person has put away.
     pgPolicy("goal_contributions_insert_member", {
       for: "insert",
       to: authenticatedRole,
-      withCheck: sql`exists (select 1 from ${savingsGoals} g where g.id = ${table.goalId} and (g.owner_user_id = ${authUid} or private.is_group_member(g.group_id)))`,
+      withCheck: sql`exists (select 1 from ${savingsGoals} g where g.id = ${table.goalId} and g.archived_at is null and (g.owner_user_id = ${authUid} or private.is_group_member(g.group_id)))`,
     }),
     pgPolicy("goal_contributions_delete_member", {
       for: "delete",
