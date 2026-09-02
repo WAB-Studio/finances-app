@@ -15,6 +15,9 @@ import styles from "./button.module.css";
 type TapProp = {
   // Holds the control to 32px on both sides, which is what a ghost variant
   // otherwise falls under.
+  // A text label inside a table cell is not a control the floor applies to: the
+  // row it sits in is the tap target, so the ledger's title link stays as tall
+  // as its line.
   tap?: boolean;
 };
 
