@@ -415,6 +415,8 @@
     "splitRowAmount": "Monto {position}",
     "splitRowRemove": "Quitar categoría {position}",
     "splitUnassigned": "Sin asignar",
+    "splitsTitle": "Categorías",
+    "splitsTotal": "<amount></amount> total",
     "saved": "Movimiento guardado",
     "undo": "Deshacer",
     "errors": {

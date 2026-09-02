@@ -323,67 +323,72 @@ export function MovementForm({
       </Flex>
 
       <FieldGroup>
-        <Controller
-          name="fromAccountId"
-          control={form.control}
-          render={({ field, fieldState }) => (
-            <Field invalid={fieldState.invalid}>
-              <FieldLabel htmlFor="movement-from">{t("fromLabel")}</FieldLabel>
-              <Select.Root
-                size="3"
-                value={field.value ?? NO_ACCOUNT}
-                onValueChange={(value) =>
-                  field.onChange(value === NO_ACCOUNT ? null : value)
-                }
-                disabled={isPending}
-              >
-                <FieldControl>
-                  <Select.Trigger id="movement-from" />
-                </FieldControl>
-                <Select.Content position="popper">
-                  <Select.Item value={NO_ACCOUNT}>{t("accountNone")}</Select.Item>
-                  {options.accounts.map((account) => (
-                    <Select.Item key={account.id} value={account.id}>
-                      {account.name}
-                    </Select.Item>
-                  ))}
-                </Select.Content>
-              </Select.Root>
-              <FieldMessage error={fieldState.error} />
-            </Field>
-          )}
-        />
+        {/* The two account slots share a row from `md` up, where the dialog is
+            wide enough to read them as origin beside destination; below it each
+            keeps its own row (RF-18). */}
+        <Flex direction={{ initial: "column", md: "row" }} gap="4" width="100%">
+          <Controller
+            name="fromAccountId"
+            control={form.control}
+            render={({ field, fieldState }) => (
+              <Field invalid={fieldState.invalid}>
+                <FieldLabel htmlFor="movement-from">{t("fromLabel")}</FieldLabel>
+                <Select.Root
+                  size="3"
+                  value={field.value ?? NO_ACCOUNT}
+                  onValueChange={(value) =>
+                    field.onChange(value === NO_ACCOUNT ? null : value)
+                  }
+                  disabled={isPending}
+                >
+                  <FieldControl>
+                    <Select.Trigger id="movement-from" />
+                  </FieldControl>
+                  <Select.Content position="popper">
+                    <Select.Item value={NO_ACCOUNT}>{t("accountNone")}</Select.Item>
+                    {options.accounts.map((account) => (
+                      <Select.Item key={account.id} value={account.id}>
+                        {account.name}
+                      </Select.Item>
+                    ))}
+                  </Select.Content>
+                </Select.Root>
+                <FieldMessage error={fieldState.error} />
+              </Field>
+            )}
+          />
 
-        <Controller
-          name="toAccountId"
-          control={form.control}
-          render={({ field, fieldState }) => (
-            <Field invalid={fieldState.invalid}>
-              <FieldLabel htmlFor="movement-to">{t("toLabel")}</FieldLabel>
-              <Select.Root
-                size="3"
-                value={field.value ?? NO_ACCOUNT}
-                onValueChange={(value) =>
-                  field.onChange(value === NO_ACCOUNT ? null : value)
-                }
-                disabled={isPending}
-              >
-                <FieldControl>
-                  <Select.Trigger id="movement-to" />
-                </FieldControl>
-                <Select.Content position="popper">
-                  <Select.Item value={NO_ACCOUNT}>{t("accountNone")}</Select.Item>
-                  {options.accounts.map((account) => (
-                    <Select.Item key={account.id} value={account.id}>
-                      {account.name}
-                    </Select.Item>
-                  ))}
-                </Select.Content>
-              </Select.Root>
-              <FieldMessage error={fieldState.error} />
-            </Field>
-          )}
-        />
+          <Controller
+            name="toAccountId"
+            control={form.control}
+            render={({ field, fieldState }) => (
+              <Field invalid={fieldState.invalid}>
+                <FieldLabel htmlFor="movement-to">{t("toLabel")}</FieldLabel>
+                <Select.Root
+                  size="3"
+                  value={field.value ?? NO_ACCOUNT}
+                  onValueChange={(value) =>
+                    field.onChange(value === NO_ACCOUNT ? null : value)
+                  }
+                  disabled={isPending}
+                >
+                  <FieldControl>
+                    <Select.Trigger id="movement-to" />
+                  </FieldControl>
+                  <Select.Content position="popper">
+                    <Select.Item value={NO_ACCOUNT}>{t("accountNone")}</Select.Item>
+                    {options.accounts.map((account) => (
+                      <Select.Item key={account.id} value={account.id}>
+                        {account.name}
+                      </Select.Item>
+                    ))}
+                  </Select.Content>
+                </Select.Root>
+                <FieldMessage error={fieldState.error} />
+              </Field>
+            )}
+          />
+        </Flex>
 
         <Controller
           name="amount"

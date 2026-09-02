@@ -8,9 +8,11 @@ import { toast } from "sonner";
 
 import { markMovementReviewedAction } from "@/app/actions/recurring-rules";
 import { deleteTransactionAction } from "@/app/actions/transactions";
+import { MovementDetailDesktop } from "@/components/transactions/movement-detail-desktop";
 import { MovementForm } from "@/components/transactions/movement-form";
 import {
   Badge,
+  Box,
   Button,
   Card,
   CategoryTile,
@@ -37,6 +39,9 @@ import { useActionErrorToast } from "@/lib/use-action-toast";
  * the accounts (RF-18, RF-24); deleting confirms first, since only quick entry
  * carries the undo toast. Money stays integer cents; the sign and the format are
  * display only.
+ *
+ * From `md` up the two panes of `MovementDetailDesktop` are displayed instead of
+ * this column, off the same props and with no read of their own.
  */
 export function MovementDetail({
   movement,
@@ -120,141 +125,154 @@ export function MovementDetail({
   });
 
   return (
-    <Flex direction="column" gap="4">
-      <Flex align="center" gap="3">
-        <IconButton asChild variant="ghost" color="gray" aria-label={t("listTitle")}>
-          <LocaleLink href="/movements">
-            <ChevronLeftIcon size={18} />
-          </LocaleLink>
-        </IconButton>
-        <Heading size="5" style={{ flex: 1 }}>
-          {t("detailTitle")}
-        </Heading>
-      </Flex>
+    <>
+      {/* One movement, two shapes: the panes of the DetalleMovimiento artboard
+          from `md` up, where the shell already turns into the sidebar, and this
+          single column below. Exactly one is displayed at any width. */}
+      <Box display={{ initial: "none", md: "block" }}>
+        <MovementDetailDesktop
+          movement={movement}
+          options={options}
+          creatorName={creatorName}
+        />
+      </Box>
 
-      <Flex direction="column" align="center" gap="2" py="4">
-        <CategoryTile color={tileColor} size={60} />
-        <Heading
-          as="h2"
-          size="8"
-          color={amountColor}
-          style={{ fontVariantNumeric: "tabular-nums" }}
-        >
-          {amount}
-        </Heading>
-        <Text size="3" color="gray">
-          {caption}
-        </Text>
-      </Flex>
-
-      <Card>
-        <Flex direction="column">
-          <DetailRow label={t("accountLabel")} value={account} />
-          <Separator size="4" my="3" />
-          <DetailRow label={t("dateLabel")} value={date} />
-          {creatorName && (
-            <>
-              <Separator size="4" my="3" />
-              <DetailRow label={t("createdBy")} value={creatorName} />
-            </>
-          )}
-          {movement.labels.length > 0 && (
-            <>
-              <Separator size="4" my="3" />
-              <DetailRow
-                label={t("labels")}
-                value={
-                  <Flex gap="2" wrap="wrap" justify="end">
-                    {movement.labels.map((label) => (
-                      <Badge key={label.id} color="gray" variant="soft" radius="full">
-                        {label.name}
-                      </Badge>
-                    ))}
-                  </Flex>
-                }
-              />
-            </>
-          )}
-          {movement.description && (
-            <>
-              <Separator size="4" my="3" />
-              <Flex direction="column" gap="1">
-                <Text size="2" color="gray">
-                  {t("note")}
-                </Text>
-                <Text size="3">{movement.description}</Text>
-              </Flex>
-            </>
-          )}
+      <Flex direction="column" gap="4" display={{ initial: "flex", md: "none" }}>
+        <Flex align="center" gap="3">
+          <IconButton asChild variant="ghost" color="gray" aria-label={t("listTitle")}>
+            <LocaleLink href="/movements">
+              <ChevronLeftIcon size={18} />
+            </LocaleLink>
+          </IconButton>
+          <Heading size="5" style={{ flex: 1 }}>
+            {t("detailTitle")}
+          </Heading>
         </Flex>
-      </Card>
 
-      {isUnreviewedGenerated && (
-        <Button
-          type="button"
-          size="3"
-          disabled={confirm.isPending}
-          onClick={() => confirm.execute({ transactionId: movement.id })}
-        >
-          <CheckIcon size={16} />
-          {t("confirm")}
-        </Button>
-      )}
+        <Flex direction="column" align="center" gap="2" py="4">
+          <CategoryTile color={tileColor} size={60} />
+          <Heading
+            as="h2"
+            size="8"
+            color={amountColor}
+            style={{ fontVariantNumeric: "tabular-nums" }}
+          >
+            {amount}
+          </Heading>
+          <Text size="3" color="gray">
+            {caption}
+          </Text>
+        </Flex>
 
-      <Flex gap="3">
-        <Button
-          type="button"
-          size="3"
-          variant="soft"
-          color="gray"
-          style={{ flex: 1 }}
-          onClick={() => setEditOpen(true)}
-        >
-          <PencilIcon size={16} />
-          {t("edit")}
-        </Button>
-        <Button
-          type="button"
-          size="3"
-          variant="soft"
-          color="red"
-          style={{ flex: 1 }}
-          onClick={() => setDeleteOpen(true)}
-        >
-          <Trash2Icon size={16} />
-          {t("delete")}
-        </Button>
+        <Card>
+          <Flex direction="column">
+            <DetailRow label={t("accountLabel")} value={account} />
+            <Separator size="4" my="3" />
+            <DetailRow label={t("dateLabel")} value={date} />
+            {creatorName && (
+              <>
+                <Separator size="4" my="3" />
+                <DetailRow label={t("createdBy")} value={creatorName} />
+              </>
+            )}
+            {movement.labels.length > 0 && (
+              <>
+                <Separator size="4" my="3" />
+                <DetailRow
+                  label={t("labels")}
+                  value={
+                    <Flex gap="2" wrap="wrap" justify="end">
+                      {movement.labels.map((label) => (
+                        <Badge key={label.id} color="gray" variant="soft" radius="full">
+                          {label.name}
+                        </Badge>
+                      ))}
+                    </Flex>
+                  }
+                />
+              </>
+            )}
+            {movement.description && (
+              <>
+                <Separator size="4" my="3" />
+                <Flex direction="column" gap="1">
+                  <Text size="2" color="gray">
+                    {t("note")}
+                  </Text>
+                  <Text size="3">{movement.description}</Text>
+                </Flex>
+              </>
+            )}
+          </Flex>
+        </Card>
+
+        {isUnreviewedGenerated && (
+          <Button
+            type="button"
+            size="3"
+            disabled={confirm.isPending}
+            onClick={() => confirm.execute({ transactionId: movement.id })}
+          >
+            <CheckIcon size={16} />
+            {t("confirm")}
+          </Button>
+        )}
+
+        <Flex gap="3">
+          <Button
+            type="button"
+            size="3"
+            variant="soft"
+            color="gray"
+            style={{ flex: 1 }}
+            onClick={() => setEditOpen(true)}
+          >
+            <PencilIcon size={16} />
+            {t("edit")}
+          </Button>
+          <Button
+            type="button"
+            size="3"
+            variant="soft"
+            color="red"
+            style={{ flex: 1 }}
+            onClick={() => setDeleteOpen(true)}
+          >
+            <Trash2Icon size={16} />
+            {t("delete")}
+          </Button>
+        </Flex>
+
+        <Dialog.Root open={editOpen} onOpenChange={setEditOpen}>
+          <Dialog.Content>
+            {/* The form carries its own heading; the title stays for the a11y tree. */}
+            <VisuallyHidden>
+              <Dialog.Title>{t("formTitle")}</Dialog.Title>
+            </VisuallyHidden>
+            {/* Closing unmounts the content, so the form reseeds on each open. */}
+            {editOpen && (
+              <MovementForm
+                mode="edit"
+                options={options}
+                movement={movement}
+                onDone={() => setEditOpen(false)}
+              />
+            )}
+          </Dialog.Content>
+        </Dialog.Root>
+
+        <ConfirmDialog
+          open={deleteOpen}
+          onOpenChange={setDeleteOpen}
+          title={t("deleteTitle")}
+          description={t("deleteDescription")}
+          confirmLabel={t("delete")}
+          cancelLabel={tKey("common.cancel")}
+          pending={remove.isPending}
+          onConfirm={() => remove.execute({ transactionId: movement.id })}
+        />
       </Flex>
-
-      <Dialog.Root open={editOpen} onOpenChange={setEditOpen}>
-        <Dialog.Content>
-          {/* The form carries its own heading; the title stays for the a11y tree. */}
-          <VisuallyHidden>
-            <Dialog.Title>{t("formTitle")}</Dialog.Title>
-          </VisuallyHidden>
-          {/* Closing unmounts the content, so the form reseeds on each open. */}
-          {editOpen && (
-            <MovementForm
-              mode="edit"
-              options={options}
-              movement={movement}
-              onDone={() => setEditOpen(false)}
-            />
-          )}
-        </Dialog.Content>
-      </Dialog.Root>
-
-      <ConfirmDialog
-        open={deleteOpen}
-        onOpenChange={setDeleteOpen}
-        title={t("deleteTitle")}
-        description={t("deleteDescription")}
-        confirmLabel={t("delete")}
-        cancelLabel={tKey("common.cancel")}
-        pending={remove.isPending}
-        onConfirm={() => remove.execute({ transactionId: movement.id })}
-      />
-    </Flex>
+    </>
   );
 }
 
