@@ -186,7 +186,13 @@ test("creates a savings goal and deletes it from the screen and the table", asyn
   await form.getByRole("button", { name: goals.save, exact: true }).click();
 
   await expect(form).toBeHidden();
-  await expect(page.getByText(name, { exact: true })).toBeVisible();
+  // Metas draws a table on a laptop and cards on a phone, both mounted at every
+  // width: a role matches only the shape on screen, a name matches both.
+  const goalRow = page.getByRole("button", {
+    name: common.actionsFor.replace("{name}", name),
+    exact: true,
+  });
+  await expect(goalRow).toBeVisible();
 
   const [created] = await fixtureSql<
     { id: string; target_amount_cents: string }[]
@@ -197,7 +203,7 @@ test("creates a savings goal and deletes it from the screen and the table", asyn
 
   await removeOnlyRow(page, common.delete, common.delete);
 
-  await expect(page.getByText(name, { exact: true })).toHaveCount(0);
+  await expect(goalRow).toHaveCount(0);
   const left = await fixtureSql`select id from savings_goals where id = ${created.id}`;
   expect(left).toHaveLength(0);
 });

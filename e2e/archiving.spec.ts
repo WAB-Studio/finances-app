@@ -117,19 +117,35 @@ test("archives a budget out of the active list and restores it from the archive"
   await fixtureSql`delete from budgets where id = ${created.id}`;
 });
 
-// The card's apartado line: the text engine matches the smallest element
-// carrying the word, which is the line holding the figure beside it.
-function apartado(page: Page): Locator {
-  return page.getByText(goals.apartado);
+/**
+ * What the goal has apartado, as the shape this project's viewport renders shows
+ * it: the laptop's own column in the row named by the goal, the phone's card line
+ * beside the word. Both shapes stay mounted at every width and CSS displays one
+ * of them, so the phone's locator drops the copy it is not looking at.
+ */
+function apartado(page: Page, desktop: boolean, name: string): Locator {
+  if (!desktop) return page.getByText(goals.apartado).filter({ visible: true });
+
+  return page
+    .getByRole("table", { name: goals.title })
+    .getByRole("row")
+    .filter({ hasText: name })
+    .getByRole("cell")
+    .nth(3);
 }
 
 test("archives a savings goal and restores it still saving the same amount", async ({
   page,
-}) => {
+}, testInfo) => {
   const name = `Meta archivable ${stamp}`;
   const targetPesos = "2000000";
   const openingPesos = "500000";
   const openingCents = 50000000;
+
+  // A role matches only the shape on screen, so the goal is found by its own
+  // menu rather than by a name both shapes carry in the markup.
+  const desktop = testInfo.project.name === "desktop";
+  const goalRow = () => rowMenu(page, name);
 
   await page.goto("/es/planning/goals");
   await addButton(page, goals.add).click();
@@ -143,40 +159,40 @@ test("archives a savings goal and restores it still saving the same amount", asy
   await form.getByRole("button", { name: goals.save, exact: true }).click();
 
   await expect(form).toBeHidden();
-  await expect(page.getByText(name, { exact: true })).toBeVisible();
+  await expect(goalRow()).toBeVisible();
 
   const [created] = await fixtureSql<{ id: string }[]>`
     select id from savings_goals
     where owner_user_id = ${scope.userId} and name = ${name}`;
 
   // Read from the screen, not computed: what a person has to find unchanged is
-  // the figure the card is showing them.
-  const savedOnScreen = (await apartado(page).textContent()) ?? "";
+  // the figure the screen is showing them.
+  const savedOnScreen = (await apartado(page, desktop, name).textContent()) ?? "";
   expect(await savedCents(created.id)).toBe(openingCents);
 
   await confirmThroughMenu(page, rowMenu(page, name), common.archive, common.archive);
 
-  await expect(page.getByText(name, { exact: true })).toHaveCount(0);
+  await expect(goalRow()).toHaveCount(0);
   const [archived] = await fixtureSql<{ archived_at: string | null }[]>`
     select archived_at::text as archived_at from savings_goals where id = ${created.id}`;
   expect(archived.archived_at).not.toBeNull();
 
   await tab(page, goals.archivedTab).click();
-  await expect(page.getByText(name, { exact: true })).toBeVisible();
+  await expect(goalRow()).toBeVisible();
 
   await confirmThroughMenu(page, rowMenu(page, name), common.restore, common.restore);
 
-  await expect(page.getByText(name, { exact: true })).toHaveCount(0);
+  await expect(goalRow()).toHaveCount(0);
   await tab(page, goals.activeTab).click();
-  await expect(page.getByText(name, { exact: true })).toBeVisible();
+  await expect(goalRow()).toBeVisible();
 
   const [restored] = await fixtureSql<{ archived_at: string | null }[]>`
     select archived_at::text as archived_at from savings_goals where id = ${created.id}`;
   expect(restored.archived_at).toBeNull();
 
   // Archiving moves the row and nothing else: the aportes it derives from were
-  // never touched, so both the card and the cents behind it read as they did.
-  await expect(apartado(page)).toHaveText(savedOnScreen);
+  // never touched, so both the screen and the cents behind it read as they did.
+  await expect(apartado(page, desktop, name)).toHaveText(savedOnScreen);
   expect(await savedCents(created.id)).toBe(openingCents);
 
   // The aporte is named before its goal even though it cascades: one that

@@ -40,7 +40,7 @@ export default async function GoalsPage(
   ]);
 
   return (
-    <Page>
+    <Page gutter="flush">
       <GoalsScreen
         goals={goals}
         options={options}

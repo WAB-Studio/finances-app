@@ -1,6 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
 import { STORAGE_STATE } from "./e2e/global-setup";
+import { HARNESS_LANE_SUFFIX } from "./scripts/harness/session";
 
 // No `webServer` block: the dev server on :3000 is started and kept running by
 // hand, and a second instance would refuse the port anyway.
@@ -8,8 +9,9 @@ const baseURL = process.env.HARNESS_BASE_URL ?? "http://localhost:3000";
 
 export default defineConfig({
   testDir: "./e2e",
-  // Gitignored, so a run leaves the tree clean.
-  outputDir: "./private/playwright-results",
+  // Gitignored, so a run leaves the tree clean. One directory per lane: two lanes
+  // running at once would otherwise overwrite each other's artefacts.
+  outputDir: `./private/playwright-results${HARNESS_LANE_SUFFIX}`,
   globalSetup: "./e2e/global-setup.ts",
   // One worker, in order: both projects drive the same rows under the same user,
   // and a spec that seeds its queue would race the other project's.
