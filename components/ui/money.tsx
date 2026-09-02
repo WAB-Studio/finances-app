@@ -18,7 +18,7 @@ const TONE_COLOR: Record<MoneyTone, string | undefined> = {
 
 const SIZE_STYLE = {
   row: { fontSize: "13.5px", fontWeight: 600 },
-  figure: { fontSize: "24px", fontWeight: 700, letterSpacing: "-0.025em" },
+  figure: { fontSize: "23px", fontWeight: 700, letterSpacing: "-0.025em" },
 } satisfies Record<string, CSSProperties>;
 
 /**

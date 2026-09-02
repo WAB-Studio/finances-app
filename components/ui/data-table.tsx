@@ -35,6 +35,7 @@ export function DataTable<Row>({
   sections,
   rowKey,
   total,
+  footer,
 }: {
   label: string;
   columns: DataColumn<Row>[];
@@ -42,6 +43,9 @@ export function DataTable<Row>({
   sections?: DataSection<Row>[];
   rowKey: (row: Row) => string;
   total?: ReactNode[];
+  // Drawn under the container, inside the same gutter: the pagination of
+  // SPEC-A3 lines up with the table's edges without a screen padding it.
+  footer?: ReactNode;
 }) {
   const groups: DataSection<Row>[] = sections ?? [
     { key: "rows", label: "", rows: rows ?? [] },
@@ -122,6 +126,7 @@ export function DataTable<Row>({
           </div>
         )}
       </div>
+      {footer}
     </div>
   );
 }

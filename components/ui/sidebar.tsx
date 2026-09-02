@@ -6,8 +6,11 @@ import styles from "./sidebar.module.css";
 /**
  * The desktop shell's left column (`private/design-desktop/SPEC-A3.md`): 248px of
  * surface against the page, sticky so its foot stays reachable however long the
- * screen beside it runs. `display` is the caller's, because the bottom bar owns
- * navigation below `md` and this must not render there.
+ * screen beside it runs. Its first child is the head and its last is the foot:
+ * those two stay pinned and everything between them scrolls, which is what keeps
+ * Registrar and the person row on a 720p laptop. `display` is the caller's,
+ * because the bottom bar owns navigation below `md` and this must not render
+ * there.
  */
 export function Sidebar({
   label,

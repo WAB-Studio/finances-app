@@ -10,6 +10,25 @@
   padding: 22px 14px 18px;
   background-color: var(--color-panel-solid);
   border-right: 1px solid var(--gray-a4);
+  overflow-y: auto;
+}
+
+/* A 720p laptop is shorter than the destinations, the button and the person row
+   together. The list scrolls between a pinned head and a pinned foot, so the
+   fund stays named and Registrar stays reachable at any height; on a canvas tall
+   enough for all of it, nothing sticks and nothing moves. */
+.sidebar > :first-child {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background-color: var(--color-panel-solid);
+}
+
+.sidebar > :last-child {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  background-color: var(--color-panel-solid);
 }
 
 .separator {
