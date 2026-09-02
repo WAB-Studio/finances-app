@@ -31,20 +31,43 @@ const COOKIE_NAME = `sb-${PROJECT_REF}-auth-token`;
 // then `${name}.0`, `${name}.1`, … over the same string.
 const MAX_CHUNK_SIZE = 3180;
 
-export const HARNESS_EMAIL = "harness@example.invalid";
+/**
+ * The lane this run owns, read from `HARNESS_LANE`. Two tracks that set different
+ * lanes share no identity, no file and no row, so their suites can run at the
+ * same time. Unset and `1` are the same lane, and its names predate the lanes:
+ * every stored session in `private/` hangs off them.
+ */
+function laneSuffix(): string {
+  const lane = process.env.HARNESS_LANE?.trim() ?? "";
+  if (lane === "" || lane === "1") return "";
+  if (!/^[1-9][0-9]*$/.test(lane)) {
+    throw new Error(`HARNESS_LANE must be a positive integer, not "${lane}"`);
+  }
+
+  return `-${lane}`;
+}
+
+export const HARNESS_LANE_SUFFIX = laneSuffix();
+
+export const HARNESS_EMAIL = `harness${HARNESS_LANE_SUFFIX}@example.invalid`;
 
 // The second identity: a plain member of a group it does not lead, which is the
 // other half of what RF-100 separates. Kept apart from the first because a
 // membership is exclusive (RF-55) — one user cannot hold both roles.
-export const HARNESS_MEMBER_EMAIL = "harness-member@example.invalid";
+export const HARNESS_MEMBER_EMAIL = `harness-member${HARNESS_LANE_SUFFIX}@example.invalid`;
 
 // Gitignored, and shared with layer 3 — a browser run and an HTTP run in the same
 // hour cost one mint between them. One file per identity, named after the local
-// part past `harness`, so the first identity keeps the file it has always used.
-function sessionFile(email: string): string {
+// part past `harness`, so lane 1 keeps the files it has always used and lane n
+// carries its number through into every name.
+export function sessionFileName(email: string): string {
   const suffix = email.split("@")[0].replace(/^harness/, "");
 
-  return resolve(process.cwd(), `private/harness-session${suffix}.json`);
+  return `private/harness-session${suffix}.json`;
+}
+
+function sessionFile(email: string): string {
+  return resolve(process.cwd(), sessionFileName(email));
 }
 
 export const HARNESS_BASE_URL =
@@ -239,7 +262,7 @@ async function newestTokenHash(userId: string): Promise<string | null> {
  * worthless against a user that a cleanup removed. Every column GoTrue scans is
  * filled; the nulls it cannot read are what the 500 above came from.
  */
-async function ensureHarnessAuthUser(email: string): Promise<string> {
+export async function ensureHarnessAuthUser(email: string): Promise<string> {
   const [existing] = await fixtureSql<{ id: string }[]>`
     select id from auth.users where email = ${email}`;
   if (existing) return existing.id;

@@ -14,6 +14,9 @@
  * Every row here belongs to one of those two users, which nothing else writes,
  * so the purge below is a reset rather than a deletion of someone's data. It runs
  * at both ends: a crashed run leaves the next one a clean queue.
+ *
+ * The two users are the ones `HARNESS_LANE` selects, and every id below comes
+ * from them, so a run on one lane never names a row another lane owns.
  */
 import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -28,18 +31,22 @@ import { fixtureSql } from "../scripts/harness/fixtures";
 import {
   HARNESS_BASE_URL,
   HARNESS_EMAIL,
+  HARNESS_LANE_SUFFIX,
   HARNESS_MEMBER_EMAIL,
   harnessSession,
   sessionCookies,
 } from "../scripts/harness/session";
 
-export const STORAGE_STATE = "private/harness-storage.json";
+export const STORAGE_STATE = `private/harness-storage${HARNESS_LANE_SUFFIX}.json`;
 
 // The second identity's cookies. A spec that reads the roster as a plain member
 // names this state; every other spec keeps the first identity's.
-export const MEMBER_STORAGE_STATE = "private/harness-member-storage.json";
+export const MEMBER_STORAGE_STATE = `private/harness-member-storage${HARNESS_LANE_SUFFIX}.json`;
 
-const SCOPE_FILE = resolve(process.cwd(), "private/harness-e2e.json");
+const SCOPE_FILE = resolve(
+  process.cwd(),
+  `private/harness-e2e${HARNESS_LANE_SUFFIX}.json`,
+);
 
 export type E2eScope = {
   userId: string;
