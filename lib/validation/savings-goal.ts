@@ -89,6 +89,14 @@ export const contributeGoalSchema = z.object({
 
 export type ContributeGoalInput = z.infer<typeof contributeGoalSchema>;
 
+// The undo list names the goal it belongs to; which aportes come back is the
+// select policy's call, never the payload's (RF-119).
+export const goalContributionsSchema = z.object({
+  goalId: z.uuid({ error: "goals.errors.goalInvalid" }),
+});
+
+export type GoalContributionsInput = z.infer<typeof goalContributionsSchema>;
+
 export const removeGoalContributionSchema = z.object({
   contributionId: z.uuid({ error: "goals.errors.contributionInvalid" }),
 });

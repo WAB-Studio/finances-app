@@ -5,6 +5,8 @@ import { desc, eq, sql } from "drizzle-orm";
 import { insertRow } from "@/db/insert-row";
 import { goalContributions, savingsGoals, transactions } from "@/db/schema";
 import { withUserDb } from "@/db/session";
+import { todayInBogota } from "@/lib/dates";
+import { TIME_ZONE } from "@/lib/locales";
 
 export type GoalProgress = {
   id: string;
@@ -15,6 +17,13 @@ export type GoalProgress = {
   savedCents: number;
   remainingCents: number;
   reachedTarget: boolean;
+  // Whole percent of the meta already set aside, capped at 100.
+  progressPct: number;
+  // What is left to set aside each month to land on the target date; null when
+  // the goal names no date or has already reached its meta.
+  requiredMonthlyCents: number | null;
+  // Behind the straight line from the day the goal opened to its target date.
+  behindPace: boolean;
 };
 
 /**
@@ -25,6 +34,12 @@ export type GoalProgress = {
  * listing onto the archived side (RF-120); the view knows nothing of the flag,
  * so an archived goal's progress keeps deriving from its aportes. Scope is the
  * policy's job: `withUserDb` shows only the caller's readable goals.
+ *
+ * The pace rides along from the same read, in exact numeric arithmetic and back
+ * as integer cents: the monthly figure spreads what remains over the whole months
+ * still ahead — at least one, so a goal due this month asks for all of it — and a
+ * goal counts as behind when what it has set aside sits under the straight line
+ * from the day it opened to the day it is due. Neither is stored (RNF-07).
  */
 export async function listGoalsWithProgress(options?: {
   archived?: boolean;
@@ -32,6 +47,10 @@ export async function listGoalsWithProgress(options?: {
   const archivedFilter = options?.archived
     ? sql`g.archived_at is not null`
     : sql`g.archived_at is null`;
+
+  const today = todayInBogota();
+  // The goal's own opening day, read in the zone every civil date here is in.
+  const openedOn = sql`(g.created_at at time zone ${TIME_ZONE})::date`;
 
   return withUserDb(async (tx) => {
     const rows = await tx.execute<{
@@ -41,6 +60,9 @@ export async function listGoalsWithProgress(options?: {
       target_date: string | null;
       account_id: string | null;
       saved_cents: string;
+      progress_pct: number;
+      required_monthly_cents: string | null;
+      behind_pace: boolean;
     }>(sql`
       select
         g.id,
@@ -48,7 +70,25 @@ export async function listGoalsWithProgress(options?: {
         g.target_amount_cents,
         g.target_date,
         g.account_id,
-        gp.saved_cents
+        gp.saved_cents,
+        least(round(gp.saved_cents * 100.0 / g.target_amount_cents), 100)::int
+          as progress_pct,
+        case
+          when g.target_date is null or gp.saved_cents >= g.target_amount_cents
+            then null
+          else ceil(
+            (g.target_amount_cents - gp.saved_cents)::numeric
+            / greatest(ceil((g.target_date - ${today}::date) / 30.0), 1)
+          )::bigint
+        end as required_monthly_cents,
+        case
+          when g.target_date is null or gp.saved_cents >= g.target_amount_cents
+            then false
+          -- Cross-multiplied so the comparison stays in exact integers: saved
+          -- over the whole span against the meta over the days already spent.
+          else gp.saved_cents * greatest(g.target_date - ${openedOn}, 0)
+            < g.target_amount_cents * greatest(${today}::date - ${openedOn}, 0)
+        end as behind_pace
       from savings_goals g
       join goal_progress gp on gp.goal_id = g.id
       where ${archivedFilter}
@@ -69,6 +109,12 @@ export async function listGoalsWithProgress(options?: {
         savedCents,
         remainingCents: Math.max(targetAmountCents - savedCents, 0),
         reachedTarget: savedCents >= targetAmountCents,
+        progressPct: row.progress_pct,
+        requiredMonthlyCents:
+          row.required_monthly_cents === null
+            ? null
+            : Number(row.required_monthly_cents),
+        behindPace: row.behind_pace,
       };
     });
   });
@@ -220,14 +266,15 @@ export async function addGoalContribution({
   });
 }
 
-// One aporte as the undo list shows it (RF-119). `occurredAt` and `description`
-// come from the movement the entry earmarks; a virtual entry earmarks none and
-// leaves both null, since `goal_contributions` carries no date of its own.
+// One aporte as the undo list shows it (RF-119). `occurredAt` is the day the
+// money was set aside: the movement's own date when the entry earmarks one, and
+// the day the entry was written when it earmarks none — every aporte carries one.
+// `description` names that movement, and stays null for a virtual entry.
 export type GoalContributionRow = {
   id: string;
   amountCents: number;
   transactionId: string | null;
-  occurredAt: string | null;
+  occurredAt: string;
   description: string | null;
 };
 
@@ -243,21 +290,28 @@ export type GoalContributionRow = {
 export async function listGoalContributions(
   goalId: string,
 ): Promise<GoalContributionRow[]> {
+  // Written out rather than built from the column references: a fragment in a
+  // projection renders them unqualified, and both tables carry a `created_at`.
+  const occurredAt = sql<string>`coalesce(
+    transactions.occurred_at,
+    (goal_contributions.created_at at time zone ${TIME_ZONE})::date
+  )`;
+
   return withUserDb(async (tx) => {
     return tx
       .select({
         id: goalContributions.id,
         amountCents: goalContributions.amountCents,
         transactionId: goalContributions.transactionId,
-        occurredAt: transactions.occurredAt,
+        occurredAt,
         description: transactions.description,
       })
       .from(goalContributions)
       .leftJoin(transactions, eq(transactions.id, goalContributions.transactionId))
       .where(eq(goalContributions.goalId, goalId))
-      // A dated aporte leads in date order; an undated one has nothing to sort
-      // by, so `desc` leaves it first and the id keeps the order stable.
-      .orderBy(desc(transactions.occurredAt), goalContributions.id);
+      // Newest first by the day the money was set aside; two aportes of the same
+      // day fall back on the instant the row was written, which keeps them stable.
+      .orderBy(desc(occurredAt), desc(goalContributions.createdAt));
   });
 }
 
