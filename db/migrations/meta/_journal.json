@@ -162,6 +162,20 @@
       "when": 1788323903949,
       "tag": "0022_refuse_an_aporte_to_an_archived_goal",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1788358564243,
+      "tag": "0023_date_an_aporte",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1788358576734,
+      "tag": "0024_seed_personal_categories_for_existing_users",
+      "breakpoints": true
     }
   ]
 }

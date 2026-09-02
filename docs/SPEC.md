@@ -40,7 +40,7 @@ accounting exports, native apps. None of this gets built or left
 #### Authentication and fund
 
 - [x] **RF-01** — Passwordless email login.
-- [ ] **RF-57** — Only the group `leader` invites members, edits the group and manages the group's categories.
+- [x] **RF-57** — Only the group `leader` invites members, edits the group and manages the group's categories.
 - [ ] **RF-58** — Every member of a group can read all of its accounts (universal read); write is bounded per account — a personal account by its owner, a shared account by any member.
 - [ ] **RF-59** — Whoever creates a group becomes its `leader`. The role is transferable, but a group is never left without a leader.
 - [x] **RF-06** — Accepting an invitation links the user to the member that already exists in the fund, if any; otherwise a member is created.

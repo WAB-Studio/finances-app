@@ -1,5 +1,14 @@
 import { sql } from "drizzle-orm";
-import { bigint, check, index, pgPolicy, pgTable, unique, uuid } from "drizzle-orm/pg-core";
+import {
+  bigint,
+  check,
+  index,
+  pgPolicy,
+  pgTable,
+  timestamp,
+  unique,
+  uuid,
+} from "drizzle-orm/pg-core";
 import { authenticatedRole, authUid } from "drizzle-orm/supabase";
 
 import { savingsGoals } from "./savings-goals";
@@ -16,6 +25,9 @@ export const goalContributions = pgTable(
       .references(() => savingsGoals.id, { onDelete: "cascade" }),
     transactionId: uuid().references(() => transactions.id, { onDelete: "cascade" }),
     amountCents: bigint({ mode: "number" }).notNull(),
+    // When the amount was set aside (RF-119). A virtual aporte earmarks no movement, so without
+    // this the row has no date at all and the list has nothing to show.
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     check("goal_contributions_amount_positive", sql`${table.amountCents} > 0`),

@@ -197,6 +197,8 @@ async function main() {
   await checkReportFunctionsExcludeTransfers();
   await checkGroupSettingsWrite();
   await checkArchivePolicies();
+  await checkContributionStamp();
+  await checkGroupCategoryLeaderOnly();
 }
 
 // Assertions 9-26: the repivoted schema. A group holds accounts and categories a user XOR a group
@@ -4763,7 +4765,7 @@ const INSERT_GRANT_GAPS: Record<string, string[]> = {
   categories: ["created_at", "id", "updated_at"],
   debt_statements: ["closed_at", "id"],
   debt_terms: ["created_at", "updated_at"],
-  goal_contributions: ["id"],
+  goal_contributions: ["created_at", "id"],
   group_members: ["archived_at", "created_at", "id", "updated_at"],
   groups: ["created_at", "currency", "updated_at"],
   ingest_deliveries: [
@@ -4870,7 +4872,7 @@ const UPDATE_GRANT_GAPS: Record<string, string[]> = {
     "statement_balance_cents",
   ],
   debt_terms: ["account_id", "created_at", "updated_at"],
-  goal_contributions: ["amount_cents", "goal_id", "id", "transaction_id"],
+  goal_contributions: ["amount_cents", "created_at", "goal_id", "id", "transaction_id"],
   group_members: [
     "created_at",
     "external_ref",
@@ -7411,6 +7413,197 @@ async function checkArchivePolicies() {
     tailLabel,
     afterUser === "postgres" && probeCount === "0",
     `current_user = ${afterUser}, rows named 'rls archive%' = ${probeCount}`,
+  );
+}
+
+// Assertions 250-251: an aporte carried no date of its own until 0023 — a virtual one earmarks no
+// movement, so the list RF-119 puts on the screen had nothing to date it by. `created_at` is stamped
+// by the default and left outside the per-column INSERT grant, the shape `group_members.created_at`
+// took in 0019, so the proof is that same one: the forged value is refused and the row still lands
+// dated. Fixtures live in one transaction forced to roll back.
+async function checkContributionStamp() {
+  console.log("");
+  const ownerUser = randomUUID();
+  const forgedAt = "2000-01-01T00:00:00Z";
+  const forcedRollback = Symbol("forced rollback");
+
+  const label = "250. goal_contributions refuses a forged created_at and stamps its own";
+  const tailLabel = "251. the rolled-back aporte-date transaction leaves no trace";
+
+  type OrmTx = Parameters<Parameters<typeof orm.transaction>[0]>[0];
+  const enter = (tx: OrmTx, subject: string) =>
+    tx.execute(dsql`select
+      set_config('request.jwt.claims', ${JSON.stringify({ sub: subject, role: "authenticated", aud: "authenticated" })}, true),
+      set_config('statement_timeout', '8000', true),
+      set_config('role', 'authenticated', true)`);
+
+  await orm
+    .transaction(async (tx) => {
+      const refusalOf = async (run: (sp: OrmTx) => Promise<unknown>): Promise<string> => {
+        let refusal = "no refusal — the statement was accepted";
+        await tx
+          .transaction(async (sp) => {
+            await run(sp);
+          })
+          .catch((error: unknown) => {
+            refusal = describeRefusal(error);
+          });
+        return refusal;
+      };
+
+      await tx.execute(dsql`insert into auth.users (id) values (${ownerUser})`);
+      await tx.execute(dsql`insert into app_users (id) values (${ownerUser})`);
+
+      await enter(tx, ownerUser);
+      const [goal] = await tx.execute<{ id: string }>(
+        dsql`insert into savings_goals (owner_user_id, name, target_amount_cents)
+          values (${ownerUser}, 'rls aporte date goal', 200000000) returning id`,
+      );
+
+      const forgedAporte = await refusalOf((sp) =>
+        sp.execute(
+          dsql`insert into goal_contributions (goal_id, amount_cents, created_at)
+            values (${goal.id}, 5000000, ${forgedAt}::timestamptz)`,
+        ),
+      );
+      // A virtual aporte, the one that has no movement to borrow a date from.
+      const [landed] = await tx.execute<{ forged: boolean; stamped: boolean }>(
+        dsql`insert into goal_contributions (goal_id, transaction_id, amount_cents)
+          values (${goal.id}, null, 5000000)
+          returning created_at = ${forgedAt}::timestamptz as forged, created_at is not null as stamped`,
+      );
+      assert(
+        label,
+        forgedAporte.includes("42501") &&
+          forgedAporte.includes("permission denied for table goal_contributions") &&
+          landed.forged === false &&
+          landed.stamped,
+        `${forgedAporte}; the row that landed carries the forged timestamp = ${landed?.forged}, stamped = ${landed?.stamped}`,
+      );
+
+      // Nothing this section wrote may survive; force the ROLLBACK.
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`select current_user`;
+  const [{ count: probeCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from savings_goals where name like 'rls aporte date%'`;
+  assert(
+    tailLabel,
+    afterUser === "postgres" && probeCount === "0",
+    `current_user = ${afterUser}, rows named 'rls aporte date%' = ${probeCount}`,
+  );
+}
+
+// Assertions 252-254: the third clause of RF-57 — the leader manages the group's categories.
+// Assertion 25 puts a plain member's rename to the test and stops there, so `categories_insert_group`
+// and `categories_delete_group` had their `private.is_group_leader` gate asserted from the migration
+// and never fired. Each barred statement runs as the member and then as the leader, so a policy that
+// admitted everyone would fail here rather than pass twice. Fixtures roll back.
+async function checkGroupCategoryLeaderOnly() {
+  console.log("");
+  const leaderUser = randomUUID();
+  const memberUser = randomUUID();
+  const groupId = randomUUID();
+  const forcedRollback = Symbol("forced rollback");
+
+  const labels = [
+    "252. a plain member cannot mint a group category, and the leader can",
+    "253. a plain member's delete of a group category touches nothing, and the leader's removes it",
+  ];
+  const tailLabel = "254. the rolled-back group category transaction leaves no trace";
+
+  type OrmTx = Parameters<Parameters<typeof orm.transaction>[0]>[0];
+  const enter = (tx: OrmTx, subject: string) =>
+    tx.execute(dsql`select
+      set_config('request.jwt.claims', ${JSON.stringify({ sub: subject, role: "authenticated", aud: "authenticated" })}, true),
+      set_config('statement_timeout', '8000', true),
+      set_config('role', 'authenticated', true)`);
+
+  await orm
+    .transaction(async (tx) => {
+      const refusalOf = async (run: (sp: OrmTx) => Promise<unknown>): Promise<string> => {
+        let refusal = "no refusal — the statement was accepted";
+        await tx
+          .transaction(async (sp) => {
+            await run(sp);
+          })
+          .catch((error: unknown) => {
+            refusal = describeRefusal(error);
+          });
+        return refusal;
+      };
+
+      await tx.execute(dsql`insert into auth.users (id) values (${leaderUser}), (${memberUser})`);
+      await tx.execute(dsql`insert into app_users (id) values (${leaderUser}), (${memberUser})`);
+
+      // The group's id is supplied client-side: an unclaimed group fails its own SELECT policy.
+      await enter(tx, leaderUser);
+      await tx.execute(
+        dsql`insert into groups (id, name, cash_mode) values (${groupId}, 'rls group category', 'shared')`,
+      );
+      await tx.execute(
+        dsql`insert into group_members (group_id, user_id, name, role)
+          values (${groupId}, ${leaderUser}, 'rls group category leader', 'leader')`,
+      );
+      // No policy lets one member hand another their login, so the second member is seeded as `postgres`.
+      await tx.execute(dsql`reset role`);
+      await tx.execute(
+        dsql`insert into group_members (group_id, user_id, name, role)
+          values (${groupId}, ${memberUser}, 'rls group category member', 'member')`,
+      );
+
+      await enter(tx, memberUser);
+      const memberInsert = await refusalOf((sp) =>
+        sp.execute(
+          dsql`insert into categories (group_id, name, kind)
+            values (${groupId}, 'rls group category forged', 'expense')`,
+        ),
+      );
+      await enter(tx, leaderUser);
+      const leaderInsert = await tx.execute<{ id: string }>(
+        dsql`insert into categories (group_id, name, kind)
+          values (${groupId}, 'rls group category', 'expense') returning id`,
+      );
+      assert(
+        labels[0],
+        memberInsert.includes("42501") && leaderInsert.length === 1,
+        `${memberInsert}; the leader's insert landed ${leaderInsert.length} row`,
+      );
+
+      // The delete policy filters the row out rather than raising, so the member's command reports
+      // the row it never saw: zero.
+      await enter(tx, memberUser);
+      const memberDelete = await tx.execute<{ id: string }>(
+        dsql`delete from categories where id = ${leaderInsert[0].id} returning id`,
+      );
+      await enter(tx, leaderUser);
+      const leaderDelete = await tx.execute<{ id: string }>(
+        dsql`delete from categories where id = ${leaderInsert[0].id} returning id`,
+      );
+      assert(
+        labels[1],
+        memberDelete.length === 0 && leaderDelete.length === 1,
+        `member rows = ${memberDelete.length}, leader rows = ${leaderDelete.length}`,
+      );
+
+      // Nothing this section wrote may survive; force the ROLLBACK.
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`select current_user`;
+  const [{ count: probeCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from groups where name like 'rls group category%'`;
+  assert(
+    tailLabel,
+    afterUser === "postgres" && probeCount === "0",
+    `current_user = ${afterUser}, rows named 'rls group category%' = ${probeCount}`,
   );
 }
 
