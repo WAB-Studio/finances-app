@@ -5,9 +5,10 @@ import {
   CategoryTile,
   EmptyState,
   Flex,
-  Heading,
   Link,
   Money,
+  Panel,
+  PanelRow,
   Text,
 } from "@/components/ui";
 import type { TransactionListRow } from "@/db/queries/transactions";
@@ -45,18 +46,9 @@ export function RecentMovements({
   const format = useFormatter();
 
   return (
-    <div
-      style={{
-        backgroundColor: "var(--color-panel-solid)",
-        border: "1px solid var(--gray-a4)",
-        borderRadius: 16,
-        overflow: "hidden",
-      }}
-    >
-      <Flex align="center" justify="between" gap="3" style={{ padding: "14px 18px" }}>
-        <Heading as="h2" size="3">
-          {t("listTitle")}
-        </Heading>
+    <Panel
+      title={t("listTitle")}
+      action={
         <Link asChild size="2" weight="medium">
           <LocaleLink href="/movements">
             <Flex align="center" gap="1">
@@ -65,49 +57,60 @@ export function RecentMovements({
             </Flex>
           </LocaleLink>
         </Link>
-      </Flex>
-
+      }
+    >
       {rows.length === 0 && (
         <EmptyState variant="filtered" title={td("emptyTitle")} />
       )}
 
       {rows.map((row) => (
-        <LocaleLink
+        <PanelRow
           key={row.id}
           href={`/movements/${row.id}`}
-          style={{
-            display: "grid",
-            gridTemplateColumns: COLUMNS,
-            gap: 14,
-            alignItems: "center",
-            height: 54,
-            padding: "0 18px",
-            borderTop: "1px solid var(--gray-a3)",
-            color: "inherit",
-            textDecoration: "none",
-          }}
-        >
-          <CategoryTile color={rowColor(row, categoryColors)} size={36} />
-          <Flex direction="column" minWidth="0">
-            <Text size="2" weight="medium" truncate>
-              {rowTitle(row, categoryNames, kindLabels)}
-            </Text>
-            <Text size="1" color="gray" truncate>
-              {rowSubtitle(row, accountNames)}
-            </Text>
-          </Flex>
-          <Text size="2" color="gray" style={{ fontVariantNumeric: "tabular-nums" }}>
-            {format.dateTime(civilDateToDate(row.occurredAt), {
-              day: "numeric",
-              month: "short",
-            })}
-          </Text>
-          <div style={{ textAlign: "right" }}>
-            <Money cents={row.amountCents} tone={rowTone(row)} />
-          </div>
-        </LocaleLink>
+          columns={COLUMNS}
+          cells={[
+            {
+              key: "tile",
+              content: (
+                <CategoryTile color={rowColor(row, categoryColors)} size={36} />
+              ),
+            },
+            {
+              key: "title",
+              content: (
+                <Flex direction="column" minWidth="0">
+                  <Text size="2" weight="medium" truncate>
+                    {rowTitle(row, categoryNames, kindLabels)}
+                  </Text>
+                  <Text size="1" color="gray" truncate>
+                    {rowSubtitle(row, accountNames)}
+                  </Text>
+                </Flex>
+              ),
+            },
+            {
+              key: "date",
+              numeric: true,
+              // A block, so the date owns its line box: as a span it would ride
+              // the cell's inherited strut and drop off the row's optical line.
+              content: (
+                <Text as="div" size="2" color="gray">
+                  {format.dateTime(civilDateToDate(row.occurredAt), {
+                    day: "numeric",
+                    month: "short",
+                  })}
+                </Text>
+              ),
+            },
+            {
+              key: "amount",
+              align: "end",
+              content: <Money cents={row.amountCents} tone={rowTone(row)} />,
+            },
+          ]}
+        />
       ))}
-    </div>
+    </Panel>
   );
 }
 

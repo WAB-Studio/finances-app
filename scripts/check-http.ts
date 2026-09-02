@@ -28,6 +28,7 @@ import {
   cookieHeader,
   harnessSession,
   mintedThisRun,
+  sessionFileName,
 } from "./harness/session";
 
 const LOCALE = "es";
@@ -675,7 +676,9 @@ async function main(): Promise<void> {
   const userId = session.user.id;
   console.log(
     `REPORT  harness user ${userId} <${HARNESS_EMAIL}>, session ${
-      mintedThisRun() ? "minted this run" : "reused from private/harness-session.json"
+      mintedThisRun()
+        ? "minted this run"
+        : `reused from ${sessionFileName(HARNESS_EMAIL)}`
     }.`,
   );
   console.log(`REPORT  driving ${HARNESS_BASE_URL}.`);

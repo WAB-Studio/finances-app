@@ -35,10 +35,12 @@
   text-overflow: ellipsis;
 }
 
-/* The count sits at the row's end whatever the label measures. */
+/* The count sits at the row's end whatever the label measures, and reads in
+   tabular numerals like every other figure (SPEC-A3). */
 .badge {
   margin-left: auto;
   display: flex;
+  font-variant-numeric: tabular-nums;
 }
 
 /* A row that is a real button; strip the user-agent chrome so it reads as one.
