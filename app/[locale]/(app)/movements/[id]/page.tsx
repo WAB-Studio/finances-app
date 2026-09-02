@@ -47,7 +47,7 @@ export default async function MovementPage(
 
   return (
     // The desktop detail carries the gutter itself, band by band (SPEC-A3).
-    <Page gutter="flush">
+    <Page gutter="flush-md">
       <MovementDetail
         movement={movement}
         options={options}

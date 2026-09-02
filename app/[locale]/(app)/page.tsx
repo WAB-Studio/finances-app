@@ -110,7 +110,7 @@ export default async function HomePage(props: PageProps<"/[locale]">) {
 
   if (dashboardData.hasAccounts === false) {
     return (
-      <Page gutter="flush">
+      <Page gutter="flush-md">
         <Box display={{ initial: "none", md: "block" }}>
           <ScreenHeader title={td("title")} />
         </Box>
@@ -232,7 +232,7 @@ export default async function HomePage(props: PageProps<"/[locale]">) {
     PERSONAL_CASH_ACCOUNT_NAME[locale];
 
   return (
-    <Page gutter="flush">
+    <Page gutter="flush-md">
       <Box display={{ initial: "none", md: "block" }}>
         <ScreenHeader title={td("title")} />
       </Box>
