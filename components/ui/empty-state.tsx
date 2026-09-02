@@ -2,16 +2,21 @@ import type { ReactNode } from "react";
 import { Box, Flex, Text } from "@radix-ui/themes";
 
 // Matches the dashboard's empty state so no screen invents its own.
+// `filtered` is the same stack without the page-filling growth: it sits inside
+// the table container that framed the rows, so the column headers stay on screen
+// and the text never accuses of filtering when no filter is on (RF-23, RF-48).
 export function EmptyState({
   icon,
   title,
   description,
   action,
+  variant = "first",
 }: {
   icon?: ReactNode;
   title: string;
   description?: string;
   action?: ReactNode;
+  variant?: "first" | "filtered";
 }) {
   return (
     <Flex
@@ -20,6 +25,10 @@ export function EmptyState({
       align="center"
       justify="center"
       gap="2"
+      py={variant === "filtered" ? "7" : undefined}
+      // Inside the table's frame the stack keeps its own height; only the
+      // first-run state stretches to fill the content pane.
+      style={variant === "filtered" ? { flexGrow: 0 } : undefined}
     >
       {icon && (
         <Flex
