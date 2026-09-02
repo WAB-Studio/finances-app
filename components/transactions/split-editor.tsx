@@ -100,15 +100,23 @@ export function SplitEditor({
         return (
           <Flex key={index} align="center" gap="3">
             <CategoryTile color={color} size={14} />
+            {/* The artboard draws the category and its amount on one 42px line.
+                Only from `md` up: a phone has no width to spare, and the wider
+                trigger pushes the sheet past the viewport. */}
             <Select.Root
+              size={{ initial: "2", md: "3" }}
               value={split.categoryId || undefined}
               onValueChange={(categoryId) => updateSplit(index, { categoryId })}
             >
-              <Select.Trigger
-                placeholder={t("categoryLabel")}
-                aria-label={t("splitRowCategory", { position })}
-                style={{ flex: 1 }}
-              />
+              {/* Takes the row and gives it back: without the floor at zero the
+                  trigger never shrinks under its longest category name, and the
+                  row pushes the dialog past a phone's width. */}
+              <Flex asChild flexGrow="1" minWidth="0">
+                <Select.Trigger
+                  placeholder={t("categoryLabel")}
+                  aria-label={t("splitRowCategory", { position })}
+                />
+              </Flex>
               <Select.Content position="popper">
                 {options.map((option) => (
                   <Select.Item key={option.id} value={option.id}>
@@ -118,6 +126,7 @@ export function SplitEditor({
               </Select.Content>
             </Select.Root>
             <TextField.Root
+              size="3"
               value={split.amount}
               onChange={(event) =>
                 updateSplit(index, { amount: event.target.value })
@@ -128,6 +137,7 @@ export function SplitEditor({
             />
             <IconButton
               type="button"
+              tap
               variant="ghost"
               color="gray"
               aria-label={t("splitRowRemove", { position })}
@@ -140,7 +150,7 @@ export function SplitEditor({
       })}
 
       <Flex justify="center">
-        <Button type="button" variant="ghost" onClick={addSplit}>
+        <Button type="button" tap variant="ghost" onClick={addSplit}>
           <PlusIcon size={16} />
           {t("splitAddCategory")}
         </Button>

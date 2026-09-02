@@ -12,7 +12,10 @@ import {
   rejectDeliveryAction,
 } from "@/app/actions/ingest";
 import { deleteTransactionAction } from "@/app/actions/transactions";
-import { MovementForm } from "@/components/transactions/movement-form";
+import {
+  MovementForm,
+  movementFormDialogWidth,
+} from "@/components/transactions/movement-form";
 import {
   Badge,
   Box,
@@ -321,7 +324,7 @@ export function DeliveryCard({
       </Flex>
 
       <Dialog.Root open={reviewOpen} onOpenChange={setReviewOpen}>
-        <Dialog.Content>
+        <Dialog.Content maxWidth={movementFormDialogWidth}>
           <VisuallyHidden>
             <Dialog.Title>{t("review")}</Dialog.Title>
           </VisuallyHidden>

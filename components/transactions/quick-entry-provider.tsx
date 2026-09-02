@@ -3,7 +3,10 @@
 import { useTranslations } from "next-intl";
 import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
 
-import { MovementForm } from "@/components/transactions/movement-form";
+import {
+  MovementForm,
+  movementFormDialogWidth,
+} from "@/components/transactions/movement-form";
 import { QuickEntrySheet } from "@/components/transactions/quick-entry-sheet";
 import { Dialog, VisuallyHidden } from "@/components/ui";
 import type { TransactionFormOptions } from "@/db/queries/transaction-form";
@@ -65,7 +68,7 @@ export function QuickEntryProvider({
         onOpenFull={value.openFull}
       />
       <Dialog.Root open={fullOpen} onOpenChange={setFullOpen}>
-        <Dialog.Content>
+        <Dialog.Content maxWidth={movementFormDialogWidth}>
           {/* The form carries its own heading; the title stays for the a11y tree. */}
           <VisuallyHidden>
             <Dialog.Title>{t("formTitle")}</Dialog.Title>

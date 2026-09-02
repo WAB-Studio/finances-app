@@ -27,6 +27,7 @@ import {
   Link,
   Select,
   Spinner,
+  TapTarget,
   Text,
   TextField,
 } from "@/components/ui";
@@ -68,6 +69,7 @@ export function QuickEntrySheet({
           <Dialog.Close>
             <IconButton
               type="button"
+              tap
               variant="ghost"
               color="gray"
               aria-label={t("quickTitle")}
@@ -374,7 +376,10 @@ function QuickEntryForm({
 
         <Flex justify="center">
           <Link href="#" onClick={(event) => { event.preventDefault(); onOpenFull(); }}>
-            {t("quickTypeLink")}
+            {/* A line of text has no control height of its own. */}
+            <TapTarget align="center" px="2">
+              {t("quickTypeLink")}
+            </TapTarget>
           </Link>
         </Flex>
 

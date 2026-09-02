@@ -20,6 +20,7 @@ import { acceptDeliveryAction } from "@/app/actions/ingest";
 import { SplitEditor } from "@/components/transactions/split-editor";
 import {
   Badge,
+  Box,
   Button,
   Callout,
   ChipMultiSelect,
@@ -30,12 +31,14 @@ import {
   FieldMessage,
   Flex,
   FundChip,
+  Grid,
   Heading,
   IconButton,
   Select,
   Spinner,
   Text,
   TextField,
+  type Responsive,
 } from "@/components/ui";
 import type { TransactionFormOptions } from "@/db/queries/transaction-form";
 import type { TransactionListRow } from "@/db/queries/transactions";
@@ -82,6 +85,20 @@ function deriveKind(
   if (fromAccountId) return "expense";
   return null;
 }
+
+/**
+ * The dialog this form is laid out for: the 884px of the FormMovimiento artboard
+ * from `md` up, and below it the width Radix gives every dialog. Every caller
+ * reads it from here, so the form is never opened narrower than its two columns.
+ */
+export const movementFormDialogWidth: Responsive<string> = {
+  initial: "600px",
+  md: "884px",
+};
+
+// The artboard's body: the accounts, the figure, the date and the note on the
+// fixed track, the splits and the labels on what is left.
+const BODY_COLUMNS = "400px 1fr";
 
 // A sentinel the account selects use for "no account", since a Radix item may
 // not carry an empty value; it maps back to null the moment it is picked.
@@ -287,6 +304,7 @@ export function MovementForm({
       <Flex align="center" gap="3" mb="4">
         <IconButton
           type="button"
+          tap
           variant="ghost"
           color="gray"
           onClick={onDone}
@@ -322,11 +340,17 @@ export function MovementForm({
         )}
       </Flex>
 
-      <FieldGroup>
-        {/* The two account slots share a row from `md` up, where the dialog is
-            wide enough to read them as origin beside destination; below it each
-            keeps its own row (RF-18). */}
-        <Flex direction={{ initial: "column", md: "row" }} gap="4" width="100%">
+      {/* The artboard's body from `md` up: the accounts and the figure on the
+          fixed track, the splits and the labels on what is left, the date and
+          the note under the accounts. Below `md` it is one column, and every
+          field keeps the row it already had. */}
+      <Grid
+        columns={{ initial: "1", md: BODY_COLUMNS }}
+        gap="5"
+        align="start"
+        width="100%"
+      >
+        <FieldGroup>
           <Controller
             name="fromAccountId"
             control={form.control}
@@ -388,148 +412,160 @@ export function MovementForm({
               </Field>
             )}
           />
-        </Flex>
 
-        <Controller
-          name="amount"
-          control={form.control}
-          render={({ field, fieldState }) => (
-            <Field invalid={fieldState.invalid}>
-              <FieldLabel htmlFor="movement-amount">{t("amountLabel")}</FieldLabel>
-              <FieldControl>
-                <TextField.Root
-                  {...field}
-                  id="movement-amount"
-                  size="3"
-                  inputMode="numeric"
-                  disabled={isPending}
-                />
-              </FieldControl>
-              <FieldMessage error={fieldState.error} />
-            </Field>
-          )}
-        />
-
-        {/* Category and splits belong to an income or expense only; a transfer
-            carries neither (RF-69). */}
-        {(kind === "income" || kind === "expense") && (
           <Controller
-            name="splits"
+            name="amount"
             control={form.control}
             render={({ field, fieldState }) => (
               <Field invalid={fieldState.invalid}>
-                <FieldLabel>{t("categoryLabel")}</FieldLabel>
-                <SplitEditor
-                  totalPesos={amount}
-                  scope={scope}
-                  kind={kind}
-                  categories={options.categories}
-                  value={field.value}
-                  onChange={field.onChange}
-                />
+                <FieldLabel htmlFor="movement-amount">{t("amountLabel")}</FieldLabel>
+                <FieldControl>
+                  <TextField.Root
+                    {...field}
+                    id="movement-amount"
+                    size="3"
+                    inputMode="numeric"
+                    disabled={isPending}
+                  />
+                </FieldControl>
                 <FieldMessage error={fieldState.error} />
               </Field>
             )}
           />
-        )}
+        </FieldGroup>
 
-        {/* A transfer carries no split but may carry labels, so the picker
-            mounts for every derived kind (RF-70). */}
-        <Controller
-          name="labelIds"
-          control={form.control}
-          render={({ field, fieldState }) => (
-            <Field invalid={fieldState.invalid}>
-              {scopedLabels.length === 0 ? (
-                <>
-                  <FieldLabel>{t("labelsLabel")}</FieldLabel>
-                  <Text size="2" color="gray">
-                    {t("labelsNone")}
-                  </Text>
-                </>
-              ) : (
+        {/* Two rows tall, because the splits grow with the categories while the
+            track beside them holds five fields at rest. */}
+        <Box gridColumn={{ md: "2" }} gridRow={{ md: "1 / span 2" }} width="100%">
+          <FieldGroup>
+            {/* Category and splits belong to an income or expense only; a transfer
+                carries neither (RF-69). */}
+            {(kind === "income" || kind === "expense") && (
+              <Controller
+                name="splits"
+                control={form.control}
+                render={({ field, fieldState }) => (
+                  <Field invalid={fieldState.invalid}>
+                    <FieldLabel>{t("categoryLabel")}</FieldLabel>
+                    <SplitEditor
+                      totalPesos={amount}
+                      scope={scope}
+                      kind={kind}
+                      categories={options.categories}
+                      value={field.value}
+                      onChange={field.onChange}
+                    />
+                    <FieldMessage error={fieldState.error} />
+                  </Field>
+                )}
+              />
+            )}
+
+            {/* A transfer carries no split but may carry labels, so the picker
+                mounts for every derived kind (RF-70). */}
+            <Controller
+              name="labelIds"
+              control={form.control}
+              render={({ field, fieldState }) => (
+                <Field invalid={fieldState.invalid}>
+                  {scopedLabels.length === 0 ? (
+                    <>
+                      <FieldLabel>{t("labelsLabel")}</FieldLabel>
+                      <Text size="2" color="gray">
+                        {t("labelsNone")}
+                      </Text>
+                    </>
+                  ) : (
+                    <FieldControl>
+                      <ChipMultiSelect
+                        id="movement-labels"
+                        name="labelIds"
+                        value={field.value}
+                        onValueChange={field.onChange}
+                        options={scopedLabels}
+                        label={t("labelsLabel")}
+                        disabled={isPending}
+                      />
+                    </FieldControl>
+                  )}
+                  <FieldMessage error={fieldState.error} />
+                </Field>
+              )}
+            />
+          </FieldGroup>
+        </Box>
+
+        <FieldGroup>
+          <Controller
+            name="occurredAt"
+            control={form.control}
+            render={({ field, fieldState }) => (
+              <Field invalid={fieldState.invalid}>
+                <FieldLabel htmlFor="movement-date">{t("dateLabel")}</FieldLabel>
                 <FieldControl>
-                  <ChipMultiSelect
-                    id="movement-labels"
-                    name="labelIds"
-                    value={field.value}
-                    onValueChange={field.onChange}
-                    options={scopedLabels}
-                    label={t("labelsLabel")}
+                  <TextField.Root
+                    {...field}
+                    id="movement-date"
+                    size="3"
+                    type="date"
                     disabled={isPending}
                   />
                 </FieldControl>
-              )}
-              <FieldMessage error={fieldState.error} />
-            </Field>
-          )}
-        />
+                <FieldMessage error={fieldState.error} />
+              </Field>
+            )}
+          />
 
-        <Controller
-          name="occurredAt"
-          control={form.control}
-          render={({ field, fieldState }) => (
-            <Field invalid={fieldState.invalid}>
-              <FieldLabel htmlFor="movement-date">{t("dateLabel")}</FieldLabel>
-              <FieldControl>
-                <TextField.Root
-                  {...field}
-                  id="movement-date"
-                  size="3"
-                  type="date"
-                  disabled={isPending}
-                />
-              </FieldControl>
-              <FieldMessage error={fieldState.error} />
-            </Field>
-          )}
-        />
+          <Controller
+            name="description"
+            control={form.control}
+            render={({ field, fieldState }) => (
+              <Field invalid={fieldState.invalid}>
+                <FieldLabel htmlFor="movement-note">
+                  <Flex as="span" align="center" gap="1">
+                    {t("note")}
+                    <Text size="2" weight="regular" color="gray">
+                      {tKey("common.optional")}
+                    </Text>
+                  </Flex>
+                </FieldLabel>
+                <FieldControl>
+                  <TextField.Root
+                    id="movement-note"
+                    size="3"
+                    autoComplete="off"
+                    disabled={isPending}
+                    value={field.value ?? ""}
+                    onChange={(event) => field.onChange(event.target.value || null)}
+                    onBlur={field.onBlur}
+                    name={field.name}
+                    ref={field.ref}
+                  />
+                </FieldControl>
+                <FieldMessage error={fieldState.error} />
+              </Field>
+            )}
+          />
+        </FieldGroup>
 
-        <Controller
-          name="description"
-          control={form.control}
-          render={({ field, fieldState }) => (
-            <Field invalid={fieldState.invalid}>
-              <FieldLabel htmlFor="movement-note">
-                <Flex as="span" align="center" gap="1">
-                  {t("note")}
-                  <Text size="2" weight="regular" color="gray">
-                    {tKey("common.optional")}
-                  </Text>
-                </Flex>
-              </FieldLabel>
-              <FieldControl>
-                <TextField.Root
-                  id="movement-note"
-                  size="3"
-                  autoComplete="off"
-                  disabled={isPending}
-                  value={field.value ?? ""}
-                  onChange={(event) => field.onChange(event.target.value || null)}
-                  onBlur={field.onBlur}
-                  name={field.name}
-                  ref={field.ref}
-                />
-              </FieldControl>
-              <FieldMessage error={fieldState.error} />
-            </Field>
-          )}
-        />
+        <Box gridColumn={{ md: "1 / -1" }} width="100%">
+          <FieldGroup>
+            <Callout.Root color="jade" variant="soft">
+              <Callout.Icon>
+                <InfoIcon size={16} />
+              </Callout.Icon>
+              <Callout.Text>{t("kindDerivedHint")}</Callout.Text>
+            </Callout.Root>
 
-        <Callout.Root color="jade" variant="soft">
-          <Callout.Icon>
-            <InfoIcon size={16} />
-          </Callout.Icon>
-          <Callout.Text>{t("kindDerivedHint")}</Callout.Text>
-        </Callout.Root>
-
-        {/* Never dead: while the form is short of something, submitting is what
-            makes it say so. */}
-        <Button type="submit" size="3" disabled={isPending}>
-          {isPending && <Spinner />}
-          {isAccept ? tIngest("accept") : t("saveMovement")}
-        </Button>
-      </FieldGroup>
+            {/* Never dead: while the form is short of something, submitting is what
+                makes it say so. */}
+            <Button type="submit" size="3" disabled={isPending}>
+              {isPending && <Spinner />}
+              {isAccept ? tIngest("accept") : t("saveMovement")}
+            </Button>
+          </FieldGroup>
+        </Box>
+      </Grid>
     </form>
   );
 }

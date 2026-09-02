@@ -9,7 +9,10 @@ import { toast } from "sonner";
 import { markMovementReviewedAction } from "@/app/actions/recurring-rules";
 import { deleteTransactionAction } from "@/app/actions/transactions";
 import { MovementDetailDesktop } from "@/components/transactions/movement-detail-desktop";
-import { MovementForm } from "@/components/transactions/movement-form";
+import {
+  MovementForm,
+  movementFormDialogWidth,
+} from "@/components/transactions/movement-form";
 import {
   Badge,
   Box,
@@ -139,7 +142,7 @@ export function MovementDetail({
 
       <Flex direction="column" gap="4" display={{ initial: "flex", md: "none" }}>
         <Flex align="center" gap="3">
-          <IconButton asChild variant="ghost" color="gray" aria-label={t("listTitle")}>
+          <IconButton asChild tap variant="ghost" color="gray" aria-label={t("listTitle")}>
             <LocaleLink href="/movements">
               <ChevronLeftIcon size={18} />
             </LocaleLink>
@@ -244,7 +247,7 @@ export function MovementDetail({
         </Flex>
 
         <Dialog.Root open={editOpen} onOpenChange={setEditOpen}>
-          <Dialog.Content>
+          <Dialog.Content maxWidth={movementFormDialogWidth}>
             {/* The form carries its own heading; the title stays for the a11y tree. */}
             <VisuallyHidden>
               <Dialog.Title>{t("formTitle")}</Dialog.Title>

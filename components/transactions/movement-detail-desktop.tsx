@@ -8,7 +8,10 @@ import { toast } from "sonner";
 
 import { markMovementReviewedAction } from "@/app/actions/recurring-rules";
 import { deleteTransactionAction } from "@/app/actions/transactions";
-import { MovementForm } from "@/components/transactions/movement-form";
+import {
+  MovementForm,
+  movementFormDialogWidth,
+} from "@/components/transactions/movement-form";
 import {
   Badge,
   Button,
@@ -261,7 +264,7 @@ export function MovementDetailDesktop({
       </Flex>
 
       <Dialog.Root open={editOpen} onOpenChange={setEditOpen}>
-        <Dialog.Content>
+        <Dialog.Content maxWidth={movementFormDialogWidth}>
           {/* The form carries its own heading; the title stays for the a11y tree. */}
           <VisuallyHidden>
             <Dialog.Title>{t("formTitle")}</Dialog.Title>
