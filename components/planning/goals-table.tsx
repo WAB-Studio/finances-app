@@ -130,9 +130,6 @@ export function GoalsTable({
       key: "goal",
       header: t("tableGoal"),
       width: WIDTHS.goal,
-      // The rows arrive by name out of Postgres, and no other order is on offer,
-      // so the chevron reports the sort rather than opening one.
-      sort: "asc",
       cell: (goal) => (
         <Text size="2" weight="medium" truncate>
           {goal.name}
@@ -159,6 +156,10 @@ export function GoalsTable({
       key: "pace",
       header: t("tablePace"),
       width: WIDTHS.pace,
+      // The rows arrive ordered by ritmo out of Postgres — atrasada first, sin
+      // fecha last — and no other order is on offer, so the chevron reports the
+      // sort rather than opening one.
+      sort: "asc",
       cell: (goal) => {
         const pace = paceOf(goal);
 

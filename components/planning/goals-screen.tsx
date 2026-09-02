@@ -7,7 +7,7 @@ import {
   tableFeatures,
   useTable,
 } from "@tanstack/react-table";
-import { EllipsisVertical, Info, Plus } from "lucide-react";
+import { EllipsisVertical, Plus } from "lucide-react";
 import { useFormatter, useTranslations } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
 import { useState } from "react";
@@ -26,7 +26,6 @@ import {
   Badge,
   Box,
   Button,
-  Callout,
   Card,
   ConfirmDialog,
   DropdownMenu,
@@ -236,17 +235,21 @@ export function GoalsScreen({
         </Flex>
       </Box>
 
-      <SegmentedControl.Root
-        value={archived ? "archived" : "active"}
-        onValueChange={onTabChange}
-      >
-        <SegmentedControl.Item value="active">
-          {t("activeTab")}
-        </SegmentedControl.Item>
-        <SegmentedControl.Item value="archived">
-          {t("archivedTab")}
-        </SegmentedControl.Item>
-      </SegmentedControl.Root>
+      {/* The band the header and the table carry from `lg` up, where the page
+          hands the gutter over; below it the page's own padding still holds. */}
+      <Flex direction="column" px={{ initial: "0", lg: "6" }}>
+        <SegmentedControl.Root
+          value={archived ? "archived" : "active"}
+          onValueChange={onTabChange}
+        >
+          <SegmentedControl.Item value="active">
+            {t("activeTab")}
+          </SegmentedControl.Item>
+          <SegmentedControl.Item value="archived">
+            {t("archivedTab")}
+          </SegmentedControl.Item>
+        </SegmentedControl.Root>
+      </Flex>
 
       <Box display={{ initial: "none", lg: "block" }}>
         <GoalsTable
@@ -283,16 +286,6 @@ export function GoalsScreen({
           </Flex>
         )}
       </Box>
-
-      {/* The hint answers Aportar, which the archived tab no longer offers. */}
-      {!archived && (
-        <Callout.Root color="jade" variant="soft">
-          <Callout.Icon>
-            <Info size={16} aria-hidden />
-          </Callout.Icon>
-          <Callout.Text>{t("virtualHint")}</Callout.Text>
-        </Callout.Root>
-      )}
 
       <GoalFormDialog
         open={formTarget !== null}

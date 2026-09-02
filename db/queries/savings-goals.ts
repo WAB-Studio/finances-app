@@ -40,6 +40,10 @@ export type GoalProgress = {
  * still ahead — at least one, so a goal due this month asks for all of it — and a
  * goal counts as behind when what it has set aside sits under the straight line
  * from the day it opened to the day it is due. Neither is stored (RNF-07).
+ *
+ * The rows come back in the reading order of the artboard — atrasada, al día,
+ * cumplida, sin fecha, and by name inside each band — so the desktop table and
+ * the phone cards list the same goals in the same order.
  */
 export async function listGoalsWithProgress(options?: {
   archived?: boolean;
@@ -64,35 +68,50 @@ export async function listGoalsWithProgress(options?: {
       required_monthly_cents: string | null;
       behind_pace: boolean;
     }>(sql`
-      select
-        g.id,
-        g.name,
-        g.target_amount_cents,
-        g.target_date,
-        g.account_id,
-        gp.saved_cents,
-        least(round(gp.saved_cents * 100.0 / g.target_amount_cents), 100)::int
-          as progress_pct,
+      with goals as (
+        select
+          g.id,
+          g.name,
+          g.target_amount_cents,
+          g.target_date,
+          g.account_id,
+          gp.saved_cents,
+          least(round(gp.saved_cents * 100.0 / g.target_amount_cents), 100)::int
+            as progress_pct,
+          case
+            when g.target_date is null or gp.saved_cents >= g.target_amount_cents
+              then null
+            else ceil(
+              (g.target_amount_cents - gp.saved_cents)::numeric
+              / greatest(ceil((g.target_date - ${today}::date) / 30.0), 1)
+            )::bigint
+          end as required_monthly_cents,
+          case
+            when g.target_date is null or gp.saved_cents >= g.target_amount_cents
+              then false
+            -- Cross-multiplied so the comparison stays in exact integers: saved
+            -- over the whole span against the meta over the days already spent.
+            -- A goal opened today has spent no days, so nothing it is due
+            -- tomorrow can put it behind until the day after it opens.
+            else gp.saved_cents * greatest(g.target_date - ${openedOn}, 0)
+              < g.target_amount_cents * greatest(${today}::date - ${openedOn}, 0)
+          end as behind_pace
+        from savings_goals g
+        join goal_progress gp on gp.goal_id = g.id
+        where ${archivedFilter}
+      )
+      select *
+      from goals
+      -- The reading order of the artboard, ranked over the same derivation the
+      -- ritmo column reads: atrasada, al día, cumplida, sin fecha.
+      order by
         case
-          when g.target_date is null or gp.saved_cents >= g.target_amount_cents
-            then null
-          else ceil(
-            (g.target_amount_cents - gp.saved_cents)::numeric
-            / greatest(ceil((g.target_date - ${today}::date) / 30.0), 1)
-          )::bigint
-        end as required_monthly_cents,
-        case
-          when g.target_date is null or gp.saved_cents >= g.target_amount_cents
-            then false
-          -- Cross-multiplied so the comparison stays in exact integers: saved
-          -- over the whole span against the meta over the days already spent.
-          else gp.saved_cents * greatest(g.target_date - ${openedOn}, 0)
-            < g.target_amount_cents * greatest(${today}::date - ${openedOn}, 0)
-        end as behind_pace
-      from savings_goals g
-      join goal_progress gp on gp.goal_id = g.id
-      where ${archivedFilter}
-      order by g.name
+          when saved_cents >= target_amount_cents then 2
+          when target_date is null then 3
+          when behind_pace then 0
+          else 1
+        end,
+        name
     `);
 
     return rows.map((row) => {
