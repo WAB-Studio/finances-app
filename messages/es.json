@@ -10,6 +10,7 @@
   "common": {
     "appName": "Fondo compartido",
     "backHome": "Volver al inicio",
+    "retry": "Reintentar",
     "greeting": "Hola, {email}",
     "save": "Guardar",
     "cancel": "Cancelar",

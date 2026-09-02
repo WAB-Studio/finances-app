@@ -10,6 +10,7 @@
   "common": {
     "appName": "Shared fund",
     "backHome": "Back to home",
+    "retry": "Try again",
     "greeting": "Hi, {email}",
     "save": "Save",
     "cancel": "Cancel",

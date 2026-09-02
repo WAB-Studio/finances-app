@@ -1,0 +1,48 @@
+"use client";
+
+import { useTranslations } from "next-intl";
+
+import { Button, Flex, Heading, Link, Page, TapTarget } from "@/components/ui";
+import { Link as LocaleLink } from "@/i18n/navigation";
+
+/**
+ * The signed-in shell's boundary. It replaces the screen and nothing else — the
+ * layout above it survives, so the header and the tab bar stay on and every
+ * destination is still one tap away. Neither `error.message` nor `error.digest`
+ * reaches the screen: a server component's message is an internal, and the digest
+ * is a handle for the server's own log, not something a person acts on.
+ */
+export default function AppError({
+  retry,
+}: {
+  error: Error & { digest?: string };
+  retry: () => void;
+}) {
+  const t = useTranslations();
+
+  return (
+    <Page>
+      <Flex
+        direction="column"
+        align="center"
+        justify="center"
+        gap="4"
+        flexGrow="1"
+      >
+        <Heading size="6" align="center">
+          {t("errors.unexpected")}
+        </Heading>
+        <Button size="3" onClick={() => retry()}>
+          {t("common.retry")}
+        </Button>
+        <Link asChild>
+          <LocaleLink href="/">
+            <TapTarget align="center" justify="center" px="2">
+              {t("common.backHome")}
+            </TapTarget>
+          </LocaleLink>
+        </Link>
+      </Flex>
+    </Page>
+  );
+}
