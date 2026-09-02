@@ -12,11 +12,13 @@ import { getTransactionFormOptions } from "@/db/queries/transaction-form";
 import { todayInBogota } from "@/lib/dates";
 import { routing } from "@/i18n/routing";
 
-// A malformed `?month` never reaches `periodRange`: anything but a `YYYY-MM`
-// shape falls back to the current Bogotá month, so the window always resolves.
+// A malformed `?month` never reaches `periodRange`: anything but a real `YYYY-MM`
+// month falls back to the current Bogotá month, so the window always resolves.
+// The shape alone is not enough: `1999-13-01` is no day, and `monthRange` throws
+// on it before any bound reaches Postgres.
 const monthSchema = z
   .string()
-  .regex(/^\d{4}-\d{2}$/)
+  .regex(/^\d{4}-(0[1-9]|1[0-2])$/)
   .catch(() => todayInBogota().slice(0, 7));
 
 const searchParamsSchema = z.object({ month: monthSchema });
