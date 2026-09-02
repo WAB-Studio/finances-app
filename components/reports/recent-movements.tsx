@@ -91,8 +91,10 @@ export function RecentMovements({
             {
               key: "date",
               numeric: true,
+              // A block, so the date owns its line box: as a span it would ride
+              // the cell's inherited strut and drop off the row's optical line.
               content: (
-                <Text size="2" color="gray">
+                <Text as="div" size="2" color="gray">
                   {format.dateTime(civilDateToDate(row.occurredAt), {
                     day: "numeric",
                     month: "short",
