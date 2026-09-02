@@ -1,0 +1,56 @@
+.tiles {
+  display: flex;
+  align-items: stretch;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding: 0 0 16px;
+}
+
+/* One basis and one growth for every tile: they share a line in equal widths,
+   and wrap to the next one only when the pane is too narrow to hold them. */
+.tile {
+  flex: 1 1 140px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 16px 18px;
+  background-color: var(--color-panel-solid);
+  border: 1px solid var(--gray-a4);
+  border-radius: 16px;
+}
+
+.label {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--gray-11);
+}
+
+.value {
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  font-variant-numeric: tabular-nums;
+}
+
+.note {
+  font-size: 12.5px;
+  color: var(--gray-11);
+  font-variant-numeric: tabular-nums;
+}
+
+.tile[data-tone="warn"] .value {
+  color: var(--amber-11);
+}
+
+.tile[data-tone="danger"] .value {
+  color: var(--red-11);
+}
+
+@media (min-width: 1024px) {
+  .tiles {
+    padding: 0 32px 16px;
+  }
+}
