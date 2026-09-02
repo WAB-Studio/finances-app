@@ -55,6 +55,7 @@ accounting exports, native apps. None of this gets built or left
 - [ ] **RF-11** — Accounts and members that have movements are archived, not deleted.
 - [ ] **RF-61** — Archiving a member does not archive their accounts. The owner decides per account: archive it or hand it to the group.
 - [x] **RF-100** — Only the group `leader` adds, renames, archives, restores and removes a member; every member renames their own row and no other.
+- [ ] **RF-114** — The accounts list shows each account's balance, derived from its opening balance and its movements and never stored.
 
 #### Debts
 
@@ -65,6 +66,7 @@ accounting exports, native apps. None of this gets built or left
 - [ ] **RF-81** — A fixed-installment or BNPL debt carries a plan — principal, number of installments, frequency (monthly or fortnightly), interest, down payment, aval, start date and merchant — from which dated installment lines are generated.
 - [ ] **RF-82** — A payment into a debt account is allocated to its unpaid installment lines oldest-first, marking a line paid only when the payment fully covers it and linking the paying movement; a partial remainder is left unallocated, and a plan's pending is its unpaid lines, always derived, never stored.
 - [x] **RF-83** — Consolidated debt view: total owed across all debts, each card's available credit, the summed estimated monthly interest, and the next payment due — each debt's minimum plus the installment lines falling due.
+- [ ] **RF-117** — The consolidated debt view shows the summed available credit across the liability accounts that carry a credit limit.
 - [ ] **RF-84** — A liability account keeps a statement history: one record per statement period with its bounds, its payment due date and the balance, minimum and interest captured at the cut-off. A statement is an immutable historical snapshot, materialised for past periods, never rewritten.
 
 #### Transactions
@@ -88,6 +90,7 @@ accounting exports, native apps. None of this gets built or left
 - [x] **RF-27** — Each category is either expense or income.
 - [x] **RF-64** — Creating a personal space or a group seeds an initial category set in the active language.
 - [x] **RF-70** — Labels, independent of category, attach to transactions through a transaction_labels join; a group's labels are managed by its leader, a user's by their owner.
+- [ ] **RF-116** — A category shows how many subcategories hang off it, and a label how many transactions and how many budgets use it; every count derives and is never stored.
 
 #### Recurring
 
@@ -100,11 +103,13 @@ accounting exports, native apps. None of this gets built or left
 
 - [x] **RF-71** — CRUD for budgets: a spending limit on a category for a repeating period (monthly, weekly or yearly), scoped to a user or a group, optionally narrowed to one account and/or one label.
 - [x] **RF-72** — A budget's spent and remaining amounts derive from the transaction splits that fall in the current period and match its category and any account or label narrowing; they are never stored.
+- [ ] **RF-115** — A budget's spent and remaining derive for a chosen period, not only the current one; the period is browsable into the past and the derivation is unchanged.
 - [x] **RF-73** — A budget carries an overspend alert threshold as a percentage of its limit; a budget is flagged once its derived spending crosses that threshold.
 - [x] **RF-74** — CRUD for one-off planned payments: a future movement — its accounts, amount, category and due date — with an optional reminder date, kept distinct from recurring rules.
 - [x] **RF-75** — Settling a planned payment records the transaction it planned, links the two, and marks the planned payment done; a settled or cancelled planned payment cannot be settled again.
 - [x] **RF-76** — CRUD for savings goals: a target amount and an optional target date, scoped to a user or a group.
 - [x] **RF-87** — A savings goal's progress — amount saved, amount remaining and whether it is on track for its target date — derives from its contributions (`goal_contributions`), each an amount set aside virtually with no movement required; it is never stored.
+- [ ] **RF-119** — A savings goal's contributions are listed with their amounts and dates and one is removed from that list; the goal's progress re-derives from what remains.
 
 #### Reports
 
@@ -142,6 +147,7 @@ accounting exports, native apps. None of this gets built or left
 
 - [x] **RF-49** — Download a spreadsheet template with the expected columns and the existing accounts and categories as valid options.
 - [x] **RF-50** — Export accounts, members, categories, recurring rules and transactions, in the same shape the import accepts.
+- [ ] **RF-118** — The transaction listing exports exactly the rows its active filters select, in the same shape the import accepts.
 - [x] **RF-51** — Import with preview: everything is validated before anything is written, errors are reported per row, and the user confirms. All or nothing.
 - [x] **RF-52** — Re-importing the same file does not duplicate: every row carries a stable external reference and, if it already exists in the fund, it is updated.
 - [x] **RF-53** — Read-only audit log viewer, filterable by entity, user and date range.
