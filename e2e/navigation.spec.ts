@@ -120,6 +120,11 @@ test.describe("the dashboard's pending badge", () => {
   });
 
   test("leaves no gap at zero", async ({ page }) => {
+    test.skip(
+      test.info().project.name !== "mobile",
+      "the badge and the month figures share a column only below md: from there up they are two cards of the Inicio row, side by side",
+    );
+
     // No generated movement either: the other badge would hold the row open.
     await clearLedger();
     await seedQueue([pending]);
