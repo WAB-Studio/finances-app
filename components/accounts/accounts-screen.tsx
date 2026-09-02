@@ -30,6 +30,7 @@ import { usePathname, useRouter } from "@/i18n/navigation";
 import { civilDateToDate } from "@/lib/dates";
 import { centsToPesos } from "@/lib/money";
 import { useActionErrorToast } from "@/lib/use-action-toast";
+import type { ACCOUNT_SUBTYPES } from "@/lib/validation/account";
 
 type Group = { key: string; label: string; accounts: AccountRow[] };
 
@@ -71,10 +72,13 @@ export function AccountsScreen({
   accounts,
   groupName,
   archived,
+  newSubtype,
 }: {
   accounts: AccountRow[];
   groupName: string | null;
   archived: boolean;
+  // The class a caller arrived asking to open, already validated by the page.
+  newSubtype?: (typeof ACCOUNT_SUBTYPES)[number] | null;
 }) {
   const t = useTranslations("accounts");
   const tKey = useTranslations();
@@ -82,8 +86,12 @@ export function AccountsScreen({
   const router = useRouter();
   const onActionError = useActionErrorToast();
 
-  // "new" and a row share one dialog instance; its own key resets the form.
-  const [formTarget, setFormTarget] = useState<AccountRow | "new" | null>(null);
+  // "new" and a row share one dialog instance; its own key resets the form. A
+  // named class opens it on arrival, so the tile that asked for it lands on the
+  // form rather than on the list.
+  const [formTarget, setFormTarget] = useState<AccountRow | "new" | null>(
+    newSubtype ? "new" : null,
+  );
   const [rowAction, setRowAction] = useState<RowAction | null>(null);
 
   const archiveState = useAction(archiveAccountAction, {
@@ -195,6 +203,7 @@ export function AccountsScreen({
           if (!open) setFormTarget(null);
         }}
         account={formTarget === "new" ? undefined : (formTarget ?? undefined)}
+        defaultSubtype={newSubtype ?? undefined}
       />
 
       {rowAction?.kind === "archive" && (

@@ -19,6 +19,9 @@ const TONE_COLOR: Record<MoneyTone, string | undefined> = {
 const SIZE_STYLE = {
   row: { fontSize: "13.5px", fontWeight: 600 },
   figure: { fontSize: "23px", fontWeight: 700, letterSpacing: "-0.025em" },
+  // Takes the surrounding type, for a heading or a chip that already sets it and
+  // re-sizes itself across breakpoints.
+  inherit: {},
 } satisfies Record<string, CSSProperties>;
 
 /**
@@ -34,7 +37,7 @@ export function Money({
 }: {
   cents: number;
   tone?: MoneyTone;
-  size?: "row" | "figure";
+  size?: "row" | "figure" | "inherit";
   signed?: boolean;
 }) {
   const format = useFormatter();
