@@ -56,6 +56,20 @@ export const updateGoalSchema = z.object({
 
 export type UpdateGoalInput = z.infer<typeof updateGoalSchema>;
 
+// RF-120: archiving names an existing goal, so its id is all that travels; the
+// policy decides the scope, and restore reverses the same field.
+export const archiveGoalSchema = z.object({
+  goalId: z.uuid({ error: "goals.errors.goalInvalid" }),
+});
+
+export type ArchiveGoalInput = z.infer<typeof archiveGoalSchema>;
+
+export const restoreGoalSchema = z.object({
+  goalId: z.uuid({ error: "goals.errors.goalInvalid" }),
+});
+
+export type RestoreGoalInput = z.infer<typeof restoreGoalSchema>;
+
 export const deleteGoalSchema = z.object({
   goalId: z.uuid({ error: "goals.errors.goalInvalid" }),
 });

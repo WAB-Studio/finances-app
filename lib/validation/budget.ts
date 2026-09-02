@@ -58,6 +58,20 @@ export const updateBudgetSchema = z.object({
 
 export type UpdateBudgetInput = z.infer<typeof updateBudgetSchema>;
 
+// RF-120: archiving names an existing budget, so its id is all that travels;
+// the policy decides the scope, and restore reverses the same field.
+export const archiveBudgetSchema = z.object({
+  budgetId: z.uuid({ error: "budgets.errors.budgetInvalid" }),
+});
+
+export type ArchiveBudgetInput = z.infer<typeof archiveBudgetSchema>;
+
+export const restoreBudgetSchema = z.object({
+  budgetId: z.uuid({ error: "budgets.errors.budgetInvalid" }),
+});
+
+export type RestoreBudgetInput = z.infer<typeof restoreBudgetSchema>;
+
 export const deleteBudgetSchema = z.object({
   budgetId: z.uuid({ error: "budgets.errors.budgetInvalid" }),
 });

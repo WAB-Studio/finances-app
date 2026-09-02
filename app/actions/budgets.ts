@@ -2,15 +2,23 @@
 
 import { refresh } from "next/cache";
 
-import { createBudget, deleteBudget, updateBudget } from "@/db/queries/budgets";
+import {
+  archiveBudget,
+  createBudget,
+  deleteBudget,
+  restoreBudget,
+  updateBudget,
+} from "@/db/queries/budgets";
 import { getUserGroup } from "@/db/queries/groups";
 import { pgErrorCode } from "@/lib/db-error";
 import { ActionError } from "@/lib/errors";
 import { parsePesos, pesosToCents } from "@/lib/money";
 import { authActionClient } from "@/lib/safe-action";
 import {
+  archiveBudgetSchema,
   createBudgetSchema,
   deleteBudgetSchema,
+  restoreBudgetSchema,
   updateBudgetSchema,
 } from "@/lib/validation/budget";
 
@@ -91,6 +99,30 @@ export const updateBudgetAction = authActionClient
     }
 
     if (!updated) throw new ActionError("errors.notFound");
+
+    refresh();
+  });
+
+/**
+ * Archives a budget (RF-120). The scope is not re-derived: the budget already
+ * carries its own, so the update policy decides, and a row it filters reports as
+ * no row — the same as a budget that was never there.
+ */
+export const archiveBudgetAction = authActionClient
+  .inputSchema(archiveBudgetSchema)
+  .action(async ({ parsedInput: { budgetId } }) => {
+    const archived = await archiveBudget({ budgetId });
+    if (!archived) throw new ActionError("errors.notFound");
+
+    refresh();
+  });
+
+// Restoring passes the same USING that archived it, so it refuses on the same terms.
+export const restoreBudgetAction = authActionClient
+  .inputSchema(restoreBudgetSchema)
+  .action(async ({ parsedInput: { budgetId } }) => {
+    const restored = await restoreBudget({ budgetId });
+    if (!restored) throw new ActionError("errors.notFound");
 
     refresh();
   });

@@ -99,7 +99,6 @@ export const SETTINGS_KEYS = [
  * name is what reaches them, and the settings panel owns the list of every other
  * destination. No surface lists this one, so no surface can offer it twice.
  */
-export const GROUP_SETTINGS_READY: boolean = true;
 export const GROUP_SETTINGS_HREF = "/settings/group";
 
 // One group per user with no switching (RF-55), so every destination is a fixed

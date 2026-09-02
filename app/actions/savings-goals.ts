@@ -5,9 +5,11 @@ import { refresh } from "next/cache";
 import { getUserGroup } from "@/db/queries/groups";
 import {
   addGoalContribution,
+  archiveGoal,
   createGoal,
   deleteGoal,
   removeGoalContribution,
+  restoreGoal,
   updateGoal,
 } from "@/db/queries/savings-goals";
 import { pgErrorCode } from "@/lib/db-error";
@@ -15,10 +17,12 @@ import { ActionError } from "@/lib/errors";
 import { parsePesos, pesosToCents } from "@/lib/money";
 import { authActionClient } from "@/lib/safe-action";
 import {
+  archiveGoalSchema,
   contributeGoalSchema,
   createGoalSchema,
   deleteGoalSchema,
   removeGoalContributionSchema,
+  restoreGoalSchema,
   updateGoalSchema,
 } from "@/lib/validation/savings-goal";
 
@@ -103,6 +107,30 @@ export const updateGoalAction = authActionClient
     }
 
     if (!updated) throw new ActionError("errors.notFound");
+
+    refresh();
+  });
+
+/**
+ * Archives a savings goal (RF-120). The scope is not re-derived: the goal already
+ * carries its own, so the update policy decides, and a row it filters reports as
+ * no row — the same as a goal that was never there.
+ */
+export const archiveGoalAction = authActionClient
+  .inputSchema(archiveGoalSchema)
+  .action(async ({ parsedInput: { goalId } }) => {
+    const archived = await archiveGoal({ goalId });
+    if (!archived) throw new ActionError("errors.notFound");
+
+    refresh();
+  });
+
+// Restoring passes the same USING that archived it, so it refuses on the same terms.
+export const restoreGoalAction = authActionClient
+  .inputSchema(restoreGoalSchema)
+  .action(async ({ parsedInput: { goalId } }) => {
+    const restored = await restoreGoal({ goalId });
+    if (!restored) throw new ActionError("errors.notFound");
 
     refresh();
   });
