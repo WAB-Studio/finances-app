@@ -21,10 +21,18 @@ export type GoalProgress = {
  * Every non-archived goal with its progress in ONE round trip (RF-87, RNF-09):
  * `saved_cents` is read from the `goal_progress` view, which sums the goal's
  * contributions — this never re-sums them itself. Remaining floors at
- * zero so an overshot goal reads as reached, not negative. Scope is the policy's
- * job: `withUserDb` shows only the caller's readable goals.
+ * zero so an overshot goal reads as reached, not negative. `archived` swaps the
+ * listing onto the archived side (RF-120); the view knows nothing of the flag,
+ * so an archived goal's progress keeps deriving from its aportes. Scope is the
+ * policy's job: `withUserDb` shows only the caller's readable goals.
  */
-export async function listGoalsWithProgress(): Promise<GoalProgress[]> {
+export async function listGoalsWithProgress(options?: {
+  archived?: boolean;
+}): Promise<GoalProgress[]> {
+  const archivedFilter = options?.archived
+    ? sql`g.archived_at is not null`
+    : sql`g.archived_at is null`;
+
   return withUserDb(async (tx) => {
     const rows = await tx.execute<{
       id: string;
@@ -43,7 +51,7 @@ export async function listGoalsWithProgress(): Promise<GoalProgress[]> {
         gp.saved_cents
       from savings_goals g
       join goal_progress gp on gp.goal_id = g.id
-      where g.archived_at is null
+      where ${archivedFilter}
       order by g.name
     `);
 
@@ -130,6 +138,42 @@ export async function updateGoal({
     const rows = await tx
       .update(savingsGoals)
       .set({ name, targetAmountCents, targetDate, accountId })
+      .where(eq(savingsGoals.id, goalId))
+      .returning({ id: savingsGoals.id });
+
+    return rows.length > 0;
+  });
+}
+
+// RF-120: archiving keeps the goal and its aportes, so `goal_progress` still
+// sums the same rows and no derivation already recorded moves.
+export async function archiveGoal({
+  goalId,
+}: {
+  goalId: string;
+}): Promise<boolean> {
+  return withUserDb(async (tx) => {
+    const rows = await tx
+      .update(savingsGoals)
+      .set({ archivedAt: sql`now()` })
+      .where(eq(savingsGoals.id, goalId))
+      .returning({ id: savingsGoals.id });
+
+    return rows.length > 0;
+  });
+}
+
+// The update policy scopes by owner-or-group and carries no archived predicate,
+// so an archived goal stays inside the same USING that archived it (RF-120).
+export async function restoreGoal({
+  goalId,
+}: {
+  goalId: string;
+}): Promise<boolean> {
+  return withUserDb(async (tx) => {
+    const rows = await tx
+      .update(savingsGoals)
+      .set({ archivedAt: null })
       .where(eq(savingsGoals.id, goalId))
       .returning({ id: savingsGoals.id });
 

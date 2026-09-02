@@ -224,6 +224,12 @@ function renderCases(transactionId: string): RenderCase[] {
       title: title("metadata.title"),
       why: "RF-55: no group, so the shell layout refuses the route",
     },
+    {
+      path: `/${LOCALE}/settings/group`,
+      status: 404,
+      title: title("metadata.title"),
+      why: "RF-55: no group, so the shell layout refuses the route",
+    },
     // The same refusal one segment too low, and what it costs. `page.tsx` calls
     // `notFound()` for a movement it did not find, but by then the fallback has
     // flushed: "When a `<Suspense>` fallback renders ... the server must commit to

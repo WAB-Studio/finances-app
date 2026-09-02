@@ -24,7 +24,7 @@ const PATHNAME_HEADER = "x-pathname";
  * layout of its own segment, which leaves this the last place a status can still
  * be set.
  */
-const GROUP_ONLY_ROUTES = ["/settings/members"];
+const GROUP_ONLY_ROUTES = ["/settings/members", "/settings/group"];
 
 // The path without its locale, which is how the list above is written.
 function routeOf(pathname: string, locale: string): string {

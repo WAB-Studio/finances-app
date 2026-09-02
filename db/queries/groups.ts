@@ -4,9 +4,14 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import { cache } from "react";
 
-import { groupMembers, groups } from "@/db/schema";
+import { insertRow } from "@/db/insert-row";
+import { accounts, groupMembers, groups } from "@/db/schema";
 import type { Group } from "@/db/schema";
 import { getSessionUser, withUserDb } from "@/db/session";
+import type { Transaction } from "@/db/session";
+import { GROUP_CASH_ACCOUNT_NAME } from "@/lib/fund/seed";
+import { TIME_ZONE } from "@/lib/locales";
+import type { Locale } from "@/lib/locales";
 
 export type GroupSummary = Pick<Group, "id" | "name" | "currency" | "cashMode">;
 
@@ -76,3 +81,80 @@ export const getUserGroupRole = cache(async function getUserGroupRole(): Promise
     return row?.role ?? null;
   });
 });
+
+export type UpdateGroupSettingsArgs = {
+  groupId: string;
+  name: string;
+  cashMode: Group["cashMode"];
+  // Names a cash account created here; never touches an existing one.
+  locale: Locale;
+};
+
+/**
+ * Renames a group and sets where its cash sits, in one transaction (RF-56,
+ * RF-57). Both columns go in one statement: `GRANT UPDATE (name, cash_mode)`
+ * names exactly these two, and a second statement would pay the pooler twice for
+ * one form. The row filter is `groups_update_leader`'s alone — it hands a plain
+ * member no row back, so `false` is the refusal and the query asserts no role of
+ * its own. `currency` is outside the grant and is never named.
+ */
+export async function updateGroupSettings({
+  groupId,
+  name,
+  cashMode,
+  locale,
+}: UpdateGroupSettingsArgs): Promise<boolean> {
+  return withUserDb(async (tx) => {
+    const rows = await tx
+      .update(groups)
+      .set({ name, cashMode })
+      .where(eq(groups.id, groupId))
+      .returning({ id: groups.id });
+
+    if (rows.length === 0) return false;
+
+    // 'shared' names one pot, so it has to exist: without it `withdrawCash`
+    // creates a fresh personal account on every withdrawal and never finds it
+    // again. Switching to 'per_member' writes nothing — a balance derives from
+    // movements (RNF-07), so a group cash holding money keeps it and its whole
+    // history, and simply stops being what the cash scope points at.
+    if (cashMode === "shared") {
+      await ensureGroupCashAccount(tx, { groupId, locale });
+    }
+
+    return true;
+  });
+}
+
+// Creates the group's `efectivo` account only when it has none, seeded at zero
+// like the one `createGroup` writes. The lookup is what keeps a group that
+// already has its cash from getting a second one.
+async function ensureGroupCashAccount(
+  tx: Transaction,
+  { groupId, locale }: { groupId: string; locale: Locale },
+): Promise<void> {
+  const [existing] = await tx
+    .select({ id: accounts.id })
+    .from(accounts)
+    .where(
+      and(
+        eq(accounts.groupId, groupId),
+        eq(accounts.subtype, "efectivo"),
+        isNull(accounts.archivedAt),
+      ),
+    )
+    .limit(1);
+
+  if (existing) return;
+
+  await insertRow(tx, accounts, {
+    groupId,
+    ownerUserId: null,
+    isShared: true,
+    name: GROUP_CASH_ACCOUNT_NAME[locale],
+    kind: "asset",
+    subtype: "efectivo",
+    initialBalanceCents: 0,
+    initialBalanceOn: sql`(now() at time zone ${TIME_ZONE})::date`,
+  });
+}

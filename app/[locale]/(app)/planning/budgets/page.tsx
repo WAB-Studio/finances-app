@@ -42,13 +42,16 @@ export default async function BudgetsPage(
 
   setRequestLocale(locale);
 
-  const { month } = searchParamsSchema.parse(await props.searchParams);
+  const searchParams = await props.searchParams;
+  const { month } = searchParamsSchema.parse(searchParams);
+  // The archived tab lists exactly the budgets the active one leaves out (RF-120).
+  const archived = searchParams.tab === "archived";
   // The window derives from the month's first day; the query slides its period
   // range around this anchor, never a stored spent column (RF-72).
   const anchor = `${month}-01`;
 
   const [budgets, options, group] = await Promise.all([
-    listBudgetsWithStatus(anchor),
+    listBudgetsWithStatus(anchor, { archived }),
     getTransactionFormOptions(),
     getUserGroup(),
   ]);
@@ -60,6 +63,7 @@ export default async function BudgetsPage(
         options={options}
         hasGroup={group !== null}
         month={month}
+        archived={archived}
       />
     </Page>
   );

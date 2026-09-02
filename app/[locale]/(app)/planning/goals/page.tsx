@@ -29,15 +29,24 @@ export default async function GoalsPage(
 
   setRequestLocale(locale);
 
+  // The archived tab lists exactly the goals the active one leaves out (RF-120).
+  const { tab } = await props.searchParams;
+  const archived = tab === "archived";
+
   const [goals, options, group] = await Promise.all([
-    listGoalsWithProgress(),
+    listGoalsWithProgress({ archived }),
     getTransactionFormOptions(),
     getUserGroup(),
   ]);
 
   return (
     <Page>
-      <GoalsScreen goals={goals} options={options} hasGroup={group !== null} />
+      <GoalsScreen
+        goals={goals}
+        options={options}
+        hasGroup={group !== null}
+        archived={archived}
+      />
     </Page>
   );
 }

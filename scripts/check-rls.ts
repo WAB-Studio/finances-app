@@ -195,6 +195,8 @@ async function main() {
   await checkGoalAccountScope();
   await checkIngestShapeRestore();
   await checkReportFunctionsExcludeTransfers();
+  await checkGroupSettingsWrite();
+  await checkArchivePolicies();
 }
 
 // Assertions 9-26: the repivoted schema. A group holds accounts and categories a user XOR a group
@@ -7060,6 +7062,355 @@ async function checkReportFunctionsExcludeTransfers() {
     tailLabel,
     probeCount === "0" && userCount === "0",
     `rows named 'rls report%' = ${probeCount}, the reader's own row = ${userCount}`,
+  );
+}
+
+// Assertions 236-240: the group's settings, written the way `updateGroupSettings` writes them — one
+// statement carrying both `name` and `cash_mode`, because `GRANT UPDATE (name, cash_mode)` names
+// exactly that pair. Assertion 198 proved the rename alone; the mode rode in on the same grant and
+// was never issued here. The two CHECKs are what stands between the form's Zod schema and a stored
+// value nothing reads back. Fixtures live in one transaction forced to roll back.
+async function checkGroupSettingsWrite() {
+  console.log("");
+  const leaderUser = randomUUID();
+  const memberUser = randomUUID();
+  const groupId = randomUUID();
+  const forcedRollback = Symbol("forced rollback");
+
+  const labels = [
+    "236. the leader's one statement stores the new name and the new cash mode together",
+    "237. a plain member's identical statement touches no row and leaves both stored values standing",
+    "238. a cash mode outside the two the model admits is refused",
+    "239. a name of 81 characters is refused",
+  ];
+  const tailLabel = "240. the rolled-back group settings transaction leaves no trace";
+
+  type OrmTx = Parameters<Parameters<typeof orm.transaction>[0]>[0];
+  const enter = (tx: OrmTx, subject: string) =>
+    tx.execute(dsql`select
+      set_config('request.jwt.claims', ${JSON.stringify({ sub: subject, role: "authenticated", aud: "authenticated" })}, true),
+      set_config('statement_timeout', '8000', true),
+      set_config('role', 'authenticated', true)`);
+
+  await orm
+    .transaction(async (tx) => {
+      const refusalOf = async (run: (sp: OrmTx) => Promise<unknown>): Promise<string> => {
+        let refusal = "no refusal — the statement was accepted";
+        await tx
+          .transaction(async (sp) => {
+            await run(sp);
+          })
+          .catch((error: unknown) => {
+            refusal = describeRefusal(error);
+          });
+        return refusal;
+      };
+
+      // Read as the owner: the assertion is about what the row STORES, not about what a policy
+      // would show the caller who just tried to write it.
+      const stored = async () => {
+        await tx.execute(dsql`reset role`);
+        const [row] = await tx.execute<{ name: string; cash_mode: string }>(
+          dsql`select name, cash_mode from groups where id = ${groupId}`,
+        );
+        return row;
+      };
+
+      await tx.execute(dsql`insert into auth.users (id) values (${leaderUser}), (${memberUser})`);
+      await tx.execute(dsql`insert into app_users (id) values (${leaderUser}), (${memberUser})`);
+
+      await enter(tx, leaderUser);
+      await tx.execute(
+        dsql`insert into groups (id, name, cash_mode) values (${groupId}, 'rls group settings', 'shared')`,
+      );
+      await tx.execute(
+        dsql`insert into group_members (group_id, user_id, name, role)
+          values (${groupId}, ${leaderUser}, 'rls group settings leader', 'leader')`,
+      );
+      // A member's row carries a login, which no policy hands out, so it is seeded as `postgres`.
+      await tx.execute(dsql`reset role`);
+      await tx.execute(
+        dsql`insert into group_members (group_id, user_id, name, role)
+          values (${groupId}, ${memberUser}, 'rls group settings member', 'member')`,
+      );
+
+      await enter(tx, leaderUser);
+      const written = await tx.execute<{ name: string; cash_mode: string }>(
+        dsql`update groups set name = 'rls group settings taken', cash_mode = 'per_member'
+          where id = ${groupId} returning name, cash_mode`,
+      );
+      assert(
+        labels[0],
+        written.length === 1 &&
+          written[0].name === "rls group settings taken" &&
+          written[0].cash_mode === "per_member",
+        `${written.length} row now named '${written[0]?.name}' at cash mode ${written[0]?.cash_mode}`,
+      );
+
+      const modeRefusal = await refusalOf((sp) =>
+        sp.execute(dsql`update groups set cash_mode = 'mixto' where id = ${groupId}`),
+      );
+      const nameRefusal = await refusalOf((sp) =>
+        sp.execute(dsql`update groups set name = repeat('x', 81) where id = ${groupId}`),
+      );
+      const afterRefusals = await stored();
+      assert(
+        labels[2],
+        modeRefusal.includes("23514") &&
+          modeRefusal.includes("groups_cash_mode_valid") &&
+          afterRefusals.cash_mode === "per_member",
+        `${modeRefusal}, cash mode = ${afterRefusals.cash_mode}`,
+      );
+      assert(
+        labels[3],
+        nameRefusal.includes("23514") &&
+          nameRefusal.includes("groups_name_length") &&
+          afterRefusals.name === "rls group settings taken",
+        `${nameRefusal}, name = '${afterRefusals.name}'`,
+      );
+
+      // The member holds the same two-column grant; `groups_update_leader`'s USING is the whole
+      // difference between her statement and the leader's.
+      await enter(tx, memberUser);
+      let memberRows = -1;
+      const memberRefusal = await refusalOf(async (sp) => {
+        const rows = await sp.execute<{ id: string }>(
+          dsql`update groups set name = 'rls group settings seized', cash_mode = 'shared'
+            where id = ${groupId} returning id`,
+        );
+        memberRows = rows.length;
+      });
+      const afterMember = await stored();
+      assert(
+        labels[1],
+        (memberRows === 0 || memberRefusal.includes("42501")) &&
+          afterMember.name === "rls group settings taken" &&
+          afterMember.cash_mode === "per_member",
+        `rows = ${memberRows === -1 ? "none issued" : memberRows}, ${memberRefusal}, name = '${afterMember.name}', cash mode = ${afterMember.cash_mode}`,
+      );
+
+      // Nothing this section wrote may survive; force the ROLLBACK.
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`select current_user`;
+  const [{ count: probeCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from groups where name like 'rls group settings%'`;
+  assert(
+    tailLabel,
+    afterUser === "postgres" && probeCount === "0",
+    `current_user = ${afterUser}, rows named 'rls group settings%' = ${probeCount}`,
+  );
+}
+
+// Assertions 241-249: archiving (RF-120). Neither `budgets_update_personal` nor
+// `savings_goals_update_personal` reads `archived_at`, so putting a record away and taking it back
+// out are the same policy decision, and the row stays readable across both — which is what keeps an
+// archived record's figures deriving. The last pair is the hole this section was opened for: the
+// Aportar button went away from an archived goal one commit earlier, and until migration 0022 the
+// database still took the aporte. Fixtures live in one transaction forced to roll back; each barred
+// statement runs in its own savepoint.
+async function checkArchivePolicies() {
+  console.log("");
+  const ownerUser = randomUUID();
+  const strangerUser = randomUUID();
+  const forcedRollback = Symbol("forced rollback");
+
+  const labels = [
+    "241. a budget's owner archives it and still reads the row",
+    "242. the owner clears the flag and the budget is live again",
+    "243. a second user's archive of that budget touches no row and leaves the flag standing",
+    "244. a goal's owner archives it and still reads the row",
+    "245. the owner clears the flag and the goal is live again",
+    "246. a second user's archive of that goal touches no row and leaves the flag standing",
+    "247. an aporte to an archived goal is refused",
+    "248. the same aporte lands once the goal is restored",
+  ];
+  const tailLabel = "249. the rolled-back archive transaction leaves no trace";
+
+  type OrmTx = Parameters<Parameters<typeof orm.transaction>[0]>[0];
+  const enter = (tx: OrmTx, subject: string) =>
+    tx.execute(dsql`select
+      set_config('request.jwt.claims', ${JSON.stringify({ sub: subject, role: "authenticated", aud: "authenticated" })}, true),
+      set_config('statement_timeout', '8000', true),
+      set_config('role', 'authenticated', true)`);
+
+  await orm
+    .transaction(async (tx) => {
+      const refusalOf = async (run: (sp: OrmTx) => Promise<unknown>): Promise<string> => {
+        let refusal = "no refusal — the statement was accepted";
+        await tx
+          .transaction(async (sp) => {
+            await run(sp);
+          })
+          .catch((error: unknown) => {
+            refusal = describeRefusal(error);
+          });
+        return refusal;
+      };
+
+      await tx.execute(dsql`insert into auth.users (id) values (${ownerUser}), (${strangerUser})`);
+      await tx.execute(dsql`insert into app_users (id) values (${ownerUser}), (${strangerUser})`);
+
+      // Neither user belongs to a group, so `owner_group_id` resolves to null and only ownership
+      // is left to decide the stranger's statements below.
+      await enter(tx, ownerUser);
+      // `id` sits outside every INSERT grant here, so each row is read back rather than named.
+      const [category] = await tx.execute<{ id: string }>(
+        dsql`insert into categories (owner_user_id, name, kind, color)
+          values (${ownerUser}, 'rls archive category', 'expense', '#4C8C4A') returning id`,
+      );
+      const [budget] = await tx.execute<{ id: string }>(
+        dsql`insert into budgets (owner_user_id, category_id, period, limit_cents, threshold_pct, name)
+          values (${ownerUser}, ${category.id}, 'monthly', 40000000, 80, 'rls archive budget') returning id`,
+      );
+      const [goal] = await tx.execute<{ id: string }>(
+        dsql`insert into savings_goals (owner_user_id, name, target_amount_cents)
+          values (${ownerUser}, 'rls archive goal', 200000000) returning id`,
+      );
+
+      const budgetArchived = await tx.execute<{ archived_at: string | null }>(
+        dsql`update budgets set archived_at = now() where id = ${budget.id} returning archived_at`,
+      );
+      // Read back under the same session: an archived budget that the select policy dropped would
+      // take its spent and remaining off the screen instead of onto the archived side.
+      const budgetSeen = await tx.execute<{ archived_at: string | null }>(
+        dsql`select archived_at from budgets where id = ${budget.id}`,
+      );
+      assert(
+        labels[0],
+        budgetArchived.length === 1 &&
+          budgetArchived[0].archived_at !== null &&
+          budgetSeen.length === 1 &&
+          budgetSeen[0].archived_at !== null,
+        `${budgetArchived.length} row archived, the owner still reads ${budgetSeen.length} row with archived_at = ${budgetSeen[0]?.archived_at}`,
+      );
+
+      const budgetRestored = await tx.execute<{ archived_at: string | null }>(
+        dsql`update budgets set archived_at = null where id = ${budget.id} returning archived_at`,
+      );
+      assert(
+        labels[1],
+        budgetRestored.length === 1 && budgetRestored[0].archived_at === null,
+        `${budgetRestored.length} row restored, archived_at = ${budgetRestored[0]?.archived_at}`,
+      );
+
+      await enter(tx, strangerUser);
+      let strangerBudgetRows = -1;
+      const strangerBudgetRefusal = await refusalOf(async (sp) => {
+        const rows = await sp.execute<{ id: string }>(
+          dsql`update budgets set archived_at = now() where id = ${budget.id} returning id`,
+        );
+        strangerBudgetRows = rows.length;
+      });
+      await tx.execute(dsql`reset role`);
+      const [budgetStored] = await tx.execute<{ archived_at: string | null }>(
+        dsql`select archived_at from budgets where id = ${budget.id}`,
+      );
+      assert(
+        labels[2],
+        (strangerBudgetRows === 0 || strangerBudgetRefusal.includes("42501")) &&
+          budgetStored.archived_at === null,
+        `rows = ${strangerBudgetRows === -1 ? "none issued" : strangerBudgetRows}, ${strangerBudgetRefusal}, archived_at = ${budgetStored.archived_at}`,
+      );
+
+      await enter(tx, ownerUser);
+      const goalArchived = await tx.execute<{ archived_at: string | null }>(
+        dsql`update savings_goals set archived_at = now() where id = ${goal.id} returning archived_at`,
+      );
+      const goalSeen = await tx.execute<{ archived_at: string | null }>(
+        dsql`select archived_at from savings_goals where id = ${goal.id}`,
+      );
+      assert(
+        labels[3],
+        goalArchived.length === 1 &&
+          goalArchived[0].archived_at !== null &&
+          goalSeen.length === 1 &&
+          goalSeen[0].archived_at !== null,
+        `${goalArchived.length} row archived, the owner still reads ${goalSeen.length} row with archived_at = ${goalSeen[0]?.archived_at}`,
+      );
+
+      const goalRestored = await tx.execute<{ archived_at: string | null }>(
+        dsql`update savings_goals set archived_at = null where id = ${goal.id} returning archived_at`,
+      );
+      assert(
+        labels[4],
+        goalRestored.length === 1 && goalRestored[0].archived_at === null,
+        `${goalRestored.length} row restored, archived_at = ${goalRestored[0]?.archived_at}`,
+      );
+
+      await enter(tx, strangerUser);
+      let strangerGoalRows = -1;
+      const strangerGoalRefusal = await refusalOf(async (sp) => {
+        const rows = await sp.execute<{ id: string }>(
+          dsql`update savings_goals set archived_at = now() where id = ${goal.id} returning id`,
+        );
+        strangerGoalRows = rows.length;
+      });
+      await tx.execute(dsql`reset role`);
+      const [goalStored] = await tx.execute<{ archived_at: string | null }>(
+        dsql`select archived_at from savings_goals where id = ${goal.id}`,
+      );
+      assert(
+        labels[5],
+        (strangerGoalRows === 0 || strangerGoalRefusal.includes("42501")) &&
+          goalStored.archived_at === null,
+        `rows = ${strangerGoalRows === -1 ? "none issued" : strangerGoalRows}, ${strangerGoalRefusal}, archived_at = ${goalStored.archived_at}`,
+      );
+
+      // The owner's own aporte, on the owner's own goal: nothing but the flag stands in its way.
+      await enter(tx, ownerUser);
+      await tx.execute(
+        dsql`update savings_goals set archived_at = now() where id = ${goal.id}`,
+      );
+      const aporteRefusal = await refusalOf((sp) =>
+        sp.execute(dsql`insert into goal_contributions (goal_id, transaction_id, amount_cents)
+          values (${goal.id}, null, 5000000)`),
+      );
+      const [{ count: refusedCount }] = await tx.execute<{ count: string }>(
+        dsql`select count(*)::text as count from goal_contributions where goal_id = ${goal.id}`,
+      );
+      assert(
+        labels[6],
+        aporteRefusal.includes("42501") && refusedCount === "0",
+        `${aporteRefusal}, aportes on the goal = ${refusedCount}`,
+      );
+
+      await tx.execute(dsql`update savings_goals set archived_at = null where id = ${goal.id}`);
+      const landed = await tx.execute<{ amount_cents: string }>(
+        dsql`insert into goal_contributions (goal_id, transaction_id, amount_cents)
+          values (${goal.id}, null, 5000000) returning amount_cents`,
+      );
+      // `goal_progress` is what the screen reads, so the restored aporte is asserted through it.
+      const [{ saved_cents: savedCents }] = await tx.execute<{ saved_cents: string }>(
+        dsql`select saved_cents from goal_progress where goal_id = ${goal.id}`,
+      );
+      assert(
+        labels[7],
+        landed.length === 1 && landed[0].amount_cents === "5000000" && savedCents === "5000000",
+        `${landed.length} aporte of ${landed[0]?.amount_cents} cents, goal_progress reads ${savedCents}`,
+      );
+
+      // Nothing this section wrote may survive; force the ROLLBACK.
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`select current_user`;
+  const [{ count: probeCount }] = await sql<{ count: string }[]>`
+    select
+      (select count(*) from budgets where name like 'rls archive%')
+      + (select count(*) from savings_goals where name like 'rls archive%')
+      + (select count(*) from categories where name like 'rls archive%') as count`;
+  assert(
+    tailLabel,
+    afterUser === "postgres" && probeCount === "0",
+    `current_user = ${afterUser}, rows named 'rls archive%' = ${probeCount}`,
   );
 }
 

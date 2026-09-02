@@ -6,7 +6,6 @@ import { useTranslations } from "next-intl";
 
 import {
   GROUP_SETTINGS_HREF,
-  GROUP_SETTINGS_READY,
   PRIMARY_KEYS,
   SIDEBAR_SECONDARY_KEYS,
   destinations,
@@ -107,9 +106,9 @@ export function AppSidebar({
         >
           {fundName}
         </Text>
-        {/* Disabled until `/settings/group` exists: a control that opens nothing
-            says so, where a link would promise a screen and deliver an empty one. */}
-        {GROUP_SETTINGS_READY ? (
+        {/* `/settings/group` refuses a caller without one, so the chevron drops
+            with it: the list already drops Miembros the same way. */}
+        {hasGroup && (
           <IconButton
             asChild
             size="1"
@@ -120,17 +119,6 @@ export function AppSidebar({
             <LocaleLink href={GROUP_SETTINGS_HREF}>
               {chevron(ChevronDown)}
             </LocaleLink>
-          </IconButton>
-        ) : (
-          <IconButton
-            disabled
-            type="button"
-            size="1"
-            variant="ghost"
-            color="gray"
-            aria-label={t("fundSettings")}
-          >
-            {chevron(ChevronDown)}
           </IconButton>
         )}
       </Flex>
