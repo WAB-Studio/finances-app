@@ -73,7 +73,7 @@ accounting exports, native apps. None of this gets built or left
 
 - [x] **RF-17** — Record income (destination account only), expense (source account only) or transfer (both).
 - [x] **RF-18** — The type is derived from the accounts involved; the user does not choose it.
-- [ ] **RF-19** — Transfers are excluded from every income and expense report.
+- [x] **RF-19** — Transfers are excluded from every income and expense report.
 - [x] **RF-20** — Every transaction has a positive amount and at least one account.
 - [x] **RF-101** — A transfer names two different accounts; a movement whose source and destination are the same account is refused.
 - [x] **RF-62** — Both accounts on a transaction belong to the caller's writable scope: their personal accounts and their group's shared accounts.
