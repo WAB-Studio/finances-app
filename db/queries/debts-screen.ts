@@ -1,14 +1,11 @@
 import "server-only";
 
-import { sql } from "drizzle-orm";
-
 import { getAccountBalances } from "@/db/queries/account-balances";
 import { listAccounts } from "@/db/queries/accounts";
 import { getDebtOverview, sumDebtCreditTotals } from "@/db/queries/debt-overview";
 import type { DebtOverviewRow } from "@/db/queries/debt-overview";
 import { listPlanPositions } from "@/db/queries/installment-plans";
 import type { PlanPosition } from "@/db/queries/installment-plans";
-import { withUserDb } from "@/db/session";
 
 export type DebtsScreenData = {
   totals: {
@@ -42,42 +39,27 @@ export type DebtsScreenData = {
 };
 
 /**
- * What the policies would admit on each live liability, in ONE round trip: the
- * very predicate every write policy on a debt is written against (RF-58, RF-100).
- * A screen asks this rather than inferring a role, so it offers no action the
- * database would refuse. The read costs its own trip because the roster's own
- * query does not carry the privilege.
- */
-async function readWritableDebts(): Promise<Map<string, boolean>> {
-  return withUserDb(async (tx) => {
-    const rows = await tx.execute<{ id: string; can_write: boolean }>(sql`
-      select a.id, private.can_write_account(a.id) as can_write
-      from accounts a
-      where a.kind = 'liability' and a.archived_at is null
-    `);
-
-    return new Map(rows.map((row) => [row.id, row.can_write]));
-  });
-}
-
-/**
- * Everything the debts screen renders, in ONE fan-out of five existing reads
+ * Everything the debts screen renders, in ONE fan-out of four existing reads
  * (RF-83, RF-117, RNF-09): the terms-carrying overview, the account roster for
- * names and the kind partition, the derived balances for the no-terms owed
- * magnitudes, each account's installment position, and what the caller may write.
- * The awaits never chain — five round trips, no more. Every figure arrives
- * already derived from the backend and stays integer cents.
+ * names, the kind partition and what the caller may write, the derived balances
+ * for the no-terms owed magnitudes, and each account's installment position. The
+ * awaits never chain — four round trips, no more. Every figure arrives already
+ * derived from the backend and stays integer cents.
  */
 export async function getDebtsScreenData(): Promise<DebtsScreenData> {
-  const [overview, accounts, balances, positions, writable] = await Promise.all([
+  const [overview, accounts, balances, positions] = await Promise.all([
     getDebtOverview(),
     listAccounts({ archived: false }),
     getAccountBalances(),
     listPlanPositions(),
-    readWritableDebts(),
   ]);
 
   const nameById = new Map(accounts.map((account) => [account.id, account.name]));
+  // The roster's own projection carries the write privilege, so no debt costs a
+  // second statement to learn what its caller may do to it.
+  const writableById = new Map(
+    accounts.map((account) => [account.id, account.canWrite]),
+  );
   const balanceById = new Map(
     balances.map((balance) => [balance.accountId, balance.balanceCents]),
   );
@@ -97,8 +79,8 @@ export async function getDebtsScreenData(): Promise<DebtsScreenData> {
         ...row,
         name,
         planPosition: positionById.get(row.accountId) ?? null,
-        // Absent from the map is a debt the write predicate did not admit.
-        canWrite: writable.get(row.accountId) ?? false,
+        // Absent from the roster is a debt the caller may not write.
+        canWrite: writableById.get(row.accountId) ?? false,
       },
     ];
   });
@@ -114,7 +96,7 @@ export async function getDebtsScreenData(): Promise<DebtsScreenData> {
       name: account.name,
       owedCents: Math.abs(balanceById.get(account.id) ?? 0),
       planPosition: positionById.get(account.id) ?? null,
-      canWrite: writable.get(account.id) ?? false,
+      canWrite: account.canWrite,
     }));
 
   const owedCents =

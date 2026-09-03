@@ -1506,9 +1506,10 @@ async function readSuite(
   await checkRead("countUnreviewedGenerated", () => countUnreviewedGenerated());
   await checkRead("getDebtsScreenData", () => getDebtsScreenData());
   await checkRead("getDebtOverview", () => getDebtOverview());
-  // The screen fans five reads out (RNF-09); the count is what says they never
+  // The screen fans four reads out (RNF-09); the count is what says they never
   // chained and never went one read per debt — the writability of every debt
-  // rides one statement, not one per row. The first call is unmeasured on
+  // rides the roster's own projection, not a statement of its own. The first call
+  // is unmeasured on
   // purpose: the driver counts the statements that open a connection too, and the
   // fan-out opens as many as it has reads.
   await checkReadValue(
@@ -1525,7 +1526,7 @@ async function readSuite(
       return { unit, trips: roundTrips() - before };
     },
     ({ unit, trips }) => ({
-      ok: trips === unit * 5,
+      ok: trips === unit * 4,
       detail: `${trips} round trips for the screen, ${unit} for a single read`,
     }),
   );

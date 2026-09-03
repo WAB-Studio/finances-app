@@ -36,6 +36,10 @@ const accountRowColumns = {
   initialBalanceCents: accounts.initialBalanceCents,
   initialBalanceOn: accounts.initialBalanceOn,
   balanceCents: sql<string>`b.balance_cents`,
+  // Written with the column's own name, never a Drizzle column reference: a
+  // reference inside a projection fragment renders bare and binds inward. The
+  // WHERE below already keeps this list to own-or-shared, so it reads true here.
+  canWrite: sql<boolean>`private.can_write_account(accounts.id)`,
   archivedAt: accounts.archivedAt,
 } as const;
 
