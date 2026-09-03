@@ -8,11 +8,17 @@
  * running the production control flow rather than a replica of it is the point.
  */
 import { createHash, randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 // FIRST, and it has to stay first: it plants the counted pool `@/db/client` picks
 // up, and a client already built is a client that cannot be instrumented.
 import { roundTrips } from "./harness/instrument";
 
+import {
+  createInstallmentPlanAction,
+  recordDebtPaymentAction,
+} from "@/app/actions/installment-plans";
 import { getAccountBalances } from "@/db/queries/account-balances";
 import { getShellSummary } from "@/db/queries/app-shell";
 import {
@@ -38,6 +44,7 @@ import {
   updateCategory,
 } from "@/db/queries/categories";
 import { createGroup } from "@/db/queries/create-group";
+import { getDebtDetail } from "@/db/queries/debt-detail";
 import { getDebtOverview } from "@/db/queries/debt-overview";
 import { listStatements } from "@/db/queries/debt-statements";
 import { getDebtTerms, upsertDebtTerms } from "@/db/queries/debt-terms";
@@ -59,6 +66,7 @@ import {
 } from "@/db/queries/ingest-review";
 import {
   createInstallmentPlan,
+  listPlanPositions,
   listPlansForAccount,
   recordDebtPayment,
 } from "@/db/queries/installment-plans";
@@ -110,7 +118,12 @@ import {
   listWebhookCredentials,
 } from "@/db/queries/webhook-credentials";
 import { withUserDb } from "@/db/session";
-import { currentMonthRange, todayInBogota } from "@/lib/dates";
+import {
+  addCivilMonths,
+  currentMonthRange,
+  priorCutOffDates,
+  todayInBogota,
+} from "@/lib/dates";
 import { pgErrorCode } from "@/lib/db-error";
 import { SEED_CATEGORIES } from "@/lib/fund/seed";
 import { SHEET_ENTITIES } from "@/lib/spreadsheet/schema";
@@ -351,6 +364,110 @@ async function readGroupMembers(groupId: string): Promise<MemberSnapshot[]> {
     from group_members where group_id = ${groupId} order by id`;
 }
 
+// The limit the write suite's card is given, and the only limit in the run: the
+// consolidated credit totals are asserted against it.
+const CREDIT_LIMIT_CENTS = 500000000;
+
+// The write suite's own plan: three lines of this, one closed by its payment.
+const CARD_LINE_CENTS = 40000000;
+
+// Three equal lines, so a payment of two of them plus a few cents leaves a
+// remainder no line can take.
+const PLAN_LINE_CENTS = 100000;
+const PLAN_REMAINDER_CENTS = 5000;
+
+// The day of the month the fixture debt cuts its statements on.
+const CUT_OFF_DAY = 15;
+
+type DebtFixture = {
+  // A liability whose terms name NO credit limit, opened six months back so its
+  // past statement periods are there to be cut.
+  unlimitedAccountId: string;
+  unlimitedName: string;
+  openedOn: string;
+  // A plan on the scope's terms-less liability, its three lines a month apart.
+  planId: string;
+  dueDates: string[];
+};
+
+/**
+ * The two debts the installment, credit and statement checks read, beside the card
+ * the write suite creates: a liability that carries terms without a limit (RF-117)
+ * and a plan on a liability that carries no terms at all (RF-81, RF-82). Written as
+ * the owner under the caller's claims, the way `seedHarnessScope` writes: the
+ * stamping triggers see `auth.uid()` while the owner's privileges do the insert.
+ */
+async function seedDebtFixture(
+  userId: string,
+  scope: HarnessScope,
+): Promise<DebtFixture> {
+  const today = todayInBogota();
+  const fixture: DebtFixture = {
+    unlimitedAccountId: randomUUID(),
+    unlimitedName: "Harness credit line",
+    openedOn: addCivilMonths(today, -6),
+    planId: randomUUID(),
+    dueDates: [today, addCivilMonths(today, 1), addCivilMonths(today, 2)],
+  };
+  const claims = JSON.stringify({
+    sub: userId,
+    role: "authenticated",
+    aud: "authenticated",
+  });
+
+  await fixtureSql.begin(async (tx) => {
+    await tx`select set_config('request.jwt.claims', ${claims}, true)`;
+
+    await tx`
+      insert into accounts
+        (id, owner_user_id, name, kind, subtype, initial_balance_cents, initial_balance_on)
+      values
+        (${fixture.unlimitedAccountId}, ${userId}, ${fixture.unlimitedName},
+         'liability', 'tarjeta', -1200000, ${fixture.openedOn})`;
+
+    // No credit limit and no minimum percentage: the limit is what the credit
+    // totals must skip, and the cut-off day is what gives the history periods.
+    await tx`
+      insert into debt_terms
+        (account_id, debt_kind, annual_rate, minimum_payment_cents,
+         credit_limit_cents, statement_cut_off_day, payment_due_day)
+      values
+        (${fixture.unlimitedAccountId}, 'revolving', 0.2400, 30000,
+         null, ${CUT_OFF_DAY}, 4)`;
+
+    await tx`
+      insert into installment_plans
+        (id, account_id, description, principal_cents, n_installments, frequency, start_date)
+      values
+        (${fixture.planId}, ${scope.liabilityAccountId}, 'Harness plan without terms',
+         ${PLAN_LINE_CENTS * 3}, 3, 'monthly', ${today})`;
+
+    await tx`
+      insert into installment_lines (plan_id, seq, due_date, amount_cents) values
+        (${fixture.planId}, 1, ${fixture.dueDates[0]}, ${PLAN_LINE_CENTS}),
+        (${fixture.planId}, 2, ${fixture.dueDates[1]}, ${PLAN_LINE_CENTS}),
+        (${fixture.planId}, 3, ${fixture.dueDates[2]}, ${PLAN_LINE_CENTS})`;
+  });
+
+  track("accounts", fixture.unlimitedAccountId);
+  track("debt_terms", fixture.unlimitedAccountId);
+  // The lines go with the plan: the foreign key cascades.
+  track("installment_plans", fixture.planId);
+
+  return fixture;
+}
+
+// Which of a plan's lines a movement closed, read as the owner and in due order:
+// the allocation is oldest-first, so WHICH lines were taken is the assertion, not
+// how many.
+async function readPaidLines(planId: string): Promise<string> {
+  const rows = await fixtureSql<{ seq: number; paid: boolean }[]>`
+    select seq, paid_transaction_id is not null as paid
+    from installment_lines where plan_id = ${planId} order by due_date, seq`;
+
+  return rows.map((row) => `${row.seq}:${row.paid}`).join(", ");
+}
+
 type WriteResults = {
   accountId: string | null;
   transactionId: string | null;
@@ -368,6 +485,7 @@ async function writeSuite(
   scope: HarnessScope,
   groupless: HarnessUser,
   silenced: SilencedFixture,
+  debt: DebtFixture,
 ): Promise<WriteResults> {
   const today = todayInBogota();
   const personal = { ownerUserId: userId } as const;
@@ -915,7 +1033,7 @@ async function writeSuite(
         annualRate: "0.2800",
         minimumPaymentCents: 5000000,
         minimumPaymentPct: null,
-        creditLimitCents: 500000000,
+        creditLimitCents: CREDIT_LIMIT_CENTS,
         statementCutOffDay: 15,
         paymentDueDay: 5,
         avalCents: null,
@@ -935,7 +1053,7 @@ async function writeSuite(
       createInstallmentPlan({
         accountId,
         description: "Harness nevera",
-        principalCents: 120000000,
+        principalCents: CARD_LINE_CENTS * 3,
         nInstallments: 3,
         frequency: "monthly",
         interestRate: "0.0200",
@@ -944,9 +1062,9 @@ async function writeSuite(
         startDate: today,
         merchant: "Harness store",
         lines: [
-          { seq: 1, dueDate: today, amountCents: 40000000 },
-          { seq: 2, dueDate: today, amountCents: 40000000 },
-          { seq: 3, dueDate: today, amountCents: 40000000 },
+          { seq: 1, dueDate: today, amountCents: CARD_LINE_CENTS },
+          { seq: 2, dueDate: today, amountCents: CARD_LINE_CENTS },
+          { seq: 3, dueDate: today, amountCents: CARD_LINE_CENTS },
         ],
       }),
     async ({ planId }) => {
@@ -964,7 +1082,7 @@ async function writeSuite(
       recordDebtPayment({
         fromAccountId: scope.assetAccountId,
         toAccountId: accountId,
-        amountCents: 40000000,
+        amountCents: CARD_LINE_CENTS,
         occurredAt: today,
       }),
     async ({ transactionId, paidLineIds }) => {
@@ -974,6 +1092,159 @@ async function writeSuite(
         detail: `movement ${transactionId}, lines paid = ${paidLineIds.length}, kind = ${await readColumn("transactions", "id", transactionId, "kind")}`,
       };
     },
+  );
+
+  // RF-82 end to end through the app's own allocator: two lines closed oldest
+  // first, the third left standing because the payment does not cover it whole,
+  // and the cents over the two returned unallocated.
+  await checkWrite(
+    "recordDebtPayment closes the oldest lines and hands back the remainder",
+    () =>
+      recordDebtPayment({
+        fromAccountId: scope.assetAccountId,
+        toAccountId: scope.liabilityAccountId,
+        amountCents: PLAN_LINE_CENTS * 2 + PLAN_REMAINDER_CENTS,
+        occurredAt: today,
+      }),
+    async ({ transactionId, paidLineIds, remainderCents }) => {
+      keep("transactions", transactionId);
+      const paid = await readPaidLines(debt.planId);
+
+      return {
+        ok:
+          paidLineIds.length === 2 &&
+          remainderCents === PLAN_REMAINDER_CENTS &&
+          paid === "1:true, 2:true, 3:false",
+        detail: `${paidLineIds.length} lines closed, remainder ${remainderCents} cents of the ${PLAN_LINE_CENTS * 2 + PLAN_REMAINDER_CENTS} paid, lines by seq = ${paid}`,
+      };
+    },
+  );
+
+  // RF-16: a debt is paid from an asset. The kinds are read in the statement that
+  // reads the lines, one statement ahead of the INSERT, so the refusal costs no
+  // movement — and a movement written and rolled back would still burn an id.
+  const notFromAsset = next("a payment from a liability writes no movement");
+  const movementsBefore = await fixtureSql<{ total: string }[]>`
+    select count(*)::text as total from transactions
+    where from_account_id = ${scope.liabilityAccountId}`;
+  try {
+    const { transactionId } = await recordDebtPayment({
+      fromAccountId: scope.liabilityAccountId,
+      toAccountId: accountId,
+      amountCents: PLAN_LINE_CENTS,
+      occurredAt: today,
+    });
+    // Tracked, not left behind: an accepted call is the failure this asserts on.
+    track("transactions", transactionId);
+    assert(notFromAsset, false, `it was accepted as movement ${transactionId}`);
+  } catch (error) {
+    const movementsAfter = await fixtureSql<{ total: string }[]>`
+      select count(*)::text as total from transactions
+      where from_account_id = ${scope.liabilityAccountId}`;
+    assert(
+      notFromAsset,
+      pgErrorCode(error) === "23514" &&
+        rootMessage(error).includes("comes from an asset account") &&
+        movementsAfter[0].total === movementsBefore[0].total,
+      `${refusal(error)}; movements out of the liability ${movementsBefore[0].total} before, ${movementsAfter[0].total} after`,
+    );
+  }
+
+  // The action's own reading of the refusals, which the dialog shows: all three
+  // arrive as 23514, and only the message tells the source's from the rest. The
+  // client logs each one as it maps it, so a failed action is loud above.
+  await checkReadValue(
+    "recordDebtPaymentAction answers a liability source with the source's key",
+    () =>
+      recordDebtPaymentAction({
+        fromAccountId: scope.liabilityAccountId,
+        toAccountId: accountId,
+        amount: "1000",
+        occurredAt: today,
+      }),
+    (result) => ({
+      ok: result?.serverError === "installments.errors.notFromAsset",
+      detail: `serverError = ${result?.serverError ?? "none"}`,
+    }),
+  );
+
+  // Aiming a payment at an account that is no debt is the same mistake as aiming a
+  // plan at one, so the two paths answer with the same key.
+  await checkReadValue(
+    "recordDebtPaymentAction answers a destination that is no debt with the account key",
+    () =>
+      recordDebtPaymentAction({
+        fromAccountId: scope.assetAccountId,
+        toAccountId: scope.cashAccountId,
+        amount: "1000",
+        occurredAt: today,
+      }),
+    (result) => ({
+      ok: result?.serverError === "installments.errors.notLiability",
+      detail: `serverError = ${result?.serverError ?? "none"}`,
+    }),
+  );
+
+  await checkReadValue(
+    "createInstallmentPlanAction answers an asset account with that same key",
+    () =>
+      createInstallmentPlanAction({
+        accountId: scope.assetAccountId,
+        description: null,
+        principal: "1000",
+        nInstallments: 3,
+        frequency: "monthly",
+        interestRate: null,
+        downPayment: null,
+        aval: null,
+        startDate: today,
+        merchant: null,
+      }),
+    async (result) => {
+      const [row] = await fixtureSql<{ total: string }[]>`
+        select count(*)::text as total from installment_plans
+        where account_id = ${scope.assetAccountId}`;
+
+      return {
+        ok:
+          result?.serverError === "installments.errors.notLiability" &&
+          row.total === "0",
+        detail: `serverError = ${result?.serverError ?? "none"}, plans on the asset = ${row.total}`,
+      };
+    },
+  );
+
+  // The leftover key, and it is reachable: the shared peso schema bounds only the
+  // upper end, so a zero clears Zod and the kinds guard and is refused by
+  // `transactions_amount_positive` — one more 23514, and neither kind's message.
+  await checkReadValue(
+    "recordDebtPaymentAction answers a zero with the payment key, and writes nothing",
+    async () => {
+      const movements = async () => {
+        const [row] = await fixtureSql<{ total: string }[]>`
+          select count(*)::text as total from transactions
+          where from_account_id = ${scope.assetAccountId}
+            and to_account_id = ${accountId}`;
+
+        return row.total;
+      };
+
+      const before = await movements();
+      const result = await recordDebtPaymentAction({
+        fromAccountId: scope.assetAccountId,
+        toAccountId: accountId,
+        amount: "0",
+        occurredAt: today,
+      });
+
+      return { result, before, after: await movements() };
+    },
+    ({ result, before, after }) => ({
+      ok:
+        result?.serverError === "installments.errors.paymentInvalid" &&
+        after === before,
+      detail: `serverError = ${result?.serverError ?? "none"}, movements into the debt ${before} before, ${after} after`,
+    }),
   );
 
   await checkWrite(
@@ -1156,6 +1427,8 @@ async function readSuite(
   scope: HarnessScope,
   writes: WriteResults,
   silenced: SilencedFixtures,
+  debt: DebtFixture,
+  groupless: HarnessUser,
 ): Promise<void> {
   const personal = { ownerUserId: userId } as const;
   const debtAccountId = writes.accountId ?? scope.liabilityAccountId;
@@ -1200,6 +1473,243 @@ async function readSuite(
   await checkRead("countUnreviewedGenerated", () => countUnreviewedGenerated());
   await checkRead("getDebtsScreenData", () => getDebtsScreenData());
   await checkRead("getDebtOverview", () => getDebtOverview());
+  // The screen fans four reads out (RNF-09); the count is what says they never
+  // chained and never went one read per debt. The first call is unmeasured on
+  // purpose: the driver counts the statements that open a connection too, and the
+  // fan-out opens as many as it has reads.
+  await checkReadValue(
+    "getDebtsScreenData costs one round trip per fanned-out read",
+    async () => {
+      await getDebtsScreenData();
+      const unitBefore = roundTrips();
+      await getAccountBalances();
+      const unit = roundTrips() - unitBefore;
+
+      const before = roundTrips();
+      await getDebtsScreenData();
+
+      return { unit, trips: roundTrips() - before };
+    },
+    ({ unit, trips }) => ({
+      ok: trips === unit * 4,
+      detail: `${trips} round trips for the screen, ${unit} for a single read`,
+    }),
+  );
+
+  // RF-117: the summed limit and the summed available cover exactly the debts that
+  // carry a limit. The one without a limit owes, so counting it as a zero would
+  // drag the available below the figure asserted here.
+  await checkReadValue(
+    "getDebtsScreenData sums the credit of the debts that carry a limit",
+    async () => {
+      const [screen, balances] = await Promise.all([
+        getDebtsScreenData(),
+        getAccountBalances([debtAccountId]),
+      ]);
+
+      return { screen, owedCents: Math.abs(balances[0]?.balanceCents ?? 0) };
+    },
+    ({ screen, owedCents }) => {
+      const limited = screen.withTerms.find((row) => row.accountId === debtAccountId);
+      const unlimited = screen.withTerms.find(
+        (row) => row.accountId === debt.unlimitedAccountId,
+      );
+
+      return {
+        ok:
+          limited?.creditLimitCents === CREDIT_LIMIT_CENTS &&
+          unlimited?.creditLimitCents === null &&
+          unlimited.owedCents > 0 &&
+          screen.totals.creditLimitCents === CREDIT_LIMIT_CENTS &&
+          screen.totals.availableCreditCents === CREDIT_LIMIT_CENTS - owedCents,
+        detail: `${screen.withTerms.length} debts with terms, limit summed ${screen.totals.creditLimitCents} of ${CREDIT_LIMIT_CENTS}, available ${screen.totals.availableCreditCents} against ${CREDIT_LIMIT_CENTS - owedCents}; the debt with no limit owes ${unlimited?.owedCents ?? "no row"} and reports a limit of ${unlimited?.creditLimitCents ?? "null"}`,
+      };
+    },
+  );
+
+  // RF-16: the source picker is filtered out of the roster the screen already
+  // read, and a debt is never paid from another debt.
+  await checkReadValue(
+    "getDebtsScreenData offers every live asset to pay from, and no liability",
+    async () => {
+      const [screen, accounts] = await Promise.all([
+        getDebtsScreenData(),
+        listAccounts({ archived: false }),
+      ]);
+
+      return { screen, accounts };
+    },
+    ({ screen, accounts }) => {
+      const kindById = new Map(accounts.map((account) => [account.id, account.kind]));
+      const assets = accounts.filter((account) => account.kind === "asset");
+      const offered = screen.payFrom.filter(
+        (source) => kindById.get(source.id) !== "asset",
+      );
+
+      return {
+        ok: offered.length === 0 && screen.payFrom.length === assets.length,
+        detail: `${screen.payFrom.length} sources offered against ${assets.length} live assets, ${offered.length} of them not an asset`,
+      };
+    },
+  );
+
+  // RF-83: the tile names the debt the earliest due date belongs to, and its
+  // figure is that debt's minimum plus the installments falling due by then.
+  await checkReadValue(
+    "getDebtsScreenData names the debt behind the next payment",
+    () => getDebtsScreenData(),
+    (screen) => {
+      const dated = screen.withTerms.filter((row) => row.nextDueDate !== null);
+      const earliest = dated.reduce<(typeof dated)[number] | null>(
+        (soonest, row) =>
+          soonest !== null && (soonest.nextDueDate ?? "") <= (row.nextDueDate ?? "")
+            ? soonest
+            : row,
+        null,
+      );
+      const expected =
+        earliest === null
+          ? null
+          : (earliest.minimumPaymentCents ?? 0) + earliest.dueInstallmentsCents;
+      const tile = screen.totals.nextPayment;
+
+      return {
+        ok:
+          earliest !== null &&
+          tile?.name === earliest.name &&
+          tile.date === earliest.nextDueDate &&
+          tile.amountCents === expected,
+        detail: `${tile?.amountCents ?? "no"} cents due on ${tile?.date ?? "no date"} on "${tile?.name ?? "no debt"}", against ${expected ?? "no"} cents on "${earliest?.name ?? "no debt"}" of the ${dated.length} dated debts`,
+      };
+    },
+  );
+
+  // RF-82: the position a debt's lines add up to, read across its plans. The
+  // write suite closed one of the card's three lines with a movement.
+  await checkReadValue(
+    "listPlanPositions states the paid-down card's position",
+    () => listPlanPositions(),
+    (positions) => {
+      const card = positions.find((position) => position.accountId === debtAccountId);
+
+      return {
+        ok:
+          card?.linesTotal === 3 &&
+          card.linesPaid === 1 &&
+          card.pendingCents === CARD_LINE_CENTS * 2 &&
+          card.nextDueDate === todayInBogota() &&
+          card.nextAmountCents === CARD_LINE_CENTS,
+        detail: `${card?.linesPaid ?? "no"} of ${card?.linesTotal ?? "no"} lines paid, ${card?.pendingCents ?? "no"} cents pending, next ${card?.nextAmountCents ?? "no"} cents on ${card?.nextDueDate ?? "no date"}`,
+      };
+    },
+  );
+
+  // A plan sits on any liability: one whose account carries no `debt_terms` row
+  // still has a position to state (RF-81).
+  await checkReadValue(
+    "listPlanPositions states the position of a debt with no terms",
+    async () => {
+      const [positions, terms] = await Promise.all([
+        listPlanPositions(),
+        getDebtTerms(scope.liabilityAccountId),
+      ]);
+
+      return { positions, terms };
+    },
+    ({ positions, terms }) => {
+      const plan = positions.find(
+        (position) => position.accountId === scope.liabilityAccountId,
+      );
+
+      return {
+        ok:
+          terms === null &&
+          plan?.linesTotal === 3 &&
+          plan.linesPaid === 2 &&
+          plan.pendingCents === PLAN_LINE_CENTS &&
+          plan.nextDueDate === debt.dueDates[2] &&
+          plan.nextAmountCents === PLAN_LINE_CENTS,
+        detail: `terms = ${terms === null ? "none" : "some"}, ${plan?.linesPaid ?? "no"} of ${plan?.linesTotal ?? "no"} lines paid, ${plan?.pendingCents ?? "no"} cents pending, next ${plan?.nextAmountCents ?? "no"} cents on ${plan?.nextDueDate ?? "no date"}`,
+      };
+    },
+  );
+
+  // RF-84: opening the detail cuts the periods that have passed since the account
+  // was opened, and opening it again rewrites none of them — same count, same rows.
+  await checkReadValue(
+    "getDebtDetail cuts every past period once and rewrites none",
+    async () => {
+      const first = await getDebtDetail(debt.unlimitedAccountId);
+      for (const statement of first?.statements ?? []) {
+        track("debt_statements", statement.id);
+      }
+
+      return { first, second: await getDebtDetail(debt.unlimitedAccountId) };
+    },
+    ({ first, second }) => {
+      const expected = priorCutOffDates(CUT_OFF_DAY, debt.openedOn, todayInBogota());
+      const cutOffs = (first?.statements ?? [])
+        .map((statement) => statement.cutOffDate)
+        .sort();
+      const ids = (rows: typeof first) =>
+        (rows?.statements ?? [])
+          .map((statement) => statement.id)
+          .sort()
+          .join(",");
+
+      return {
+        ok:
+          expected.length > 0 &&
+          cutOffs.join(",") === expected.join(",") &&
+          ids(first) === ids(second),
+        detail: `${cutOffs.length} statements cut of the ${expected.length} periods since ${debt.openedOn}, the same ${ids(first) === ids(second) ? "rows" : "rows no longer"} on the second read`,
+      };
+    },
+  );
+
+  // The policies are the whole scope: a debt outside the caller's is absent, not
+  // refused, and so is an account that is no liability.
+  await checkReadValue(
+    "getDebtDetail is null for another identity and for an asset",
+    async () => ({
+      stranger: await asUser(groupless, () => getDebtDetail(debt.unlimitedAccountId)),
+      asset: await getDebtDetail(scope.assetAccountId),
+    }),
+    ({ stranger, asset }) => ({
+      ok: stranger === null && asset === null,
+      detail: `the second identity reads ${stranger === null ? "null" : "the debt"}, the asset reads ${asset === null ? "null" : "a debt"}`,
+    }),
+  );
+
+  // The narrowing argument no caller has ever passed: it rendered as a record
+  // cast to an array and was unusable at every arity (RNF-07).
+  await checkReadValue(
+    "getAccountBalances narrows to the ids it is given",
+    async () => {
+      const asked = [scope.assetAccountId, debtAccountId];
+      const [all, narrowed] = await Promise.all([
+        getAccountBalances(),
+        getAccountBalances(asked),
+      ]);
+
+      return { asked, all, narrowed };
+    },
+    ({ asked, all, narrowed }) => {
+      const byId = new Map(all.map((row) => [row.accountId, row.balanceCents]));
+      const same = narrowed.every(
+        (row) => byId.get(row.accountId) === row.balanceCents,
+      );
+
+      return {
+        ok:
+          narrowed.length === asked.length &&
+          asked.every((id) => narrowed.some((row) => row.accountId === id)) &&
+          same,
+        detail: `${narrowed.length} of the ${all.length} accounts came back for ${asked.length} ids, every balance the same as unnarrowed = ${same}`,
+      };
+    },
+  );
+
   await checkRead("getDebtTerms", () => getDebtTerms(debtAccountId));
   await checkRead("listPlansForAccount", () => listPlansForAccount(debtAccountId));
   await checkRead("listStatements", () => listStatements(debtAccountId));
@@ -1232,6 +1742,48 @@ async function readSuite(
   await checkRead("readExport", () => readExport({ entityKeys: [...SHEET_ENTITIES] }));
   await checkRead("readImportScope", () => readImportScope());
   await checkRead("getUserLocale", () => getUserLocale());
+}
+
+// The two modules that name a message key for an installment plan or a debt
+// payment: the schema the form and the server share, and the action that maps the
+// database's refusals onto keys.
+const INSTALLMENT_KEY_SOURCES = [
+  "lib/validation/installment-plan.ts",
+  "app/actions/installment-plans.ts",
+];
+
+// Every `installments.*` literal a module names, trailing sentence punctuation
+// dropped so a key inside a comment reads the same as one inside a string.
+function namedInstallmentKeys(): string[] {
+  const found = INSTALLMENT_KEY_SOURCES.flatMap((file) =>
+    [...readFileSync(resolve(file), "utf8").matchAll(/installments\.[A-Za-z0-9_.]+/g)].map(
+      (match) => match[0].replace(/\.+$/, ""),
+    ),
+  );
+
+  return [...new Set(found)].sort();
+}
+
+// The leaf key paths under a message subtree, so two locales can be compared as
+// sets rather than one string at a time.
+function leafKeys(value: unknown, prefix: string): string[] {
+  if (typeof value !== "object" || value === null) return [prefix];
+
+  return Object.entries(value).flatMap(([key, child]) =>
+    leafKeys(child, prefix === "" ? key : `${prefix}.${key}`),
+  );
+}
+
+function translation(messages: object, key: string): string | undefined {
+  const found = key.split(".").reduce<unknown>(
+    (node, part) =>
+      typeof node === "object" && node !== null && part in node
+        ? (node as Record<string, unknown>)[part]
+        : undefined,
+    messages,
+  );
+
+  return typeof found === "string" ? found : undefined;
 }
 
 /**
@@ -1309,6 +1861,26 @@ async function invariantSuite(
     parsed.success
       ? "the payload parsed, which it must not"
       : `${issues.length} issue(s), accountSame at path ${sameIssue?.path.join(".") ?? "none"}, es "${es.transactions.errors.accountSame}", en "${en.transactions.errors.accountSame}"`,
+  );
+
+  // Every key the debt schema and the debt action can hand a form is a string a
+  // person reads, in both locales — a key that resolves in one and not the other
+  // is a screen that shows the key itself.
+  const installmentKeys = next("every installments key the schema and the action name reads");
+  const named = namedInstallmentKeys();
+  const untranslated = named.filter(
+    (key) => translation(es, key) === undefined || translation(en, key) === undefined,
+  );
+  const esKeys = leafKeys(es.installments, "installments");
+  const enKeys = leafKeys(en.installments, "installments");
+  assert(
+    installmentKeys,
+    named.length > 0 &&
+      untranslated.length === 0 &&
+      esKeys.sort().join(",") === enKeys.sort().join(","),
+    `${named.length} keys named, ${untranslated.length} untranslated${
+      untranslated.length > 0 ? ` (${untranslated.join(", ")})` : ""
+    }; es holds ${esKeys.length} installments strings and en ${enKeys.length}`,
   );
 
   const audited = next("every write left an audit_log row naming its record");
@@ -1487,9 +2059,11 @@ async function main(): Promise<void> {
     listed: await seedSilencedShape(userId, "listada"),
   };
 
-  const writes = await writeSuite(userId, scope, groupless, silenced.restored);
+  const debt = await seedDebtFixture(userId, scope);
+
+  const writes = await writeSuite(userId, scope, groupless, silenced.restored, debt);
   console.log("");
-  await readSuite(userId, scope, writes, silenced);
+  await readSuite(userId, scope, writes, silenced, debt, groupless);
   console.log("");
   await invariantSuite(writes, silenced.restored);
   console.log("");

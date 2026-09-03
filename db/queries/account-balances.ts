@@ -16,7 +16,16 @@ export async function getAccountBalances(
   accountIds?: string[],
 ): Promise<AccountBalance[]> {
   return withUserDb(async (tx) => {
-    const filter = accountIds ? sql`where id = any(${accountIds}::uuid[])` : sql``;
+    // ONE json parameter carries the ids: drizzle expands a JS array in a
+    // template into a comma-separated list, which is a record and not an array,
+    // and `any(...)` over one is unusable at every arity — a single id reads as a
+    // malformed array literal, two as a record that cannot cast, none as a
+    // syntax error.
+    const filter = accountIds
+      ? sql`where id in (
+          select value::uuid from jsonb_array_elements_text(${JSON.stringify(accountIds)}::jsonb)
+        )`
+      : sql``;
 
     const rows = await tx.execute<{ id: string; balance_cents: string }>(
       sql`select id, balance_cents from account_balances ${filter}`,

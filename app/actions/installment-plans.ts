@@ -65,14 +65,49 @@ function mapPlanError(error: unknown): never {
   throw error;
 }
 
-// The `assert_installment_line_payment` trigger raises 23514 when the settling
-// movement does not touch the plan account; a movement into another member's
-// account — or into one just deleted — is denied by RLS (42501) and reads as
-// absent. 23503 is the net under that: a reference gone after it was picked.
+// The query's own kinds guard, both halves of it, raised before anything is written.
+const ASSET_SOURCE_REFUSAL = "comes from an asset account";
+const LIABILITY_TARGET_REFUSAL = "credits a liability account";
+
+// The driver hangs its message off the cause chain the way it hangs its sqlstate:
+// the error thrown only says which query failed.
+function refusalMentions(error: unknown, fragment: string): boolean {
+  let current: unknown = error;
+
+  for (let hop = 0; hop < 5; hop++) {
+    if (typeof current !== "object" || current === null) return false;
+
+    const { message, cause } = current as { message?: unknown; cause?: unknown };
+    if (typeof message === "string" && message.includes(fragment)) return true;
+
+    current = cause;
+  }
+
+  return false;
+}
+
+// Four refusals share 23514: the two halves of the kinds guard above,
+// `assert_installment_line_payment` when the settling movement does not touch the
+// plan account, and `assert_installment_allocation` when the allocation is not
+// oldest-first and in full. The message is what tells them apart — on the code
+// alone every one of them would answer with the same key. A payment aimed at an
+// account that is no debt names what `mapPlanError` names for a plan aimed at
+// one: the mistake is the same. What is left over is the two triggers. A movement
+// into another member's account — or into one just deleted — is denied by RLS
+// (42501) and reads as absent. 23503 is the net under that: a reference gone
+// after it was picked.
 function mapPaymentError(error: unknown): never {
   const code = pgErrorCode(error);
   if (code === "42501") throw new ActionError("errors.notFound");
-  if (code === "23514") throw new ActionError("installments.errors.paymentInvalid");
+  if (code === "23514") {
+    if (refusalMentions(error, ASSET_SOURCE_REFUSAL)) {
+      throw new ActionError("installments.errors.notFromAsset");
+    }
+    if (refusalMentions(error, LIABILITY_TARGET_REFUSAL)) {
+      throw new ActionError("installments.errors.notLiability");
+    }
+    throw new ActionError("installments.errors.paymentInvalid");
+  }
   if (code === "23503") throw new ActionError("errors.referenceGone");
   throw error;
 }
@@ -141,14 +176,19 @@ export const createInstallmentPlanAction = authActionClient
  * Records a payment that credits a liability from an asset and allocates it
  * oldest-first onto the debt's unpaid lines (RF-16, RF-82). The transfer's scope
  * and kind fall to triggers; deleting the movement later unwinds the allocation
- * on its own, so there is no explicit unlink path.
+ * on its own, so there is no explicit unlink path. The lines it closed and the
+ * remainder it left over travel back, so the caller can name both.
  */
 export const recordDebtPaymentAction = authActionClient
   .inputSchema(recordDebtPaymentSchema)
   .action(async ({ parsedInput: { fromAccountId, toAccountId, amount, occurredAt } }) => {
     const amountCents = toCents(amount);
 
-    let result: { transactionId: string; paidLineIds: string[] };
+    let result: {
+      transactionId: string;
+      paidLineIds: string[];
+      remainderCents: number;
+    };
     try {
       result = await recordDebtPayment({
         fromAccountId,
@@ -161,7 +201,11 @@ export const recordDebtPaymentAction = authActionClient
     }
 
     refresh();
-    return { transactionId: result.transactionId, paidLineIds: result.paidLineIds };
+    return {
+      transactionId: result.transactionId,
+      paidLineIds: result.paidLineIds,
+      remainderCents: result.remainderCents,
+    };
   });
 
 // A denied or absent plan reports as no row (RF-81).
