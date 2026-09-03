@@ -4,7 +4,7 @@ import { eq, inArray, sql } from "drizzle-orm";
 
 import { insertRow } from "@/db/insert-row";
 import { installmentLines, installmentPlans, transactions } from "@/db/schema";
-import type { InstallmentPlan } from "@/db/schema";
+import type { Account, InstallmentPlan } from "@/db/schema";
 import { withUserDb } from "@/db/session";
 
 // The caller computes the dated schedule (RF-81); this only writes the plan and
@@ -184,14 +184,89 @@ export async function listPlansForAccount(
   });
 }
 
+export type PlanPosition = {
+  accountId: string;
+  linesTotal: number;
+  linesPaid: number;
+  pendingCents: number;
+  nextDueDate: string | null;
+  nextAmountCents: number | null;
+};
+
+/**
+ * One row per account that carries a plan, with the position its lines add up to,
+ * in ONE round trip (RF-81, RF-82, RNF-09): how many lines the account's plans
+ * hold, how many a movement already paid, what the unpaid ones still owe, and the
+ * earliest unpaid line's date and amount. Pending is a filtered sum over the
+ * unpaid lines, never a stored column (RNF-07).
+ *
+ * `installment_plans`'s own policy is the whole scope: a plan on an account the
+ * caller cannot read returns no row, so no count states a debt they may not see.
+ * `debt_terms` is not joined — a plan sits on any liability, and one without terms
+ * still has a position to state.
+ */
+export async function listPlanPositions(): Promise<PlanPosition[]> {
+  return withUserDb(async (tx) => {
+    const rows = await tx.execute<{
+      account_id: string;
+      lines_total: string;
+      lines_paid: string;
+      pending_cents: string;
+      next_due_date: string | null;
+      next_amount_cents: string | null;
+    }>(sql`
+      select
+        p.account_id,
+        count(l.id) as lines_total,
+        count(l.paid_transaction_id) as lines_paid,
+        coalesce(
+          sum(l.amount_cents) filter (where l.paid_transaction_id is null), 0
+        ) as pending_cents,
+        min(l.due_date) filter (where l.paid_transaction_id is null) as next_due_date,
+        -- The amount of the row next_due_date names, read in the same order the
+        -- FIFO walk uses, so the two never disagree on which line comes next.
+        (array_agg(l.amount_cents order by l.due_date, l.seq)
+          filter (where l.paid_transaction_id is null))[1] as next_amount_cents
+      from installment_plans p
+      -- LEFT: an account whose plan has no lines yet still reports its position.
+      left join installment_lines l on l.plan_id = p.id
+      group by p.account_id
+    `);
+
+    // A bigint sum or count arrives from the driver as a string; the ledger keeps
+    // cents a number.
+    return rows.map((row) => ({
+      accountId: row.account_id,
+      linesTotal: Number(row.lines_total),
+      linesPaid: Number(row.lines_paid),
+      pendingCents: Number(row.pending_cents),
+      nextDueDate: row.next_due_date,
+      nextAmountCents:
+        row.next_amount_cents === null ? null : Number(row.next_amount_cents),
+    }));
+  });
+}
+
+/**
+ * The refusal a payment gets when the accounts it names are the wrong kinds. It
+ * carries the sqlstate a check constraint would have carried, because that is
+ * what the action layer reads off the cause chain — the guard is only decided a
+ * statement earlier, before anything is written.
+ */
+class DebtPaymentRefusal extends Error {
+  readonly code = "23514";
+}
+
 /**
  * A payment against a liability and its auto-FIFO allocation in ONE `withUserDb`
- * (RF-82): (1) the transfer that credits the liability, in the ledger's own
- * transfer shape — both accounts, no split, no label (scope, kind and created_by
- * fall to triggers); (2) the oldest-first walk over the debt account's unpaid
- * lines, ordered by due date then seq, linking each line the running remainder
- * covers IN FULL and stopping at the first it cannot. A partial remainder is left
- * unassigned; unlinking happens on its own when the paying movement is deleted.
+ * (RF-16, RF-82): (1) the kinds guard and the debt's unpaid lines, read in the
+ * same statement so the refusal costs no round trip and lands BEFORE anything is
+ * written; (2) the oldest-first walk over those lines, ordered by due date then
+ * seq, linking each line the running remainder covers IN FULL and stopping at the
+ * first it cannot; (3) the transfer that credits the liability, in the ledger's
+ * own transfer shape — both accounts, no split, no label (scope, kind and
+ * created_by fall to triggers). What the walk did not spend is returned
+ * unallocated; unlinking happens on its own when the paying movement is deleted.
  */
 export async function recordDebtPayment({
   fromAccountId,
@@ -203,8 +278,56 @@ export async function recordDebtPayment({
   toAccountId: string;
   amountCents: number;
   occurredAt: string;
-}): Promise<{ transactionId: string; paidLineIds: string[] }> {
+}): Promise<{
+  transactionId: string;
+  paidLineIds: string[];
+  remainderCents: number;
+}> {
   return withUserDb(async (tx) => {
+    // The two kinds ride the read of the unpaid lines: one statement, and the
+    // single-row `k` keeps them coming back even when the debt has no lines.
+    const rows = await tx.execute<{
+      from_kind: Account["kind"] | null;
+      to_kind: Account["kind"] | null;
+      line_id: string | null;
+      amount_cents: string | null;
+    }>(sql`
+      select k.from_kind, k.to_kind, l.id as line_id, l.amount_cents
+      from (
+        select
+          (select a.kind from accounts a where a.id = ${fromAccountId}) as from_kind,
+          (select a.kind from accounts a where a.id = ${toAccountId}) as to_kind
+      ) k
+      left join lateral (
+        select l.id, l.amount_cents, l.due_date, l.seq
+        from installment_lines l
+        join installment_plans p on p.id = l.plan_id
+        where p.account_id = ${toAccountId} and l.paid_transaction_id is null
+      ) l on true
+      order by l.due_date, l.seq
+    `);
+
+    const [head] = rows;
+    // A kind that came back null is an account the policies did not show: the
+    // insert below answers that with 42501, the refusal the caller already reads.
+    if (head.from_kind !== null && head.from_kind !== "asset") {
+      throw new DebtPaymentRefusal("a debt payment comes from an asset account");
+    }
+    if (head.to_kind !== null && head.to_kind !== "liability") {
+      throw new DebtPaymentRefusal("a debt payment credits a liability account");
+    }
+
+    const paidLineIds: string[] = [];
+    let remainder = amountCents;
+    for (const row of rows) {
+      if (row.line_id === null) break;
+      const owed = Number(row.amount_cents);
+      // Fully-covered lines only: the first line the remainder falls short of ends the walk.
+      if (remainder < owed) break;
+      remainder -= owed;
+      paidLineIds.push(row.line_id);
+    }
+
     // `created_by`, the scope and `kind` are set by triggers/generation and
     // absent from the INSERT grant.
     const [txn] = await insertRow(
@@ -216,25 +339,6 @@ export async function recordDebtPayment({
 
     const transactionId = txn.id;
 
-    // The liability the transfer credits is the debt whose lines this settles.
-    const unpaid = await tx.execute<{ id: string; amount_cents: string }>(sql`
-      select l.id, l.amount_cents
-      from installment_lines l
-      join installment_plans p on p.id = l.plan_id
-      where p.account_id = ${toAccountId} and l.paid_transaction_id is null
-      order by l.due_date, l.seq
-    `);
-
-    const paidLineIds: string[] = [];
-    let remainder = amountCents;
-    for (const line of unpaid) {
-      const owed = Number(line.amount_cents);
-      // Fully-covered lines only: the first line the remainder falls short of ends the walk.
-      if (remainder < owed) break;
-      remainder -= owed;
-      paidLineIds.push(line.id);
-    }
-
     if (paidLineIds.length > 0) {
       await tx
         .update(installmentLines)
@@ -242,7 +346,8 @@ export async function recordDebtPayment({
         .where(inArray(installmentLines.id, paidLineIds));
     }
 
-    return { transactionId, paidLineIds };
+    // What is left after the last fully-covered line, and it stays unallocated.
+    return { transactionId, paidLineIds, remainderCents: remainder };
   });
 }
 

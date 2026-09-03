@@ -9,13 +9,19 @@ import { nextDayOfMonthOnOrAfter, priorCutOffDates, todayInBogota } from "@/lib/
 
 /**
  * Fills the past cut-offs the account has not yet snapshotted and returns how many
- * it inserted (RF-84). ONE `withUserDb`: read the terms and the account's last
- * closed statement, enumerate the cut-off dates from there to today, then insert
- * one snapshot per missing cut-off in a single statement. Each snapshot freezes
- * the balance to `initial_balance_cents +` the signed movement sum windowed to
- * `occurred_at <= cut_off_date` — the same signed sum `account_balances` derives,
- * never a stored running column. The unique key makes a re-run or a concurrent
- * run a no-op, so nothing is ever rewritten (the snapshot is immutable).
+ * it inserted (RF-84). ONE `withUserDb`: read the terms, the account's last closed
+ * statement and whether the caller may write the account, enumerate the cut-off
+ * dates from there to today, then insert one snapshot per missing cut-off in a
+ * single statement. Each snapshot freezes the balance to `initial_balance_cents +`
+ * the signed movement sum windowed to `occurred_at <= cut_off_date` — the same
+ * signed sum `account_balances` derives, never a stored running column. The unique
+ * key makes a re-run or a concurrent run a no-op, so nothing is ever rewritten
+ * (the snapshot is immutable).
+ *
+ * It writes under the caller's own session, so a member who may read the account
+ * but not write it would take a 42501 for merely opening its history. The write
+ * privilege rides the statement that already reads the terms — no round trip is
+ * added — and the INSERT is never attempted when it is false.
  */
 export async function materialiseDueStatements(accountId: string): Promise<number> {
   const today = todayInBogota();
@@ -26,12 +32,14 @@ export async function materialiseDueStatements(accountId: string): Promise<numbe
       payment_due_day: number | null;
       initial_balance_on: string;
       last_cut_off: string | null;
+      may_write: boolean;
     }>(sql`
       select
         dt.statement_cut_off_day,
         dt.payment_due_day,
         a.initial_balance_on,
-        (select max(s.cut_off_date) from debt_statements s where s.account_id = ${accountId}) as last_cut_off
+        (select max(s.cut_off_date) from debt_statements s where s.account_id = ${accountId}) as last_cut_off,
+        private.can_write_account(${accountId}::uuid) as may_write
       from debt_terms dt
       join accounts a on a.id = dt.account_id
       where dt.account_id = ${accountId}
@@ -42,6 +50,10 @@ export async function materialiseDueStatements(accountId: string): Promise<numbe
       return 0;
     }
 
+    // A reader who may not write the account gets the snapshots already stored,
+    // not a refusal for opening the history (RF-58).
+    if (!terms.may_write) return 0;
+
     // The last stored cut-off anchors the walk; before any statement the opening date does.
     const fromExclusive = terms.last_cut_off ?? terms.initial_balance_on;
     const cutOffs = priorCutOffDates(terms.statement_cut_off_day, fromExclusive, today);
@@ -49,11 +61,15 @@ export async function materialiseDueStatements(accountId: string): Promise<numbe
 
     // A period starts the day after the previous cut-off; the first has none, so
     // it opens on the opening date. The due date follows each cut-off's own day.
-    const prevs = cutOffs.map((_, index) =>
-      index === 0 ? terms.last_cut_off : cutOffs[index - 1],
-    );
-    const dues = cutOffs.map((cutOff) =>
-      nextDayOfMonthOnOrAfter(terms.payment_due_day as number, cutOff),
+    // One JSON parameter carries the three dates per period: drizzle expands a JS
+    // array in a template into a comma-separated list, which is a record and not
+    // an array, and the driver has no element type to bind one by itself.
+    const periods = JSON.stringify(
+      cutOffs.map((cutOff, index) => ({
+        cut_off: cutOff,
+        prev: index === 0 ? terms.last_cut_off : cutOffs[index - 1],
+        payment_due: nextDayOfMonthOnOrAfter(terms.payment_due_day as number, cutOff),
+      })),
     );
 
     const inserted = await tx.execute<{ id: string }>(sql`
@@ -73,8 +89,8 @@ export async function materialiseDueStatements(accountId: string): Promise<numbe
           else 0
         end,
         round(abs(bal.statement_balance) * (power(1 + dt.annual_rate, 1.0/12) - 1))::bigint
-      from unnest(${cutOffs}::date[], ${prevs}::date[], ${dues}::date[])
-        as g(cut_off, prev, payment_due)
+      from jsonb_to_recordset(${periods}::jsonb)
+        as g(cut_off date, prev date, payment_due date)
       cross join debt_terms dt
       join accounts a on a.id = dt.account_id
       cross join lateral (
