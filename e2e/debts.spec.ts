@@ -57,10 +57,33 @@ function pesos(cents: number): number {
   return cents / 100;
 }
 
-// A figure interpolated into its own message, found by the words before it: the
-// label carries no digits of its own.
-function statedAmount(page: Page, message: string): Locator {
-  return page.getByText(message.split("{")[0].trim());
+/**
+ * The band the width displays. Both are in the DOM at every width and they carry
+ * the same words — `debts.total` and `debts.tileTotal` are one string — so a
+ * locator that does not name a band matches twice and dies on strict mode.
+ */
+function band(page: Page): Locator {
+  return page.locator("main > div > .rt-Box").filter({ visible: true });
+}
+
+/**
+ * A figure the two bands state in their own shapes: the phone interpolates it
+ * into a line, the laptop puts it in the tile under its label. Whichever band is
+ * displayed, this is the one element that carries the digits.
+ */
+function statedAmount(page: Page, message: string, tileLabel: string): Locator {
+  const shown = band(page);
+
+  return shown
+    .getByText(message.split("{")[0].trim())
+    .or(
+      shown
+        // The tile's label and the table's column header read the same words; only
+        // the tile is followed by its figure.
+        .getByText(tileLabel, { exact: true })
+        .locator("xpath=following-sibling::*[1]")
+        .filter({ hasText: /\d/ }),
+    );
 }
 
 test.beforeAll(async () => {
@@ -97,25 +120,31 @@ test("the consolidated view totals both debts and carries the card's own figures
 }) => {
   await page.goto("/es/planning/debts");
 
-  // The heading right under the label: the sum of the two derived balances. A
-  // total that dropped the bare debt would read the card's owed alone.
-  const total = page
+  // The figure right under the label — the phone's heading, the laptop's tile
+  // value: the sum of the two derived balances. A total that dropped the bare
+  // debt would read the card's owed alone.
+  const total = band(page)
     .getByText(debts.total, { exact: true })
     .locator("xpath=following-sibling::*[1]");
 
   await expect(total).toBeVisible();
   expect(await digitsOf(total)).toBe(pesos(CARD_OWED_CENTS + BARE_OWED_CENTS));
 
-  // Both liabilities have a card of their own, each with its own owed.
-  await expect(page.getByText(cardName, { exact: true })).toBeVisible();
-  await expect(page.getByText(bareName, { exact: true })).toBeVisible();
+  // Both liabilities are on screen: a card each on the phone, a row each on the
+  // laptop.
+  await expect(band(page).getByText(cardName, { exact: true })).toBeVisible();
+  await expect(band(page).getByText(bareName, { exact: true })).toBeVisible();
 
   // The limit less what the card owes; the bare debt has no limit to lift it.
-  expect(await digitsOf(statedAmount(page, debts.availableCredit))).toBe(
-    pesos(CREDIT_LIMIT_CENTS - CARD_OWED_CENTS),
-  );
+  expect(
+    await digitsOf(
+      statedAmount(page, debts.availableCredit, debts.tileAvailableCredit),
+    ),
+  ).toBe(pesos(CREDIT_LIMIT_CENTS - CARD_OWED_CENTS));
 
   // The summed interest, which only the card with a rate contributes to.
-  const interest = await digitsOf(statedAmount(page, debts.monthlyInterest));
+  const interest = await digitsOf(
+    statedAmount(page, debts.monthlyInterest, debts.tileMonthlyInterest),
+  );
   expect(Math.abs(interest - pesos(MONTHLY_INTEREST_CENTS))).toBeLessThanOrEqual(1);
 });
