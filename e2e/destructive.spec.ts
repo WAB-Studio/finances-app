@@ -9,6 +9,10 @@
  * removes it through the real confirmation and then asserts the row is gone from
  * Postgres. The copy is read from the message file the screen reads, so a
  * rewording moves both at once.
+ *
+ * Two of them run a removal the other way round: the row goes while a form on
+ * another screen still offers it, and what is asserted is the sentence the
+ * refused write puts on screen.
  */
 import { createHash, randomUUID } from "node:crypto";
 
@@ -301,6 +305,107 @@ test("creates a recurring rule and pauses it, the only write its card offers", a
   // Written through the interface and unreachable by any control on it, so it is
   // dropped here rather than by a screen.
   await fixtureSql`delete from recurring_rules where id = ${created.id}`;
+});
+
+/**
+ * The other side of a removal: a row deleted while someone else's form still
+ * offers it. The write that names it is the only way the app reaches 23503 on a
+ * planning screen — an account gone fails the INSERT policy first, and a split's
+ * category is caught by a trigger, so the category of a planned payment is what
+ * is left. The refusal has to read as a vanished reference, never as an account
+ * carrying movements.
+ */
+test("refuses a planned payment whose category was deleted under the open form", async ({
+  page,
+}) => {
+  const payments = messages.plannedPayments;
+  const errors = messages.errors;
+  const concept = `Pago sin categoría ${stamp}`;
+  const categoryName = `Categoría efímera ${stamp}`;
+  const categoryId = randomUUID();
+
+  await asHarnessUser(async (tx) => {
+    await tx`
+      insert into categories (id, owner_user_id, name, kind, color)
+      values (${categoryId}, ${scope.userId}, ${categoryName}, 'expense', '#4C8C4A')`;
+  });
+
+  await page.goto("/es/planning/payments");
+  await addButton(page, payments.add).click();
+
+  const form = page.getByRole("dialog");
+  await form.getByRole("textbox", { name: payments.conceptLabel }).fill(concept);
+  await form.getByRole("textbox", { name: payments.amountLabel }).fill("120000");
+  await form.getByRole("combobox", { name: payments.fromLabel }).click();
+  await page.getByRole("option", { name: scope.accountName, exact: true }).click();
+  await form.getByLabel(payments.dueLabel).fill("2027-05-09");
+  await form.getByRole("combobox", { name: payments.categoryLabel }).click();
+  await page.getByRole("option", { name: categoryName, exact: true }).click();
+
+  // Gone between the pick and the save. Nothing references the row yet, so the
+  // delete is allowed — which is exactly how a person reaches this state.
+  await fixtureSql`delete from categories where id = ${categoryId}`;
+
+  await form.getByRole("button", { name: payments.save, exact: true }).click();
+
+  await expect(page.getByText(errors.referenceGone, { exact: true })).toBeVisible();
+  await expect(
+    page.getByText(errors.accountHasMovements, { exact: true }),
+  ).toHaveCount(0);
+
+  // A refused save keeps the form open and writes nothing.
+  await expect(form).toBeVisible();
+  expect(
+    await fixtureSql`
+      select id from planned_payments
+      where owner_user_id = ${scope.userId} and description = ${concept}`,
+  ).toHaveLength(0);
+});
+
+// The same removal against the other screen that reaches it, through a mapper of
+// its own: the rule's category is required, so the pick is not even optional.
+test("refuses a recurring rule whose category was deleted under the open form", async ({
+  page,
+}) => {
+  const rules = messages.recurringRules;
+  const errors = messages.errors;
+  const concept = `Regla sin categoría ${stamp}`;
+  const categoryName = `Categoría fugaz ${stamp}`;
+  const categoryId = randomUUID();
+
+  await asHarnessUser(async (tx) => {
+    await tx`
+      insert into categories (id, owner_user_id, name, kind, color)
+      values (${categoryId}, ${scope.userId}, ${categoryName}, 'expense', '#4C8C4A')`;
+  });
+
+  await page.goto("/es/planning/recurring");
+  await addButton(page, rules.add).click();
+
+  const form = page.getByRole("dialog");
+  await form.getByRole("textbox", { name: rules.conceptLabel }).fill(concept);
+  await form.getByRole("textbox", { name: rules.amountLabel }).fill("56000");
+  await form.getByLabel(rules.nextRunLabel).fill("2027-04-05");
+  await form.getByRole("combobox", { name: rules.accountLabel }).click();
+  await page.getByRole("option", { name: scope.accountName, exact: true }).click();
+  await form.getByRole("combobox", { name: rules.categoryLabel }).click();
+  await page.getByRole("option", { name: categoryName, exact: true }).click();
+
+  await fixtureSql`delete from categories where id = ${categoryId}`;
+
+  await form.getByRole("button", { name: rules.save, exact: true }).click();
+
+  await expect(page.getByText(errors.referenceGone, { exact: true })).toBeVisible();
+  await expect(
+    page.getByText(errors.accountHasMovements, { exact: true }),
+  ).toHaveCount(0);
+
+  await expect(form).toBeVisible();
+  expect(
+    await fixtureSql`
+      select id from recurring_rules
+      where owner_user_id = ${scope.userId} and description = ${concept}`,
+  ).toHaveLength(0);
 });
 
 test("revokes a webhook credential and reads the revocation back", async ({

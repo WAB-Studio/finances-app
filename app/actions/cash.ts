@@ -39,11 +39,13 @@ export const withdrawCashAction = authActionClient
       return result;
     } catch (error) {
       // 42501 is a denied write, which reads the same as an account that was never
-      // there; 23514 is the check trigger; 23503 a named account gone.
+      // there — a source deleted mid-withdrawal included, since the policy names it
+      // ahead of any foreign key; 23514 is the check trigger; 23503 the net under
+      // both, a reference gone after it was picked.
       const code = pgErrorCode(error);
       if (code === "42501") throw new ActionError("errors.notFound");
       if (code === "23514") throw new ActionError("transactions.errors.splitsScopeViolation");
-      if (code === "23503") throw new ActionError("errors.accountInUse");
+      if (code === "23503") throw new ActionError("errors.referenceGone");
       throw error;
     }
   });

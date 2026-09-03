@@ -135,7 +135,7 @@ accounting exports, native apps. None of this gets built or left
 #### Language
 
 - [x] **RF-46** — Interface in Spanish and English, with the language visible in the URL. Spanish by default.
-- [x] **RF-47** — The preference belongs to the user and follows them across every fund they belong to.
+- [x] **RF-47** — The preference belongs to the user and holds wherever they sign in, fund or no fund.
 - [x] **RF-48** — No interface text is hardcoded. Dates and numbers follow the active language; the currency is always COP.
 
 #### Appearance
@@ -650,7 +650,7 @@ Rules the model must always guarantee, regardless of how they are implemented:
 - `external_ref` is unique within a scope (a user's personal movements or a
   group's movements).
 - `app_users` hangs off no fund: the language preference belongs to the
-  user and follows them across every fund they belong to (RF-47).
+  user and holds wherever they sign in (RF-47).
 - A webhook credential belongs to exactly one user; only a hash of its bearer
   token is stored, never the token; an ingest through it writes under that user's
   scope, so RLS and audit apply as if the user recorded the movement; a

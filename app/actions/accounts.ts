@@ -114,7 +114,8 @@ export const handAccountToGroupAction = authActionClient
 /**
  * Deletes an account outright. Once movements reference accounts, deleting
  * one that has them will trip the foreign key (23503) before it trips a
- * row count.
+ * row count. This is the one 23503 in the app raised BY an account rather than
+ * ON one, so it names the movements and points at archiving instead (RF-11).
  */
 export const deleteAccountAction = authActionClient
   .inputSchema(deleteAccountSchema)
@@ -123,7 +124,8 @@ export const deleteAccountAction = authActionClient
     try {
       deleted = await deleteAccount({ accountId });
     } catch (error) {
-      if (pgErrorCode(error) === "23503") throw new ActionError("errors.accountInUse");
+      if (pgErrorCode(error) === "23503")
+        throw new ActionError("errors.accountHasMovements");
       throw error;
     }
     if (!deleted) throw new ActionError("errors.notFound");
