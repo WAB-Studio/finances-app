@@ -1,14 +1,19 @@
 /**
- * The three claims the Metas screen makes about money it never stores (RF-87,
- * RF-119, RNF-07): every bar says whose goal it is and how far it stands, the
- * table's total states what the rows on screen add up to, and undoing one aporte
- * takes that aporte and nothing else. The last is a silent-money-loss path — a
- * removal that reaches the wrong row lowers a figure nobody is watching — so the
- * cents are read back from Postgres and not only from the screen that wrote them.
+ * The four claims the Metas screen makes about money it never stores (RF-87,
+ * RF-119, RNF-07): every bar says whose goal it is and how far it stands, a goal
+ * that has fallen under the straight line to its target date reads as atrasada,
+ * the table's total states what the rows on screen add up to, and undoing one
+ * aporte takes that aporte and nothing else. The last is a silent-money-loss path
+ * — a removal that reaches the wrong row lowers a figure nobody is watching — so
+ * the cents are read back from Postgres and not only from the screen that wrote
+ * them.
  *
- * The seed opens every goal today, which is the one state the straight-line rule
- * cannot call atrasada: reaching that badge asks for a goal older than its own
- * trigger stamps, and no test here disables a trigger to get one.
+ * That straight line runs from the day a goal opened, so one goal here is opened
+ * months back: `savings_goals_set_timestamps` keeps a `created_at` the INSERT
+ * names and still stamps `now()` for one that names none (migration 0029). The
+ * seam is open to the owner connection these fixtures run over and shut to an
+ * `authenticated` caller, whose INSERT grant names no `created_at`. No test here
+ * disables a trigger.
  */
 import { randomUUID } from "node:crypto";
 
@@ -29,15 +34,18 @@ const scope = readScope();
 const stamp = randomUUID().slice(0, 8);
 
 /**
- * The four goals the screen is read against. `days` is how long ago each aporte
+ * The five goals the screen is read against. `days` is how long ago each aporte
  * was written, which is the order the undo list shows them in — the oldest is
- * last there, and it is the one the removal test picks.
+ * last there, and it is the one the removal test picks. `openedDaysAgo` is the
+ * day the goal was opened, which is where its ritmo starts counting: a goal
+ * opened today has spent none of its span and cannot read as atrasada.
  */
 const SEED = [
   {
     key: "undo",
     name: `Meta con aportes ${stamp}`,
     targetCents: 200_000_000,
+    openedDaysAgo: 0,
     dated: true,
     contributions: [
       { amountCents: 30_000_000, days: 0 },
@@ -49,6 +57,7 @@ const SEED = [
     key: "neighbour",
     name: `Meta vecina ${stamp}`,
     targetCents: 100_000_000,
+    openedDaysAgo: 0,
     dated: true,
     contributions: [{ amountCents: 40_000_000, days: 0 }],
   },
@@ -56,6 +65,7 @@ const SEED = [
     key: "reached",
     name: `Meta cumplida ${stamp}`,
     targetCents: 50_000_000,
+    openedDaysAgo: 0,
     dated: true,
     contributions: [{ amountCents: 50_000_000, days: 0 }],
   },
@@ -63,8 +73,19 @@ const SEED = [
     key: "undated",
     name: `Meta sin fecha ${stamp}`,
     targetCents: 80_000_000,
+    openedDaysAgo: 0,
     dated: false,
     contributions: [{ amountCents: 20_000_000, days: 0 }],
+  },
+  // Two thirds of its span already spent and a tenth of its meta set aside: the
+  // straight line from the day it opened to the day it is due leaves it behind.
+  {
+    key: "behind",
+    name: `Meta atrasada ${stamp}`,
+    targetCents: 100_000_000,
+    openedDaysAgo: 180,
+    dated: true,
+    contributions: [{ amountCents: 10_000_000, days: 0 }],
   },
 ] as const;
 
@@ -82,9 +103,9 @@ const goalIds = new Map<string, string>();
 
 /**
  * The seed goes in as the owner while speaking for the harness user, which is
- * what the stamping triggers read. `created_at` is named on the aportes and left
- * alone on the goals: the column carries no trigger on `goal_contributions`, so
- * dating them apart needs no trigger touched and gives the undo list one order.
+ * what the stamping triggers read. `created_at` is named on both tables: on a
+ * goal it fixes the day its ritmo counts from, and on an aporte it dates the
+ * entry the undo list orders by.
  */
 test.beforeEach(async () => {
   const claims = JSON.stringify({
@@ -98,12 +119,13 @@ test.beforeEach(async () => {
 
     for (const goal of SEED) {
       const [row] = await tx<{ id: string }[]>`
-        insert into savings_goals (owner_user_id, name, target_amount_cents, target_date)
+        insert into savings_goals (owner_user_id, name, target_amount_cents, target_date, created_at)
         values (
           ${scope.userId},
           ${goal.name},
           ${goal.targetCents},
-          ${goal.dated ? tx`(now() at time zone ${TIME_ZONE})::date + 90` : null})
+          ${goal.dated ? tx`(now() at time zone ${TIME_ZONE})::date + 90` : null},
+          now() - make_interval(days => ${goal.openedDaysAgo}::int))
         returning id`;
 
       goalIds.set(goal.key, row.id);
@@ -142,7 +164,9 @@ test("names every progress bar after its own goal and percentage", async ({
   const desktop = testInfo.project.name === "desktop";
 
   await page.goto("/es/planning/goals");
-  await expect(page.getByRole("progressbar")).toHaveCount(desktop ? 5 : 4);
+  await expect(page.getByRole("progressbar")).toHaveCount(
+    desktop ? SEED.length + 1 : SEED.length,
+  );
 
   for (const goal of SEED) {
     await expect(
@@ -151,11 +175,55 @@ test("names every progress bar after its own goal and percentage", async ({
   }
 });
 
+test("paints the bar of a goal behind its straight line amber", async ({
+  page,
+}) => {
+  const behind = SEED[4];
+  const onTrack = SEED[1];
+
+  await page.goto("/es/planning/goals");
+
+  // The colour of the bar is the band both shapes carry: the ritmo badge beside
+  // it is the dense table's alone, and the card has only this.
+  await expect(
+    page.getByRole("progressbar", { name: progressName(behind.name, pctOf(behind)) }),
+  ).toHaveAttribute("data-accent-color", "amber");
+  // A goal opened today has spent none of its span, so nothing it is due in 90
+  // days can put it behind — the band is the pace's, not every unfinished goal's.
+  await expect(
+    page.getByRole("progressbar", {
+      name: progressName(onTrack.name, pctOf(onTrack)),
+    }),
+  ).not.toHaveAttribute("data-accent-color", "amber");
+});
+
 test.describe("the laptop table", () => {
   test.skip(
     ({ viewport }) => viewport?.width !== 1280,
-    "the total row is the dense table's, which renders from lg up",
+    "the total row and the ritmo column are the dense table's, which renders from lg up",
   );
+
+  test("reads the goal opened in the past as atrasada, and lists it first", async ({
+    page,
+  }) => {
+    const behind = SEED[4];
+    const onTrack = SEED[1];
+
+    await page.goto("/es/planning/goals");
+
+    const rows = page.getByRole("table", { name: goals.title }).getByRole("row");
+    // The rows arrive ordered by ritmo out of Postgres, atrasada first, so the
+    // band and the place it holds are one claim (RF-87, RNF-07).
+    const first = rows.nth(1);
+    await expect(first).toContainText(behind.name);
+    await expect(first.getByText(goals.paceBehind, { exact: true })).toBeVisible();
+
+    await expect(
+      rows
+        .filter({ hasText: onTrack.name })
+        .getByText(goals.paceOnTrack, { exact: true }),
+    ).toBeVisible();
+  });
 
   test("totals the apartado of the rows it is showing", async ({ page }) => {
     await page.goto("/es/planning/goals");
