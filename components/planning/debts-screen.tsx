@@ -35,7 +35,7 @@ import {
 import type { DebtsScreenData } from "@/db/queries/debts-screen";
 import type { DebtOverviewRow } from "@/db/queries/debt-overview";
 import type { PlanPosition } from "@/db/queries/installment-plans";
-import { useRouter } from "@/i18n/navigation";
+import { Link as LocaleLink, useRouter } from "@/i18n/navigation";
 import { civilDateToDate } from "@/lib/dates";
 import { centsToPesos } from "@/lib/money";
 
@@ -527,15 +527,33 @@ function Stat({
   );
 }
 
-// The abono a card offers when the fund has an asset to pay it from (RF-16).
-function PayButton({ onPay }: { onPay: () => void }) {
+/**
+ * The card's footer. Reading a debt is offered to everyone it is shown to, so
+ * the door onto its cuotas and its extractos is never gated — the phone has no
+ * other way in (RF-58, RF-81, RF-84). The abono is the caller's own privilege
+ * and arrives absent when the policies would refuse it (RF-16).
+ */
+function CardActions({
+  accountId,
+  onPay,
+}: {
+  accountId: string;
+  onPay?: () => void;
+}) {
   const t = useTranslations("debts");
 
   return (
-    <Flex justify="end">
-      <Button type="button" tap variant="ghost" size="2" onClick={onPay}>
-        {t("rowPay")}
+    <Flex justify="end" align="center" gap="2">
+      <Button asChild tap variant="ghost" size="2" color="gray">
+        <LocaleLink href={`/planning/debts/${accountId}`}>
+          {t("rowDetail")}
+        </LocaleLink>
       </Button>
+      {onPay && (
+        <Button type="button" tap variant="ghost" size="2" onClick={onPay}>
+          {t("rowPay")}
+        </Button>
+      )}
     </Flex>
   );
 }
@@ -615,7 +633,7 @@ function RevolvingCard({
           </>
         )}
 
-        {onPay && <PayButton onPay={onPay} />}
+        <CardActions accountId={row.accountId} onPay={onPay} />
       </Flex>
     </Card>
   );
@@ -696,7 +714,7 @@ function InstallmentCard({
           </Flex>
         )}
 
-        {onPay && <PayButton onPay={onPay} />}
+        <CardActions accountId={row.accountId} onPay={onPay} />
       </Flex>
     </Card>
   );
@@ -735,7 +753,7 @@ function NoTermsCard({
             {t("completeTerms")}
           </Button>
         )}
-        {onPay && <PayButton onPay={onPay} />}
+        <CardActions accountId={debt.accountId} onPay={onPay} />
       </Flex>
     </Card>
   );

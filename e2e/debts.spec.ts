@@ -207,6 +207,17 @@ function tileValue(scope: Locator, label: string): Locator {
     .filter({ hasText: /\d/ });
 }
 
+/**
+ * The detail door a phone card carries. Named twice over — by the copy the row
+ * menu already uses and by the route of that debt — so a control that reads
+ * right but leads to the list is not a match.
+ */
+function cardDetailLink(page: Page, accountId: string): Locator {
+  return band(page)
+    .getByRole("link", { name: debts.rowDetail, exact: true })
+    .and(page.locator(`a[href="/es/planning/debts/${accountId}"]`));
+}
+
 // The owed a phone card states: the head puts the name in a column and the
 // amount right after it.
 function cardOwed(page: Page, name: string): Locator {
@@ -947,6 +958,21 @@ test.describe("the phone list", () => {
       pesos(PHONE_OWED_CENTS),
     );
   });
+
+  test("the card's detail control opens that debt and not the list", async ({
+    page,
+  }) => {
+    await page.goto("/es/planning/debts");
+
+    // The phone has no row menu, so this control is the only way into a debt's
+    // cuotas and its extractos from here.
+    await cardDetailLink(page, phoneId).click();
+
+    await expect(page).toHaveURL(`/es/planning/debts/${phoneId}`);
+    await expect(
+      page.getByRole("heading", { name: phoneName, exact: true }),
+    ).toBeVisible();
+  });
 });
 
 const READER_OWED_CENTS = 80_000_000;
@@ -1024,6 +1050,9 @@ test.describe("under a plain member", () => {
       await expect(
         band(page).getByRole("button", { name: debts.completeTerms, exact: true }),
       ).toHaveCount(0);
+      // Reading is never closed: the door onto this debt's own detail is on the
+      // card whether or not the caller may write it.
+      await expect(cardDetailLink(page, readerId)).toBeVisible();
       expect(await digitsOf(cardOwed(page, readerName))).toBe(
         pesos(READER_OWED_CENTS),
       );
