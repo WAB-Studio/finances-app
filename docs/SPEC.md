@@ -42,7 +42,7 @@ accounting exports, native apps. None of this gets built or left
 - [x] **RF-01** — Passwordless email login.
 - [x] **RF-57** — Only the group `leader` invites members, edits the group and manages the group's categories.
 - [ ] **RF-58** — Every member of a group can read all of its accounts (universal read); write is bounded per account — a personal account by its owner, a shared account by any member.
-- [ ] **RF-59** — Whoever creates a group becomes its `leader`. The role is transferable, but a group is never left without a leader.
+- [x] **RF-59** — Whoever creates a group becomes its `leader`. The role is transferable, but a group is never left without a leader.
 - [x] **RF-06** — Accepting an invitation links the user to the member that already exists in the fund, if any; otherwise a member is created.
 - [ ] **RF-55** — By default a user's accounts are personal; a user may belong to at most one optional shared group. There is no multi-fund membership and no switching.
 
@@ -53,9 +53,9 @@ accounting exports, native apps. None of this gets built or left
 - [x] **RF-09** — An account is either an asset (savings, cash) or a liability (card, loan).
 - [x] **RF-10** — Creating an account captures its opening balance and the date that balance is true as of.
 - [ ] **RF-11** — Accounts and members that have movements are archived, not deleted.
-- [ ] **RF-61** — Archiving a member does not archive their accounts. The owner decides per account: archive it or hand it to the group.
+- [x] **RF-61** — Archiving a member does not archive their accounts. The owner decides per account: archive it or hand it to the group.
 - [x] **RF-100** — Only the group `leader` adds, renames, archives, restores and removes a member; every member renames their own row and no other.
-- [ ] **RF-114** — The accounts list shows each account's balance, derived from its opening balance and its movements and never stored.
+- [x] **RF-114** — The accounts list shows each account's balance, derived from its opening balance and its movements and never stored.
 
 #### Debts
 
