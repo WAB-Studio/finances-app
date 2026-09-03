@@ -280,11 +280,15 @@ test("refuses to delete an account carrying a movement, and archives it instead"
   );
 
   // RF-11: the refusal is copy a person can act on, and its own sentence — the
-  // hand-over's refusal is a different attempt and reads differently.
-  await expect(page.getByText(errors.accountInUse, { exact: true })).toBeVisible();
+  // hand-over's refusal is a different attempt, and the vanished-reference
+  // sentence is a different failure entirely.
+  await expect(
+    page.getByText(errors.accountHasMovements, { exact: true }),
+  ).toBeVisible();
   await expect(page.getByText(errors.accountHasHistory, { exact: true })).toHaveCount(
     0,
   );
+  await expect(page.getByText(errors.referenceGone, { exact: true })).toHaveCount(0);
 
   // A refused confirmation stays open, which is what keeps the list under an
   // `aria-hidden` a role locator would not reach.
@@ -418,7 +422,9 @@ test.describe("with a fund behind the caller", () => {
     await expect(
       page.getByText(errors.accountHasHistory, { exact: true }),
     ).toBeVisible();
-    await expect(page.getByText(errors.accountInUse, { exact: true })).toHaveCount(0);
+    await expect(
+      page.getByText(errors.accountHasMovements, { exact: true }),
+    ).toHaveCount(0);
 
     await dialog.getByRole("button", { name: common.cancel, exact: true }).click();
     await expect(dialog).toBeHidden();

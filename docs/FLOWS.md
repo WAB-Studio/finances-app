@@ -221,8 +221,8 @@ The language is visible in the URL (RF-46) and resolved, in order, by what the
 URL says, the user's saved preference, the browser's language, and finally
 Spanish.
 
-The preference follows the user across all their funds (RF-47). Switching
-rewrites the URL and persists the choice.
+The preference belongs to the user, so it holds wherever they sign in (RF-47).
+Switching rewrites the URL and persists the choice.
 
 Amounts are always shown in COP; what changes is the date format and the
 thousands separator, not the currency.

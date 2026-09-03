@@ -23,13 +23,14 @@ function toCents(amount: string): number {
 }
 
 // The `assert_debt_terms_liability` trigger raises 23514 when the account is not
-// a liability; a missing account trips its foreign key; a denied write reads the
-// same as terms that were never there. No scope is resolved — the account gates it.
+// a liability; a denied write reads the same as terms that were never there, and
+// so does an account deleted under the open dialog — the policy is the account's.
+// 23503 is the net under that: a reference gone after it was picked.
 function mapDebtTermsError(error: unknown): never {
   const code = pgErrorCode(error);
   if (code === "42501") throw new ActionError("errors.notFound");
   if (code === "23514") throw new ActionError("debts.errors.notLiability");
-  if (code === "23503") throw new ActionError("errors.accountInUse");
+  if (code === "23503") throw new ActionError("errors.referenceGone");
   throw error;
 }
 

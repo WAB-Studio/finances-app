@@ -31,13 +31,16 @@ function toCents(amount: string): number {
   return pesosToCents(pesos);
 }
 
-// The scope trigger raises 23514 when the accounts disagree on scope; a missing
-// account trips its foreign key; a denied write reads as an absent payment.
+// The scope trigger raises 23514 when the accounts disagree on scope; a denied
+// write reads as an absent payment, and a deleted account lands there too — the
+// policy names both accounts, so it refuses before any foreign key. Nothing
+// guards the category, so 23503 is the one it left: a category picked from the
+// list and deleted before the payment was saved.
 function mapPlannedPaymentError(error: unknown): never {
   const code = pgErrorCode(error);
   if (code === "42501") throw new ActionError("errors.notFound");
   if (code === "23514") throw new ActionError("plannedPayments.errors.scopeViolation");
-  if (code === "23503") throw new ActionError("errors.accountInUse");
+  if (code === "23503") throw new ActionError("errors.referenceGone");
   throw error;
 }
 

@@ -53,24 +53,27 @@ function splitCents(total: number, count: number): number[] {
 }
 
 // The `assert_installment_plan_account` trigger raises 23514 when the account is
-// not a liability; a missing account trips its foreign key; a denied write reads
-// as an absent plan. Scope comes from the account through RLS, never a payload.
+// not a liability; a denied write reads as an absent plan, and a deleted account
+// with it — the policy is the account's and runs ahead of any foreign key. 23503
+// is the net under that: a reference gone after it was picked. Scope comes from
+// the account through RLS, never a payload.
 function mapPlanError(error: unknown): never {
   const code = pgErrorCode(error);
   if (code === "42501") throw new ActionError("errors.notFound");
   if (code === "23514") throw new ActionError("installments.errors.notLiability");
-  if (code === "23503") throw new ActionError("errors.accountInUse");
+  if (code === "23503") throw new ActionError("errors.referenceGone");
   throw error;
 }
 
 // The `assert_installment_line_payment` trigger raises 23514 when the settling
 // movement does not touch the plan account; a movement into another member's
-// account is denied by RLS (42501) and reads as absent.
+// account — or into one just deleted — is denied by RLS (42501) and reads as
+// absent. 23503 is the net under that: a reference gone after it was picked.
 function mapPaymentError(error: unknown): never {
   const code = pgErrorCode(error);
   if (code === "42501") throw new ActionError("errors.notFound");
   if (code === "23514") throw new ActionError("installments.errors.paymentInvalid");
-  if (code === "23503") throw new ActionError("errors.accountInUse");
+  if (code === "23503") throw new ActionError("errors.referenceGone");
   throw error;
 }
 
