@@ -33,6 +33,7 @@ import {
 const members = messages.members;
 const common = messages.common;
 const errors = messages.errors;
+const nav = messages.nav;
 
 const scope = readScope();
 const stamp = randomUUID().slice(0, 8);
@@ -142,6 +143,29 @@ test("moves the leader role to the member a leader picks, and steps the caller d
   await expect(rowMenu(page, PLAIN_MEMBER_NAME)).toHaveCount(0);
   expect(await menuItems(page, LEADER_MEMBER_NAME)).toEqual([common.edit]);
   await expect(page.getByText(members.transfer, { exact: true })).toHaveCount(0);
+});
+
+test("names the one fund the caller belongs to and offers no way to a second", async ({
+  page,
+}) => {
+  const [fund] = await fixtureSql<{ name: string }[]>`
+    select name from groups where id = ${groupId}`;
+
+  await page.goto("/es/settings/members");
+
+  // RF-55: a membership is exclusive, so the shell has one fund to name. Two
+  // surfaces carry it — the sidebar's row and the phone's header — and CSS shows
+  // whichever this viewport is; a switcher would be a third.
+  await expect(page.getByText(fund.name, { exact: true })).toHaveCount(2);
+  await expect(
+    page.getByText(fund.name, { exact: true }).filter({ visible: true }),
+  ).toHaveCount(1);
+
+  // The one control on that row goes to this fund's own settings, not to another.
+  await expect(page.getByLabel(nav.fundSettings)).toHaveAttribute(
+    "href",
+    "/es/settings/group",
+  );
 });
 
 test.describe("under a plain member", () => {

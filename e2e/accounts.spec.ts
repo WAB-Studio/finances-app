@@ -279,8 +279,12 @@ test("refuses to delete an account carrying a movement, and archives it instead"
     common.delete,
   );
 
-  // RF-11: the refusal is copy a person can act on, not a database message.
+  // RF-11: the refusal is copy a person can act on, and its own sentence — the
+  // hand-over's refusal is a different attempt and reads differently.
   await expect(page.getByText(errors.accountInUse, { exact: true })).toBeVisible();
+  await expect(page.getByText(errors.accountHasHistory, { exact: true })).toHaveCount(
+    0,
+  );
 
   // A refused confirmation stays open, which is what keeps the list under an
   // `aria-hidden` a role locator would not reach.
@@ -310,6 +314,31 @@ test("refuses to delete an account carrying a movement, and archives it instead"
   expect(archived.archived_at).not.toBeNull();
 
   await dropAccount(account.id);
+});
+
+test("deletes an account that carries nothing, from that same confirmation", async ({
+  page,
+}) => {
+  // The other half of RF-60's D: the refusal above only means something if the
+  // delete lands when there is nothing to keep.
+  const account = await seedAccount({ openingCents: 200_000 });
+
+  await page.goto("/es/settings/accounts");
+  const dialog = await confirmThroughMenu(
+    page,
+    account.name,
+    common.delete,
+    common.delete,
+  );
+
+  await expect(page.getByText(accounts.deleted, { exact: true })).toBeVisible();
+  await expect(dialog).toBeHidden();
+  await expect(page.getByText(account.name, { exact: true })).toHaveCount(0);
+
+  // Gone, not archived: nothing derived from it, so nothing had to be kept.
+  expect(
+    await fixtureSql`select id from accounts where id = ${account.id}`,
+  ).toHaveLength(0);
 });
 
 test.describe("with a fund behind the caller", () => {
@@ -369,6 +398,40 @@ test.describe("with a fund behind the caller", () => {
     expect(await bandOf(page, name, [accounts.ownerPersonal, fundName])).toBe(fundName);
 
     await dropAccount(created.id);
+  });
+
+  test("refuses to hand over an account carrying a movement, and names that attempt", async ({
+    page,
+  }) => {
+    const account = await seedAccount({ openingCents: 600_000, movementCents: 50_000 });
+
+    await page.goto("/es/settings/accounts");
+    const dialog = await confirmThroughMenu(
+      page,
+      account.name,
+      accounts.handOver,
+      accounts.handOver,
+    );
+
+    // Its own sentence, not the one a refused delete raises: re-scoping a
+    // movement would re-scope its splits, so this account is archived instead.
+    await expect(
+      page.getByText(errors.accountHasHistory, { exact: true }),
+    ).toBeVisible();
+    await expect(page.getByText(errors.accountInUse, { exact: true })).toHaveCount(0);
+
+    await dialog.getByRole("button", { name: common.cancel, exact: true }).click();
+    await expect(dialog).toBeHidden();
+
+    // And the row still names the person it belongs to.
+    const [refused] = await fixtureSql<
+      { owner_user_id: string | null; group_id: string | null }[]
+    >`
+      select owner_user_id, group_id from accounts where id = ${account.id}`;
+    expect(refused.owner_user_id).toBe(scope.userId);
+    expect(refused.group_id).toBeNull();
+
+    await dropAccount(account.id);
   });
 
   test("hands a history-free personal account to the group from its row menu", async ({

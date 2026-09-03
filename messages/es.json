@@ -837,7 +837,7 @@
     "categoryKindMismatch": "La subcategoría debe tener el mismo tipo que su categoría principal.",
     "notLeader": "Solo el líder del grupo puede hacer este cambio.",
     "memberHasHistory": "Esta persona tiene movimientos. Archívala en su lugar.",
-    "accountHasHistory": "Esta cuenta tiene movimientos. Archívala en su lugar.",
+    "accountHasHistory": "No puedes pasar al grupo una cuenta con movimientos. Archívala en su lugar.",
     "accountRefTaken": "El grupo ya tiene una cuenta con la misma referencia de importación. Archiva esta cuenta en su lugar.",
     "labelInUse": "Un presupuesto usa esta etiqueta. Quítala del presupuesto para eliminarla."
   },
