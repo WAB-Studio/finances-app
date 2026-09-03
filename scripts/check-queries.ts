@@ -1527,6 +1527,42 @@ async function readSuite(
     },
   );
 
+  // RF-79: the rate the row states is the twelfth root of the annual one, not the
+  // linear twelfth, and it is the very rate the interest figure was struck at —
+  // the screen reads the percentage off this and divides nothing.
+  await checkReadValue(
+    "getDebtOverview states the effective monthly rate its interest was struck at",
+    async () => {
+      const [overview, annualRate] = await Promise.all([
+        getDebtOverview(),
+        readColumn<string>(
+          "debt_terms",
+          "account_id",
+          debt.unlimitedAccountId,
+          "annual_rate",
+        ),
+      ]);
+
+      return { overview, annual: Number(annualRate) };
+    },
+    ({ overview, annual }) => {
+      const row = overview.find(
+        (candidate) => candidate.accountId === debt.unlimitedAccountId,
+      );
+      if (row === undefined) return { ok: false, detail: "the debt reports no row" };
+
+      const compounded = (1 + row.monthlyRatePct) ** 12 - 1;
+
+      return {
+        ok:
+          Math.abs(compounded - annual) < 1e-9 &&
+          row.monthlyRatePct !== annual / 12 &&
+          row.monthlyInterestCents === Math.round(row.owedCents * row.monthlyRatePct),
+        detail: `rate ${row.monthlyRatePct} compounds to ${compounded} against the stored ${annual}, the linear twelfth being ${annual / 12}; ${row.monthlyInterestCents} cents of interest against ${Math.round(row.owedCents * row.monthlyRatePct)} on ${row.owedCents} owed`,
+      };
+    },
+  );
+
   // RF-16: the source picker is filtered out of the roster the screen already
   // read, and a debt is never paid from another debt.
   await checkReadValue(

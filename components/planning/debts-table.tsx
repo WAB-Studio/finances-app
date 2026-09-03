@@ -58,6 +58,7 @@ export type DebtTableRow = {
  */
 export function DebtsTable({
   rows,
+  nextPaymentAccountId,
   page,
   pageSize,
   total,
@@ -70,6 +71,9 @@ export function DebtsTable({
   onEditTerms,
 }: {
   rows: DebtTableRow[];
+  // The fund's next payment, which the caller already reads off its totals
+  // (RF-83). No row carries the badge when that debt is off the page.
+  nextPaymentAccountId: string | null;
   // One-based, as the caption reads it.
   page: number;
   pageSize: number;
@@ -90,18 +94,6 @@ export function DebtsTable({
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
   const from = (page - 1) * pageSize + 1;
   const to = Math.min(page * pageSize, total);
-
-  // The debt the badge marks: the earliest due date among the rows on screen,
-  // nulls never winning it.
-  const nextDue = rows.reduce<{ accountId: string; dueDate: string } | null>(
-    (earliest, row) => {
-      const dueDate = row.terms?.nextDueDate;
-      if (dueDate == null) return earliest;
-      if (earliest !== null && earliest.dueDate <= dueDate) return earliest;
-      return { accountId: row.accountId, dueDate };
-    },
-    null,
-  );
 
   function shortDate(date: string): string {
     return format.dateTime(civilDateToDate(date), {
@@ -129,7 +121,7 @@ export function DebtsTable({
             <Text size="2" weight="medium" truncate>
               {row.name}
             </Text>
-            {row.accountId === nextDue?.accountId && (
+            {row.accountId === nextPaymentAccountId && (
               <Badge color="jade" variant="soft" radius="full">
                 {t("nextPaymentBadge")}
               </Badge>
@@ -335,15 +327,12 @@ function DebtMeta({
     );
   }
 
-  // The monthly rate the card charges, read as the interest the server derived
-  // against the owed it derived — never the linear rate/12, and display only.
-  const monthlyRate =
-    row.owedCents > 0 ? row.terms.monthlyInterestCents / row.owedCents : 0;
-
   return (
     <Text size="2" color="gray">
       {t("revolvingMeta", {
-        pct: format.number(monthlyRate, {
+        // The effective monthly step the server derived off the annual rate, only
+        // read as a percentage here.
+        pct: format.number(row.terms.monthlyRatePct, {
           style: "percent",
           minimumFractionDigits: 1,
           maximumFractionDigits: 1,
