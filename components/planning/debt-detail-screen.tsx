@@ -209,7 +209,7 @@ export function DebtDetailScreen({ data }: { data: DebtDetailData }) {
 
       <StatTiles tiles={tiles} />
 
-      <Flex direction="column" px={{ initial: "0", lg: "6" }}>
+      <Flex direction="column" px={{ initial: "0", md: "6" }}>
         <Heading as="h2" size="3">
           {t("plansTitle")}
         </Heading>
@@ -232,7 +232,7 @@ export function DebtDetailScreen({ data }: { data: DebtDetailData }) {
         ))
       )}
 
-      <Flex direction="column" px={{ initial: "0", lg: "6" }}>
+      <Flex direction="column" px={{ initial: "0", md: "6" }}>
         <Heading as="h2" size="3">
           {t("statementsTitle")}
         </Heading>
@@ -241,7 +241,7 @@ export function DebtDetailScreen({ data }: { data: DebtDetailData }) {
       {/* The period nobody has cut yet: live figures, and never one of the
           snapshots below (RF-84). */}
       {currentStatement !== null && (
-        <Flex direction="column" px={{ initial: "0", lg: "6" }}>
+        <Flex direction="column" px={{ initial: "0", md: "6" }}>
           <Panel title={t("currentPeriod")}>
             <Flex direction="column" px="4" py="1">
               <Fact
