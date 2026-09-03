@@ -1954,10 +1954,11 @@ async function checkDebtDerivedFigures() {
   );
 }
 
-// Assertions 81-84: the debt_statements snapshots. The generator, replicated inline, freezes the balance
-// to the movements on or before a past cut-off; the unique key makes a re-run a no-op; and the snapshot is
-// immutable — no UPDATE grant — and gated by the account's scope, so an unrelated user can neither read nor
-// mint one. Every fixture is seeded through the app's own policies and rolled back.
+// Assertions 81-85, 275 and 276: the debt_statements snapshots. The generator, replicated inline, freezes
+// the balance to the movements on or before a past cut-off; the unique key makes a re-run a no-op; and the
+// snapshot is immutable — no UPDATE and no DELETE grant, so not even its owner rewrites or erases it — and
+// gated by the account's scope, so an unrelated user can neither read nor mint one. Only the account's own
+// cascade takes a statement away. Every fixture is seeded through the app's own policies and rolled back.
 async function checkDebtStatementPolicies() {
   console.log("");
   const subject = randomUUID();
@@ -1968,6 +1969,8 @@ async function checkDebtStatementPolicies() {
     "82. re-running the same insert under the unique key inserts nothing",
     "83. an update of a statement by authenticated is refused",
     "84. an unrelated member can neither read nor write a statement on the subject's liability",
+    "275. the statement's own owner is refused the delete and the row survives it",
+    "276. deleting the liability account still carries its statement off",
   ];
   const tailLabel = "85. the rolled-back debt statement transaction leaves no trace";
 
@@ -2081,6 +2084,44 @@ async function checkDebtStatementPolicies() {
         labels[3],
         otherSees === "0" && otherInsertCode === "42501",
         `unrelated read = ${otherSees}, unrelated insert sqlstate ${otherInsertCode ?? "none"}`,
+      );
+
+      // 275: neither DELETE policy nor DELETE grant survives on the table, so the one caller who reads the
+      // row and writes everything else on its account is refused it too — the snapshot is a record (RF-84).
+      await enterUserContext(tx, subject);
+      let deleteCode: string | undefined;
+      await tx
+        .savepoint(async (sp) => {
+          await sp`delete from debt_statements where id = ${statementId}`;
+        })
+        .catch((error: unknown) => {
+          deleteCode = pgErrorCode(error);
+        });
+      const [{ count: afterRefusal }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from debt_statements where id = ${statementId}`;
+      assert(
+        labels[4],
+        deleteCode === "42501" && afterRefusal === "1",
+        `sqlstate ${deleteCode ?? "none"}, rows left = ${afterRefusal}`,
+      );
+
+      // 276: the control for 275 — a statement nothing can reach would satisfy it just as well. Referential
+      // integrity runs outside row security and outside the grant, so the account's cascade still takes the
+      // statement with it. The card's two movements hold the account under `on delete restrict` and go first;
+      // both counts are read as `postgres`, so an unreadable row would show up as 0 before the delete.
+      await tx`reset role`;
+      const [{ count: beforeCascade }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from debt_statements where id = ${statementId}`;
+      await enterUserContext(tx, subject);
+      await tx`delete from transactions where from_account_id = ${card} or to_account_id = ${card}`;
+      await tx`delete from accounts where id = ${card}`;
+      await tx`reset role`;
+      const [{ count: afterCascade }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from debt_statements where id = ${statementId}`;
+      assert(
+        labels[5],
+        beforeCascade === "1" && afterCascade === "0",
+        `rows before the account went = ${beforeCascade}, after = ${afterCascade}`,
       );
 
       throw forcedRollback;
@@ -4967,7 +5008,6 @@ const DELETE_GRANTS: string[] = [
   "accounts",
   "budgets",
   "categories",
-  "debt_statements",
   "debt_terms",
   "goal_contributions",
   "group_members",
