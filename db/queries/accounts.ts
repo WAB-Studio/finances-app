@@ -25,13 +25,17 @@ export type AccountRow = {
   initialBalanceCents: number;
   initialBalanceOn: string;
   balanceCents: number;
+  // What the policies would admit on this account, so a screen offers no action
+  // the database would refuse (RF-58, RF-100).
+  canWrite: boolean;
   archivedAt: Date | null;
 };
 
 // Every account the caller may read: their personal accounts and their group's
 // (RF-58, universal read). The policy scopes the rows; ordering only groups
-// personal accounts ahead of the group's, then by name. The balance rides this
-// same statement (RNF-07, RNF-09) — the roster costs one round trip, as before.
+// personal accounts ahead of the group's, then by name. The balance and the write
+// privilege ride this same statement (RNF-07, RNF-09) — the roster costs one
+// round trip, as before.
 export async function listAccounts(
   options: { archived: boolean },
 ): Promise<AccountRow[]> {
@@ -50,6 +54,9 @@ export async function listAccounts(
         initialBalanceCents: accounts.initialBalanceCents,
         initialBalanceOn: accounts.initialBalanceOn,
         balanceCents: sql<string>`b.balance_cents`,
+        // Written with the column's own name, never a Drizzle column reference: a
+        // reference inside a projection fragment renders bare and binds inward.
+        canWrite: sql<boolean>`private.can_write_account(accounts.id)`,
         archivedAt: accounts.archivedAt,
       })
       .from(accounts)

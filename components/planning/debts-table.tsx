@@ -38,7 +38,8 @@ const WIDTHS = {
  * One liability the screen draws. `terms` is null on a debt with no `debt_terms`
  * row: every derived figure it would carry then reads absent, and only its owed
  * magnitude and its invitation remain (RF-79). `planPosition` is independent of
- * terms — a plan sits on any liability (RF-81).
+ * terms — a plan sits on any liability (RF-81). `canWrite` is what the policies
+ * would admit on this debt, which is what decides the actions it offers.
  */
 export type DebtTableRow = {
   accountId: string;
@@ -46,6 +47,7 @@ export type DebtTableRow = {
   owedCents: number;
   planPosition: PlanPosition | null;
   terms: DebtOverviewRow | null;
+  canWrite: boolean;
 };
 
 /**
@@ -228,32 +230,44 @@ export function DebtsTable({
       header: "",
       width: WIDTHS.menu,
       align: "end",
+      // Reading a debt is offered to everyone it is shown to; writing one only to
+      // the caller the policies would admit, so a member is never handed an
+      // action the database answers with a refusal (RF-58, RF-100).
       cell: (row) => (
         <RowMenu
           rowName={row.name}
           items={[
-            {
-              key: "pay",
-              label: t("rowPay"),
-              onSelect: () => onPay(row),
-            },
-            {
-              key: "plan",
-              label: t("rowNewPlan"),
-              onSelect: () => onNewPlan(row),
-            },
+            ...(row.canWrite
+              ? [
+                  {
+                    key: "pay",
+                    label: t("rowPay"),
+                    onSelect: () => onPay(row),
+                  },
+                  {
+                    key: "plan",
+                    label: t("rowNewPlan"),
+                    onSelect: () => onNewPlan(row),
+                  },
+                ]
+              : []),
             {
               key: "detail",
               label: t("rowDetail"),
               onSelect: () => onDetail(row),
             },
-            {
-              // The same door either way: a bare liability completes its terms,
-              // one that carries them edits them (RF-78).
-              key: "terms",
-              label: row.terms === null ? t("completeTerms") : tKey("common.edit"),
-              onSelect: () => onEditTerms(row),
-            },
+            ...(row.canWrite
+              ? [
+                  {
+                    // The same door either way: a bare liability completes its
+                    // terms, one that carries them edits them (RF-78).
+                    key: "terms",
+                    label:
+                      row.terms === null ? t("completeTerms") : tKey("common.edit"),
+                    onSelect: () => onEditTerms(row),
+                  },
+                ]
+              : []),
           ]}
         />
       ),
@@ -310,12 +324,18 @@ function DebtMeta({
   }
 
   if (row.terms === null) {
-    return (
+    // A caller who cannot write the debt is told what it lacks, not invited to
+    // fill it in.
+    return row.canWrite ? (
       <Flex>
         <Button type="button" variant="surface" size="1" onClick={onEditTerms}>
           {t("completeTerms")}
         </Button>
       </Flex>
+    ) : (
+      <Text size="2" color="gray">
+        {t("noTermsMeta")}
+      </Text>
     );
   }
 

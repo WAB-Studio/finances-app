@@ -32,6 +32,9 @@ import {
 } from "./harness/session";
 
 const LOCALE = "es";
+// The debt the detail route is driven against. Its name is the title that page
+// carries, so the render case asserts on this very string.
+const DEBT_NAME = "Harness HTTP tarjeta";
 // A movement no one owns, so the detail page refuses it.
 const UNKNOWN_ID = "00000000-0000-0000-0000-000000000000";
 const APP_GROUP_DIR = resolve(process.cwd(), "app/[locale]/(app)");
@@ -143,7 +146,7 @@ type RenderCase = {
   why?: string;
 };
 
-function renderCases(transactionId: string): RenderCase[] {
+function renderCases({ transactionId, debtAccountId }: HttpScope): RenderCase[] {
   return [
     { path: `/${LOCALE}`, status: 200, title: title("common.appName") },
     { path: `/${LOCALE}/inbox`, status: 200, title: title("ingest.title") },
@@ -168,6 +171,26 @@ function renderCases(transactionId: string): RenderCase[] {
       path: `/${LOCALE}/planning/debts`,
       status: 200,
       title: title("debts.title"),
+    },
+    // The debt the fixture opened, with its terms, its dated cuotas and the
+    // movement that settled the first of them: the detail names it in the title.
+    {
+      path: `/${LOCALE}/planning/debts/${debtAccountId}`,
+      status: 200,
+      title: DEBT_NAME,
+    },
+    // The path the coverage walk builds for this route, since it substitutes the
+    // fixture's transaction id into every dynamic segment. A movement's id names
+    // no account, so `getDebtDetail` returns null and the page calls
+    // `notFound()` — after the `loading.tsx` above it flushed, so it arrives as
+    // noindex in the body over a 200 on the wire, exactly as `/movements/[id]`
+    // does for an id it cannot find.
+    {
+      path: `/${LOCALE}/planning/debts/${transactionId}`,
+      status: 200,
+      title: title("debts.title"),
+      noindex: true,
+      why: "a transaction id names no debt: a streamed notFound()",
     },
     {
       path: `/${LOCALE}/planning/goals`,
@@ -292,6 +315,7 @@ type HttpScope = {
   accountId: string;
   categoryId: string;
   transactionId: string;
+  debtAccountId: string;
 };
 
 /**
@@ -304,7 +328,10 @@ async function seedHttpScope(userId: string): Promise<HttpScope> {
     accountId: randomUUID(),
     categoryId: randomUUID(),
     transactionId: randomUUID(),
+    debtAccountId: randomUUID(),
   };
+  const planId = randomUUID();
+  const settlementId = randomUUID();
   const claims = JSON.stringify({
     sub: userId,
     role: "authenticated",
@@ -332,11 +359,54 @@ async function seedHttpScope(userId: string): Promise<HttpScope> {
     await tx`
       insert into transaction_splits (transaction_id, category_id, amount_cents)
       values (${scope.transactionId}, ${scope.categoryId}, 123400)`;
+
+    // A liability opened three months back, so its cut-off day has periods behind
+    // it and the detail materialises a history to read (RF-84). It opens negative:
+    // a debt owes, and every balance is derived (RNF-05, RNF-07).
+    await tx`
+      insert into accounts (id, owner_user_id, name, kind, subtype, initial_balance_cents, initial_balance_on)
+      values (${scope.debtAccountId}, ${userId}, ${DEBT_NAME}, 'liability', 'tarjeta',
+        -24000000, (current_date - interval '3 months')::date)`;
+
+    await tx`
+      insert into debt_terms (
+        account_id, debt_kind, annual_rate, minimum_payment_cents,
+        credit_limit_cents, statement_cut_off_day, payment_due_day)
+      values (${scope.debtAccountId}, 'revolving', 0.2400, 600000, 50000000, 15, 5)`;
+
+    await tx`
+      insert into installment_plans (
+        id, account_id, description, merchant, principal_cents,
+        n_installments, frequency, start_date)
+      values (${planId}, ${scope.debtAccountId}, 'Harness HTTP plan', 'Harness comercio',
+        9000000, 3, 'monthly', (current_date - interval '2 months')::date)`;
+
+    await tx`
+      insert into installment_lines (plan_id, seq, due_date, amount_cents) values
+        (${planId}, 1, (current_date - interval '2 months')::date, 3000000),
+        (${planId}, 2, (current_date - interval '1 month')::date, 3000000),
+        (${planId}, 3, current_date, 3000000)`;
+
+    // The movement that settled the first line: an asset pays a liability (RF-16),
+    // and the line points at it, which is the link the detail's cuotas table reads.
+    await tx`
+      insert into transactions (id, from_account_id, to_account_id, amount_cents, occurred_at, description)
+      values (${settlementId}, ${scope.accountId}, ${scope.debtAccountId}, 3000000,
+        (current_date - interval '2 months')::date, 'Harness HTTP abono')`;
+
+    await tx`
+      update installment_lines set paid_transaction_id = ${settlementId}
+      where plan_id = ${planId} and seq = 1`;
   });
 
   track("accounts", scope.accountId);
   track("categories", scope.categoryId);
   track("transactions", scope.transactionId);
+  // The lines go with the plan and the statements with the account: both cascade.
+  track("installment_plans", planId);
+  track("transactions", settlementId);
+  track("debt_terms", scope.debtAccountId);
+  track("accounts", scope.debtAccountId);
 
   return scope;
 }
@@ -686,7 +756,7 @@ async function main(): Promise<void> {
   const scope = await seedHttpScope(userId);
   const cookie = await cookieHeader();
   const routes = appGroupRoutes(scope.transactionId);
-  const cases = renderCases(scope.transactionId);
+  const cases = renderCases(scope);
   console.log("");
 
   await guardSuite(routes);

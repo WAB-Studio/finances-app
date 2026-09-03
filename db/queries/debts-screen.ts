@@ -11,16 +11,29 @@ export type DebtsScreenData = {
   totals: {
     owedCents: number;
     monthlyInterestCents: number;
+    // The share of the owed magnitude the summed interest is charged at, the one
+    // definition of the consolidated rate: no screen divides the two totals.
+    monthlyRatePct: number;
     availableCreditCents: number;
     creditLimitCents: number;
-    nextPayment: { amountCents: number; date: string; name: string } | null;
+    nextPayment: {
+      accountId: string;
+      amountCents: number;
+      date: string;
+      name: string;
+    } | null;
   };
-  withTerms: (DebtOverviewRow & { name: string; planPosition: PlanPosition | null })[];
+  withTerms: (DebtOverviewRow & {
+    name: string;
+    planPosition: PlanPosition | null;
+    canWrite: boolean;
+  })[];
   withoutTerms: {
     accountId: string;
     name: string;
     owedCents: number;
     planPosition: PlanPosition | null;
+    canWrite: boolean;
   }[];
   payFrom: { id: string; name: string; balanceCents: number }[];
 };
@@ -28,10 +41,10 @@ export type DebtsScreenData = {
 /**
  * Everything the debts screen renders, in ONE fan-out of four existing reads
  * (RF-83, RF-117, RNF-09): the terms-carrying overview, the account roster for
- * names and the kind partition, the derived balances for the no-terms owed
- * magnitudes, and each account's installment position. The awaits never chain —
- * four round trips, no more. Every figure arrives already derived from the
- * backend and stays integer cents.
+ * names, the kind partition and what the caller may write, the derived balances
+ * for the no-terms owed magnitudes, and each account's installment position. The
+ * awaits never chain — four round trips, no more. Every figure arrives already
+ * derived from the backend and stays integer cents.
  */
 export async function getDebtsScreenData(): Promise<DebtsScreenData> {
   const [overview, accounts, balances, positions] = await Promise.all([
@@ -42,6 +55,11 @@ export async function getDebtsScreenData(): Promise<DebtsScreenData> {
   ]);
 
   const nameById = new Map(accounts.map((account) => [account.id, account.name]));
+  // The roster's own projection carries the write privilege, so no debt costs a
+  // second statement to learn what its caller may do to it.
+  const writableById = new Map(
+    accounts.map((account) => [account.id, account.canWrite]),
+  );
   const balanceById = new Map(
     balances.map((balance) => [balance.accountId, balance.balanceCents]),
   );
@@ -56,7 +74,15 @@ export async function getDebtsScreenData(): Promise<DebtsScreenData> {
     const name = nameById.get(row.accountId);
     if (name === undefined) return [];
 
-    return [{ ...row, name, planPosition: positionById.get(row.accountId) ?? null }];
+    return [
+      {
+        ...row,
+        name,
+        planPosition: positionById.get(row.accountId) ?? null,
+        // Absent from the roster is a debt the caller may not write.
+        canWrite: writableById.get(row.accountId) ?? false,
+      },
+    ];
   });
 
   // A liability absent from the overview owes without a rate (RF-78, RF-79); its
@@ -70,6 +96,7 @@ export async function getDebtsScreenData(): Promise<DebtsScreenData> {
       name: account.name,
       owedCents: Math.abs(balanceById.get(account.id) ?? 0),
       planPosition: positionById.get(account.id) ?? null,
+      canWrite: account.canWrite,
     }));
 
   const owedCents =
@@ -87,14 +114,21 @@ export async function getDebtsScreenData(): Promise<DebtsScreenData> {
   // the summed available down.
   const { availableCreditCents, creditLimitCents } = sumDebtCreditTotals(withTerms);
 
+  // The share of the owed magnitude the interest above is charged at, struck over
+  // the whole debt — the no-terms debts included, since they are in the total the
+  // tile sits under. Derived once here so no screen divides two totals of its own.
+  const monthlyRatePct = owedCents > 0 ? monthlyInterestCents / owedCents : 0;
+
   // The earliest named due date carries the consolidated next payment (RF-83):
   // that row's minimum plus the installments falling due by then, and the debt it
-  // belongs to, which is what the tile reads under the figure.
+  // belongs to — its id as well as its name, so the row that carries the badge is
+  // named rather than matched back by hand.
   const nextPayment = withTerms
     .filter((row): row is typeof row & { nextDueDate: string } => row.nextDueDate !== null)
     .reduce<DebtsScreenData["totals"]["nextPayment"]>((earliest, row) => {
       if (earliest !== null && earliest.date <= row.nextDueDate) return earliest;
       return {
+        accountId: row.accountId,
         amountCents: (row.minimumPaymentCents ?? 0) + row.dueInstallmentsCents,
         date: row.nextDueDate,
         name: row.name,
@@ -115,6 +149,7 @@ export async function getDebtsScreenData(): Promise<DebtsScreenData> {
     totals: {
       owedCents,
       monthlyInterestCents,
+      monthlyRatePct,
       availableCreditCents,
       creditLimitCents,
       nextPayment,

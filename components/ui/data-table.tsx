@@ -33,6 +33,7 @@ export type DataSection<Row> = { key: string; label: string; rows: Row[] };
  */
 export function DataTable<Row>({
   label,
+  caption,
   columns,
   rows,
   sections,
@@ -42,6 +43,10 @@ export function DataTable<Row>({
   footer,
 }: {
   label: string;
+  // A head inside the frame, over the column headers: what this run of rows is
+  // and the one way out of it. A table that names itself takes this instead of
+  // sitting in a card, which would frame and pad it twice.
+  caption?: ReactNode;
   columns: DataColumn<Row>[];
   rows?: Row[];
   sections?: DataSection<Row>[];
@@ -76,6 +81,12 @@ export function DataTable<Row>({
           } as CSSProperties
         }
       >
+        {caption && (
+          <div role="caption" className={styles.caption}>
+            {caption}
+          </div>
+        )}
+
         <div role="rowgroup">
           <div role="row" className={`${styles.grid} ${styles.head}`}>
             {columns.map((column) => (

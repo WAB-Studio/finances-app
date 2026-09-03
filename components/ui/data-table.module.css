@@ -19,6 +19,17 @@
   padding: 10px 18px;
 }
 
+/* Panel's own head measures, so a table that names itself sits at the same
+   height as the card beside it. */
+.caption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--gray-a4);
+}
+
 .head {
   background-color: var(--gray-2);
   border-bottom: 1px solid var(--gray-a4);
