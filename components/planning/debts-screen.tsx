@@ -95,10 +95,6 @@ export function DebtsScreen({
   const isEmpty = withTerms.length === 0 && withoutTerms.length === 0;
   const debtCount = withTerms.length + withoutTerms.length;
 
-  // A debt is paid from an asset (RF-16): with no asset on the roster there is
-  // no source to pick, so no card offers the abono.
-  const canPay = payFrom.length > 0;
-
   function shortDate(date: string): string {
     return format.dateTime(civilDateToDate(date), {
       day: "numeric",
@@ -120,6 +116,7 @@ export function DebtsScreen({
         owedCents: row.owedCents,
         planPosition: row.planPosition,
         terms: row,
+        canWrite: row.canWrite,
       })),
       ...withoutTerms.map((debt) => ({ ...debt, terms: null })),
     ];
@@ -166,26 +163,10 @@ export function DebtsScreen({
     />
   );
 
-  // Which debt the fund's next payment belongs to. `totals.nextPayment` names it
-  // but carries no id, so the same earliest-due fold the query already ran picks
-  // the row out — over every debt, never over the page.
-  const nextPaymentAccountId =
-    withTerms.reduce<{ accountId: string; date: string } | null>(
-      (earliest, row) => {
-        if (row.nextDueDate === null) return earliest;
-        if (earliest !== null && earliest.date <= row.nextDueDate) return earliest;
-        return { accountId: row.accountId, date: row.nextDueDate };
-      },
-      null,
-    )?.accountId ?? null;
-
-  // The four figures of the artboard, the whole consolidated view: the summed
-  // interest reads as a share of the owed magnitude, a ratio of two totals and
-  // never a money division; the cupo is the backend's own sum over the debts
-  // that carry a limit, so it can never disagree with the column it sits over.
-  const interestSharePct =
-    totals.owedCents > 0 ? totals.monthlyInterestCents / totals.owedCents : 0;
-
+  // The four figures of the artboard, the whole consolidated view. Every one of
+  // them arrives derived: the rate is the backend's own share of the balance and
+  // the cupo its own sum over the debts that carry a limit, so no tile can
+  // disagree with the column it sits over.
   const tiles = [
     {
       key: "total",
@@ -200,7 +181,7 @@ export function DebtsScreen({
         <Money cents={totals.monthlyInterestCents} signed={false} size="inherit" />
       ),
       note: t("tileMonthlyInterestNote", {
-        pct: format.number(interestSharePct, {
+        pct: format.number(totals.monthlyRatePct, {
           style: "percent",
           minimumFractionDigits: 1,
           maximumFractionDigits: 1,
@@ -273,7 +254,9 @@ export function DebtsScreen({
         <StatTiles tiles={tiles} />
         <DebtsTable
           rows={pageRows}
-          nextPaymentAccountId={nextPaymentAccountId}
+          // The fund's next payment, so the badge names the same debt on every
+          // page rather than each page's own earliest.
+          nextPaymentAccountId={totals.nextPayment?.accountId ?? null}
           page={table.state.pagination.pageIndex + 1}
           pageSize={PAGE_SIZE}
           total={rows.length}
@@ -370,7 +353,7 @@ export function DebtsScreen({
                     key={row.accountId}
                     row={row}
                     onPay={
-                      canPay
+                      row.canWrite
                         ? () =>
                             payTarget({
                               accountId: row.accountId,
@@ -385,7 +368,7 @@ export function DebtsScreen({
                     key={row.accountId}
                     row={row}
                     onPay={
-                      canPay
+                      row.canWrite
                         ? () =>
                             payTarget({
                               accountId: row.accountId,
@@ -401,18 +384,21 @@ export function DebtsScreen({
                 <NoTermsCard
                   key={debt.accountId}
                   debt={debt}
-                  onComplete={() =>
-                    setTarget({
-                      mode: "complete",
-                      account: {
-                        accountId: debt.accountId,
-                        name: debt.name,
-                        owedCents: debt.owedCents,
-                      },
-                    })
+                  onComplete={
+                    debt.canWrite
+                      ? () =>
+                          setTarget({
+                            mode: "complete",
+                            account: {
+                              accountId: debt.accountId,
+                              name: debt.name,
+                              owedCents: debt.owedCents,
+                            },
+                          })
+                      : undefined
                   }
                   onPay={
-                    canPay
+                    debt.canWrite
                       ? () =>
                           payTarget({
                             accountId: debt.accountId,
@@ -722,7 +708,9 @@ function NoTermsCard({
   onPay,
 }: {
   debt: { accountId: string; name: string; owedCents: number };
-  onComplete: () => void;
+  // Absent for a caller who cannot write the debt: the head already says what it
+  // lacks, and the invitation would only lead to a refusal.
+  onComplete?: () => void;
   onPay?: () => void;
 }) {
   const t = useTranslations("debts");
@@ -737,14 +725,16 @@ function NoTermsCard({
           meta={t("noTermsMeta")}
           owedCents={debt.owedCents}
         />
-        <Button
-          type="button"
-          variant="soft"
-          color="amber"
-          onClick={onComplete}
-        >
-          {t("completeTerms")}
-        </Button>
+        {onComplete && (
+          <Button
+            type="button"
+            variant="soft"
+            color="amber"
+            onClick={onComplete}
+          >
+            {t("completeTerms")}
+          </Button>
+        )}
         {onPay && <PayButton onPay={onPay} />}
       </Flex>
     </Card>

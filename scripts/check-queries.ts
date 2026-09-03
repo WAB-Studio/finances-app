@@ -49,6 +49,7 @@ import { getDebtOverview } from "@/db/queries/debt-overview";
 import { listStatements } from "@/db/queries/debt-statements";
 import { getDebtTerms, upsertDebtTerms } from "@/db/queries/debt-terms";
 import { getDebtsScreenData } from "@/db/queries/debts-screen";
+import type { DebtsScreenData } from "@/db/queries/debts-screen";
 import { readExport } from "@/db/queries/export";
 import {
   claimInviteForUser,
@@ -346,6 +347,37 @@ async function seedPendingInvite({
   });
 
   track("group_members", memberId);
+}
+
+/**
+ * A second identity inside the leader's group: a plain member, who reads the
+ * leader's personal accounts (RF-58) and can write none of them, since
+ * `can_write_account` admits only their owner or a shared group account. It is
+ * what `canWrite` has to be driven against — a fabricated boolean would prove
+ * nothing about the policy the screens are asking after.
+ */
+async function seedFellowMember(
+  actorId: string,
+  groupId: string,
+): Promise<HarnessUser> {
+  const user = await createMembershipFreeUser();
+  const memberId = randomUUID();
+  const claims = JSON.stringify({
+    sub: actorId,
+    role: "authenticated",
+    aud: "authenticated",
+  });
+
+  await fixtureSql.begin(async (tx) => {
+    await tx`select set_config('request.jwt.claims', ${claims}, true)`;
+    await tx`
+      insert into group_members (id, group_id, user_id, name, role)
+      values (${memberId}, ${groupId}, ${user.id}, 'Harness miembra', 'member')`;
+  });
+
+  track("group_members", memberId);
+
+  return user;
 }
 
 type MemberSnapshot = {
@@ -1429,6 +1461,7 @@ async function readSuite(
   silenced: SilencedFixtures,
   debt: DebtFixture,
   groupless: HarnessUser,
+  fellow: HarnessUser,
 ): Promise<void> {
   const personal = { ownerUserId: userId } as const;
   const debtAccountId = writes.accountId ?? scope.liabilityAccountId;
@@ -1473,8 +1506,9 @@ async function readSuite(
   await checkRead("countUnreviewedGenerated", () => countUnreviewedGenerated());
   await checkRead("getDebtsScreenData", () => getDebtsScreenData());
   await checkRead("getDebtOverview", () => getDebtOverview());
-  // The screen fans four reads out (RNF-09); the count is what says they never
-  // chained and never went one read per debt. The first call is unmeasured on
+  // The screen fans five reads out (RNF-09); the count is what says they never
+  // chained and never went one read per debt — the writability of every debt
+  // rides one statement, not one per row. The first call is unmeasured on
   // purpose: the driver counts the statements that open a connection too, and the
   // fan-out opens as many as it has reads.
   await checkReadValue(
@@ -1491,7 +1525,7 @@ async function readSuite(
       return { unit, trips: roundTrips() - before };
     },
     ({ unit, trips }) => ({
-      ok: trips === unit * 4,
+      ok: trips === unit * 5,
       detail: `${trips} round trips for the screen, ${unit} for a single read`,
     }),
   );
@@ -1589,8 +1623,9 @@ async function readSuite(
     },
   );
 
-  // RF-83: the tile names the debt the earliest due date belongs to, and its
-  // figure is that debt's minimum plus the installments falling due by then.
+  // RF-83: the tile names the debt the earliest due date belongs to — by id as
+  // well as by name, since the badge on the table's row is placed by the id — and
+  // its figure is that debt's minimum plus the installments falling due by then.
   await checkReadValue(
     "getDebtsScreenData names the debt behind the next payment",
     () => getDebtsScreenData(),
@@ -1612,10 +1647,102 @@ async function readSuite(
       return {
         ok:
           earliest !== null &&
-          tile?.name === earliest.name &&
+          tile?.accountId === earliest.accountId &&
+          tile.name === earliest.name &&
           tile.date === earliest.nextDueDate &&
           tile.amountCents === expected,
-        detail: `${tile?.amountCents ?? "no"} cents due on ${tile?.date ?? "no date"} on "${tile?.name ?? "no debt"}", against ${expected ?? "no"} cents on "${earliest?.name ?? "no debt"}" of the ${dated.length} dated debts`,
+        detail: `${tile?.amountCents ?? "no"} cents due on ${tile?.date ?? "no date"} on "${tile?.name ?? "no debt"}" (${tile?.accountId ?? "no account"}), against ${expected ?? "no"} cents on "${earliest?.name ?? "no debt"}" (${earliest?.accountId ?? "no account"}) of the ${dated.length} dated debts`,
+      };
+    },
+  );
+
+  // RF-83, RF-79: the consolidated rate is struck on the same balance the tile
+  // above it states — the no-terms debts included — so applying it to that total
+  // gives back the summed interest to the cent. An average of the rows' rates, or
+  // a rate struck over the debts that carry terms alone, would not.
+  await checkReadValue(
+    "getDebtsScreenData states the rate its summed interest was struck at",
+    () => getDebtsScreenData(),
+    (screen) => {
+      const { owedCents, monthlyInterestCents, monthlyRatePct } = screen.totals;
+      const struck = Math.round(owedCents * monthlyRatePct);
+      const withTermsOwed = screen.withTerms.reduce(
+        (sum, row) => sum + row.owedCents,
+        0,
+      );
+      const highest = screen.withTerms.reduce(
+        (top, row) => Math.max(top, row.monthlyRatePct),
+        0,
+      );
+
+      return {
+        ok:
+          monthlyRatePct > 0 &&
+          Math.abs(struck - monthlyInterestCents) <= 1 &&
+          // A no-terms debt owes in this fund, so the two denominators differ and
+          // the assertion above is the one that tells them apart.
+          withTermsOwed < owedCents &&
+          monthlyRatePct < highest,
+        detail: `rate ${monthlyRatePct} on ${owedCents} owed gives ${struck} cents against the summed ${monthlyInterestCents}; ${withTermsOwed} of that balance carries terms, and the dearest debt is at ${highest}`,
+      };
+    },
+  );
+
+  // RF-58, RF-100: the writability every surface of the screen reads, driven by a
+  // fellow member who really cannot write — not by a fabricated boolean. The same
+  // caller's INSERT is refused by the policy, so the flag and the database agree.
+  await checkReadValue(
+    "getDebtsScreenData reports the writability the policies would admit",
+    async () => {
+      const mine = await getDebtsScreenData();
+      const theirs = await asUser(fellow, () => getDebtsScreenData());
+
+      let refused: string | null = null;
+      try {
+        const { planId } = await asUser(fellow, () =>
+          createInstallmentPlan({
+            accountId: debtAccountId,
+            description: "Harness plan a member may not write",
+            principalCents: 300000,
+            nInstallments: 3,
+            frequency: "monthly",
+            interestRate: null,
+            downPaymentCents: null,
+            avalCents: null,
+            startDate: todayInBogota(),
+            merchant: null,
+            lines: [],
+          }),
+        );
+        // It landed, which is the failure this assertion is here to catch; the
+        // row is tracked so the run still drops what it wrote.
+        track("installment_plans", planId);
+      } catch (error) {
+        refused = pgErrorCode(error) ?? "none";
+      }
+
+      return { mine, theirs, refused };
+    },
+    ({ mine, theirs, refused }) => {
+      const rows = (screen: DebtsScreenData) => [
+        ...screen.withTerms,
+        ...screen.withoutTerms,
+      ];
+      const owned = rows(mine);
+      const read = rows(theirs);
+      const seenByBoth = read.filter((row) =>
+        owned.some((own) => own.accountId === row.accountId),
+      );
+
+      return {
+        ok:
+          owned.length > 0 &&
+          owned.every((row) => row.canWrite) &&
+          // The member reads every one of them and writes none.
+          seenByBoth.length === owned.length &&
+          read.every((row) => !row.canWrite) &&
+          refused === "42501",
+        detail: `the owner writes ${owned.filter((row) => row.canWrite).length} of ${owned.length} debts; the member reads ${seenByBoth.length} of them and writes ${read.filter((row) => row.canWrite).length}, and her plan was refused with ${refused ?? "nothing"}`,
       };
     },
   );
@@ -2097,9 +2224,16 @@ async function main(): Promise<void> {
 
   const debt = await seedDebtFixture(userId, scope);
 
+  // The other side of every write policy on a debt: someone who sees the fund's
+  // debts and may write none of them.
+  const fellow = await seedFellowMember(userId, scope.groupId);
+  console.log(
+    `REPORT  fellow member ${fellow.id}, who reads the leader's debts and writes none.`,
+  );
+
   const writes = await writeSuite(userId, scope, groupless, silenced.restored, debt);
   console.log("");
-  await readSuite(userId, scope, writes, silenced, debt, groupless);
+  await readSuite(userId, scope, writes, silenced, debt, groupless, fellow);
   console.log("");
   await invariantSuite(writes, silenced.restored);
   console.log("");
