@@ -176,6 +176,34 @@
       "when": 1788358576734,
       "tag": "0024_seed_personal_categories_for_existing_users",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1788383567911,
+      "tag": "0025_transfer_group_leadership",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1788383568708,
+      "tag": "0026_archive_a_member_with_history",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1788383569510,
+      "tag": "0027_hand_an_account_to_the_group",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1788385815916,
+      "tag": "0028_hand_over_reveals_only_the_callers_scope",
+      "breakpoints": true
     }
   ]
 }

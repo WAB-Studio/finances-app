@@ -10,6 +10,7 @@ import {
   archiveMemberAction,
   deleteMemberAction,
   restoreMemberAction,
+  transferLeadershipAction,
 } from "@/app/actions/members";
 import { MemberFormDialog } from "@/components/members/member-form-dialog";
 import {
@@ -35,7 +36,8 @@ import { useActionErrorToast } from "@/lib/use-action-toast";
 type RowAction =
   | { kind: "archive"; member: MemberRow }
   | { kind: "restore"; member: MemberRow }
-  | { kind: "delete"; member: MemberRow };
+  | { kind: "delete"; member: MemberRow }
+  | { kind: "transfer"; member: MemberRow };
 
 export function MembersScreen({
   members,
@@ -79,6 +81,14 @@ export function MembersScreen({
   const deleteState = useAction(deleteMemberAction, {
     onSuccess() {
       toast.success(t("deleted"));
+      setRowAction(null);
+    },
+    onError: onActionError,
+  });
+
+  const transferState = useAction(transferLeadershipAction, {
+    onSuccess() {
+      toast.success(t("transferred"));
       setRowAction(null);
     },
     onError: onActionError,
@@ -198,6 +208,18 @@ export function MembersScreen({
                               {canManage && (
                                 <>
                                   <DropdownMenu.Separator />
+                                  {/* A member with no login cannot hold the
+                                      role, so the item never offers what
+                                      `group_members_leader_has_user` refuses. */}
+                                  {member.userId !== null && (
+                                    <DropdownMenu.Item
+                                      onSelect={() =>
+                                        setRowAction({ kind: "transfer", member })
+                                      }
+                                    >
+                                      {t("transfer")}
+                                    </DropdownMenu.Item>
+                                  )}
                                   <DropdownMenu.Item
                                     onSelect={() =>
                                       setRowAction({ kind: "archive", member })
@@ -272,6 +294,24 @@ export function MembersScreen({
           tone="neutral"
           onConfirm={() =>
             restoreState.execute({ memberId: rowAction.member.id })
+          }
+        />
+      )}
+
+      {rowAction?.kind === "transfer" && (
+        <ConfirmDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setRowAction(null);
+          }}
+          title={t("transferTitle")}
+          description={t("transferDescription")}
+          confirmLabel={t("transfer")}
+          cancelLabel={tKey("common.cancel")}
+          pending={transferState.isPending}
+          tone="neutral"
+          onConfirm={() =>
+            transferState.execute({ memberId: rowAction.member.id })
           }
         />
       )}

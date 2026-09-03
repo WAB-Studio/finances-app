@@ -7,6 +7,7 @@ import {
   createMember,
   deleteMember,
   restoreMember,
+  transferLeadership,
   updateMember,
 } from "@/db/queries/group-members";
 import { getUserGroup } from "@/db/queries/groups";
@@ -20,6 +21,7 @@ import {
   createMemberSchema,
   deleteMemberSchema,
   restoreMemberSchema,
+  transferLeadershipSchema,
   updateMemberSchema,
 } from "@/lib/validation/member";
 
@@ -115,12 +117,41 @@ export const restoreMemberAction = authActionClient
     refresh();
   });
 
+// RF-11: the engine refuses to drop a person whose user created a movement, owns
+// one or owns an account. The refusal is a 23514 the trigger raises, not a row
+// count, so it needs its own catch — the zero-row path still means the caller
+// does not lead this group.
 export const deleteMemberAction = authActionClient
   .inputSchema(deleteMemberSchema)
   .action(async ({ parsedInput: { memberId } }) => {
     const groupId = await requireGroupId();
-    const deleted = await deleteMember({ groupId, memberId });
+    let deleted: boolean;
+    try {
+      deleted = await deleteMember({ groupId, memberId });
+    } catch (error) {
+      if (pgErrorCode(error) === "23514") throw new ActionError("errors.memberHasHistory");
+      throw error;
+    }
     if (!deleted) notLeader();
+
+    refresh();
+  });
+
+// RF-59: the role moves and the caller steps down in the same call. No group id
+// travels — `transferLeadership` reads the caller's own membership — and the
+// group is resolved here only to turn a personal-only caller away first. Every
+// refusal the engine raises is a 23514, and the caller not being the leader is
+// the only one this action's own screen can reach.
+export const transferLeadershipAction = authActionClient
+  .inputSchema(transferLeadershipSchema)
+  .action(async ({ parsedInput: { memberId } }) => {
+    await requireGroupId();
+    try {
+      await transferLeadership({ memberId });
+    } catch (error) {
+      if (pgErrorCode(error) === "23514") notLeader();
+      throw error;
+    }
 
     refresh();
   });

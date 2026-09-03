@@ -35,9 +35,6 @@ flowchart TD
 Quick entry opens from any screen; it is not a navigation destination. It is the
 most frequent action in the app and must not cost a page change.
 
-Anyone belonging to several funds (RF-02) switches from the header, and the
-switch applies across the whole application.
-
 ---
 
 ## 2. First run
