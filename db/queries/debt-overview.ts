@@ -14,6 +14,9 @@ export type DebtOverviewRow = {
   creditLimitCents: number | null;
   availableCreditCents: number | null;
   monthlyInterestCents: number;
+  // The fraction 0..1 the interest above is charged at, like `minimum_payment_pct`
+  // reads: the screen formats it as a percentage and derives nothing.
+  monthlyRatePct: number;
   minimumPaymentCents: number | null;
   nextCutOffDate: string | null;
   nextDueDate: string | null;
@@ -48,7 +51,9 @@ function nextDayOfMonthOnOrAfterSql(dayCol: SQL, today: string): SQL {
  * `account_balances`; the limit rides along for the consolidated sums and
  * available credit nets it against the balance (both null with no limit); the
  * monthly interest is the effective twelfth-root step of the annual rate, NOT
- * the linear `rate/12`; the minimum is the fixed amount, or a percentage
+ * the linear `rate/12`, and that step rides along as a rate of its own so the
+ * screen states the percentage without dividing anything; the minimum is the
+ * fixed amount, or a percentage
  * of the owed, or null; and due installments sum the unpaid lines falling on or
  * before the next due date. No figure is re-summed from a stored balance, and the
  * CALLER folds these rows into the totals — this adds no round trip for them.
@@ -66,6 +71,7 @@ export async function getDebtOverview(): Promise<DebtOverviewRow[]> {
       credit_limit_cents: string | null;
       available_credit_cents: string | null;
       monthly_interest_cents: string;
+      monthly_rate_pct: string;
       minimum_payment_cents: string | null;
       next_cut_off_date: string | null;
       next_due_date: string | null;
@@ -78,8 +84,8 @@ export async function getDebtOverview(): Promise<DebtOverviewRow[]> {
         dt.credit_limit_cents,
         case when dt.credit_limit_cents is null then null
           else dt.credit_limit_cents - abs(b.balance_cents) end as available_credit_cents,
-        round(abs(b.balance_cents) * (power(1 + dt.annual_rate, 1.0/12) - 1))::bigint
-          as monthly_interest_cents,
+        round(abs(b.balance_cents) * mr.monthly_rate)::bigint as monthly_interest_cents,
+        mr.monthly_rate as monthly_rate_pct,
         case
           when dt.minimum_payment_cents is not null then dt.minimum_payment_cents
           when dt.minimum_payment_pct is not null
@@ -102,6 +108,9 @@ export async function getDebtOverview(): Promise<DebtOverviewRow[]> {
       join account_balances b on b.id = dt.account_id
       cross join lateral (select ${nextCutOff} as next_cut_off) nc
       cross join lateral (select ${nextDue} as next_due) nd
+      -- One expression for both readings, so the figure and its rate can never
+      -- state different months.
+      cross join lateral (select power(1 + dt.annual_rate, 1.0/12) - 1 as monthly_rate) mr
       order by a.name
     `);
 
@@ -115,6 +124,7 @@ export async function getDebtOverview(): Promise<DebtOverviewRow[]> {
       availableCreditCents:
         row.available_credit_cents === null ? null : Number(row.available_credit_cents),
       monthlyInterestCents: Number(row.monthly_interest_cents),
+      monthlyRatePct: Number(row.monthly_rate_pct),
       minimumPaymentCents:
         row.minimum_payment_cents === null ? null : Number(row.minimum_payment_cents),
       nextCutOffDate: row.next_cut_off_date,
