@@ -11,6 +11,7 @@ import {
   deletePlannedPaymentAction,
 } from "@/app/actions/planned-payments";
 import { PaymentFormDialog } from "@/components/planning/payment-form-dialog";
+import { PaymentsTable } from "@/components/planning/payments-table";
 import { PaymentSettleDialog } from "@/components/planning/payment-settle-dialog";
 import { PlanningSubNav } from "@/components/planning/planning-sub-nav";
 import {
@@ -27,6 +28,7 @@ import {
   IconButton,
   MovementRow,
   Text,
+  type DataSection,
 } from "@/components/ui";
 import type { PlannedPaymentRow } from "@/db/queries/planned-payments";
 import type { TransactionFormOptions } from "@/db/queries/transaction-form";
@@ -82,6 +84,34 @@ export function PaymentsScreen({
     return [...byMonth.entries()];
   }, [payments]);
 
+  // A name and colour per category id — children included — and a name per
+  // account id, so the desktop table reads a payment's row without a lookup
+  // of its own.
+  const categoryNames = new Map<string, string>();
+  const categoryColors = new Map<string, string | null>();
+  for (const category of options.categories) {
+    categoryNames.set(category.id, category.name);
+    categoryColors.set(category.id, category.color);
+    for (const child of category.children) {
+      categoryNames.set(child.id, child.name);
+      categoryColors.set(child.id, child.color);
+    }
+  }
+  const accountNames = new Map(options.accounts.map((a) => [a.id, a.name]));
+
+  // `groups` reshaped into the table's sections — one band per month, its
+  // rows unchanged — so the month grouping is derived once for both widths.
+  const sections: DataSection<PlannedPaymentRow>[] = groups.map(
+    ([monthKey, rows]) => ({
+      key: monthKey,
+      label: format.dateTime(civilDateToDate(`${monthKey}-01`), {
+        month: "long",
+        year: "numeric",
+      }),
+      rows,
+    }),
+  );
+
   const cancelState = useAction(cancelPlannedPaymentAction, {
     onSuccess() {
       toast.success(t("cancelled"));
@@ -119,6 +149,7 @@ export function PaymentsScreen({
         <PlanningSubNav />
       </Box>
 
+      <Box display={{ initial: "block", md: "none" }}>
       {payments.length === 0 ? (
         <EmptyState
           title={t("emptyTitle")}
@@ -154,6 +185,27 @@ export function PaymentsScreen({
           ))}
         </Flex>
       )}
+      </Box>
+
+      <Box display={{ initial: "none", md: "block" }}>
+        <PaymentsTable
+          sections={sections}
+          categoryNames={categoryNames}
+          categoryColors={categoryColors}
+          accountNames={accountNames}
+          empty={
+            <EmptyState
+              title={t("emptyTitle")}
+              description={t("emptyDescription")}
+              action={addButton}
+            />
+          }
+          onSettle={(payment) => setSettleTarget(payment)}
+          onEdit={(payment) => setFormTarget(payment)}
+          onCancel={(payment) => setCancelTarget(payment)}
+          onDelete={(payment) => setDeleteTarget(payment)}
+        />
+      </Box>
 
       {/* A planned payment only reminds; the person records the real movement
           when they settle it (RF-74, RF-75). */}
