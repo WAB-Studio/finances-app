@@ -56,6 +56,7 @@ accounting exports, native apps. None of this gets built or left
 - [x] **RF-61** — Archiving a member does not archive their accounts. The owner decides per account: archive it or hand it to the group.
 - [x] **RF-100** — Only the group `leader` adds, renames, archives, restores and removes a member; every member renames their own row and no other.
 - [x] **RF-114** — The accounts list shows each account's balance, derived from its opening balance and its movements and never stored.
+- [ ] **RF-121** — An account declares the currency it holds. Its amounts are stored in that currency's minor unit and are read, written and formatted in it, so an account whose currency has two decimal places accepts them. A balance or a total derives only across accounts of one currency; a movement between two currencies carries the rate that converted it, and no surface sums two currencies without one.
 
 #### Debts
 
