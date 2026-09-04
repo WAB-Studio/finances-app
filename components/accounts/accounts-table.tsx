@@ -38,19 +38,25 @@ const WIDTHS = {
 export function AccountsTable({
   rows,
   archived,
+  hasGroup,
   empty,
   onEdit,
   onArchive,
   onRestore,
   onDelete,
+  onHandOver,
 }: {
   rows: AccountRow[];
   archived: boolean;
+  // Only a personal, live account of a caller who has a group has anywhere to
+  // go (RF-60, RF-61), mirroring the phone's card.
+  hasGroup: boolean;
   empty?: ReactNode;
   onEdit: (row: AccountRow) => void;
   onArchive: (row: AccountRow) => void;
   onRestore: (row: AccountRow) => void;
   onDelete: (row: AccountRow) => void;
+  onHandOver: (row: AccountRow) => void;
 }) {
   const t = useTranslations("accounts");
   const tKey = useTranslations();
@@ -165,6 +171,15 @@ export function AccountsTable({
                     label: tKey("common.archive"),
                     onSelect: () => onArchive(row),
                   },
+                  ...(hasGroup && row.ownerUserId !== null
+                    ? [
+                        {
+                          key: "handOver",
+                          label: t("handOver"),
+                          onSelect: () => onHandOver(row),
+                        },
+                      ]
+                    : []),
                 ]),
             {
               key: "delete",

@@ -315,10 +315,12 @@ export function AccountsScreen({
                 />
               ) : undefined
             }
+            hasGroup={groupName !== null}
             onEdit={(account) => setFormTarget(account)}
             onArchive={(account) => setRowAction({ kind: "archive", account })}
             onRestore={(account) => setRowAction({ kind: "restore", account })}
             onDelete={(account) => setRowAction({ kind: "delete", account })}
+            onHandOver={(account) => setRowAction({ kind: "handOver", account })}
           />
         </Flex>
       </Box>
