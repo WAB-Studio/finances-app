@@ -496,7 +496,8 @@
     "debtsEmpty": "Sin deudas",
     "recurringTitle": "Recurrentes",
     "recurringSummary": "{count, plural, one {# regla · {concept} el {date}} other {# reglas · próxima {concept} el {date}}}",
-    "recurringEmpty": "Sin reglas activas"
+    "recurringEmpty": "Sin reglas activas",
+    "nav": "Secciones de planeación"
   },
   "budgets": {
     "title": "Presupuestos",

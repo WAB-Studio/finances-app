@@ -18,6 +18,7 @@ import { DebtPaymentDialog } from "@/components/planning/debt-payment-dialog";
 import { DebtsTable } from "@/components/planning/debts-table";
 import type { DebtTableRow } from "@/components/planning/debts-table";
 import { InstallmentPlanDialog } from "@/components/planning/installment-plan-dialog";
+import { PlanningSubNav } from "@/components/planning/planning-sub-nav";
 import {
   Box,
   Button,
@@ -251,6 +252,9 @@ export function DebtsScreen({
             </Button>
           }
         />
+        <Box display={{ initial: "none", md: "block" }}>
+          <PlanningSubNav />
+        </Box>
         <StatTiles tiles={tiles} />
         <DebtsTable
           rows={pageRows}
@@ -303,6 +307,10 @@ export function DebtsScreen({
             </Flex>
             {addButton}
           </Flex>
+
+          <Box display={{ initial: "none", md: "block" }}>
+            <PlanningSubNav />
+          </Box>
 
           <Flex direction="column" gap="1">
             <Text size="2" color="gray">

@@ -1,20 +1,25 @@
 import type { LucideIcon } from "lucide-react";
-import {
-  CalendarDays,
-  ChartColumnBig,
-  ChevronRight,
-  CreditCard,
-  Repeat,
-  Target,
-} from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { getTranslations } from "next-intl/server";
 
-import { Card, Flex, FundChip, Heading, Text } from "@/components/ui";
+import { PLANNING_KEYS, destinations } from "@/components/fund/destinations";
+import { Box, Card, Flex, FundChip, Grid, Heading, Text } from "@/components/ui";
 import { Link as LocaleLink } from "@/i18n/navigation";
+
+// The one place a card's colour lives: `destinations.ts` owns the route and the
+// icon, and neither carries a tint of its own.
+const TINTS: Record<(typeof PLANNING_KEYS)[number], string> = {
+  budgets: "jade",
+  goals: "grass",
+  payments: "amber",
+  debts: "indigo",
+  recurring: "violet",
+};
 
 /**
  * The Planeación hub: one card per area, each carrying a live one-line summary
- * derived on the server and a link into its screen.
+ * derived on the server and a link into its screen. Its five areas and their
+ * routes come from `destinations.ts`, the one file that lists them.
  */
 export async function PlanningHub({
   groupName,
@@ -34,6 +39,27 @@ export async function PlanningHub({
   const t = await getTranslations("planning");
   const tKey = await getTranslations();
 
+  const titles: Record<(typeof PLANNING_KEYS)[number], string> = {
+    budgets: t("budgetsTitle"),
+    goals: t("goalsTitle"),
+    payments: t("paymentsTitle"),
+    debts: t("debtsTitle"),
+    recurring: t("recurringTitle"),
+  };
+  const summaries: Record<(typeof PLANNING_KEYS)[number], string> = {
+    budgets: budgetsSummary,
+    goals: goalsSummary,
+    payments: paymentsSummary,
+    debts: debtsSummary,
+    recurring: recurringSummary,
+  };
+
+  // `destinations()` answers the full catalogue's key type; PLANNING_KEYS never
+  // asks it for anything outside its own five, so a lookup by key never misses.
+  const areas = new Map(
+    destinations(PLANNING_KEYS, true).map((area) => [area.key, area]),
+  );
+
   return (
     <Flex direction="column" gap="4">
       <Flex align="center" gap="2">
@@ -42,41 +68,20 @@ export async function PlanningHub({
       </Flex>
 
       <Flex direction="column" gap="3">
-        <HubCard
-          icon={ChartColumnBig}
-          tint="jade"
-          title={t("budgetsTitle")}
-          summary={budgetsSummary}
-          href="/planning/budgets"
-        />
-        <HubCard
-          icon={Target}
-          tint="grass"
-          title={t("goalsTitle")}
-          summary={goalsSummary}
-          href="/planning/goals"
-        />
-        <HubCard
-          icon={CalendarDays}
-          tint="amber"
-          title={t("paymentsTitle")}
-          summary={paymentsSummary}
-          href="/planning/payments"
-        />
-        <HubCard
-          icon={CreditCard}
-          tint="indigo"
-          title={t("debtsTitle")}
-          summary={debtsSummary}
-          href="/planning/debts"
-        />
-        <HubCard
-          icon={Repeat}
-          tint="violet"
-          title={t("recurringTitle")}
-          summary={recurringSummary}
-          href="/planning/recurring"
-        />
+        {PLANNING_KEYS.map((key) => {
+          const area = areas.get(key);
+          if (!area) return null;
+          return (
+            <HubCard
+              key={key}
+              icon={area.icon}
+              tint={TINTS[key]}
+              title={titles[key]}
+              summary={summaries[key]}
+              href={area.href}
+            />
+          );
+        })}
       </Flex>
     </Flex>
   );
@@ -84,6 +89,9 @@ export async function PlanningHub({
 
 // A row card: enabled when it names an href, muted with no chevron when it does
 // not. The icon rides a soft tinted disc; the summary carries the derived line.
+// Below `md` it stacks the title over the summary; from `md` up it gains the
+// three-column row of SPEC-A3, title, summary and chevron each keeping their
+// own width so the five rows line up.
 function HubCard({
   icon: Icon,
   tint,
@@ -97,33 +105,60 @@ function HubCard({
   summary: string;
   href?: string;
 }) {
+  const disc = (
+    <Flex
+      align="center"
+      justify="center"
+      style={{
+        width: 44,
+        height: 44,
+        borderRadius: "var(--radius-5)",
+        background: href ? `var(--${tint}-a3)` : "var(--gray-a3)",
+        color: href ? `var(--${tint}-11)` : "var(--gray-9)",
+        flexShrink: 0,
+      }}
+    >
+      <Icon size={21} />
+    </Flex>
+  );
+
+  const titleText = (
+    <Text weight="bold" color={href ? undefined : "gray"} truncate>
+      {title}
+    </Text>
+  );
+
+  const summaryText = (
+    <Text size="2" color="gray" truncate>
+      {summary}
+    </Text>
+  );
+
+  const chevron = href && <ChevronRight size={18} color="var(--gray-9)" />;
+
   const body = (
     <Card>
-      <Flex align="center" gap="3">
-        <Flex
-          align="center"
-          justify="center"
-          style={{
-            width: 44,
-            height: 44,
-            borderRadius: "var(--radius-5)",
-            background: href ? `var(--${tint}-a3)` : "var(--gray-a3)",
-            color: href ? `var(--${tint}-11)` : "var(--gray-9)",
-            flexShrink: 0,
-          }}
-        >
-          <Icon size={21} />
+      <Box display={{ initial: "block", md: "none" }}>
+        <Flex align="center" gap="3">
+          {disc}
+          <Flex direction="column" gap="1" style={{ flex: 1, minWidth: 0 }}>
+            {titleText}
+            {summaryText}
+          </Flex>
+          {chevron}
         </Flex>
-        <Flex direction="column" gap="1" style={{ flex: 1, minWidth: 0 }}>
-          <Text weight="bold" color={href ? undefined : "gray"} truncate>
-            {title}
-          </Text>
-          <Text size="2" color="gray" truncate>
-            {summary}
-          </Text>
-        </Flex>
-        {href && <ChevronRight size={18} color="var(--gray-9)" />}
-      </Flex>
+      </Box>
+
+      <Box display={{ initial: "none", md: "block" }}>
+        <Grid columns="1fr 220px 210px" gap="4" align="center">
+          <Flex align="center" gap="3" style={{ minWidth: 0 }}>
+            {disc}
+            {titleText}
+          </Flex>
+          {summaryText}
+          <Flex justify="end">{chevron}</Flex>
+        </Grid>
+      </Box>
     </Card>
   );
 

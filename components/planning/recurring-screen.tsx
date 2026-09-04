@@ -10,9 +10,11 @@ import {
   pauseRecurringRuleAction,
   resumeRecurringRuleAction,
 } from "@/app/actions/recurring-rules";
+import { PlanningSubNav } from "@/components/planning/planning-sub-nav";
 import { RecurringFormDialog } from "@/components/planning/recurring-form-dialog";
 import {
   Badge,
+  Box,
   Button,
   Callout,
   Card,
@@ -73,6 +75,10 @@ export function RecurringScreen({
         </Flex>
         {addButton}
       </Flex>
+
+      <Box display={{ initial: "none", md: "block" }}>
+        <PlanningSubNav />
+      </Box>
 
       {/* Generated movements land marked automatic until confirmed (RF-31); the
           banner leads to the ledger to review them, and stays hidden at zero. */}

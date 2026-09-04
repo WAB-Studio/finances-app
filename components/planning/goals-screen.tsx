@@ -22,6 +22,7 @@ import { GoalContributeDialog } from "@/components/planning/goal-contribute-dial
 import { GoalContributionsDialog } from "@/components/planning/goal-contributions-dialog";
 import { GoalFormDialog } from "@/components/planning/goal-form-dialog";
 import { GoalsTable } from "@/components/planning/goals-table";
+import { PlanningSubNav } from "@/components/planning/planning-sub-nav";
 import {
   Badge,
   Box,
@@ -233,6 +234,10 @@ export function GoalsScreen({
           {/* Add would create an active goal, so the archived tab offers none. */}
           {!archived && addButton}
         </Flex>
+      </Box>
+
+      <Box display={{ initial: "none", md: "block" }}>
+        <PlanningSubNav />
       </Box>
 
       {/* The band the header and the table carry from `lg` up, where the page
