@@ -12,7 +12,9 @@ import {
   restoreBudgetAction,
 } from "@/app/actions/budgets";
 import { BudgetFormDialog } from "@/components/planning/budget-form-dialog";
+import { PlanningSubNav } from "@/components/planning/planning-sub-nav";
 import {
+  Box,
   Button,
   Card,
   CategoryTile,
@@ -153,6 +155,10 @@ export function BudgetsScreen({
         {/* Add would create an active budget, so the archived tab offers none. */}
         {!archived && addButton}
       </Flex>
+
+      <Box display={{ initial: "none", md: "block" }}>
+        <PlanningSubNav />
+      </Box>
 
       <SegmentedControl.Root
         value={archived ? "archived" : "active"}

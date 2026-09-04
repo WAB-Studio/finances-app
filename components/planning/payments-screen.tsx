@@ -12,7 +12,9 @@ import {
 } from "@/app/actions/planned-payments";
 import { PaymentFormDialog } from "@/components/planning/payment-form-dialog";
 import { PaymentSettleDialog } from "@/components/planning/payment-settle-dialog";
+import { PlanningSubNav } from "@/components/planning/planning-sub-nav";
 import {
+  Box,
   Button,
   Callout,
   Card,
@@ -112,6 +114,10 @@ export function PaymentsScreen({
         </Flex>
         {addButton}
       </Flex>
+
+      <Box display={{ initial: "none", md: "block" }}>
+        <PlanningSubNav />
+      </Box>
 
       {payments.length === 0 ? (
         <EmptyState
