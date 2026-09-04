@@ -2,19 +2,17 @@
 // from. Nothing here is a stub: the access token is signed by the project, so the
 // proxy, `requireUser()` and every access policy see a real `auth.uid()`.
 //
-// THE CACHE IS NOT AN OPTIMISATION. Supabase rate-limits the OTP endpoint per
-// project — the built-in mailer allows a couple of sends an hour — so a mint per
-// run would lock the harness out within minutes. Every run refreshes the stored
-// session first and only mints when that fails. Do not "simplify" this into a
-// mint per run.
+// NOTHING HERE ASKS THE AUTH SERVER TO SEND. The addresses are synthetic and
+// undeliverable, and `POST /auth/v1/otp` against one still hands the message to
+// the project's SMTP, whose bounce lands in a real person's inbox. That endpoint
+// is not called from this file, and adding it back would put mail on someone's
+// phone once per run. A session comes from the stored refresh token; a mint
+// consumes an `auth.one_time_tokens` row that is already waiting, and refuses
+// rather than requesting one.
 //
-// The address is synthetic, and the discovery that made that possible: Supabase
-// DOES issue an OTP for an undeliverable `.invalid` domain — `POST /auth/v1/otp`
-// answers 200 and the `auth.one_time_tokens` row lands — but only for a fully
-// shaped `auth.users` row. A row with `email_confirmed_at` null answers 422
-// `otp_disabled`, and one whose token text columns are null answers 500
-// "Database error finding user". So `ensureHarnessAuthUser` fills them, and the
-// real user's mailbox is never used.
+// THE CACHE IS NOT AN OPTIMISATION EITHER. The stored session is the only way
+// back in: every run refreshes it, and a lost file cannot be replaced without a
+// token row landed by hand.
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -33,11 +31,44 @@ const COOKIE_NAME = `sb-${PROJECT_REF}-auth-token`;
 // then `${name}.0`, `${name}.1`, … over the same string.
 const MAX_CHUNK_SIZE = 3180;
 
-// Gitignored, and shared with layer 3 — a browser run and an HTTP run in the same
-// hour cost one mint between them.
-const SESSION_FILE = resolve(process.cwd(), "private/harness-session.json");
+/**
+ * The lane this run owns, read from `HARNESS_LANE`. Two tracks that set different
+ * lanes share no identity, no file and no row, so their suites can run at the
+ * same time. Unset and `1` are the same lane, and its names predate the lanes:
+ * every stored session in `private/` hangs off them.
+ */
+function laneSuffix(): string {
+  const lane = process.env.HARNESS_LANE?.trim() ?? "";
+  if (lane === "" || lane === "1") return "";
+  if (!/^[1-9][0-9]*$/.test(lane)) {
+    throw new Error(`HARNESS_LANE must be a positive integer, not "${lane}"`);
+  }
 
-export const HARNESS_EMAIL = "harness@example.invalid";
+  return `-${lane}`;
+}
+
+export const HARNESS_LANE_SUFFIX = laneSuffix();
+
+export const HARNESS_EMAIL = `harness${HARNESS_LANE_SUFFIX}@example.invalid`;
+
+// The second identity: a plain member of a group it does not lead, which is the
+// other half of what RF-100 separates. Kept apart from the first because a
+// membership is exclusive (RF-55) — one user cannot hold both roles.
+export const HARNESS_MEMBER_EMAIL = `harness-member${HARNESS_LANE_SUFFIX}@example.invalid`;
+
+// Gitignored, and shared with layer 3 — a browser run and an HTTP run in the same
+// hour cost one mint between them. One file per identity, named after the local
+// part past `harness`, so lane 1 keeps the files it has always used and lane n
+// carries its number through into every name.
+export function sessionFileName(email: string): string {
+  const suffix = email.split("@")[0].replace(/^harness/, "");
+
+  return `private/harness-session${suffix}.json`;
+}
+
+function sessionFile(email: string): string {
+  return resolve(process.cwd(), sessionFileName(email));
+}
 
 export const HARNESS_BASE_URL =
   process.env.HARNESS_BASE_URL ?? "http://localhost:3000";
@@ -51,80 +82,91 @@ export type HarnessSession = {
   user: { id: string; email: string } & Record<string, unknown>;
 };
 
-let current: HarnessSession | null = null;
+const current = new Map<string, HarnessSession>();
 
 /**
- * The run's session: the stored one refreshed, or a freshly minted one. Memoised
- * per process, so a screen's worth of requests costs no round trip to the auth
- * server.
+ * One identity's session for this run: the stored one refreshed, or a freshly
+ * minted one. Memoised per address, so a screen's worth of requests costs no
+ * round trip to the auth server.
  */
-export async function harnessSession(): Promise<HarnessSession> {
-  if (current) return current;
+export async function harnessSession(
+  email: string = HARNESS_EMAIL,
+): Promise<HarnessSession> {
+  const memoised = current.get(email);
+  if (memoised) return memoised;
 
-  const stored = readStored();
-  // A file left by another identity is not this harness's session.
+  const file = sessionFile(email);
+  const stored = readStored(file);
+  // A file left by another identity is not this one's session.
   const refreshed =
-    stored && stored.user?.email === HARNESS_EMAIL
+    stored && stored.user?.email === email
       ? await refreshSession(stored.refresh_token)
       : null;
 
-  current = refreshed ?? (await mintSession());
+  const session = refreshed ?? (await mintSession(email));
+  current.set(email, session);
   // `private/` is gitignored, so a fresh clone reaches this write without it.
-  mkdirSync(dirname(SESSION_FILE), { recursive: true });
-  writeFileSync(SESSION_FILE, `${JSON.stringify(current, null, 2)}\n`, "utf8");
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, `${JSON.stringify(session, null, 2)}\n`, "utf8");
 
-  return current;
+  return session;
 }
 
-// Whether this process reached the auth server's OTP endpoint, which is what the
-// transcript reports to say a run reused its cached session.
+// Whether this process spent a waiting token row, which is what the transcript
+// reports to say a run reused its cached session.
 let minted = false;
 
 export function mintedThisRun(): boolean {
   return minted;
 }
 
-export async function harnessUserId(): Promise<string> {
-  return (await harnessSession()).user.id;
+export async function harnessUserId(
+  email: string = HARNESS_EMAIL,
+): Promise<string> {
+  return (await harnessSession(email)).user.id;
 }
 
 /**
- * The `Cookie` header the app's server client parses: one chunk, split only past
- * `MAX_CHUNK_SIZE`, over the base64 of the session JSON.
+ * The session as `@supabase/ssr` writes it: one cookie over the base64 of the
+ * session JSON, split only past `MAX_CHUNK_SIZE`. A browser handed these is
+ * signed in — the app reads the same cookie a real sign-in would have left, and
+ * no mail is sent to get there.
  */
-export async function cookieHeader(): Promise<string> {
-  const session = await harnessSession();
+export async function sessionCookies(
+  email: string = HARNESS_EMAIL,
+): Promise<{ name: string; value: string }[]> {
+  const session = await harnessSession(email);
   const encoded = `base64-${Buffer.from(JSON.stringify(session), "utf8").toString("base64")}`;
 
-  if (encoded.length <= MAX_CHUNK_SIZE) return `${COOKIE_NAME}=${encoded}`;
+  if (encoded.length <= MAX_CHUNK_SIZE) {
+    return [{ name: COOKIE_NAME, value: encoded }];
+  }
 
   const chunks: string[] = [];
   for (let at = 0; at < encoded.length; at += MAX_CHUNK_SIZE) {
     chunks.push(encoded.slice(at, at + MAX_CHUNK_SIZE));
   }
 
-  return chunks.map((chunk, index) => `${COOKIE_NAME}.${index}=${chunk}`).join("; ");
+  return chunks.map((value, index) => ({
+    name: `${COOKIE_NAME}.${index}`,
+    value,
+  }));
 }
 
-/**
- * The app's own magic link for the harness user, which a browser visits to be
- * logged in by `/auth/confirm` — the same route a real link lands on. Reuses an
- * unconsumed token when one is waiting: `verifyOtp` deletes the row it burns, so
- * a row still present was never used, and reusing it costs no OTP send.
- */
-export async function magicLinkUrl(): Promise<string> {
-  const userId = await ensureHarnessAuthUser();
+// The same cookies on one line, which is what layer 2 sends.
+export async function cookieHeader(
+  email: string = HARNESS_EMAIL,
+): Promise<string> {
+  const cookies = await sessionCookies(email);
 
-  const hash = (await newestTokenHash(userId)) ?? (await requestOtp(userId));
-
-  return `${HARNESS_BASE_URL}/auth/confirm?token_hash=${hash}&type=magiclink`;
+  return cookies.map(({ name, value }) => `${name}=${value}`).join("; ");
 }
 
-function readStored(): HarnessSession | null {
-  if (!existsSync(SESSION_FILE)) return null;
+function readStored(file: string): HarnessSession | null {
+  if (!existsSync(file)) return null;
 
   try {
-    return JSON.parse(readFileSync(SESSION_FILE, "utf8")) as HarnessSession;
+    return JSON.parse(readFileSync(file, "utf8")) as HarnessSession;
   } catch {
     return null;
   }
@@ -156,9 +198,16 @@ async function refreshSession(
   };
 }
 
-async function mintSession(): Promise<HarnessSession> {
-  const userId = await ensureHarnessAuthUser();
-  const hash = (await newestTokenHash(userId)) ?? (await requestOtp(userId));
+async function mintSession(email: string): Promise<HarnessSession> {
+  const userId = await ensureHarnessAuthUser(email);
+  const hash = await newestTokenHash(userId);
+  // Requesting one is what would send the mail, so the run stops here instead.
+  if (!hash) {
+    throw new Error(
+      `no unconsumed auth.one_time_tokens row for ${email}: restore ${sessionFile(email)} or land a token row by hand. The harness never asks the auth server for one — the address is undeliverable and the bounce reaches a real mailbox.`,
+    );
+  }
+  minted = true;
 
   // 303, with the tokens in the URL fragment rather than the query.
   const verified = await fetch(
@@ -194,41 +243,6 @@ async function mintSession(): Promise<HarnessSession> {
   };
 }
 
-async function requestOtp(userId: string): Promise<string> {
-  minted = true;
-
-  let response = await postOtp();
-
-  // The rate limit is a short floor between sends — the answer names the seconds
-  // left — so a second run inside it waits rather than failing the whole layer.
-  if (response.status === 429) {
-    const body = await response.text();
-    const seconds = Number(/after (\d+) seconds/.exec(body)?.[1] ?? 0);
-    await new Promise((done) => setTimeout(done, (seconds + 1) * 1000));
-    response = await postOtp();
-  }
-
-  if (!response.ok) {
-    throw new Error(
-      `POST /auth/v1/otp answered ${response.status} — ${(await response.text()).slice(0, 200)}`,
-    );
-  }
-
-  const hash = await newestTokenHash(userId);
-  if (!hash) throw new Error("the OTP request left no one_time_tokens row");
-
-  return hash;
-}
-
-function postOtp(): Promise<Response> {
-  return fetch(`${SUPABASE_URL}/auth/v1/otp`, {
-    method: "POST",
-    headers: { apikey: PUBLISHABLE_KEY, "Content-Type": "application/json" },
-    // The harness never signs a user up over HTTP; the row is already there.
-    body: JSON.stringify({ email: HARNESS_EMAIL, create_user: false }),
-  });
-}
-
 // Over the direct connection, because no API hands a token hash back. Old rows
 // are skipped: a magic link outlives its usefulness long before it expires.
 async function newestTokenHash(userId: string): Promise<string | null> {
@@ -244,13 +258,13 @@ async function newestTokenHash(userId: string): Promise<string | null> {
 }
 
 /**
- * The harness's own identity, created once and never dropped — the cached session
- * is worthless against a user that a cleanup removed. Every column GoTrue scans
- * is filled; the nulls it cannot read are what the 500 above came from.
+ * A harness identity, created once and never dropped — the cached session is
+ * worthless against a user that a cleanup removed. Every column GoTrue scans is
+ * filled; the nulls it cannot read are what the 500 above came from.
  */
-async function ensureHarnessAuthUser(): Promise<string> {
+export async function ensureHarnessAuthUser(email: string): Promise<string> {
   const [existing] = await fixtureSql<{ id: string }[]>`
-    select id from auth.users where email = ${HARNESS_EMAIL}`;
+    select id from auth.users where email = ${email}`;
   if (existing) return existing.id;
 
   const id = randomUUID();
@@ -265,7 +279,7 @@ async function ensureHarnessAuthUser(): Promise<string> {
       is_sso_user, is_anonymous, created_at, updated_at)
     values (
       ${id}, '00000000-0000-0000-0000-000000000000', 'authenticated',
-      'authenticated', ${HARNESS_EMAIL}, now(),
+      'authenticated', ${email}, now(),
       '', '', '',
       '', '', '',
       0, '', '',

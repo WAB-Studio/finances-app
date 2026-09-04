@@ -24,17 +24,23 @@ export type AccountRow = {
   isShared: boolean;
   initialBalanceCents: number;
   initialBalanceOn: string;
+  balanceCents: number;
+  // What the policies would admit on this account, so a screen offers no action
+  // the database would refuse (RF-58, RF-100).
+  canWrite: boolean;
   archivedAt: Date | null;
 };
 
 // Every account the caller may read: their personal accounts and their group's
 // (RF-58, universal read). The policy scopes the rows; ordering only groups
-// personal accounts ahead of the group's, then by name.
+// personal accounts ahead of the group's, then by name. The balance and the write
+// privilege ride this same statement (RNF-07, RNF-09) — the roster costs one
+// round trip, as before.
 export async function listAccounts(
   options: { archived: boolean },
 ): Promise<AccountRow[]> {
-  return withUserDb(async (tx) =>
-    tx
+  return withUserDb(async (tx) => {
+    const rows = await tx
       .select({
         id: accounts.id,
         name: accounts.name,
@@ -47,14 +53,25 @@ export async function listAccounts(
         isShared: accounts.isShared,
         initialBalanceCents: accounts.initialBalanceCents,
         initialBalanceOn: accounts.initialBalanceOn,
+        balanceCents: sql<string>`b.balance_cents`,
+        // Written with the column's own name, never a Drizzle column reference: a
+        // reference inside a projection fragment renders bare and binds inward.
+        canWrite: sql<boolean>`private.can_write_account(accounts.id)`,
         archivedAt: accounts.archivedAt,
       })
       .from(accounts)
+      // The view derives one row per account from movements, never a stored
+      // column, and runs `security_invoker`: the join drops nothing the account
+      // policy already showed.
+      .innerJoin(sql`account_balances b`, sql`b.id = ${accounts.id}`)
       .where(
         options.archived ? isNotNull(accounts.archivedAt) : isNull(accounts.archivedAt),
       )
-      .orderBy(desc(sql`${accounts.ownerUserId} is not null`), asc(accounts.name)),
-  );
+      .orderBy(desc(sql`${accounts.ownerUserId} is not null`), asc(accounts.name));
+
+    // A bigint sum arrives from the driver as a string; the ledger keeps cents a number.
+    return rows.map((row) => ({ ...row, balanceCents: Number(row.balanceCents) }));
+  });
 }
 
 // Placement is XOR, mirroring the schema check: a personal account names its
@@ -78,9 +95,9 @@ export async function createAccount(
   return withUserDb((tx) => insertAccount(tx, args));
 }
 
-// The insert body of `createAccount`, against a caller-supplied transaction, so a
-// rolled-back proof drives the statement a screen commits.
-export async function insertAccount(
+// The insert body of `createAccount`: the wrapper opens the session, this runs
+// the statement inside whatever transaction it is handed.
+async function insertAccount(
   tx: Transaction,
   {
     name,
@@ -168,6 +185,25 @@ export async function updateAccount({
       .returning({ id: accounts.id });
 
     return rows.length > 0;
+  });
+}
+
+// RF-61: a personal account becomes the group's in one statement. No group id
+// crosses the boundary — `private.hand_account_to_group` reads auth.uid(), takes
+// the caller's own group and refuses an account carrying any history, which is
+// archived instead. `AccountRow` is unchanged: the next `listAccounts` reads the
+// new placement. A refusal is a 23514 the action layer reads.
+export async function handAccountToGroup({
+  accountId,
+}: {
+  accountId: string;
+}): Promise<boolean> {
+  return withUserDb(async (tx) => {
+    const rows = await tx.execute<{ ok: boolean }>(
+      sql`select private.hand_account_to_group(${accountId}) as ok`,
+    );
+
+    return rows[0]?.ok === true;
   });
 }
 

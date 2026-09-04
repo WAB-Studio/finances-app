@@ -45,6 +45,16 @@ const SUBTYPE_LABEL_KEYS = {
   tarjeta: "subtypeTarjeta",
 } as const;
 
+// The kind that admits a class, mirroring SUBTYPES_BY_KIND: a card is money owed,
+// anything else holds value.
+function kindForSubtype(
+  subtype: (typeof ACCOUNT_SUBTYPES)[number],
+): (typeof ACCOUNT_KINDS)[number] {
+  return (SUBTYPES_BY_KIND.liability as readonly string[]).includes(subtype)
+    ? "liability"
+    : "asset";
+}
+
 // A superset of both schemas' shapes: the resolver strips whichever key the
 // active schema does not declare, so only the fields that schema needs ever
 // reach the matching action.
@@ -66,11 +76,14 @@ export function AccountFormDialog({
   open,
   onOpenChange,
   account,
+  defaultSubtype,
 }: {
   hasGroup: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   account?: AccountRow;
+  // The class a new account starts on, when the screen was reached asking for one.
+  defaultSubtype?: (typeof ACCOUNT_SUBTYPES)[number];
 }) {
   const t = useTranslations("accounts");
 
@@ -84,6 +97,7 @@ export function AccountFormDialog({
           key={account?.id ?? "create"}
           hasGroup={hasGroup}
           account={account}
+          defaultSubtype={defaultSubtype}
           onOpenChange={onOpenChange}
         />
       </Dialog.Content>
@@ -94,10 +108,12 @@ export function AccountFormDialog({
 function AccountForm({
   hasGroup,
   account,
+  defaultSubtype,
   onOpenChange,
 }: {
   hasGroup: boolean;
   account?: AccountRow;
+  defaultSubtype?: (typeof ACCOUNT_SUBTYPES)[number];
   onOpenChange: (open: boolean) => void;
 }) {
   const t = useTranslations("accounts");
@@ -127,9 +143,10 @@ function AccountForm({
       : {
           accountId: "",
           name: "",
-          kind: "asset",
+          // The kind follows the class, so a pre-chosen card opens as a liability.
+          kind: kindForSubtype(defaultSubtype ?? "bancaria"),
           // A new asset is a bank account unless the user picks cash (RF-56).
-          subtype: "bancaria",
+          subtype: defaultSubtype ?? "bancaria",
           placement: "personal",
           isShared: false,
           institution: "",

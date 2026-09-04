@@ -34,8 +34,8 @@ export default async function WelcomePage(
 
   setRequestLocale(locale);
 
-  await requireUser();
-  const group = await getUserGroup();
+  // The guard fans out with the read it protects, never ahead of it.
+  const [, group] = await Promise.all([requireUser(), getUserGroup()]);
   // Reached without a claimed membership only by a stray visit; send them home.
   if (!group) return redirect({ href: "/", locale });
 

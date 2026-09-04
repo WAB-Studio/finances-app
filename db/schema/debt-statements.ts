@@ -56,11 +56,7 @@ export const debtStatements = pgTable(
       withCheck: sql`(select private.can_write_account(${table.accountId}))`,
     }),
     // No UPDATE policy: a statement is an immutable historical snapshot.
-    pgPolicy("debt_statements_delete", {
-      for: "delete",
-      to: authenticatedRole,
-      using: sql`(select private.can_write_account(${table.accountId}))`,
-    }),
+    // No DELETE policy either: a statement leaves only with its account, down the foreign key's cascade.
   ],
 );
 

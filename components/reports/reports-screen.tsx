@@ -52,7 +52,7 @@ export function ReportsScreen({ data }: { data: ReportsData }) {
 
       <Flex direction="column" gap="3" asChild>
         <section>
-          <Heading size="4">{t("byCategoryTitle")}</Heading>
+          <Heading as="h2" size="4">{t("byCategoryTitle")}</Heading>
           {expensesByCategory.length === 0 ? (
             <Text size="2" color="gray">
               {t("byCategoryEmpty")}
@@ -81,7 +81,7 @@ export function ReportsScreen({ data }: { data: ReportsData }) {
 
       <Flex direction="column" gap="3" asChild>
         <section>
-          <Heading size="4">{t("comparisonTitle")}</Heading>
+          <Heading as="h2" size="4">{t("comparisonTitle")}</Heading>
           <BarChart
             data={chartData}
             seriesColors={SERIES_COLORS}
@@ -96,7 +96,7 @@ export function ReportsScreen({ data }: { data: ReportsData }) {
 
       <Flex direction="column" gap="3" asChild>
         <section>
-          <Heading size="4">{t("contributionsTitle")}</Heading>
+          <Heading as="h2" size="4">{t("contributionsTitle")}</Heading>
           {!hasGroup ? (
             <Text size="2" color="gray">
               {t("noGroup")}

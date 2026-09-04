@@ -4,17 +4,155 @@
  * `42501 permission denied for table accounts`, and no check reached it — layer 1
  * drives `createAccount` in process, but only a browser drives the form, the
  * action and the policy together.
+ *
+ * The five that follow are the account paths no browser had ever run: the edit,
+ * the derived balance (RF-114), the group placement, the delete a movement
+ * refuses (RF-11) and the hand-over (RF-61). Each figure is read back from
+ * Postgres — from `account_balances` for the balance — so none of them rests on
+ * the screen agreeing with itself.
  */
-import { expect } from "@playwright/test";
+import { randomUUID } from "node:crypto";
 
+import { expect, type Locator, type Page } from "@playwright/test";
+
+import { TIME_ZONE } from "@/lib/locales";
 import messages from "@/messages/es.json";
 
 import { fixtureSql } from "../scripts/harness/fixtures";
-import { readScope, test } from "./global-setup";
+import { asHarnessUser, clearGroup, readScope, seedGroup, test } from "./global-setup";
 
 const accounts = messages.accounts;
+const common = messages.common;
+const errors = messages.errors;
 
 const scope = readScope();
+
+// Unique per run, so a name asserted on screen can only be this test's row.
+const stamp = randomUUID().slice(0, 8);
+let serial = 0;
+
+// The word the opening line puts between its figure and its date, taken from the
+// copy that writes it: the figure on that line is everything before it.
+const OPENING_SEPARATOR = accounts.openingBalanceRow
+  .split("</amount>")[1]
+  .split("{date}")[0];
+
+// The menu names the row it belongs to, so a card is reached by its own name and
+// never by a position among whatever else the list is carrying.
+function rowMenu(page: Page, name: string): Locator {
+  return page.getByRole("button", {
+    name: common.actionsFor.replace("{name}", name),
+    exact: true,
+  });
+}
+
+// One account's card: the innermost node carrying both its name and the menu that
+// acts on it, so a figure read inside it can only be that account's.
+function card(page: Page, name: string): Locator {
+  return page
+    .getByRole("main")
+    .locator("div")
+    .filter({ has: rowMenu(page, name) })
+    .filter({ hasText: name })
+    .last();
+}
+
+// A labelled line of a card — the label and the figure beside it.
+function line(subject: Locator, label: string): Locator {
+  return subject.getByText(label, { exact: true }).locator("..");
+}
+
+// The pesos a line is showing: COP rounds to the peso, so the digits of the
+// figure are the cents behind it divided by a hundred.
+function pesosOf(text: string): number {
+  return Number(text.replace(/\D/g, ""));
+}
+
+/**
+ * The band a card is drawn under: the last one to appear above it in the reading
+ * order of `main`. The screen states an account's placement by which band holds
+ * it, and a hand-over is only proved by the card changing sides.
+ */
+async function bandOf(
+  page: Page,
+  name: string,
+  bands: string[],
+): Promise<string | null> {
+  const text = await page.getByRole("main").innerText();
+  const at = text.indexOf(name);
+  if (at < 0) return null;
+
+  return bands
+    .map((band) => ({ band, at: text.lastIndexOf(band, at) }))
+    .filter((one) => one.at >= 0)
+    .sort((a, b) => a.at - b.at)
+    .at(-1)?.band ?? null;
+}
+
+/** Runs a row's menu item through the confirmation it raises. */
+async function confirmThroughMenu(
+  page: Page,
+  name: string,
+  menuItem: string,
+  confirmLabel: string,
+): Promise<Locator> {
+  await rowMenu(page, name).click();
+  await page.getByRole("menuitem", { name: menuItem, exact: true }).click();
+
+  const dialog = page.getByRole("alertdialog");
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: confirmLabel, exact: true }).click();
+
+  return dialog;
+}
+
+/**
+ * One personal account of the harness user, optionally carrying one movement out
+ * of it. Written as the owner while speaking for that user, which is what the
+ * stamping triggers read.
+ */
+async function seedAccount(options: {
+  openingCents: number;
+  movementCents?: number;
+}): Promise<{ id: string; name: string }> {
+  const id = randomUUID();
+  const name = `Cuenta ${stamp}-${(serial += 1)}`;
+
+  await asHarnessUser(async (tx) => {
+    await tx`
+      insert into accounts (
+        id, owner_user_id, name, kind, subtype,
+        initial_balance_cents, initial_balance_on)
+      values (
+        ${id}, ${scope.userId}, ${name}, 'asset', 'bancaria',
+        ${options.openingCents}, (now() at time zone ${TIME_ZONE})::date)`;
+
+    if (options.movementCents === undefined) return;
+
+    const [movement] = await tx<{ id: string }[]>`
+      insert into transactions (from_account_id, amount_cents, occurred_at, description)
+      values (
+        ${id}, ${options.movementCents}, (now() at time zone ${TIME_ZONE})::date,
+        ${`Movimiento ${stamp}`})
+      returning id`;
+    // An expense carries at least one split, and the trigger that keeps it that
+    // way fires on the movement, not on the screen.
+    await tx`
+      insert into transaction_splits (transaction_id, category_id, amount_cents)
+      values (${movement.id}, ${scope.categoryId}, ${options.movementCents})`;
+  });
+
+  return { id, name };
+}
+
+// Written through the interface or seeded outside the tracked ids, so each test
+// drops its own. The movements go first: the foreign key restricts.
+async function dropAccount(accountId: string): Promise<void> {
+  await fixtureSql`
+    delete from transactions
+    where from_account_id = ${accountId} or to_account_id = ${accountId}`;
+  await fixtureSql`delete from accounts where id = ${accountId}`;
+}
 
 test("creates an account from the form and stores its opening balance signed by its kind", async ({
   page,
@@ -64,4 +202,282 @@ test("creates an account from the form and stores its opening balance signed by 
   // Written through the interface, so it carries no fixture id: dropped here
   // rather than by the tracked cleanup.
   await fixtureSql`delete from accounts where id = ${rows[0].id}`;
+});
+
+test("draws the balance its movements derive and not the figure it opened with", async ({
+  page,
+}) => {
+  const openingCents = 1_000_000;
+  const movementCents = 250_000;
+  const account = await seedAccount({ openingCents, movementCents });
+
+  await page.goto("/es/settings/accounts");
+
+  // The view is where the balance comes from (RF-114): the card is read against
+  // it, never against a figure this test computed on its own.
+  const [derived] = await fixtureSql<{ balance_cents: string }[]>`
+    select balance_cents::text as balance_cents
+    from account_balances where id = ${account.id}`;
+  expect(Number(derived.balance_cents)).toBe(openingCents - movementCents);
+
+  const subject = card(page, account.name);
+  const shown = pesosOf(await line(subject, accounts.balanceLabel).innerText());
+  expect(shown).toBe(Number(derived.balance_cents) / 100);
+
+  // And the opening figure is still on the same card, still saying what it said:
+  // a screen that drew one figure twice would agree with itself and be wrong.
+  const opening = await line(subject, accounts.openingBalanceLabel).innerText();
+  expect(pesosOf(opening.split(OPENING_SEPARATOR)[0])).toBe(openingCents / 100);
+  expect(shown).not.toBe(openingCents / 100);
+
+  await dropAccount(account.id);
+});
+
+test("saves the name and the opening date the edit dialog was given", async ({
+  page,
+}) => {
+  const account = await seedAccount({ openingCents: 500_000 });
+  const renamed = `Cuenta renombrada ${stamp}`;
+  // In the past: the form refuses a future opening date.
+  const openedOn = "2025-03-04";
+
+  await page.goto("/es/settings/accounts");
+  await rowMenu(page, account.name).click();
+  await page.getByRole("menuitem", { name: common.edit, exact: true }).click();
+
+  // Prefilled from the row, which is what says the dialog opened on this account.
+  const dialog = page.getByRole("dialog");
+  const nameField = dialog.getByRole("textbox", { name: accounts.nameLabel });
+  await expect(nameField).toHaveValue(account.name);
+
+  await nameField.fill(renamed);
+  await dialog.getByLabel(accounts.openingBalanceOnLabel).fill(openedOn);
+  await dialog.getByRole("button", { name: common.save, exact: true }).click();
+
+  await expect(dialog).toBeHidden();
+  await expect(page.getByText(renamed, { exact: true })).toBeVisible();
+
+  const [saved] = await fixtureSql<{ name: string; initial_balance_on: string }[]>`
+    select name, initial_balance_on::text as initial_balance_on
+    from accounts where id = ${account.id}`;
+  expect(saved.name).toBe(renamed);
+  expect(saved.initial_balance_on).toBe(openedOn);
+
+  await dropAccount(account.id);
+});
+
+test("refuses to delete an account carrying a movement, and archives it instead", async ({
+  page,
+}) => {
+  const account = await seedAccount({ openingCents: 800_000, movementCents: 100_000 });
+
+  await page.goto("/es/settings/accounts");
+  const dialog = await confirmThroughMenu(
+    page,
+    account.name,
+    common.delete,
+    common.delete,
+  );
+
+  // RF-11: the refusal is copy a person can act on, and its own sentence — the
+  // hand-over's refusal is a different attempt, and the vanished-reference
+  // sentence is a different failure entirely.
+  await expect(
+    page.getByText(errors.accountHasMovements, { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText(errors.accountHasHistory, { exact: true })).toHaveCount(
+    0,
+  );
+  await expect(page.getByText(errors.referenceGone, { exact: true })).toHaveCount(0);
+
+  // A refused confirmation stays open, which is what keeps the list under an
+  // `aria-hidden` a role locator would not reach.
+  await dialog.getByRole("button", { name: common.cancel, exact: true }).click();
+  await expect(dialog).toBeHidden();
+
+  await expect(page.getByText(account.name, { exact: true })).toBeVisible();
+  expect(
+    await fixtureSql`select id from accounts where id = ${account.id}`,
+  ).toHaveLength(1);
+
+  // Archiving is the way out the refusal names, and it is on the same menu.
+  const archiving = await confirmThroughMenu(
+    page,
+    account.name,
+    common.archive,
+    common.archive,
+  );
+  await expect(archiving).toBeHidden();
+  await expect(page.getByText(account.name, { exact: true })).toHaveCount(0);
+
+  await page.getByRole("radio", { name: accounts.archivedTab, exact: true }).click();
+  await expect(page.getByText(account.name, { exact: true })).toBeVisible();
+
+  const [archived] = await fixtureSql<{ archived_at: string | null }[]>`
+    select archived_at::text as archived_at from accounts where id = ${account.id}`;
+  expect(archived.archived_at).not.toBeNull();
+
+  await dropAccount(account.id);
+});
+
+test("deletes an account that carries nothing, from that same confirmation", async ({
+  page,
+}) => {
+  // The other half of RF-60's D: the refusal above only means something if the
+  // delete lands when there is nothing to keep.
+  const account = await seedAccount({ openingCents: 200_000 });
+
+  await page.goto("/es/settings/accounts");
+  const dialog = await confirmThroughMenu(
+    page,
+    account.name,
+    common.delete,
+    common.delete,
+  );
+
+  await expect(page.getByText(accounts.deleted, { exact: true })).toBeVisible();
+  await expect(dialog).toBeHidden();
+  await expect(page.getByText(account.name, { exact: true })).toHaveCount(0);
+
+  // Gone, not archived: nothing derived from it, so nothing had to be kept.
+  expect(
+    await fixtureSql`select id from accounts where id = ${account.id}`,
+  ).toHaveLength(0);
+});
+
+test.describe("with a fund behind the caller", () => {
+  let groupId = "";
+  let fundName = "";
+
+  test.beforeEach(async () => {
+    ({ groupId } = await seedGroup());
+    const [group] = await fixtureSql<{ name: string }[]>`
+      select name from groups where id = ${groupId}`;
+    fundName = group.name;
+  });
+
+  // The group is this describe's alone: one left behind moves every other
+  // screen's scope from personal to the fund's.
+  test.afterAll(async () => {
+    await clearGroup();
+  });
+
+  test("creates the account on the group when the form is told to", async ({
+    page,
+  }) => {
+    const name = `Cuenta del fondo ${stamp}`;
+
+    await page.goto("/es/settings/accounts");
+    await page.getByRole("button", { name: accounts.add, exact: true }).first().click();
+
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("textbox", { name: accounts.nameLabel }).fill(name);
+    await dialog.getByRole("combobox", { name: accounts.ownerLabel }).click();
+    // The option list is portalled out of the dialog.
+    await page.getByRole("option", { name: accounts.ownerFund, exact: true }).click();
+    await dialog
+      .getByRole("textbox", { name: accounts.openingBalanceLabel })
+      .fill("40000");
+    await dialog.getByRole("button", { name: common.save, exact: true }).click();
+
+    await expect(dialog).toBeHidden();
+    await expect(page.getByText(name, { exact: true })).toBeVisible();
+
+    // The placement is resolved from the session, so the row is what says where
+    // it landed: a group account names its group, no owner, and is shared.
+    const [created] = await fixtureSql<
+      {
+        id: string;
+        owner_user_id: string | null;
+        group_id: string | null;
+        is_shared: boolean;
+      }[]
+    >`
+      select id, owner_user_id, group_id, is_shared from accounts
+      where group_id = ${groupId} and name = ${name}`;
+    expect(created.owner_user_id).toBeNull();
+    expect(created.group_id).toBe(groupId);
+    expect(created.is_shared).toBe(true);
+
+    expect(await bandOf(page, name, [accounts.ownerPersonal, fundName])).toBe(fundName);
+
+    await dropAccount(created.id);
+  });
+
+  test("refuses to hand over an account carrying a movement, and names that attempt", async ({
+    page,
+  }) => {
+    const account = await seedAccount({ openingCents: 600_000, movementCents: 50_000 });
+
+    await page.goto("/es/settings/accounts");
+    const dialog = await confirmThroughMenu(
+      page,
+      account.name,
+      accounts.handOver,
+      accounts.handOver,
+    );
+
+    // Its own sentence, not the one a refused delete raises: re-scoping a
+    // movement would re-scope its splits, so this account is archived instead.
+    await expect(
+      page.getByText(errors.accountHasHistory, { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText(errors.accountHasMovements, { exact: true }),
+    ).toHaveCount(0);
+
+    await dialog.getByRole("button", { name: common.cancel, exact: true }).click();
+    await expect(dialog).toBeHidden();
+
+    // And the row still names the person it belongs to.
+    const [refused] = await fixtureSql<
+      { owner_user_id: string | null; group_id: string | null }[]
+    >`
+      select owner_user_id, group_id from accounts where id = ${account.id}`;
+    expect(refused.owner_user_id).toBe(scope.userId);
+    expect(refused.group_id).toBeNull();
+
+    await dropAccount(account.id);
+  });
+
+  test("hands a history-free personal account to the group from its row menu", async ({
+    page,
+  }) => {
+    const account = await seedAccount({ openingCents: 300_000 });
+    const bands = [accounts.ownerPersonal, fundName];
+
+    await page.goto("/es/settings/accounts");
+    expect(await bandOf(page, account.name, bands)).toBe(accounts.ownerPersonal);
+
+    const dialog = await confirmThroughMenu(
+      page,
+      account.name,
+      accounts.handOver,
+      accounts.handOver,
+    );
+    await expect(page.getByText(accounts.handedOver, { exact: true })).toBeVisible();
+    await expect(dialog).toBeHidden();
+
+    // The card changes sides, which is the only thing on screen that says the
+    // account stopped being one person's (RF-61).
+    await expect
+      .poll(async () => await bandOf(page, account.name, bands))
+      .toBe(fundName);
+
+    const [handed] = await fixtureSql<
+      { owner_user_id: string | null; group_id: string | null; is_shared: boolean }[]
+    >`
+      select owner_user_id, group_id, is_shared from accounts where id = ${account.id}`;
+    expect(handed.owner_user_id).toBeNull();
+    expect(handed.group_id).toBe(groupId);
+    expect(handed.is_shared).toBe(true);
+
+    // And the row it landed on has nowhere further to go.
+    await rowMenu(page, account.name).click();
+    await expect(
+      page.getByRole("menu").getByRole("menuitem", { name: accounts.handOver }),
+    ).toHaveCount(0);
+
+    await dropAccount(account.id);
+  });
 });

@@ -35,7 +35,7 @@ const goalFields = {
   accountId: z.uuid({ error: "goals.errors.accountInvalid" }).nullish(),
 };
 
-// An opening virtual aporte seeded at creation (RF-77); optional, same peso rules.
+// An opening virtual aporte seeded at creation (RF-87); optional, same peso rules.
 const initialContributionSchema = pesoAmountSchema({
   required: "goals.errors.amountRequired",
   invalid: "goals.errors.amountInvalid",
@@ -56,13 +56,27 @@ export const updateGoalSchema = z.object({
 
 export type UpdateGoalInput = z.infer<typeof updateGoalSchema>;
 
+// RF-120: archiving names an existing goal, so its id is all that travels; the
+// policy decides the scope, and restore reverses the same field.
+export const archiveGoalSchema = z.object({
+  goalId: z.uuid({ error: "goals.errors.goalInvalid" }),
+});
+
+export type ArchiveGoalInput = z.infer<typeof archiveGoalSchema>;
+
+export const restoreGoalSchema = z.object({
+  goalId: z.uuid({ error: "goals.errors.goalInvalid" }),
+});
+
+export type RestoreGoalInput = z.infer<typeof restoreGoalSchema>;
+
 export const deleteGoalSchema = z.object({
   goalId: z.uuid({ error: "goals.errors.goalInvalid" }),
 });
 
 export type DeleteGoalInput = z.infer<typeof deleteGoalSchema>;
 
-// A typed virtual aporte toward the goal (RF-77); the entry earmarks no
+// A typed virtual aporte toward the goal (RF-87); the entry earmarks no
 // movement, so the amount alone crosses as a peso string.
 export const contributeGoalSchema = z.object({
   goalId: z.uuid({ error: "goals.errors.goalInvalid" }),
@@ -74,6 +88,14 @@ export const contributeGoalSchema = z.object({
 });
 
 export type ContributeGoalInput = z.infer<typeof contributeGoalSchema>;
+
+// The undo list names the goal it belongs to; which aportes come back is the
+// select policy's call, never the payload's (RF-119).
+export const goalContributionsSchema = z.object({
+  goalId: z.uuid({ error: "goals.errors.goalInvalid" }),
+});
+
+export type GoalContributionsInput = z.infer<typeof goalContributionsSchema>;
 
 export const removeGoalContributionSchema = z.object({
   contributionId: z.uuid({ error: "goals.errors.contributionInvalid" }),

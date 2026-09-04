@@ -5,7 +5,16 @@ import styles from "./page.module.css";
 
 // The thumb-zone reserve every app page shares, ahead of the action that
 // will sit in it: only the safe-area inset below `p="6"` is new here.
-export function Page({ children }: { children?: ReactNode }) {
+// A `flush-*` gutter yields the horizontal one to a screen whose own bands carry
+// it — a desktop header, filter bar and table each hold their 32px — from the
+// Radix breakpoint at which that screen swaps its phone shape for them.
+export function Page({
+  children,
+  gutter = "default",
+}: {
+  children?: ReactNode;
+  gutter?: "default" | "flush-md" | "flush-lg";
+}) {
   return (
     <Flex
       asChild
@@ -13,6 +22,7 @@ export function Page({ children }: { children?: ReactNode }) {
       flexGrow="1"
       p="6"
       className={styles.page}
+      data-gutter={gutter}
     >
       <main>{children}</main>
     </Flex>

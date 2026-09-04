@@ -61,9 +61,24 @@ export const transactions = pgTable(
       "transactions_owner_xor_group",
       sql`(${table.ownerUserId} is not null)::int + (${table.groupId} is not null)::int = 1`,
     ),
+    // A transfer names two different accounts (RF-101). `is distinct from` leaves a one-sided
+    // movement legal: one side is null, so the pair still differs.
+    check(
+      "transactions_accounts_distinct",
+      sql`${table.fromAccountId} is distinct from ${table.toAccountId}`,
+    ),
     check("transactions_description_length", sql`length(${table.description}) <= 200`),
     check("transactions_external_ref_length", sql`length(${table.externalRef}) <= 200`),
     index("transactions_occurred_at_idx").on(table.occurredAt),
+    // `account_balances` sums each side of an account with no scope column in the
+    // predicate, so the scope-leading composites below cannot serve it; without
+    // these two it reads the table once per side, per account.
+    index("transactions_from_account_id_idx")
+      .on(table.fromAccountId)
+      .where(sql`from_account_id is not null`),
+    index("transactions_to_account_id_idx")
+      .on(table.toAccountId)
+      .where(sql`to_account_id is not null`),
     index("transactions_created_by_idx").on(table.createdBy),
     index("transactions_recurring_rule_id_idx").on(table.recurringRuleId),
     index("transactions_owner_user_id_idx")
@@ -72,7 +87,8 @@ export const transactions = pgTable(
     index("transactions_group_id_idx")
       .on(table.groupId)
       .where(sql`${table.groupId} is not null`),
-    // `external_ref` is unique within a scope, so re-importing the same row updates instead of duplicating (RF-85).
+    // `external_ref` is unique within a scope, so re-importing the same row updates instead of
+    // duplicating (RF-52); an accepted delivery carries its own ref under the same key (RF-90).
     uniqueIndex("transactions_owner_external_ref_unique")
       .on(table.ownerUserId, table.externalRef)
       .where(sql`${table.externalRef} is not null`),

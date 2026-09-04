@@ -35,9 +35,6 @@ flowchart TD
 Quick entry opens from any screen; it is not a navigation destination. It is the
 most frequent action in the app and must not cost a page change.
 
-Anyone belonging to several funds (RF-02) switches from the header, and the
-switch applies across the whole application.
-
 ---
 
 ## 2. First run
@@ -224,8 +221,8 @@ The language is visible in the URL (RF-46) and resolved, in order, by what the
 URL says, the user's saved preference, the browser's language, and finally
 Spanish.
 
-The preference follows the user across all their funds (RF-47). Switching
-rewrites the URL and persists the choice.
+The preference belongs to the user, so it holds wherever they sign in (RF-47).
+Switching rewrites the URL and persists the choice.
 
 Amounts are always shown in COP; what changes is the date format and the
 thousands separator, not the currency.
@@ -281,8 +278,10 @@ flowchart TD
 Nothing becomes a movement without a person accepting it. A known shape and a
 trusted merchant can shorten the review, but neither writes on its own.
 
-Silencing a shape is permanent until the person explicitly reverses it; later
-deliveries cannot undo the decision or appear in the inbox.
+Silencing a shape holds over every later delivery; none of them undoes the
+decision or appears in the inbox. Returning a silenced shape to the queue undoes
+it, and every message the silence discarded on its own comes back to the queue
+with it.
 
 A merchant earns its category after two consecutive agreeing approvals. The
 first disagreement makes that memory ambiguous for good; forgetting the

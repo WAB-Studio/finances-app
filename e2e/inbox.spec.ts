@@ -64,6 +64,22 @@ function reviewButton(page: import("@playwright/test").Page) {
   return page.getByRole("button", { name: ingest.review, exact: true });
 }
 
+// The card's menu is the only way to the rejection, and the dialog it raises is
+// where both choices live.
+async function openRejectDialog(page: import("@playwright/test").Page) {
+  // The menu names its own row now, so match the prefix rather than the whole
+  // label: which delivery it belongs to varies per test.
+  await page
+    .getByRole("button", { name: messages.common.actionsFor.split("{")[0].trim() })
+    .click();
+  await page.getByRole("menuitem", { name: ingest.reject, exact: true }).click();
+
+  const dialog = page.getByRole("alertdialog");
+  await expect(dialog).toBeVisible();
+
+  return dialog;
+}
+
 test.describe("the inbox queue", () => {
   test("shows one card per delivery, one to accept and one to review", async ({
     page,
@@ -90,30 +106,68 @@ test.describe("the inbox queue", () => {
     }
   });
 
-  test("offers both the once and the silence choice on rejection", async ({
+  test("discards the message once and leaves its shape unsilenced", async ({
     page,
   }) => {
-    await seedQueue([complete]);
+    const [deliveryId] = await seedQueue([complete]);
     await page.goto("/es/inbox");
 
-    await page
-      .getByRole("button", { name: messages.common.actions, exact: true })
-      .click();
-    await page
-      .getByRole("menuitem", { name: ingest.reject, exact: true })
-      .click();
-
-    const dialog = page.getByRole("alertdialog");
-    await expect(dialog).toBeVisible();
-    await expect(
-      dialog.getByRole("button", { name: ingest.rejectOnce, exact: true }),
-    ).toBeVisible();
-
+    const dialog = await openRejectDialog(page);
     // The permanence is stated by the silence control itself — "y no volver a
-    // preguntar" — not by the description above it.
+    // preguntar" — not by the description above it, so both are on offer here.
     await expect(
       dialog.getByRole("button", { name: ingest.rejectAndSilence, exact: true }),
     ).toBeVisible();
+    await dialog
+      .getByRole("button", { name: ingest.rejectOnce, exact: true })
+      .click();
+
+    await expect(dialog).toBeHidden();
+    await expect(page.getByRole("heading", { name: TRUSTED })).toHaveCount(0);
+
+    const [delivery] = await fixtureSql<{ status: string }[]>`
+      select status from ingest_deliveries where id = ${deliveryId}`;
+    expect(delivery.status).toBe("rejected");
+
+    // Once is once: nothing about the message's shape was remembered, so the
+    // next one like it still arrives.
+    const shapes = await fixtureSql`
+      select id from ingest_shapes where owner_user_id = ${scope.userId}`;
+    expect(shapes).toHaveLength(0);
+  });
+
+  test("discards the message and silences every message of its shape", async ({
+    page,
+  }) => {
+    const [deliveryId] = await seedQueue([complete]);
+    await page.goto("/es/inbox");
+
+    const dialog = await openRejectDialog(page);
+    await dialog
+      .getByRole("button", { name: ingest.rejectAndSilence, exact: true })
+      .click();
+
+    await expect(dialog).toBeHidden();
+    await expect(page.getByRole("heading", { name: TRUSTED })).toHaveCount(0);
+
+    const [delivery] = await fixtureSql<
+      { status: string; shape_hash: string; raw_text: string }[]
+    >`
+      select status, shape_hash, raw_text from ingest_deliveries
+      where id = ${deliveryId}`;
+    expect(delivery.status).toBe("rejected");
+
+    // The silence is the shape row: the ingest reads it to drop the next message
+    // that hashes the same, and it keeps the text that taught it.
+    const shapes = await fixtureSql<
+      { shape_hash: string; decision: string; sample_text: string }[]
+    >`
+      select shape_hash, decision, sample_text from ingest_shapes
+      where owner_user_id = ${scope.userId}`;
+    expect(shapes).toHaveLength(1);
+    expect(shapes[0].shape_hash).toBe(delivery.shape_hash);
+    expect(shapes[0].decision).toBe("rejected");
+    expect(shapes[0].sample_text).toBe(delivery.raw_text);
   });
 
   test("records the movement on accept and drops the card", async ({ page }) => {

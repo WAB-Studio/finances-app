@@ -29,7 +29,10 @@ RNF-08 sets the requirement. This is how it shows in the interface.
 - Disable a tab whose slice is not built. Keep it visible, keep it non-navigable.
 - Reach the secondary destinations and the preferences from the "Ajustes" panel the bar opens.
 - Hold language, theme and sign out inside that panel.
-- Keep the panel as the desktop pattern: on `md` up, open it from the header, hide the bar.
+- Carry the desktop navigation on the sidebar from `md` up. Hide the bar and the header there.
+- Follow `private/design-desktop/SPEC-A3.md` for the sidebar. Compose it from `Sidebar` in `components/ui`.
+- Open the same "Ajustes" panel from the sidebar's own row.
+- Name every destination once, in `components/fund/destinations.ts`. Never list one at a surface.
 - Keep the active fund visible wherever a write can happen.
 - Reserve the bottom gutter on every app page.
 - Compose it from `Page` in `components/ui`.

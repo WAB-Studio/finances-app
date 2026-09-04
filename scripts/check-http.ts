@@ -15,16 +15,28 @@ import { join, resolve } from "node:path";
 import messages from "@/messages/es.json";
 
 import { assert, report, skip } from "./harness/assert";
-import { cleanup, fixtureSql, track } from "./harness/fixtures";
+import {
+  cleanup,
+  countOwnedMovements,
+  fixtureSql,
+  track,
+  YEAR_OF_MOVEMENTS,
+} from "./harness/fixtures";
 import {
   HARNESS_BASE_URL,
   HARNESS_EMAIL,
   cookieHeader,
   harnessSession,
   mintedThisRun,
+  sessionFileName,
 } from "./harness/session";
 
 const LOCALE = "es";
+// The debt the detail route is driven against. Its name is the title that page
+// carries, so the render case asserts on this very string.
+const DEBT_NAME = "Harness HTTP tarjeta";
+// A movement no one owns, so the detail page refuses it.
+const UNKNOWN_ID = "00000000-0000-0000-0000-000000000000";
 const APP_GROUP_DIR = resolve(process.cwd(), "app/[locale]/(app)");
 
 let counter = 0;
@@ -59,11 +71,19 @@ function isErrorShell(body: string): boolean {
   return body.includes("__next_error__");
 }
 
+// What Next injects in place of the status it can no longer set, once a refusal
+// arrives mid-stream. It is the only thing a soft 404 and a rendered screen do
+// not share, so it is what tells the two apart on the wire.
+function isNoindex(body: string): boolean {
+  return body.includes('name="robots" content="noindex"');
+}
+
 type Rendered = {
   status: number;
   landedOn: string;
   title: string;
   errorShell: boolean;
+  noindex: boolean;
 };
 
 async function get(path: string, cookie?: string): Promise<Rendered> {
@@ -77,6 +97,7 @@ async function get(path: string, cookie?: string): Promise<Rendered> {
     landedOn: new URL(response.url).pathname,
     title: documentTitle(body),
     errorShell: isErrorShell(body),
+    noindex: isNoindex(body),
   };
 }
 
@@ -120,10 +141,12 @@ type RenderCase = {
   title: string;
   // Where the follow ended, when the route answers a redirect of its own.
   landsOn?: string;
+  // Named only where the body has to prove a refusal the status cannot.
+  noindex?: boolean;
   why?: string;
 };
 
-function renderCases(transactionId: string): RenderCase[] {
+function renderCases({ transactionId, debtAccountId }: HttpScope): RenderCase[] {
   return [
     { path: `/${LOCALE}`, status: 200, title: title("common.appName") },
     { path: `/${LOCALE}/inbox`, status: 200, title: title("ingest.title") },
@@ -149,6 +172,26 @@ function renderCases(transactionId: string): RenderCase[] {
       status: 200,
       title: title("debts.title"),
     },
+    // The debt the fixture opened, with its terms, its dated cuotas and the
+    // movement that settled the first of them: the detail names it in the title.
+    {
+      path: `/${LOCALE}/planning/debts/${debtAccountId}`,
+      status: 200,
+      title: DEBT_NAME,
+    },
+    // The path the coverage walk builds for this route, since it substitutes the
+    // fixture's transaction id into every dynamic segment. A movement's id names
+    // no account, so `getDebtDetail` returns null and the page calls
+    // `notFound()` — after the `loading.tsx` above it flushed, so it arrives as
+    // noindex in the body over a 200 on the wire, exactly as `/movements/[id]`
+    // does for an id it cannot find.
+    {
+      path: `/${LOCALE}/planning/debts/${transactionId}`,
+      status: 200,
+      title: title("debts.title"),
+      noindex: true,
+      why: "a transaction id names no debt: a streamed notFound()",
+    },
     {
       path: `/${LOCALE}/planning/goals`,
       status: 200,
@@ -164,6 +207,7 @@ function renderCases(transactionId: string): RenderCase[] {
       status: 200,
       title: title("recurringRules.title"),
     },
+    { path: `/${LOCALE}/settings`, status: 200, title: title("nav.settings") },
     {
       path: `/${LOCALE}/settings/accounts`,
       status: 200,
@@ -194,14 +238,38 @@ function renderCases(transactionId: string): RenderCase[] {
       status: 200,
       title: title("webhooks.title"),
     },
-    // 404 by design: `page.tsx` calls `notFound()` for a caller with no group
-    // (RF-55), and the harness user leads none. Asserting 200 would make this
-    // transcript lie about the screen.
+    // 404 by design: the harness user leads no group (RF-55). The refusal is the
+    // shell layout's, not the page's — a `loading.tsx` fallback commits the
+    // response to 200 before any page under `(app)` runs, and the layout of that
+    // same segment is the last thing the boundary does not wrap. Asserting 200
+    // would make this transcript lie about the screen.
     {
       path: `/${LOCALE}/settings/members`,
       status: 404,
       title: title("metadata.title"),
-      why: "RF-55: no group, so the page calls notFound()",
+      why: "RF-55: no group, so the shell layout refuses the route",
+    },
+    {
+      path: `/${LOCALE}/settings/group`,
+      status: 404,
+      title: title("metadata.title"),
+      why: "RF-55: no group, so the shell layout refuses the route",
+    },
+    // The same refusal one segment too low, and what it costs. `page.tsx` calls
+    // `notFound()` for a movement it did not find, but by then the fallback has
+    // flushed: "When a `<Suspense>` fallback renders ... the server must commit to
+    // `200 OK` in order to start sending the HTML stream. If a `notFound()` fires
+    // mid-stream, Next.js cannot go back and change the status to 404. Instead, it
+    // injects `<meta name="robots" content="noindex">`" (Next 16, `streaming.md`,
+    // The HTTP contract). The layout above the boundary refuses a route it knows
+    // by path; an id it cannot check without the query the page itself runs. So
+    // this one stays a soft 404, and this case says so out loud.
+    {
+      path: `/${LOCALE}/movements/${UNKNOWN_ID}`,
+      status: 200,
+      title: title("transactions.detailTitle"),
+      noindex: true,
+      why: "a streamed notFound(): noindex in the body, 200 on the wire",
     },
     // The proxy sends a signed-in caller away from the login, and `bienvenida`
     // sends one with no claimed invite home. Both answer 200 at the dashboard,
@@ -247,6 +315,7 @@ type HttpScope = {
   accountId: string;
   categoryId: string;
   transactionId: string;
+  debtAccountId: string;
 };
 
 /**
@@ -259,7 +328,10 @@ async function seedHttpScope(userId: string): Promise<HttpScope> {
     accountId: randomUUID(),
     categoryId: randomUUID(),
     transactionId: randomUUID(),
+    debtAccountId: randomUUID(),
   };
+  const planId = randomUUID();
+  const settlementId = randomUUID();
   const claims = JSON.stringify({
     sub: userId,
     role: "authenticated",
@@ -287,11 +359,54 @@ async function seedHttpScope(userId: string): Promise<HttpScope> {
     await tx`
       insert into transaction_splits (transaction_id, category_id, amount_cents)
       values (${scope.transactionId}, ${scope.categoryId}, 123400)`;
+
+    // A liability opened three months back, so its cut-off day has periods behind
+    // it and the detail materialises a history to read (RF-84). It opens negative:
+    // a debt owes, and every balance is derived (RNF-05, RNF-07).
+    await tx`
+      insert into accounts (id, owner_user_id, name, kind, subtype, initial_balance_cents, initial_balance_on)
+      values (${scope.debtAccountId}, ${userId}, ${DEBT_NAME}, 'liability', 'tarjeta',
+        -24000000, (current_date - interval '3 months')::date)`;
+
+    await tx`
+      insert into debt_terms (
+        account_id, debt_kind, annual_rate, minimum_payment_cents,
+        credit_limit_cents, statement_cut_off_day, payment_due_day)
+      values (${scope.debtAccountId}, 'revolving', 0.2400, 600000, 50000000, 15, 5)`;
+
+    await tx`
+      insert into installment_plans (
+        id, account_id, description, merchant, principal_cents,
+        n_installments, frequency, start_date)
+      values (${planId}, ${scope.debtAccountId}, 'Harness HTTP plan', 'Harness comercio',
+        9000000, 3, 'monthly', (current_date - interval '2 months')::date)`;
+
+    await tx`
+      insert into installment_lines (plan_id, seq, due_date, amount_cents) values
+        (${planId}, 1, (current_date - interval '2 months')::date, 3000000),
+        (${planId}, 2, (current_date - interval '1 month')::date, 3000000),
+        (${planId}, 3, current_date, 3000000)`;
+
+    // The movement that settled the first line: an asset pays a liability (RF-16),
+    // and the line points at it, which is the link the detail's cuotas table reads.
+    await tx`
+      insert into transactions (id, from_account_id, to_account_id, amount_cents, occurred_at, description)
+      values (${settlementId}, ${scope.accountId}, ${scope.debtAccountId}, 3000000,
+        (current_date - interval '2 months')::date, 'Harness HTTP abono')`;
+
+    await tx`
+      update installment_lines set paid_transaction_id = ${settlementId}
+      where plan_id = ${planId} and seq = 1`;
   });
 
   track("accounts", scope.accountId);
   track("categories", scope.categoryId);
   track("transactions", scope.transactionId);
+  // The lines go with the plan and the statements with the account: both cascade.
+  track("installment_plans", planId);
+  track("transactions", settlementId);
+  track("debt_terms", scope.debtAccountId);
+  track("accounts", scope.debtAccountId);
 
   return scope;
 }
@@ -332,19 +447,23 @@ async function renderSuite(cases: RenderCase[], cookie: string): Promise<void> {
   for (const expected of cases) {
     const seen = await get(expected.path, cookie);
     const landedOn = expected.landsOn ?? expected.path;
-    // A refusal comes in the shell; a render never does.
+    // A refusal comes in the shell; a render never does. A refusal that arrived
+    // too late for a status carries neither, and is read by its `noindex`.
     const bodyIsRight =
       expected.status === 404 ? seen.errorShell : !seen.errorShell;
+    const indexingIsRight =
+      expected.noindex === undefined || seen.noindex === expected.noindex;
 
     assert(
       next(`${expected.path} renders${expected.why ? ` — ${expected.why}` : ""}`),
       seen.status === expected.status &&
         seen.landedOn === landedOn &&
         seen.title === expected.title &&
-        bodyIsRight,
+        bodyIsRight &&
+        indexingIsRight,
       `it answered ${seen.status} at ${seen.landedOn} titled ${JSON.stringify(seen.title)} over ${
         seen.errorShell ? "Next's refusal shell" : "its own screen"
-      }`,
+      }, ${seen.noindex ? "marked noindex" : "indexable"}`,
     );
   }
 }
@@ -376,13 +495,23 @@ async function localeSuite(cookie: string): Promise<void> {
   );
 }
 
+// What the webhook suite wrote and the audit viewer must never repeat: the hash
+// the credential is resolved by, and the fragment that makes each run's SMS its
+// own. Both live in the snapshot columns of the rows that suite left behind.
+type WebhookSecrets = {
+  credentialId: string;
+  deliveryId: string;
+  tokenHash: string;
+  smsFragment: string;
+};
+
 /**
  * The ingest endpoint end to end: a credential the harness mints, one delivery,
  * the same text again landing nothing new, and a token that resolves to nothing.
  * The route answers 200 to both the first delivery and its repeat — the repeat is
  * told apart by `duplicate`, never by a status.
  */
-async function webhookSuite(userId: string): Promise<void> {
+async function webhookSuite(userId: string): Promise<WebhookSecrets> {
   const credentialId = randomUUID();
   const token = `whk_${randomBytes(32).toString("base64url")}`;
   const tokenHash = createHash("sha256").update(token).digest("hex");
@@ -402,7 +531,8 @@ async function webhookSuite(userId: string): Promise<void> {
 
   // A verbatim T2 sample, its merchant made unique so each run hashes to its own
   // external reference; the date it names is what RF-98 is read back against.
-  const text = `Bancolombia: Compraste COP122.000,00 en BOLD CO ONLINE ${randomUUID().slice(0, 8)} con tu T.Cred *4872, el 25/08/2026 a las 20:07. Si tienes dudas, encuentranos aqui: 6045109095 o 018000931987. Estamos cerca.`;
+  const smsFragment = randomUUID().slice(0, 8);
+  const text = `Bancolombia: Compraste COP122.000,00 en BOLD CO ONLINE ${smsFragment} con tu T.Cred *4872, el 25/08/2026 a las 20:07. Si tienes dudas, encuentranos aqui: 6045109095 o 018000931987. Estamos cerca.`;
 
   async function post(bearer: string): Promise<{ status: number; body: Record<string, unknown> }> {
     const response = await fetch(`${HARNESS_BASE_URL}/api/webhooks/ingest`, {
@@ -478,9 +608,93 @@ async function webhookSuite(userId: string): Promise<void> {
     revoked.status === 401 && revoked.body.error === "unauthorized",
     `it answered ${revoked.status} — ${JSON.stringify(revoked.body)}`,
   );
+
+  return {
+    credentialId,
+    deliveryId: String(first.body.deliveryId),
+    tokenHash,
+    smsFragment,
+  };
 }
 
-async function timingSuite(cases: RenderCase[], cookie: string): Promise<void> {
+/**
+ * What the audit viewer puts on the wire (RF-53). The webhook suite has just
+ * written the newest rows in the log, so its credential and its delivery are on
+ * the first page: the payload names both records and carries neither the token
+ * hash nor the bank message their snapshot columns hold.
+ */
+async function auditPayloadSuite(
+  cookie: string,
+  secrets: WebhookSecrets,
+): Promise<void> {
+  const response = await fetch(
+    `${HARNESS_BASE_URL}/${LOCALE}/settings/audit`,
+    { headers: { cookie } },
+  );
+  const body = await response.text();
+
+  const named = [
+    ["the credential", secrets.credentialId],
+    ["the delivery", secrets.deliveryId],
+  ].filter(([, id]) => !body.includes(id));
+
+  assert(
+    next("the audit page carries the rows the webhook suite just wrote"),
+    response.status === 200 && named.length === 0,
+    named.length === 0
+      ? `it answered ${response.status} over ${body.length} bytes naming both records`
+      : `it answered ${response.status} without ${named.map(([what]) => what).join(" or ")}`,
+  );
+
+  // The literal secrets, never a column name: a projection that stops selecting
+  // them and a viewer that stops rendering them both read the same here.
+  const leaked = [
+    ["the credential's token hash", secrets.tokenHash],
+    ["the delivery's bank message", secrets.smsFragment],
+  ].filter(([, secret]) => body.includes(secret));
+
+  assert(
+    next("no audited snapshot rides the audit payload"),
+    leaked.length === 0,
+    leaked.length === 0
+      ? "neither the token hash nor the message text appears in the response"
+      : `the response carries ${leaked.map(([what]) => what).join(" and ")}`,
+  );
+}
+
+// The 2 s of RNF-09, in the unit the measurement produces.
+const RNF_09_BUDGET_MS = 2000;
+
+// What `HARNESS_TARGET` may name. `next dev` compiles a route on demand, so a
+// number measured there is about the compiler as much as the query plan; it is
+// worth reporting, and it is labelled, but it is not the requirement's subject.
+const TARGETS = {
+  production: "a production build served by next start",
+  dev: "next dev, which compiles on demand — NOT the requirement's subject",
+} as const;
+
+type Target = keyof typeof TARGETS;
+
+function namedTarget(): Target | null {
+  const named = process.env.HARNESS_TARGET;
+
+  return named && named in TARGETS ? (named as Target) : null;
+}
+
+/**
+ * How long every screen takes hot, and the one verdict this layer carries: RNF-09.
+ *
+ * The budget presumes a year of movements, so the verdict reads TWO preconditions
+ * before it claims anything — the movements the measured user owns, counted in the
+ * database, and `HARNESS_TARGET`, which names what is being served. Missing either,
+ * it skips SAYING WHICH: a dashboard answering fast over an empty ledger meets
+ * nothing, and a green line from that would be a lie about the requirement.
+ */
+async function timingSuite(
+  cases: RenderCase[],
+  cookie: string,
+  userId: string,
+): Promise<void> {
   for (const one of cases) {
     const started = Date.now();
     await get(one.path, cookie);
@@ -499,9 +713,31 @@ async function timingSuite(cases: RenderCase[], cookie: string): Promise<void> {
   console.log(
     `REPORT  the dashboard's median over five hot requests is ${median} ms (${samples.join(", ")}).`,
   );
-  skip(
-    next("the dashboard meets the RNF-09 budget"),
-    `unmeasurable here: ${median} ms on an empty ledger against a 2000 ms budget that assumes a year of movements, on next dev, which compiles on demand`,
+
+  const movements = await countOwnedMovements(userId);
+  const target = namedTarget();
+  const label = next("the dashboard meets the RNF-09 budget");
+
+  if (movements < YEAR_OF_MOVEMENTS) {
+    skip(
+      label,
+      `the ledger holds ${movements} movements for the measured user, short of the ${YEAR_OF_MOVEMENTS} a year holds — run \`npm run seed:year\`; ${median} ms measured over what is there`,
+    );
+    return;
+  }
+
+  if (target === null) {
+    skip(
+      label,
+      `HARNESS_TARGET names nothing measurable — set it to ${Object.keys(TARGETS).join(" or ")}; ${median} ms measured over ${movements} movements`,
+    );
+    return;
+  }
+
+  assert(
+    label,
+    median <= RNF_09_BUDGET_MS,
+    `${median} ms median against a ${RNF_09_BUDGET_MS} ms budget, over ${movements} movements, on ${TARGETS[target]}`,
   );
 }
 
@@ -510,7 +746,9 @@ async function main(): Promise<void> {
   const userId = session.user.id;
   console.log(
     `REPORT  harness user ${userId} <${HARNESS_EMAIL}>, session ${
-      mintedThisRun() ? "minted this run" : "reused from private/harness-session.json"
+      mintedThisRun()
+        ? "minted this run"
+        : `reused from ${sessionFileName(HARNESS_EMAIL)}`
     }.`,
   );
   console.log(`REPORT  driving ${HARNESS_BASE_URL}.`);
@@ -518,7 +756,7 @@ async function main(): Promise<void> {
   const scope = await seedHttpScope(userId);
   const cookie = await cookieHeader();
   const routes = appGroupRoutes(scope.transactionId);
-  const cases = renderCases(scope.transactionId);
+  const cases = renderCases(scope);
   console.log("");
 
   await guardSuite(routes);
@@ -527,9 +765,10 @@ async function main(): Promise<void> {
   await renderSuite(cases, cookie);
   console.log("");
   await localeSuite(cookie);
-  await webhookSuite(userId);
+  const secrets = await webhookSuite(userId);
+  await auditPayloadSuite(cookie, secrets);
   console.log("");
-  await timingSuite(cases, cookie);
+  await timingSuite(cases, cookie, userId);
 }
 
 // Wrapped in an async IIFE (not top-level await) so the runner can transpile this

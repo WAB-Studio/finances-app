@@ -3,9 +3,7 @@ import "server-only";
 import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 
-import { getUserGroup } from "@/db/queries/groups";
-import { listMembers } from "@/db/queries/group-members";
-import type { MemberRow } from "@/db/queries/group-members";
+import { listCallerMembers } from "@/db/queries/group-members";
 import { auditLog } from "@/db/schema";
 import type { AuditLog } from "@/db/schema";
 import { requireUser, withUserDb } from "@/db/session";
@@ -22,6 +20,14 @@ export type AuditLogFilters = {
   limit: number;
   offset: number;
 };
+
+// What the viewer renders, and all it is handed: the `before_data`/`after_data`
+// snapshots stay in the table, where a token hash or a bank message never reaches
+// a client bundle (RNF-13).
+export type AuditLogRow = Pick<
+  AuditLog,
+  "id" | "entity" | "recordId" | "action" | "actorUserId" | "occurredAt"
+>;
 
 // The entities the caller can actually read, and the actors to name a row by.
 export type AuditFilterOptions = {
@@ -55,38 +61,47 @@ function auditConditions(filters: AuditLogFilters): SQL[] {
 }
 
 /**
- * One page of the audit trail and its total, each in its own round trip so the
- * two fan out (RF-53). The SELECT policy bounds every row to the caller's own,
- * group and self-caused scope; the filters narrow that set further. Newest first,
- * `id` breaking ties within a shared timestamp.
+ * One page of the audit trail and its total, in ONE round trip (RF-53): the total
+ * rides on the row query as a window over the same predicate, so counting costs
+ * no transaction of its own. The SELECT policy bounds every row to the caller's
+ * own, group and self-caused scope; the filters narrow that set further. Newest
+ * first, `id` breaking ties within a shared timestamp.
+ *
+ * An offset past the last page returns no rows and so no total — an empty page
+ * reads as empty, which is what it is.
  */
 export async function listAuditLog(
   filters: AuditLogFilters,
-): Promise<{ rows: AuditLog[]; total: number }> {
+): Promise<{ rows: AuditLogRow[]; total: number }> {
   const conditions = auditConditions(filters);
   const where = conditions.length > 0 ? and(...conditions) : undefined;
 
-  const [rows, total] = await Promise.all([
-    withUserDb((tx) =>
-      tx
-        .select()
-        .from(auditLog)
-        .where(where)
-        .orderBy(desc(auditLog.occurredAt), desc(auditLog.id))
-        .limit(filters.limit)
-        .offset(filters.offset),
-    ),
-    withUserDb(async (tx) => {
-      const [row] = await tx
-        .select({ count: sql<number>`count(*)::int` })
-        .from(auditLog)
-        .where(where);
+  return withUserDb(async (tx) => {
+    const rows = await tx
+      // The six columns the viewer renders and no more: `before_data`/`after_data`
+      // hold whole rows, a token hash or a bank message among them (RNF-13). The
+      // row nests under a key of its own so the window column never has to be
+      // stripped back off it, and the cast is not decoration: a bigint arrives
+      // from the driver as a string, and the pager counts pages with it.
+      .select({
+        row: {
+          id: auditLog.id,
+          entity: auditLog.entity,
+          recordId: auditLog.recordId,
+          action: auditLog.action,
+          actorUserId: auditLog.actorUserId,
+          occurredAt: auditLog.occurredAt,
+        },
+        total: sql<number>`(count(*) over ())::int`,
+      })
+      .from(auditLog)
+      .where(where)
+      .orderBy(desc(auditLog.occurredAt), desc(auditLog.id))
+      .limit(filters.limit)
+      .offset(filters.offset);
 
-      return row.count;
-    }),
-  ]);
-
-  return { rows, total };
+    return { rows: rows.map((row) => row.row), total: rows[0]?.total ?? 0 };
+  });
 }
 
 // The distinct entities present among the rows the caller may read, ordered for a
@@ -106,21 +121,19 @@ async function listAuditEntities(): Promise<string[]> {
  * The filter option lists for the viewer, fanned in one pass (RF-53). Entities
  * come from the log itself; actors from the group roster — archived members
  * included, since a row outlives the member who caused it — plus the caller, who
- * reads under their own email when they name no member.
+ * reads under their own email when they name no member. Nothing is chained ahead
+ * of the fan-out: the roster read resolves the group in its own statement.
  */
 export async function getAuditFilterOptions(): Promise<AuditFilterOptions> {
   const user = await requireUser();
-  const group = await getUserGroup();
-  const empty = Promise.resolve<MemberRow[]>([]);
 
-  const [entities, activeMembers, archivedMembers] = await Promise.all([
+  const [entities, members] = await Promise.all([
     listAuditEntities(),
-    group ? listMembers(group.id, { archived: false }) : empty,
-    group ? listMembers(group.id, { archived: true }) : empty,
+    listCallerMembers(user.id, { archived: "all" }),
   ]);
 
   const names = new Map<string, string>();
-  for (const member of [...activeMembers, ...archivedMembers]) {
+  for (const member of members) {
     if (member.userId) names.set(member.userId, member.name);
   }
   if (!names.has(user.id)) names.set(user.id, user.email);

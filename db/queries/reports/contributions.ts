@@ -2,7 +2,6 @@ import "server-only";
 
 import { sql } from "drizzle-orm";
 
-import { getUserGroup } from "@/db/queries/groups";
 import { withUserDb } from "@/db/session";
 
 export type MemberContribution = {
@@ -17,14 +16,13 @@ export type MemberContribution = {
  * debited back. Only transfers touch the pot (RF-19), so the join reads both
  * sides of every transfer and nets `Σ contributions − Σ returns` per member. The
  * group's own accounts are the pot, never a contributor, so no group row appears
- * (RF-67). Without a group there is nothing to net against.
+ * (RF-67). A caller with no group has no group account on either side of any
+ * transfer, so the same statement returns nothing — no membership read first.
  */
 export async function getMemberContributions(range: {
   start: string;
   endExclusive: string;
 }): Promise<MemberContribution[]> {
-  if ((await getUserGroup()) === null) return [];
-
   return withUserDb(async (tx) => {
     const rows = await tx.execute<{
       user_id: string;

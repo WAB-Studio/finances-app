@@ -27,6 +27,7 @@ import {
   Link,
   Select,
   Spinner,
+  TapTarget,
   Text,
   TextField,
 } from "@/components/ui";
@@ -60,12 +61,21 @@ export function QuickEntrySheet({
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Content>
+      {/* The centred panel of the EntradaRapida artboard from `md` up; below it
+          the sheet keeps the width Radix gives every dialog on a phone, minus
+          the overlay's own 16px on each side. Radix sizes a dialog to the
+          min-content of what it holds, and the split row's category trigger
+          carries a whole category name on one line, so without this the sheet
+          grows past the viewport instead of the row shrinking inside it. */}
+      <Dialog.Content
+        maxWidth={{ initial: "min(600px, 100vw - 32px)", md: "576px" }}
+      >
         <Flex align="center" justify="between" mb="4">
           <Dialog.Title mb="0">{t("quickTitle")}</Dialog.Title>
           <Dialog.Close>
             <IconButton
               type="button"
+              tap
               variant="ghost"
               color="gray"
               aria-label={t("quickTitle")}
@@ -315,68 +325,73 @@ function QuickEntryForm({
           />
         )}
 
-        <Controller
-          name="fromAccountId"
-          control={form.control}
-          render={({ field, fieldState }) => (
-            <Field invalid={fieldState.invalid}>
-              <FieldLabel htmlFor="quick-account">{t("accountLabel")}</FieldLabel>
-              <Select.Root
-                size="3"
-                value={field.value ?? undefined}
-                onValueChange={field.onChange}
-                disabled={create.isPending}
-              >
+        {/* The two compact fields share a row from `md` up, as the artboard's
+            field grid draws them; below it each keeps its own. */}
+        <Flex direction={{ initial: "column", md: "row" }} gap="4" width="100%">
+          <Controller
+            name="fromAccountId"
+            control={form.control}
+            render={({ field, fieldState }) => (
+              <Field invalid={fieldState.invalid}>
+                <FieldLabel htmlFor="quick-account">{t("accountLabel")}</FieldLabel>
+                <Select.Root
+                  size="3"
+                  value={field.value ?? undefined}
+                  onValueChange={field.onChange}
+                  disabled={create.isPending}
+                >
+                  <FieldControl>
+                    <Select.Trigger
+                      id="quick-account"
+                      placeholder={t("accountLabel")}
+                    />
+                  </FieldControl>
+                  <Select.Content position="popper">
+                    {options.accounts.map((account) => (
+                      <Select.Item key={account.id} value={account.id}>
+                        {account.name}
+                      </Select.Item>
+                    ))}
+                  </Select.Content>
+                </Select.Root>
+                <FieldMessage error={fieldState.error} />
+              </Field>
+            )}
+          />
+
+          <Controller
+            name="occurredAt"
+            control={form.control}
+            render={({ field, fieldState }) => (
+              <Field invalid={fieldState.invalid}>
+                <FieldLabel htmlFor="quick-date">{t("dateLabel")}</FieldLabel>
                 <FieldControl>
-                  <Select.Trigger
-                    id="quick-account"
-                    placeholder={t("accountLabel")}
+                  <TextField.Root
+                    {...field}
+                    id="quick-date"
+                    size="3"
+                    type="date"
+                    disabled={create.isPending}
                   />
                 </FieldControl>
-                <Select.Content position="popper">
-                  {options.accounts.map((account) => (
-                    <Select.Item key={account.id} value={account.id}>
-                      {account.name}
-                    </Select.Item>
-                  ))}
-                </Select.Content>
-              </Select.Root>
-              <FieldMessage error={fieldState.error} />
-            </Field>
-          )}
-        />
-
-        <Controller
-          name="occurredAt"
-          control={form.control}
-          render={({ field, fieldState }) => (
-            <Field invalid={fieldState.invalid}>
-              <FieldLabel htmlFor="quick-date">{t("dateLabel")}</FieldLabel>
-              <FieldControl>
-                <TextField.Root
-                  {...field}
-                  id="quick-date"
-                  size="3"
-                  type="date"
-                  disabled={create.isPending}
-                />
-              </FieldControl>
-              <FieldMessage error={fieldState.error} />
-            </Field>
-          )}
-        />
+                <FieldMessage error={fieldState.error} />
+              </Field>
+            )}
+          />
+        </Flex>
 
         <Flex justify="center">
           <Link href="#" onClick={(event) => { event.preventDefault(); onOpenFull(); }}>
-            {t("quickTypeLink")}
+            {/* A line of text has no control height of its own. */}
+            <TapTarget align="center" px="2">
+              {t("quickTypeLink")}
+            </TapTarget>
           </Link>
         </Flex>
 
-        <Button
-          type="submit"
-          size="3"
-          disabled={!form.formState.isValid || create.isPending}
-        >
+        {/* Never dead: while the form is short of something, submitting is what
+            makes it say so. */}
+        <Button type="submit" size="3" disabled={create.isPending}>
           {create.isPending && <Spinner />}
           {t("quickSave")}
         </Button>

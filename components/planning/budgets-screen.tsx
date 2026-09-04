@@ -6,7 +6,11 @@ import { useAction } from "next-safe-action/hooks";
 import { useState } from "react";
 import { toast } from "sonner";
 
-import { deleteBudgetAction } from "@/app/actions/budgets";
+import {
+  archiveBudgetAction,
+  deleteBudgetAction,
+  restoreBudgetAction,
+} from "@/app/actions/budgets";
 import { BudgetFormDialog } from "@/components/planning/budget-form-dialog";
 import {
   Button,
@@ -20,6 +24,7 @@ import {
   Heading,
   IconButton,
   Progress,
+  SegmentedControl,
   Text,
 } from "@/components/ui";
 import type { BudgetStatus } from "@/db/queries/budgets";
@@ -29,23 +34,33 @@ import { addCivilMonths, civilDateToDate } from "@/lib/dates";
 import { centsToPesos } from "@/lib/money";
 import { useActionErrorToast } from "@/lib/use-action-toast";
 
+// The subject of a menu action, not a dialog's own field state: closing any of
+// the dialogs below clears this, and reopening one always names a budget.
+type RowAction =
+  | { kind: "archive"; budget: BudgetStatus }
+  | { kind: "restore"; budget: BudgetStatus }
+  | { kind: "delete"; budget: BudgetStatus };
+
 /**
  * The budgets area: each active budget reads as a card whose bar and status are
  * derived server-side from the split spend over the selected month's window
  * (RF-72, RF-73). The month selector rewrites `?month=` so the page re-derives
- * the whole list; a budget is created, edited or deleted through the dialog and
- * the confirm below. Money stays integer cents; the peso figure is display only.
+ * the whole list; a budget is created, edited, archived, restored or deleted
+ * through the dialog and the confirms below (RF-120). Money stays integer cents;
+ * the peso figure is display only.
  */
 export function BudgetsScreen({
   budgets,
   options,
   hasGroup,
   month,
+  archived,
 }: {
   budgets: BudgetStatus[];
   options: TransactionFormOptions;
   hasGroup: boolean;
   month: string;
+  archived: boolean;
 }) {
   const t = useTranslations("budgets");
   const tKey = useTranslations();
@@ -58,12 +73,28 @@ export function BudgetsScreen({
   const [formTarget, setFormTarget] = useState<BudgetStatus | "new" | null>(
     null,
   );
-  const [deleteTarget, setDeleteTarget] = useState<BudgetStatus | null>(null);
+  const [rowAction, setRowAction] = useState<RowAction | null>(null);
+
+  const archiveState = useAction(archiveBudgetAction, {
+    onSuccess() {
+      toast.success(t("archived"));
+      setRowAction(null);
+    },
+    onError: onActionError,
+  });
+
+  const restoreState = useAction(restoreBudgetAction, {
+    onSuccess() {
+      toast.success(t("restored"));
+      setRowAction(null);
+    },
+    onError: onActionError,
+  });
 
   const deleteState = useAction(deleteBudgetAction, {
     onSuccess() {
       toast.success(t("deleted"));
-      setDeleteTarget(null);
+      setRowAction(null);
     },
     onError: onActionError,
   });
@@ -87,9 +118,22 @@ export function BudgetsScreen({
     year: "numeric",
   });
 
+  // The two controls write the same query, so stepping the month keeps the tab
+  // and switching tab keeps the period.
+  function pushQuery(nextMonth: string, nextArchived: boolean) {
+    router.push(
+      {
+        pathname,
+        query: nextArchived
+          ? { month: nextMonth, tab: "archived" }
+          : { month: nextMonth },
+      },
+      { scroll: false },
+    );
+  }
+
   function goToMonth(delta: number) {
-    const next = addCivilMonths(anchor, delta).slice(0, 7);
-    router.push({ pathname, query: { month: next } }, { scroll: false });
+    pushQuery(addCivilMonths(anchor, delta).slice(0, 7), archived);
   }
 
   const addButton = (
@@ -106,8 +150,21 @@ export function BudgetsScreen({
           <Heading size="5">{t("title")}</Heading>
           {hasGroup && <FundChip label={tKey("fund.label")} />}
         </Flex>
-        {addButton}
+        {/* Add would create an active budget, so the archived tab offers none. */}
+        {!archived && addButton}
       </Flex>
+
+      <SegmentedControl.Root
+        value={archived ? "archived" : "active"}
+        onValueChange={(value) => pushQuery(month, value === "archived")}
+      >
+        <SegmentedControl.Item value="active">
+          {t("activeTab")}
+        </SegmentedControl.Item>
+        <SegmentedControl.Item value="archived">
+          {t("archivedTab")}
+        </SegmentedControl.Item>
+      </SegmentedControl.Root>
 
       <Flex align="center" justify="center" gap="4">
         <IconButton
@@ -136,11 +193,15 @@ export function BudgetsScreen({
       </Flex>
 
       {budgets.length === 0 ? (
-        <EmptyState
-          title={t("emptyTitle")}
-          description={t("emptyDescription")}
-          action={addButton}
-        />
+        archived ? (
+          <EmptyState title={t("archivedEmpty")} />
+        ) : (
+          <EmptyState
+            title={t("emptyTitle")}
+            description={t("emptyDescription")}
+            action={addButton}
+          />
+        )
       ) : (
         <Flex direction="column" gap="3">
           {budgets.map((budget) => (
@@ -149,8 +210,11 @@ export function BudgetsScreen({
               budget={budget}
               title={budget.name ?? categoryNames.get(budget.categoryId) ?? ""}
               color={categoryColors.get(budget.categoryId) ?? null}
+              archived={archived}
               onEdit={() => setFormTarget(budget)}
-              onDelete={() => setDeleteTarget(budget)}
+              onArchive={() => setRowAction({ kind: "archive", budget })}
+              onRestore={() => setRowAction({ kind: "restore", budget })}
+              onDelete={() => setRowAction({ kind: "delete", budget })}
             />
           ))}
         </Flex>
@@ -165,17 +229,49 @@ export function BudgetsScreen({
         budget={formTarget === "new" ? undefined : (formTarget ?? undefined)}
       />
 
-      {deleteTarget && (
+      {rowAction?.kind === "archive" && (
         <ConfirmDialog
           open
-          onOpenChange={(open) => !open && setDeleteTarget(null)}
+          onOpenChange={(open) => !open && setRowAction(null)}
+          title={t("archiveTitle")}
+          description={t("archiveDescription")}
+          confirmLabel={tKey("common.archive")}
+          cancelLabel={tKey("common.cancel")}
+          pending={archiveState.isPending}
+          tone="neutral"
+          onConfirm={() =>
+            archiveState.execute({ budgetId: rowAction.budget.id })
+          }
+        />
+      )}
+
+      {rowAction?.kind === "restore" && (
+        <ConfirmDialog
+          open
+          onOpenChange={(open) => !open && setRowAction(null)}
+          title={t("restoreTitle")}
+          description={t("restoreDescription")}
+          confirmLabel={tKey("common.restore")}
+          cancelLabel={tKey("common.cancel")}
+          pending={restoreState.isPending}
+          tone="neutral"
+          onConfirm={() =>
+            restoreState.execute({ budgetId: rowAction.budget.id })
+          }
+        />
+      )}
+
+      {rowAction?.kind === "delete" && (
+        <ConfirmDialog
+          open
+          onOpenChange={(open) => !open && setRowAction(null)}
           title={t("deleteTitle")}
           description={t("deleteDescription")}
           confirmLabel={tKey("common.delete")}
           cancelLabel={tKey("common.cancel")}
           pending={deleteState.isPending}
           onConfirm={() =>
-            deleteState.execute({ budgetId: deleteTarget.id })
+            deleteState.execute({ budgetId: rowAction.budget.id })
           }
         />
       )}
@@ -187,13 +283,19 @@ function BudgetCard({
   budget,
   title,
   color,
+  archived,
   onEdit,
+  onArchive,
+  onRestore,
   onDelete,
 }: {
   budget: BudgetStatus;
   title: string;
   color: string | null;
+  archived: boolean;
   onEdit: () => void;
+  onArchive: () => void;
+  onRestore: () => void;
   onDelete: () => void;
 }) {
   const t = useTranslations("budgets");
@@ -256,17 +358,31 @@ function BudgetCard({
             <DropdownMenu.Trigger>
               <IconButton
                 type="button"
+                tap
                 variant="ghost"
                 color="gray"
-                aria-label={tKey("common.actions")}
+                aria-label={tKey("common.actionsFor", { name: title })}
               >
                 <EllipsisVertical size={16} />
               </IconButton>
             </DropdownMenu.Trigger>
             <DropdownMenu.Content>
-              <DropdownMenu.Item onSelect={onEdit}>
-                {tKey("common.edit")}
-              </DropdownMenu.Item>
+              {/* An archived budget is read-only: the way back is all it offers,
+                  and a mistake is corrected by restoring it first. */}
+              {archived ? (
+                <DropdownMenu.Item onSelect={onRestore}>
+                  {tKey("common.restore")}
+                </DropdownMenu.Item>
+              ) : (
+                <>
+                  <DropdownMenu.Item onSelect={onEdit}>
+                    {tKey("common.edit")}
+                  </DropdownMenu.Item>
+                  <DropdownMenu.Item onSelect={onArchive}>
+                    {tKey("common.archive")}
+                  </DropdownMenu.Item>
+                </>
+              )}
               <DropdownMenu.Item color="red" onSelect={onDelete}>
                 {tKey("common.delete")}
               </DropdownMenu.Item>

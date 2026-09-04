@@ -7,7 +7,7 @@ import {
 } from "@tanstack/react-table";
 import { ChevronLeft, ChevronRight, ScrollText, SlidersHorizontal } from "lucide-react";
 import { useFormatter, useTranslations } from "next-intl";
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 
 import {
   Badge,
@@ -15,6 +15,7 @@ import {
   Button,
   Card,
   EmptyState,
+  FilterField,
   Flex,
   Heading,
   IconButton,
@@ -23,8 +24,7 @@ import {
   Text,
   TextField,
 } from "@/components/ui";
-import type { AuditFilterOptions } from "@/db/queries/audit-log";
-import type { AuditLog } from "@/db/schema";
+import type { AuditFilterOptions, AuditLogRow } from "@/db/queries/audit-log";
 import { usePathname, useRouter } from "@/i18n/navigation";
 import { TIME_ZONE } from "@/lib/locales";
 
@@ -42,12 +42,12 @@ const ANY = "all";
 
 // Paging runs in Postgres, so no client row model beyond the core one is needed.
 const features = tableFeatures({});
-const columnHelper = createColumnHelper<typeof features, AuditLog>();
+const columnHelper = createColumnHelper<typeof features, AuditLogRow>();
 const columns = columnHelper.columns([columnHelper.accessor("id", {})]);
 
 // The write kind colours the badge: a creation reads green, an edit amber, a
 // removal red.
-const actionColors: Record<AuditLog["action"], BadgeProps["color"]> = {
+const actionColors: Record<AuditLogRow["action"], BadgeProps["color"]> = {
   INSERT: "green",
   UPDATE: "amber",
   DELETE: "red",
@@ -66,7 +66,7 @@ export function AuditScreen({
   options,
   filters,
 }: {
-  rows: AuditLog[];
+  rows: AuditLogRow[];
   total: number;
   pageSize: number;
   options: AuditFilterOptions;
@@ -106,7 +106,7 @@ export function AuditScreen({
     webhook_credentials: t("entities.webhook_credentials"),
   };
 
-  const actionLabels: Record<AuditLog["action"], string> = {
+  const actionLabels: Record<AuditLogRow["action"], string> = {
     INSERT: t("actions.insert"),
     UPDATE: t("actions.update"),
     DELETE: t("actions.delete"),
@@ -166,6 +166,7 @@ export function AuditScreen({
           color="gray"
           size="3"
           aria-label={t("filtersLabel")}
+          aria-expanded={showFilters}
           onClick={() => setShowFilters((open) => !open)}
         >
           <SlidersHorizontal size={18} />
@@ -176,61 +177,71 @@ export function AuditScreen({
         <Card>
           <Flex direction="column" gap="3">
             <FilterField label={t("entityLabel")}>
-              <Select.Root
-                value={filters.entity ?? ANY}
-                onValueChange={(value) =>
-                  updateFilters({ entity: value === ANY ? null : value })
-                }
-              >
-                <Select.Trigger />
-                <Select.Content position="popper">
-                  <Select.Item value={ANY}>{t("allEntities")}</Select.Item>
-                  {options.entities.map((entity) => (
-                    <Select.Item key={entity} value={entity}>
-                      {entityLabels[entity] ?? entity}
-                    </Select.Item>
-                  ))}
-                </Select.Content>
-              </Select.Root>
+              {(id) => (
+                <Select.Root
+                  value={filters.entity ?? ANY}
+                  onValueChange={(value) =>
+                    updateFilters({ entity: value === ANY ? null : value })
+                  }
+                >
+                  <Select.Trigger id={id} />
+                  <Select.Content position="popper">
+                    <Select.Item value={ANY}>{t("allEntities")}</Select.Item>
+                    {options.entities.map((entity) => (
+                      <Select.Item key={entity} value={entity}>
+                        {entityLabels[entity] ?? entity}
+                      </Select.Item>
+                    ))}
+                  </Select.Content>
+                </Select.Root>
+              )}
             </FilterField>
 
             <FilterField label={t("actorLabel")}>
-              <Select.Root
-                value={filters.actor ?? ANY}
-                onValueChange={(value) =>
-                  updateFilters({ actor: value === ANY ? null : value })
-                }
-              >
-                <Select.Trigger />
-                <Select.Content position="popper">
-                  <Select.Item value={ANY}>{t("allActors")}</Select.Item>
-                  {options.actors.map((actor) => (
-                    <Select.Item key={actor.userId} value={actor.userId}>
-                      {actor.name}
-                    </Select.Item>
-                  ))}
-                </Select.Content>
-              </Select.Root>
+              {(id) => (
+                <Select.Root
+                  value={filters.actor ?? ANY}
+                  onValueChange={(value) =>
+                    updateFilters({ actor: value === ANY ? null : value })
+                  }
+                >
+                  <Select.Trigger id={id} />
+                  <Select.Content position="popper">
+                    <Select.Item value={ANY}>{t("allActors")}</Select.Item>
+                    {options.actors.map((actor) => (
+                      <Select.Item key={actor.userId} value={actor.userId}>
+                        {actor.name}
+                      </Select.Item>
+                    ))}
+                  </Select.Content>
+                </Select.Root>
+              )}
             </FilterField>
 
             <Flex gap="3" wrap="wrap">
               <FilterField label={t("rangeFrom")}>
-                <TextField.Root
-                  type="date"
-                  value={filters.from ?? ""}
-                  onChange={(event) =>
-                    updateFilters({ from: event.target.value || null })
-                  }
-                />
+                {(id) => (
+                  <TextField.Root
+                    id={id}
+                    type="date"
+                    value={filters.from ?? ""}
+                    onChange={(event) =>
+                      updateFilters({ from: event.target.value || null })
+                    }
+                  />
+                )}
               </FilterField>
               <FilterField label={t("rangeTo")}>
-                <TextField.Root
-                  type="date"
-                  value={filters.to ?? ""}
-                  onChange={(event) =>
-                    updateFilters({ to: event.target.value || null })
-                  }
-                />
+                {(id) => (
+                  <TextField.Root
+                    id={id}
+                    type="date"
+                    value={filters.to ?? ""}
+                    onChange={(event) =>
+                      updateFilters({ to: event.target.value || null })
+                    }
+                  />
+                )}
               </FilterField>
             </Flex>
 
@@ -332,23 +343,6 @@ export function AuditScreen({
           )}
         </Flex>
       )}
-    </Flex>
-  );
-}
-
-function FilterField({
-  label,
-  children,
-}: {
-  label: string;
-  children: ReactNode;
-}) {
-  return (
-    <Flex direction="column" gap="1" flexGrow="1" minWidth="0">
-      <Text size="2" weight="medium" color="gray">
-        {label}
-      </Text>
-      {children}
     </Flex>
   );
 }

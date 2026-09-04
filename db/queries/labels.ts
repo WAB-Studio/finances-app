@@ -1,8 +1,9 @@
 import "server-only";
 
-import { asc, eq, sql } from "drizzle-orm";
+import { asc, eq, or, sql } from "drizzle-orm";
 
 import { insertRow } from "@/db/insert-row";
+import { callerGroupId } from "@/db/queries/groups";
 import { labels } from "@/db/schema";
 import { withUserDb } from "@/db/session";
 
@@ -16,12 +17,18 @@ export type LabelRow = {
   color: string | null;
 };
 
+// A row carries the scope it was read from: a movement's labels must share its
+// scope (RF-70), and the picker tells the two sets apart with no second lookup.
+export type ScopedLabelRow = LabelRow & { scope: "personal" | "group" };
+
 // The management screen's row: the label plus what would break if it went away
-// (RF-70). Both counts derive from the join and the budgets narrowing on it.
+// (RF-70). Both counts derive from the join and the budgets narrowing on it, and
+// neither is ever stored.
 export type LabelManagementRow = {
   id: string;
   name: string;
   color: string | null;
+  // How many transactions wear the label, through `transaction_labels`.
   movementCount: number;
   budgetCount: number;
 };
@@ -56,9 +63,39 @@ export async function listLabels(scope: LabelScope): Promise<LabelRow[]> {
 }
 
 /**
+ * Every label a form offers, in ONE statement: the caller's own and their group's,
+ * the group resolved by subselect rather than behind a transaction of its own.
+ * Personal before the group's, then by name — the order the two reads it replaces
+ * used to arrive in.
+ */
+export async function listScopedLabels(userId: string): Promise<ScopedLabelRow[]> {
+  return withUserDb(async (tx) => {
+    const rows = await tx
+      .select({
+        id: labels.id,
+        name: labels.name,
+        color: labels.color,
+        ownerUserId: labels.ownerUserId,
+      })
+      .from(labels)
+      .where(or(eq(labels.ownerUserId, userId), eq(labels.groupId, callerGroupId(userId))))
+      .orderBy(asc(sql`${labels.ownerUserId} is null`), asc(labels.name));
+
+    return rows.map(({ ownerUserId, ...label }) => ({
+      ...label,
+      scope: ownerUserId === null ? ("group" as const) : ("personal" as const),
+    }));
+  });
+}
+
+/**
  * The scope's labels for the management screen, counts along, in ONE round trip:
- * both counts ride as correlated subqueries, never an N+1 follow-up. `listLabels`
- * stays countless so the movement form never pays for them.
+ * both counts ride as correlated subqueries, never an N+1 follow-up (RF-70).
+ * `listLabels` stays countless so the movement form never pays for them.
+ *
+ * Neither count can name a row the caller may not read: both subqueries run
+ * under the same session as the outer select, so `transaction_labels` and
+ * `budgets` answer through their own policies.
  */
 export async function listManagedLabels(
   scope: LabelScope,

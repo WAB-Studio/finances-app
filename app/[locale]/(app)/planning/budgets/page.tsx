@@ -12,11 +12,13 @@ import { getTransactionFormOptions } from "@/db/queries/transaction-form";
 import { todayInBogota } from "@/lib/dates";
 import { routing } from "@/i18n/routing";
 
-// A malformed `?month` never reaches `periodRange`: anything but a `YYYY-MM`
-// shape falls back to the current Bogotá month, so the window always resolves.
+// A malformed `?month` never reaches `periodRange`: anything but a real `YYYY-MM`
+// month falls back to the current Bogotá month, so the window always resolves.
+// The shape alone is not enough: `1999-13-01` is no day, and `monthRange` throws
+// on it before any bound reaches Postgres.
 const monthSchema = z
   .string()
-  .regex(/^\d{4}-\d{2}$/)
+  .regex(/^\d{4}-(0[1-9]|1[0-2])$/)
   .catch(() => todayInBogota().slice(0, 7));
 
 const searchParamsSchema = z.object({ month: monthSchema });
@@ -40,13 +42,16 @@ export default async function BudgetsPage(
 
   setRequestLocale(locale);
 
-  const { month } = searchParamsSchema.parse(await props.searchParams);
+  const searchParams = await props.searchParams;
+  const { month } = searchParamsSchema.parse(searchParams);
+  // The archived tab lists exactly the budgets the active one leaves out (RF-120).
+  const archived = searchParams.tab === "archived";
   // The window derives from the month's first day; the query slides its period
   // range around this anchor, never a stored spent column (RF-72).
   const anchor = `${month}-01`;
 
   const [budgets, options, group] = await Promise.all([
-    listBudgetsWithStatus(anchor),
+    listBudgetsWithStatus(anchor, { archived }),
     getTransactionFormOptions(),
     getUserGroup(),
   ]);
@@ -58,6 +63,7 @@ export default async function BudgetsPage(
         options={options}
         hasGroup={group !== null}
         month={month}
+        archived={archived}
       />
     </Page>
   );

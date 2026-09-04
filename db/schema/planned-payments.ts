@@ -54,6 +54,11 @@ export const plannedPayments = pgTable(
       "planned_payments_at_least_one_account",
       sql`num_nonnulls(${table.fromAccountId}, ${table.toAccountId}) >= 1`,
     ),
+    // A transfer names two different accounts (RF-101) — the same rule the movement it settles into keeps.
+    check(
+      "planned_payments_accounts_distinct",
+      sql`${table.fromAccountId} is distinct from ${table.toAccountId}`,
+    ),
     check(
       "planned_payments_owner_xor_group",
       sql`num_nonnulls(${table.ownerUserId}, ${table.groupId}) = 1`,

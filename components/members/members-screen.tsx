@@ -10,6 +10,7 @@ import {
   archiveMemberAction,
   deleteMemberAction,
   restoreMemberAction,
+  transferLeadershipAction,
 } from "@/app/actions/members";
 import { MemberFormDialog } from "@/components/members/member-form-dialog";
 import {
@@ -35,16 +36,19 @@ import { useActionErrorToast } from "@/lib/use-action-toast";
 type RowAction =
   | { kind: "archive"; member: MemberRow }
   | { kind: "restore"; member: MemberRow }
-  | { kind: "delete"; member: MemberRow };
+  | { kind: "delete"; member: MemberRow }
+  | { kind: "transfer"; member: MemberRow };
 
 export function MembersScreen({
   members,
   currentUserId,
   archived,
+  isLeader,
 }: {
   members: MemberRow[];
   currentUserId: string;
   archived: boolean;
+  isLeader: boolean;
 }) {
   const t = useTranslations("members");
   // Root-scoped: `common` is a full catalogue path, not this component's namespace.
@@ -82,6 +86,14 @@ export function MembersScreen({
     onError: onActionError,
   });
 
+  const transferState = useAction(transferLeadershipAction, {
+    onSuccess() {
+      toast.success(t("transferred"));
+      setRowAction(null);
+    },
+    onError: onActionError,
+  });
+
   function onTabChange(value: string) {
     router.push(
       { pathname, query: value === "archived" ? { tab: "archived" } : {} },
@@ -93,8 +105,8 @@ export function MembersScreen({
     <Flex direction="column" gap="4">
       <Flex justify="between" align="center" gap="3" wrap="wrap">
         <Heading size="5">{t("title")}</Heading>
-        {/* Add would create an active member, so the archived tab offers none. */}
-        {!archived && (
+        {/* Add would create an active member, so the archived tab offers none; RF-100 keeps it from anyone but the leader. */}
+        {isLeader && !archived && (
           <Button type="button" onClick={() => setFormTarget("new")}>
             <Plus size={16} />
             {t("add")}
@@ -120,6 +132,13 @@ export function MembersScreen({
         <Flex direction="column" gap="3">
           {members.map((member) => {
             const isSelf = member.userId === currentUserId;
+            // RF-100: the leader manages the roster; everyone else only renames their own row.
+            const canEdit = isLeader || isSelf;
+            // The database refuses all three on a caller who is not the leader, and on the session user's own row.
+            const canManage = isLeader && !isSelf;
+            // An archived row is read-only, and what it still offers is the
+            // leader's alone, so a member's own archived row carries no menu.
+            const hasMenu = member.archivedAt ? canManage : canEdit;
 
             return (
               <Card key={member.id}>
@@ -143,29 +162,26 @@ export function MembersScreen({
                   </Flex>
 
                   <Box flexShrink="0">
-                    <DropdownMenu.Root>
-                      <DropdownMenu.Trigger>
-                        <IconButton
-                          type="button"
-                          variant="ghost"
-                          color="gray"
-                          size="3"
-                          aria-label={tKey("common.actions")}
-                        >
-                          <EllipsisVertical size={16} />
-                        </IconButton>
-                      </DropdownMenu.Trigger>
-                      <DropdownMenu.Content>
-                        <DropdownMenu.Item
-                          onSelect={() => setFormTarget(member)}
-                        >
-                          {tKey("common.edit")}
-                        </DropdownMenu.Item>
-                        {/* The database refuses both on the session user's own row: offering them would only fail. */}
-                        {!isSelf && (
-                          <>
-                            <DropdownMenu.Separator />
-                            {member.archivedAt ? (
+                    {hasMenu && (
+                      <DropdownMenu.Root>
+                        <DropdownMenu.Trigger>
+                          <IconButton
+                            type="button"
+                            variant="ghost"
+                            color="gray"
+                            size="3"
+                            aria-label={tKey("common.actionsFor", {
+                              name: member.name,
+                            })}
+                          >
+                            <EllipsisVertical size={16} />
+                          </IconButton>
+                        </DropdownMenu.Trigger>
+                        <DropdownMenu.Content>
+                          {/* An archived member is read-only: the way back is
+                              all the row offers, and a rename waits for it. */}
+                          {member.archivedAt ? (
+                            <>
                               <DropdownMenu.Item
                                 onSelect={() =>
                                   setRowAction({ kind: "restore", member })
@@ -173,27 +189,59 @@ export function MembersScreen({
                               >
                                 {tKey("common.restore")}
                               </DropdownMenu.Item>
-                            ) : (
                               <DropdownMenu.Item
+                                color="red"
                                 onSelect={() =>
-                                  setRowAction({ kind: "archive", member })
+                                  setRowAction({ kind: "delete", member })
                                 }
                               >
-                                {tKey("common.archive")}
+                                {tKey("common.delete")}
                               </DropdownMenu.Item>
-                            )}
-                            <DropdownMenu.Item
-                              color="red"
-                              onSelect={() =>
-                                setRowAction({ kind: "delete", member })
-                              }
-                            >
-                              {tKey("common.delete")}
-                            </DropdownMenu.Item>
-                          </>
-                        )}
-                      </DropdownMenu.Content>
-                    </DropdownMenu.Root>
+                            </>
+                          ) : (
+                            <>
+                              <DropdownMenu.Item
+                                onSelect={() => setFormTarget(member)}
+                              >
+                                {tKey("common.edit")}
+                              </DropdownMenu.Item>
+                              {canManage && (
+                                <>
+                                  <DropdownMenu.Separator />
+                                  {/* A member with no login cannot hold the
+                                      role, so the item never offers what
+                                      `group_members_leader_has_user` refuses. */}
+                                  {member.userId !== null && (
+                                    <DropdownMenu.Item
+                                      onSelect={() =>
+                                        setRowAction({ kind: "transfer", member })
+                                      }
+                                    >
+                                      {t("transfer")}
+                                    </DropdownMenu.Item>
+                                  )}
+                                  <DropdownMenu.Item
+                                    onSelect={() =>
+                                      setRowAction({ kind: "archive", member })
+                                    }
+                                  >
+                                    {tKey("common.archive")}
+                                  </DropdownMenu.Item>
+                                  <DropdownMenu.Item
+                                    color="red"
+                                    onSelect={() =>
+                                      setRowAction({ kind: "delete", member })
+                                    }
+                                  >
+                                    {tKey("common.delete")}
+                                  </DropdownMenu.Item>
+                                </>
+                              )}
+                            </>
+                          )}
+                        </DropdownMenu.Content>
+                      </DropdownMenu.Root>
+                    )}
                   </Box>
                 </Flex>
               </Card>
@@ -246,6 +294,24 @@ export function MembersScreen({
           tone="neutral"
           onConfirm={() =>
             restoreState.execute({ memberId: rowAction.member.id })
+          }
+        />
+      )}
+
+      {rowAction?.kind === "transfer" && (
+        <ConfirmDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setRowAction(null);
+          }}
+          title={t("transferTitle")}
+          description={t("transferDescription")}
+          confirmLabel={t("transfer")}
+          cancelLabel={tKey("common.cancel")}
+          pending={transferState.isPending}
+          tone="neutral"
+          onConfirm={() =>
+            transferState.execute({ memberId: rowAction.member.id })
           }
         />
       )}

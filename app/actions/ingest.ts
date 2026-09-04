@@ -7,6 +7,8 @@ import {
   acceptDelivery,
   DeliveryNotPending,
   rejectDelivery,
+  restoreShape,
+  ShapeNotSilenced,
 } from "@/db/queries/ingest-review";
 import type { TransactionSplitInput } from "@/db/queries/transactions";
 import { ingestMerchants } from "@/db/schema";
@@ -19,6 +21,7 @@ import {
   acceptDeliverySchema,
   forgetMerchantSchema,
   rejectDeliverySchema,
+  restoreShapeSchema,
 } from "@/lib/validation/ingest";
 
 type SplitInput = { categoryId: string; amount: string };
@@ -37,7 +40,7 @@ function toSplitCents(splits: SplitInput[]): TransactionSplitInput[] {
 }
 
 function mapReviewError(error: unknown): never {
-  if (error instanceof DeliveryNotPending) {
+  if (error instanceof DeliveryNotPending || error instanceof ShapeNotSilenced) {
     throw new ActionError("errors.notFound");
   }
 
@@ -99,4 +102,19 @@ export const forgetMerchantAction = authActionClient
     if (deleted.length === 0) throw new ActionError("errors.notFound");
 
     refresh();
+  });
+
+export const restoreShapeAction = authActionClient
+  .inputSchema(restoreShapeSchema)
+  .action(async ({ parsedInput }) => {
+    let deliveriesRestored: number;
+    try {
+      ({ deliveriesRestored } = await restoreShape(parsedInput));
+    } catch (error) {
+      mapReviewError(error);
+    }
+
+    refresh();
+    // The count travels back so the toast can name what returned to the queue.
+    return { deliveriesRestored };
   });

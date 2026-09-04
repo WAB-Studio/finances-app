@@ -249,9 +249,12 @@ function PaymentCard({
           <DropdownMenu.Trigger>
             <IconButton
               type="button"
+              tap
               variant="ghost"
               color="gray"
-              aria-label={tKey("common.actions")}
+              aria-label={tKey("common.actionsFor", {
+                name: payment.description ?? t("noConcept"),
+              })}
             >
               <EllipsisVertical size={16} />
             </IconButton>

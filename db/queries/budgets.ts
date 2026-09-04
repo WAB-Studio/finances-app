@@ -34,14 +34,30 @@ export type BudgetStatus = {
  * come from `periodRange` around `anchorDate` (today by default), so a stored
  * spent column never exists; the anchor only slides the window the split sum
  * derives over, never a budget's period or threshold (RF-72).
+ * `archived` swaps the listing onto the archived side (RF-120): the two sides
+ * partition the readable budgets, and an archived one derives its figures the
+ * same way, since nothing about the spend is special-cased or stored.
  * Scope is the policy's job: `withUserDb` shows only the caller's readable rows.
  */
 export async function listBudgetsWithStatus(
-  anchorDate: string = todayInBogota(),
+  anchorDate?: string,
+  options?: { archived?: boolean },
 ): Promise<BudgetStatus[]> {
-  const monthly = periodRange("monthly", anchorDate);
-  const weekly = periodRange("weekly", anchorDate);
-  const yearly = periodRange("yearly", anchorDate);
+  // The clock is read once, so an anchor cannot be compared against one Bogotá
+  // day and windowed against the next.
+  const today = todayInBogota();
+  // No future period is served: an anchor past today collapses onto today. Both
+  // sides are civil `YYYY-MM-DD`, so the ordering is the calendar's (RNF-06) and
+  // no instant — hence no zone offset — enters the comparison.
+  const anchor = anchorDate !== undefined && anchorDate < today ? anchorDate : today;
+
+  const archivedFilter = options?.archived
+    ? sql`b.archived_at is not null`
+    : sql`b.archived_at is null`;
+
+  const monthly = periodRange("monthly", anchor);
+  const weekly = periodRange("weekly", anchor);
+  const yearly = periodRange("yearly", anchor);
 
   return withUserDb(async (tx) => {
     const rows = await tx.execute<{
@@ -85,7 +101,7 @@ export async function listBudgetsWithStatus(
               where tl.transaction_id = t.id and tl.label_id = b.label_id))
         ), 0) as spent_cents
       from budgets b
-      where b.archived_at is null
+      where ${archivedFilter}
       order by b.name
     `);
 
@@ -192,6 +208,8 @@ export async function updateBudget({
   });
 }
 
+// RF-120: archiving keeps the budget and its limit, so nothing already derived
+// moves — the split sum reads movements, never a budget's flag.
 export async function archiveBudget({
   budgetId,
 }: {
@@ -201,6 +219,24 @@ export async function archiveBudget({
     const rows = await tx
       .update(budgets)
       .set({ archivedAt: sql`now()` })
+      .where(eq(budgets.id, budgetId))
+      .returning({ id: budgets.id });
+
+    return rows.length > 0;
+  });
+}
+
+// The update policy scopes by owner-or-group and carries no archived predicate,
+// so an archived budget stays inside the same USING that archived it (RF-120).
+export async function restoreBudget({
+  budgetId,
+}: {
+  budgetId: string;
+}): Promise<boolean> {
+  return withUserDb(async (tx) => {
+    const rows = await tx
+      .update(budgets)
+      .set({ archivedAt: null })
       .where(eq(budgets.id, budgetId))
       .returning({ id: budgets.id });
 

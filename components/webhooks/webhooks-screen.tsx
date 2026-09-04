@@ -173,7 +173,9 @@ export function WebhooksScreen({
                           variant="ghost"
                           color="gray"
                           size="3"
-                          aria-label={tKey("common.actions")}
+                          aria-label={tKey("common.actionsFor", {
+                            name: row.name,
+                          })}
                         >
                           <EllipsisVertical size={16} />
                         </IconButton>
@@ -199,7 +201,7 @@ export function WebhooksScreen({
           like before deciding to issue one. */}
       <Card>
         <Flex direction="column" gap="4">
-          <Heading size="3">{t("endpointHeading")}</Heading>
+          <Heading as="h2" size="3">{t("endpointHeading")}</Heading>
           <CopyField
             id="webhook-endpoint-url"
             label={t("endpointUrlLabel")}

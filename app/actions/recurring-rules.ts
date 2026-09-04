@@ -38,13 +38,16 @@ function dayForFrequency(frequency: string, dayOfMonth?: number | null): number 
   return frequency === "weekly" ? null : (dayOfMonth ?? null);
 }
 
-// The scope trigger raises 23514 when the account disagrees on scope; a missing
-// account trips its foreign key; a denied write reads as an absent rule.
+// The scope trigger raises 23514 when the account disagrees on scope; a denied
+// write reads as an absent rule, and a deleted account lands there too — the
+// policy names the accounts, so it refuses before any foreign key. Nothing guards
+// the category, so 23503 is the one it left: a category picked from the list and
+// deleted before the rule was saved.
 function mapRecurringRuleError(error: unknown): never {
   const code = pgErrorCode(error);
   if (code === "42501") throw new ActionError("errors.notFound");
   if (code === "23514") throw new ActionError("recurringRules.errors.scopeViolation");
-  if (code === "23503") throw new ActionError("errors.accountInUse");
+  if (code === "23503") throw new ActionError("errors.referenceGone");
   throw error;
 }
 

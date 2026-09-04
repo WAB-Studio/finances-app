@@ -32,8 +32,8 @@ export const updateMemberSchema = z.object({
 
 export type UpdateMemberInput = z.infer<typeof updateMemberSchema>;
 
-// Accounts no longer hang off a member (RF-61), so archiving one carries no
-// per-account decision: it only flags the member.
+// Accounts name a user or the group, never a member (RF-61), so archiving one
+// carries no per-account decision: it only flags the member.
 export const archiveMemberSchema = z.object({
   memberId: z.uuid(),
 });
@@ -51,3 +51,12 @@ export const deleteMemberSchema = z.object({
 });
 
 export type DeleteMemberInput = z.infer<typeof deleteMemberSchema>;
+
+// RF-59: only the member who takes the role travels. The outgoing leader is the
+// caller, read from the session, and the swap is one call the engine makes.
+export const transferLeadershipSchema = z.object({
+  memberId: z.uuid(),
+});
+
+export type TransferLeadershipInput = z.infer<typeof transferLeadershipSchema>;
+

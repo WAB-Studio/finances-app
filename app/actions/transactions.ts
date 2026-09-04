@@ -38,13 +38,15 @@ function toSplitCents(splits: SplitInput[]): TransactionSplitInput[] {
 
 // The scope, `kind` and `created_by` are the DB's to set, so none travels in the
 // payload. The check trigger raises one code, 23514, for every split/scope
-// refusal; the foreign key raises 23503 when a named account is gone; a denied
-// write raises 42501, which reads the same as a movement that was never there.
+// refusal; a denied write raises 42501, which reads the same as a movement that
+// was never there — an account deleted under the open form lands there, since the
+// INSERT policy runs before any foreign key. What is left for 23503 is a
+// reference the row names that vanished after it was picked.
 function mapTransactionError(error: unknown): never {
   const code = pgErrorCode(error);
   if (code === "42501") throw new ActionError("errors.notFound");
   if (code === "23514") throw new ActionError("transactions.errors.splitsScopeViolation");
-  if (code === "23503") throw new ActionError("errors.accountInUse");
+  if (code === "23503") throw new ActionError("errors.referenceGone");
   throw error;
 }
 

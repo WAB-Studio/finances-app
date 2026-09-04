@@ -261,7 +261,7 @@ function GoalForm({
         />
 
         {/* An opening aporte only exists at creation; an edit changes fields, not
-            the earmarked amount, so this stays off the update form (RF-77). */}
+            the earmarked amount, so this stays off the update form (RF-87). */}
         {!isEdit && (
           <Controller
             name="initialContribution"

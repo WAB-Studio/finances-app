@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import {
   archiveAccountAction,
   deleteAccountAction,
+  handAccountToGroupAction,
   restoreAccountAction,
 } from "@/app/actions/accounts";
 import { AccountFormDialog } from "@/components/accounts/account-form-dialog";
@@ -22,14 +23,15 @@ import {
   Flex,
   Heading,
   IconButton,
+  Money,
   SegmentedControl,
   Text,
 } from "@/components/ui";
 import type { AccountRow } from "@/db/queries/accounts";
 import { usePathname, useRouter } from "@/i18n/navigation";
 import { civilDateToDate } from "@/lib/dates";
-import { centsToPesos } from "@/lib/money";
 import { useActionErrorToast } from "@/lib/use-action-toast";
+import type { ACCOUNT_SUBTYPES } from "@/lib/validation/account";
 
 type Group = { key: string; label: string; accounts: AccountRow[] };
 
@@ -38,7 +40,8 @@ type Group = { key: string; label: string; accounts: AccountRow[] };
 type RowAction =
   | { kind: "archive"; account: AccountRow }
   | { kind: "restore"; account: AccountRow }
-  | { kind: "delete"; account: AccountRow };
+  | { kind: "delete"; account: AccountRow }
+  | { kind: "handOver"; account: AccountRow };
 
 // `listAccounts` already orders personal accounts ahead of the group's, then by
 // name, so one pass that starts a new group on a placement change reproduces
@@ -71,10 +74,13 @@ export function AccountsScreen({
   accounts,
   groupName,
   archived,
+  newSubtype,
 }: {
   accounts: AccountRow[];
   groupName: string | null;
   archived: boolean;
+  // The class a caller arrived asking to open, already validated by the page.
+  newSubtype?: (typeof ACCOUNT_SUBTYPES)[number] | null;
 }) {
   const t = useTranslations("accounts");
   const tKey = useTranslations();
@@ -82,8 +88,12 @@ export function AccountsScreen({
   const router = useRouter();
   const onActionError = useActionErrorToast();
 
-  // "new" and a row share one dialog instance; its own key resets the form.
-  const [formTarget, setFormTarget] = useState<AccountRow | "new" | null>(null);
+  // "new" and a row share one dialog instance; its own key resets the form. A
+  // named class opens it on arrival, so the tile that asked for it lands on the
+  // form rather than on the list.
+  const [formTarget, setFormTarget] = useState<AccountRow | "new" | null>(
+    newSubtype ? "new" : null,
+  );
   const [rowAction, setRowAction] = useState<RowAction | null>(null);
 
   const archiveState = useAction(archiveAccountAction, {
@@ -105,6 +115,14 @@ export function AccountsScreen({
   const deleteState = useAction(deleteAccountAction, {
     onSuccess() {
       toast.success(t("deleted"));
+      setRowAction(null);
+    },
+    onError: onActionError,
+  });
+
+  const handOverState = useAction(handAccountToGroupAction, {
+    onSuccess() {
+      toast.success(t("handedOver"));
       setRowAction(null);
     },
     onError: onActionError,
@@ -180,6 +198,15 @@ export function AccountsScreen({
                     onArchive={() => setRowAction({ kind: "archive", account })}
                     onRestore={() => setRowAction({ kind: "restore", account })}
                     onDelete={() => setRowAction({ kind: "delete", account })}
+                    // Only a personal, live account of a caller who has a
+                    // group has anywhere to go (RF-60, RF-61).
+                    onHandOver={
+                      groupName !== null &&
+                      account.ownerUserId !== null &&
+                      !archived
+                        ? () => setRowAction({ kind: "handOver", account })
+                        : null
+                    }
                   />
                 ))}
               </Flex>
@@ -195,6 +222,7 @@ export function AccountsScreen({
           if (!open) setFormTarget(null);
         }}
         account={formTarget === "new" ? undefined : (formTarget ?? undefined)}
+        defaultSubtype={newSubtype ?? undefined}
       />
 
       {rowAction?.kind === "archive" && (
@@ -229,6 +257,22 @@ export function AccountsScreen({
         />
       )}
 
+      {rowAction?.kind === "handOver" && (
+        <ConfirmDialog
+          open
+          onOpenChange={(open) => !open && setRowAction(null)}
+          title={t("handOverTitle")}
+          description={t("handOverDescription")}
+          confirmLabel={t("handOver")}
+          cancelLabel={tKey("common.cancel")}
+          tone="neutral"
+          pending={handOverState.isPending}
+          onConfirm={() =>
+            handOverState.execute({ accountId: rowAction.account.id })
+          }
+        />
+      )}
+
       {rowAction?.kind === "delete" && (
         <ConfirmDialog
           open
@@ -254,6 +298,7 @@ function AccountCard({
   onArchive,
   onRestore,
   onDelete,
+  onHandOver,
 }: {
   account: AccountRow;
   archived: boolean;
@@ -261,6 +306,7 @@ function AccountCard({
   onArchive: () => void;
   onRestore: () => void;
   onDelete: () => void;
+  onHandOver: (() => void) | null;
 }) {
   const t = useTranslations("accounts");
   const tKey = useTranslations();
@@ -281,17 +327,27 @@ function AccountCard({
               {account.institution}
             </Text>
           )}
-          {/* Names the opening figure, never a balance: no movement exists
-              yet, so nothing on this screen derives an actual balance. */}
+          {/* The magnitude only: the badge above already states the kind, and a
+              liability stores what it owes as a negative figure (RF-114). */}
+          <Flex align="center" gap="1" wrap="wrap">
+            <Text size="2" color="gray">
+              {t("balanceLabel")}
+            </Text>
+            <Money cents={account.balanceCents} tone="plain" signed={false} />
+          </Flex>
           <Flex align="center" gap="1" wrap="wrap">
             <Text size="2" color="gray">
               {t("openingBalanceLabel")}
             </Text>
             <Text size="2" color="gray">
-              {t("openingBalanceRow", {
-                amount: format.number(
-                  centsToPesos(Math.abs(account.initialBalanceCents)),
-                  "currency",
+              {t.rich("openingBalanceRow", {
+                amount: () => (
+                  <Money
+                    cents={account.initialBalanceCents}
+                    tone="plain"
+                    size="inherit"
+                    signed={false}
+                  />
                 ),
                 date: format.dateTime(civilDateToDate(account.initialBalanceOn)),
               })}
@@ -305,23 +361,32 @@ function AccountCard({
               variant="ghost"
               color="gray"
               size="3"
-              aria-label={tKey("common.actions")}
+              aria-label={tKey("common.actionsFor", { name: account.name })}
             >
               <EllipsisVertical size={16} />
             </IconButton>
           </DropdownMenu.Trigger>
           <DropdownMenu.Content>
-            <DropdownMenu.Item onSelect={onEdit}>
-              {tKey("common.edit")}
-            </DropdownMenu.Item>
+            {/* An archived account is read-only: the way back is all it offers,
+                and a mistake is corrected by restoring it first. */}
             {archived ? (
               <DropdownMenu.Item onSelect={onRestore}>
                 {tKey("common.restore")}
               </DropdownMenu.Item>
             ) : (
-              <DropdownMenu.Item onSelect={onArchive}>
-                {tKey("common.archive")}
-              </DropdownMenu.Item>
+              <>
+                <DropdownMenu.Item onSelect={onEdit}>
+                  {tKey("common.edit")}
+                </DropdownMenu.Item>
+                <DropdownMenu.Item onSelect={onArchive}>
+                  {tKey("common.archive")}
+                </DropdownMenu.Item>
+                {onHandOver && (
+                  <DropdownMenu.Item onSelect={onHandOver}>
+                    {t("handOver")}
+                  </DropdownMenu.Item>
+                )}
+              </>
             )}
             <DropdownMenu.Item color="red" onSelect={onDelete}>
               {tKey("common.delete")}

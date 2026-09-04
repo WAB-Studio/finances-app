@@ -5,20 +5,27 @@ import { refresh } from "next/cache";
 import { getUserGroup } from "@/db/queries/groups";
 import {
   addGoalContribution,
+  archiveGoal,
   createGoal,
   deleteGoal,
+  listGoalContributions,
   removeGoalContribution,
+  restoreGoal,
   updateGoal,
+  type GoalContributionRow,
 } from "@/db/queries/savings-goals";
 import { pgErrorCode } from "@/lib/db-error";
 import { ActionError } from "@/lib/errors";
 import { parsePesos, pesosToCents } from "@/lib/money";
 import { authActionClient } from "@/lib/safe-action";
 import {
+  archiveGoalSchema,
   contributeGoalSchema,
   createGoalSchema,
   deleteGoalSchema,
+  goalContributionsSchema,
   removeGoalContributionSchema,
+  restoreGoalSchema,
   updateGoalSchema,
 } from "@/lib/validation/savings-goal";
 
@@ -107,6 +114,30 @@ export const updateGoalAction = authActionClient
     refresh();
   });
 
+/**
+ * Archives a savings goal (RF-120). The scope is not re-derived: the goal already
+ * carries its own, so the update policy decides, and a row it filters reports as
+ * no row — the same as a goal that was never there.
+ */
+export const archiveGoalAction = authActionClient
+  .inputSchema(archiveGoalSchema)
+  .action(async ({ parsedInput: { goalId } }) => {
+    const archived = await archiveGoal({ goalId });
+    if (!archived) throw new ActionError("errors.notFound");
+
+    refresh();
+  });
+
+// Restoring passes the same USING that archived it, so it refuses on the same terms.
+export const restoreGoalAction = authActionClient
+  .inputSchema(restoreGoalSchema)
+  .action(async ({ parsedInput: { goalId } }) => {
+    const restored = await restoreGoal({ goalId });
+    if (!restored) throw new ActionError("errors.notFound");
+
+    refresh();
+  });
+
 export const deleteGoalAction = authActionClient
   .inputSchema(deleteGoalSchema)
   .action(async ({ parsedInput: { goalId } }) => {
@@ -117,7 +148,7 @@ export const deleteGoalAction = authActionClient
   });
 
 /**
- * Adds a typed virtual aporte toward a goal (RF-77). The entry earmarks no
+ * Adds a typed virtual aporte toward a goal (RF-87). The entry earmarks no
  * movement, so only the amount crosses, as a peso string.
  */
 export const contributeGoalAction = authActionClient
@@ -136,7 +167,19 @@ export const contributeGoalAction = authActionClient
     return { contributionId };
   });
 
-// A false row count is a contribution that was denied or already gone (RF-77).
+/**
+ * One goal's aportes for the undo list (RF-119). A read: it writes nothing and
+ * refreshes nothing, and the select policy — not the goal id — decides which rows
+ * come back. The list is fetched when a person opens it, so a screen full of
+ * goals costs no round trip for the ones nobody asks about.
+ */
+export const listGoalContributionsAction = authActionClient
+  .inputSchema(goalContributionsSchema)
+  .action(async ({ parsedInput: { goalId } }): Promise<GoalContributionRow[]> => {
+    return listGoalContributions(goalId);
+  });
+
+// A false row count is a contribution that was denied or already gone (RF-87).
 export const removeGoalContributionAction = authActionClient
   .inputSchema(removeGoalContributionSchema)
   .action(async ({ parsedInput: { contributionId } }) => {

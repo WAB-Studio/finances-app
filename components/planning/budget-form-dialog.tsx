@@ -51,6 +51,7 @@ type BudgetFormValues = {
   period: (typeof BUDGET_PERIODS)[number];
   limit: string;
   thresholdPct: number;
+  name: string | null;
 };
 
 export function BudgetFormDialog({
@@ -123,6 +124,7 @@ function BudgetForm({
           period: budget.period,
           limit: String(centsToPesos(budget.limitCents)),
           thresholdPct: budget.thresholdPct,
+          name: budget.name,
         }
       : {
           categoryId: "",
@@ -131,6 +133,7 @@ function BudgetForm({
           period: "monthly",
           limit: "",
           thresholdPct: 80,
+          name: null,
         },
   });
 
@@ -212,6 +215,39 @@ function BudgetForm({
             )}
           />
         )}
+
+        {/* Two budgets on one category tell themselves apart by this name; left
+            empty, the card falls back to the category's own (RF-71). */}
+        <Controller
+          name="name"
+          control={form.control}
+          render={({ field, fieldState }) => (
+            <Field invalid={fieldState.invalid}>
+              <FieldLabel htmlFor="budget-name">
+                <Flex as="span" align="center" gap="1">
+                  {t("nameLabel")}
+                  <Text size="2" weight="regular" color="gray">
+                    {tKey("common.optional")}
+                  </Text>
+                </Flex>
+              </FieldLabel>
+              <FieldControl>
+                <TextField.Root
+                  id="budget-name"
+                  size="3"
+                  autoComplete="off"
+                  disabled={isPending}
+                  value={field.value ?? ""}
+                  onChange={(event) => field.onChange(event.target.value || null)}
+                  onBlur={field.onBlur}
+                  name={field.name}
+                  ref={field.ref}
+                />
+              </FieldControl>
+              <FieldMessage error={fieldState.error} />
+            </Field>
+          )}
+        />
 
         <Controller
           name="limit"

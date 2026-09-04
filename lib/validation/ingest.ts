@@ -37,3 +37,12 @@ export const forgetMerchantSchema = z.object({
 });
 
 export type ForgetMerchantInput = z.infer<typeof forgetMerchantSchema>;
+
+// Undoing a silence (RF-99): dropping the memory returns the shape to *never
+// seen*, which RF-92 lets wait for review again, and returns with it the
+// deliveries that memory discarded on its own.
+export const restoreShapeSchema = z.object({
+  shapeId: z.uuid({ error: "ingest.errors.shapeInvalid" }),
+});
+
+export type RestoreShapeInput = z.infer<typeof restoreShapeSchema>;

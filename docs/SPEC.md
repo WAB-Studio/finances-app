@@ -40,41 +40,45 @@ accounting exports, native apps. None of this gets built or left
 #### Authentication and fund
 
 - [x] **RF-01** — Passwordless email login.
-- [ ] **RF-57** — Only the group `leader` invites members, edits the group and manages the group's categories.
-- [ ] **RF-58** — Every member of a group can read all of its accounts (universal read); write is bounded per account — a personal account by its owner, a shared account by any member.
-- [ ] **RF-59** — Whoever creates a group becomes its `leader`. The role is transferable, but a group is never left without a leader.
+- [x] **RF-57** — Only the group `leader` invites members, edits the group and manages the group's categories.
+- [x] **RF-58** — Every member of a group can read all of its accounts (universal read); write is bounded per account — a personal account by its owner, a shared account by any member.
+- [x] **RF-59** — Whoever creates a group becomes its `leader`. The role is transferable, but a group is never left without a leader.
 - [x] **RF-06** — Accepting an invitation links the user to the member that already exists in the fund, if any; otherwise a member is created.
-- [ ] **RF-55** — By default a user's accounts are personal; a user may belong to at most one optional shared group. There is no multi-fund membership and no switching.
+- [x] **RF-55** — By default a user's accounts are personal; a user may belong to at most one optional shared group. There is no multi-fund membership and no switching.
 
 #### Members and accounts
 
-- [x] **RF-07** — CRUD for members. A member need not have a user: you record on their behalf even if they never open the app.
-- [ ] **RF-60** — CRUD for accounts. An account is either personal (owned by a user) or a group account; a personal account can be marked shared so the group may write it.
+- [x] **RF-07** — CRUD for members. A member need not have a user.
+- [x] **RF-60** — CRUD for accounts. An account is either personal (owned by a user) or a group account.
 - [x] **RF-09** — An account is either an asset (savings, cash) or a liability (card, loan).
 - [x] **RF-10** — Creating an account captures its opening balance and the date that balance is true as of.
-- [ ] **RF-11** — Accounts and members that have movements are archived, not deleted.
-- [ ] **RF-61** — Archiving a member does not archive their accounts. The owner decides per account: archive it or hand it to the group.
+- [x] **RF-11** — Accounts and members that have movements are archived, not deleted.
+- [x] **RF-61** — Archiving a member does not archive their accounts. The owner decides per account: archive it or hand it to the group.
+- [x] **RF-100** — Only the group `leader` adds, renames, archives, restores and removes a member; every member renames their own row and no other.
+- [x] **RF-114** — The accounts list shows each account's balance, derived from its opening balance and its movements and never stored.
 
 #### Debts
 
-- [ ] **RF-16** — Paying down a debt is recorded as a transfer from an asset account.
+- [x] **RF-16** — Paying down a debt is recorded as a transfer from an asset account.
 - [x] **RF-78** — A liability account may carry debt terms: an effective annual rate, a minimum payment as a fixed amount or a percentage of balance, a credit limit, a statement cut-off day, a payment due day and an aval.
 - [x] **RF-79** — The app estimates a debt's monthly interest from its derived balance and effective annual rate; the annual-to-monthly conversion is effective, not linear.
 - [x] **RF-80** — A revolving card exposes its available credit — its limit less its derived balance — its statement cut-off and payment due day, and its minimum payment for the period. Interest, when charged, is a real movement, so the balance stays derived.
-- [ ] **RF-81** — A fixed-installment or BNPL debt carries a plan — principal, number of installments, frequency (monthly or fortnightly), interest, down payment, aval, start date and merchant — from which dated installment lines are generated.
-- [ ] **RF-82** — A payment into a debt account is allocated to its unpaid installment lines oldest-first, marking a line paid only when the payment fully covers it and linking the paying movement; a partial remainder is left unallocated, and a plan's pending is its unpaid lines, always derived, never stored.
-- [x] **RF-83** — Consolidated debt view: total owed across all debts, each card's available credit, the summed estimated monthly interest, and the next payment due — each debt's minimum plus the installment lines falling due.
-- [ ] **RF-84** — A liability account keeps a statement history: one record per statement period with its bounds, its payment due date and the balance, minimum and interest captured at the cut-off. A statement is an immutable historical snapshot, materialised for past periods, never rewritten.
+- [x] **RF-81** — A fixed-installment or BNPL debt carries a plan — principal, number of installments, frequency (monthly or fortnightly), interest, down payment, aval, start date and merchant — from which dated installment lines are generated.
+- [x] **RF-82** — A payment into a debt account is allocated to its unpaid installment lines oldest-first, marking a line paid only when the payment fully covers it and linking the paying movement; a partial remainder is left unallocated, and a plan's pending is its unpaid lines, always derived, never stored.
+- [x] **RF-83** — Consolidated debt view: total owed across all debts, each card's available credit, the summed estimated monthly interest, and the next payment due — each debt's minimum.
+- [x] **RF-117** — The consolidated debt view shows the summed available credit across the liability accounts that carry a credit limit.
+- [x] **RF-84** — A liability account keeps a statement history: one record per statement period with its bounds, its payment due date and the balance, minimum and interest captured at the cut-off. A statement is an immutable historical snapshot, materialised for past periods, never rewritten.
 
 #### Transactions
 
 - [x] **RF-17** — Record income (destination account only), expense (source account only) or transfer (both).
 - [x] **RF-18** — The type is derived from the accounts involved; the user does not choose it.
-- [ ] **RF-19** — Transfers are excluded from every income and expense report.
+- [x] **RF-19** — Transfers are excluded from every income and expense report.
 - [x] **RF-20** — Every transaction has a positive amount and at least one account.
+- [x] **RF-101** — A transfer names two different accounts; a movement whose source and destination are the same account is refused.
 - [x] **RF-62** — Both accounts on a transaction belong to the caller's writable scope: their personal accounts and their group's shared accounts.
 - [x] **RF-22** — Quick entry: a single text field from which amount, category and description are inferred. Anything inferred stays editable before saving.
-- [x] **RF-23** — Listing with filters by date range, member, account, category and type.
+- [x] **RF-23** — Listing with filters by date range, creator, account, category and type.
 - [x] **RF-89** — The transaction listing also filters by label, alongside the RF-23 filters.
 - [x] **RF-24** — Edit and delete transactions.
 - [x] **RF-25** — Every transaction records which user created it.
@@ -102,7 +106,9 @@ accounting exports, native apps. None of this gets built or left
 - [x] **RF-74** — CRUD for one-off planned payments: a future movement — its accounts, amount, category and due date — with an optional reminder date, kept distinct from recurring rules.
 - [x] **RF-75** — Settling a planned payment records the transaction it planned, links the two, and marks the planned payment done; a settled or cancelled planned payment cannot be settled again.
 - [x] **RF-76** — CRUD for savings goals: a target amount and an optional target date, scoped to a user or a group.
-- [x] **RF-87** — A savings goal's progress — amount saved, amount remaining and whether it is on track for its target date — derives from its contributions (`goal_contributions`), each an amount set aside virtually with no movement required; it is never stored.
+- [x] **RF-87** — A savings goal's progress — amount saved and amount remaining — derives from its contributions (`goal_contributions`), each an amount set aside virtually with no movement required; it is never stored.
+- [x] **RF-119** — A savings goal's contributions are listed with their amounts and dates and one is removed from that list; the goal's progress re-derives from what remains.
+- [x] **RF-120** — A budget or a savings goal is archived instead of deleted, and restored from the archive; an archived one leaves the active list and stays readable in its own archived tab.
 
 #### Reports
 
@@ -129,7 +135,7 @@ accounting exports, native apps. None of this gets built or left
 #### Language
 
 - [x] **RF-46** — Interface in Spanish and English, with the language visible in the URL. Spanish by default.
-- [x] **RF-47** — The preference belongs to the user and follows them across every fund they belong to.
+- [x] **RF-47** — The preference belongs to the user and holds wherever they sign in, fund or no fund.
 - [x] **RF-48** — No interface text is hardcoded. Dates and numbers follow the active language; the currency is always COP.
 
 #### Appearance
@@ -140,6 +146,7 @@ accounting exports, native apps. None of this gets built or left
 
 - [x] **RF-49** — Download a spreadsheet template with the expected columns and the existing accounts and categories as valid options.
 - [x] **RF-50** — Export accounts, members, categories, recurring rules and transactions, in the same shape the import accepts.
+- [x] **RF-118** — The transaction listing exports exactly the rows its active filters select, in the same shape the import accepts.
 - [x] **RF-51** — Import with preview: everything is validated before anything is written, errors are reported per row, and the user confirms. All or nothing.
 - [x] **RF-52** — Re-importing the same file does not duplicate: every row carries a stable external reference and, if it already exists in the fund, it is updated.
 - [x] **RF-53** — Read-only audit log viewer, filterable by entity, user and date range.
@@ -156,6 +163,7 @@ accounting exports, native apps. None of this gets built or left
 - [x] **RF-96** — Webhook ingest proposes income or expense only when the bank message carries a recognized direction verb; a caller-supplied direction overrides it, and an unknown verb leaves it empty.
 - [x] **RF-97** — An account may store its last four digits; webhook ingest proposes the uniquely matching account named by a bank message before falling back to the credential default, while an explicit account override still wins.
 - [x] **RF-98** — Webhook ingest proposes the date the bank message carries, written with a two- or four-digit year and interpreted in `America/Bogota`; a caller-supplied date still overrides it, and a message whose date is unreadable or later than the day of delivery falls back to that day.
+- [x] **RF-99** — A person sees the message shapes they have silenced, each with the message that silenced it, and returns one to the queue: later messages of that shape wait for review again, and every message of that shape the silence discarded on its own comes back to the queue with it, indistinguishable from one never silenced. A message a person discarded stays discarded.
 
 The webhook (RF-90) reuses RF-22 (quick entry), RF-25 (created_by) and RF-45 (no write bypasses audit) unchanged: the same interpreter reads the payload text and the same insert path records the movement, so the created-by stamp and the audit hold as on any manual write. RF-52's idempotency shape is mirrored, not reused — RF-52 stays a spreadsheet-import requirement; the webhook applies the same stable-external-reference rule to its own deliveries. The review queue keeps that reuse: it runs RF-22's interpreter to propose rather than to decide, and RF-25 and RF-45 hold unchanged because an accepted proposal is still written through the same insert path.
 
@@ -203,6 +211,8 @@ Dead codes. The number stays burned and the tick stays as it was.
 - [ ] **RF-65** — Dashboard: balance per account, net worth per owner (personal and group), and income, expense and net for the current month. _Retired 2026-08-30. Successor: RF-88 (net worth per owner, no balance per account on the dashboard)._
 - [ ] **RF-77** — A savings goal's progress — amount saved, amount remaining and whether it is on track for its target date — derives from the movements contributed to it; it is never stored. _Retired 2026-08-30. Successor: RF-87 (derives from contributions, which may be virtual amounts with no movement)._
 - [ ] **RF-85** — A signed JSON webhook creates a movement from a payload: the request carries a bearer credential that resolves it to exactly one user; the quick-entry interpreter (RF-22) infers amount, category and description from the payload's text; the movement is written under that user's writable scope so the access policies and the audit apply as if the user had recorded it; and a stable external reference makes a re-delivery idempotent, updating nothing and duplicating nothing. _Retired 2026-08-31. Successor: RF-90 (a delivery is stored as a proposal a person accepts; the webhook never writes a movement)._
+- [ ] **RF-115** — A budget's spent and remaining derive for a chosen period, not only the current one; the period is browsable into the past and the derivation is unchanged. _Retired 2026-09-01. Successor: RF-72 (the browsable period was already built under RF-72; this code named it a second time, so nothing was dropped)._
+- [ ] **RF-116** — A category shows how many subcategories hang off it, and a label how many transactions and how many budgets use it; every count derives and is never stored. _Retired 2026-09-01. Successors: RF-63 and RF-70 (the category and label counts were already built under those codes; this code named them a second time, so nothing was dropped)._
 
 ---
 
@@ -531,6 +541,7 @@ erDiagram
         text merchant_key
         text merchant_label
         text status "pending | accepted | rejected"
+        boolean silenced_on_arrival "the shape memory resolved it, never a person"
         uuid transaction_id FK "null until accepted"
         bigint proposed_amount_cents
         uuid proposed_account_id FK
@@ -639,7 +650,7 @@ Rules the model must always guarantee, regardless of how they are implemented:
 - `external_ref` is unique within a scope (a user's personal movements or a
   group's movements).
 - `app_users` hangs off no fund: the language preference belongs to the
-  user and follows them across every fund they belong to (RF-47).
+  user and holds wherever they sign in (RF-47).
 - A webhook credential belongs to exactly one user; only a hash of its bearer
   token is stored, never the token; an ingest through it writes under that user's
   scope, so RLS and audit apply as if the user recorded the movement; a
@@ -650,6 +661,9 @@ Rules the model must always guarantee, regardless of how they are implemented:
   writes one from a delivery on its own.
 - A delivery's `external_ref` is unique within its owner, so a re-delivery of a
   stored reference writes nothing whatever its status.
+- A delivery the shape memory discarded on arrival is marked as such and is the
+  only kind a restore returns to the queue; a delivery a person discarded is
+  never returned.
 - A merchant's remembered category is earned by two consecutive agreeing
   approvals and lost for good on the first disagreement; only an explicit
   forget clears it.

@@ -1,4 +1,4 @@
-import { Wallet } from "lucide-react";
+import { Banknote, CreditCard, Landmark, Plus, Wallet } from "lucide-react";
 import { hasLocale } from "next-intl";
 import type { Metadata } from "next";
 import {
@@ -9,9 +9,19 @@ import {
 import { notFound } from "next/navigation";
 
 import { WithdrawCashCard } from "@/components/cash/withdraw-dialog";
+import { WithdrawPanel } from "@/components/cash/withdraw-panel";
 import { DashboardSummary } from "@/components/reports/dashboard-summary";
+import {
+  RecentMovements,
+  rowColor,
+  rowSubtitle,
+  rowTitle,
+  rowTone,
+  type KindLabels,
+} from "@/components/reports/recent-movements";
 import { QuickEntryPill } from "@/components/transactions/quick-entry-pill";
 import {
+  Box,
   Button,
   Card,
   CategoryTile,
@@ -21,7 +31,9 @@ import {
   Link,
   MovementRow,
   Page,
+  ScreenHeader,
   TapTarget,
+  Text,
 } from "@/components/ui";
 import { resolveWithdrawalTarget } from "@/db/queries/cash";
 import { getUserGroup } from "@/db/queries/groups";
@@ -48,16 +60,31 @@ export async function generateMetadata(
   return { title: t("appName") };
 }
 
-// A transfer carries neither category nor sign; an income and an expense read
-// their first split's category and lean on the kind word only when none is set.
-type KindLabels = { transfer: string; income: string; expense: string };
+// The desktop list runs the eight rows of the Inicio artboard; the phone's cards
+// keep the three it has always shown.
+const RECENT_LIMIT = 8;
+const PHONE_RECENT_LIMIT = 3;
+
+// The three classes an account opens as — a subtype, never the asset/liability
+// kind `lib/validation/account` names — each its own tile in the first-account
+// guide. The names are the accounts screen's own (RF-56 names the cash one), and
+// the subtype rides the query the accounts screen opens its form from.
+const ACCOUNT_CLASSES = [
+  { subtype: "bancaria", label: "subtypeBancaria", surface: "var(--blue-3)", ink: "var(--blue-11)" },
+  { subtype: "efectivo", label: "subtypeEfectivo", surface: "var(--jade-3)", ink: "var(--jade-11)" },
+  { subtype: "tarjeta", label: "subtypeTarjeta", surface: "var(--violet-3)", ink: "var(--violet-11)" },
+] as const;
 
 // The signed-in landing. A user may run personal-only (RF-55), so an absent
 // group is expected, not a redirect to create one. With no account yet the
 // create-first-account guide stands (FLOWS §9); once an account exists the screen
 // leads with the per-owner net-worth and month summary (RF-88, RF-67; per-account
-// balances stay off the dashboard) over the quick-entry pill and the three most
-// recent lines (RF-23).
+// balances stay off the dashboard) over the quick-entry pill and the most recent
+// lines (RF-23).
+//
+// The summary re-flows into its two cards from `md` up; everything under it is a
+// pair — the phone's cards and the desktop's panel and rows — of which exactly
+// one is displayed at any width.
 export default async function HomePage(props: PageProps<"/[locale]">) {
   const { locale } = await props.params;
   if (!hasLocale(routing.locales, locale)) notFound();
@@ -67,45 +94,111 @@ export default async function HomePage(props: PageProps<"/[locale]">) {
   // requireUser stays the auth guard. The form options carry the account and
   // category names a row reads for its title and subtitle, the same pairing the
   // movements list fans out (RF-23); the amount is formatted for display only.
-  const [, group, dashboardData, rows, options, withdrawal, t, td, format] =
+  const [, group, dashboardData, rows, options, withdrawal, t, td, ta, format] =
     await Promise.all([
       requireUser(),
       getUserGroup(),
       getDashboardData(),
-      listTransactions({}, { limit: 3 }),
+      listTransactions({}, { limit: RECENT_LIMIT }),
       getTransactionFormOptions(),
       resolveWithdrawalTarget(),
       getTranslations("transactions"),
       getTranslations("dashboard"),
+      getTranslations("accounts"),
       getFormatter(),
     ]);
 
   if (dashboardData.hasAccounts === false) {
     return (
-      <Page>
-        <EmptyState
-          icon={<Wallet size={44} strokeWidth={1.6} />}
-          title={td("emptyTitle")}
-          description={td("emptyDescription")}
-          action={
-            <Flex direction="column" align="center" gap="3" mt="2">
-              <Button asChild size="3">
-                <LocaleLink href="/settings/accounts">
-                  {td("createAccount")}
-                </LocaleLink>
-              </Button>
-              {!group && (
-                <Link asChild>
-                  <LocaleLink href="/onboarding">
-                    <TapTarget align="center" justify="center" px="2">
-                      {td("createFund")}
-                    </TapTarget>
+      <Page gutter="flush-md">
+        <Box display={{ initial: "none", md: "block" }}>
+          <ScreenHeader title={td("title")} />
+        </Box>
+
+        <Flex
+          display={{ initial: "flex", md: "none" }}
+          direction="column"
+          flexGrow="1"
+        >
+          <EmptyState
+            icon={<Wallet size={44} strokeWidth={1.6} />}
+            title={td("emptyTitle")}
+            description={td("emptyDescription")}
+            action={
+              <Flex direction="column" align="center" gap="3" mt="2">
+                <Button asChild size="3">
+                  <LocaleLink href="/settings/accounts">
+                    {td("createAccount")}
                   </LocaleLink>
-                </Link>
-              )}
-            </Flex>
-          }
-        />
+                </Button>
+                {!group && (
+                  <Link asChild>
+                    <LocaleLink href="/onboarding">
+                      <TapTarget align="center" justify="center" px="2">
+                        {td("createFund")}
+                      </TapTarget>
+                    </LocaleLink>
+                  </Link>
+                )}
+              </Flex>
+            }
+          />
+        </Flex>
+
+        {/* One tile per account class, each a way into the accounts screen: the
+            guide of the InicioVacio artboard. */}
+        <Flex
+          display={{ initial: "none", md: "flex" }}
+          direction="column"
+          flexGrow="1"
+          align="center"
+          justify="center"
+          gap="6"
+          px="6"
+        >
+          <Flex direction="column" align="center" gap="4">
+            <CategoryTile
+              color="var(--accent-3)"
+              size={62}
+              icon={<Wallet size={29} strokeWidth={1.8} color="var(--accent-11)" />}
+            />
+            <Heading size="7">{td("firstAccountTitle")}</Heading>
+          </Flex>
+
+          <Flex align="stretch" justify="center" gap="4" wrap="wrap">
+            {ACCOUNT_CLASSES.map((tile) => (
+              <Card key={tile.subtype} asChild>
+                <LocaleLink
+                  href={`/settings/accounts?new=${tile.subtype}`}
+                  style={{ width: 240, textDecoration: "none", color: "inherit" }}
+                >
+                  <Flex direction="column" align="center" gap="3">
+                    <CategoryTile
+                      color={tile.surface}
+                      size={46}
+                      icon={<AccountClassIcon subtype={tile.subtype} color={tile.ink} />}
+                    />
+                    <Text size="3" weight="medium">
+                      {ta(tile.label)}
+                    </Text>
+                    <Flex align="center" gap="1">
+                      <Plus size={14} strokeWidth={2.4} color="var(--accent-11)" />
+                      <Text size="2" weight="medium" color="jade">
+                        {td("addAccountKind")}
+                      </Text>
+                    </Flex>
+                  </Flex>
+                </LocaleLink>
+              </Card>
+            ))}
+          </Flex>
+
+          {!group && (
+            <Link asChild size="2" weight="medium">
+              <LocaleLink href="/onboarding">{td("createFund")}</LocaleLink>
+            </Link>
+          )}
+        </Flex>
       </Page>
     );
   }
@@ -139,80 +232,90 @@ export default async function HomePage(props: PageProps<"/[locale]">) {
     PERSONAL_CASH_ACCOUNT_NAME[locale];
 
   return (
-    <Page>
+    <Page gutter="flush-md">
+      <Box display={{ initial: "none", md: "block" }}>
+        <ScreenHeader title={td("title")} />
+      </Box>
+
       <Flex direction="column" gap="4">
-        <DashboardSummary data={dashboardData} />
-
-        <QuickEntryPill />
-
-        <WithdrawCashCard
-          sources={withdrawal.sourceAccounts}
-          destinationName={withdrawDestinationName}
-          willCreate={willCreateCash}
+        <DashboardSummary
+          data={dashboardData}
+          cash={
+            <WithdrawPanel
+              sources={withdrawal.sourceAccounts}
+              destinationName={withdrawDestinationName}
+              willCreate={willCreateCash}
+            />
+          }
         />
 
-        <Flex justify="between" align="baseline" gap="3">
-          <Heading size="4">{t("listTitle")}</Heading>
-          <Link asChild size="2" weight="medium">
-            <LocaleLink href="/movements">{t("seeAll")}</LocaleLink>
-          </Link>
-        </Flex>
+        <Box display={{ initial: "block", md: "none" }}>
+          <Flex direction="column" gap="4">
+            <QuickEntryPill />
 
-        <Flex direction="column" gap="2">
-          {rows.map((row) => (
-            <Card key={row.id} asChild>
-              <LocaleLink href={`/movements/${row.id}`}>
-                <MovementRow
-                  tile={<CategoryTile color={rowColor(row, categoryColors)} />}
-                  title={rowTitle(row, categoryNames, kindLabels)}
-                  subtitle={rowSubtitle(row, accountNames)}
-                  amount={rowAmount(row, format)}
-                  tone={rowTone(row)}
-                />
-              </LocaleLink>
-            </Card>
-          ))}
-        </Flex>
+            <WithdrawCashCard
+              sources={withdrawal.sourceAccounts}
+              destinationName={withdrawDestinationName}
+              willCreate={willCreateCash}
+            />
+
+            <Flex justify="between" align="baseline" gap="3">
+              <Heading as="h2" size="4">{t("listTitle")}</Heading>
+              <Link asChild size="2" weight="medium">
+                <LocaleLink href="/movements">
+                  {/* A line of text has no control height of its own. */}
+                  <TapTarget align="center">{t("seeAll")}</TapTarget>
+                </LocaleLink>
+              </Link>
+            </Flex>
+
+            <Flex direction="column" gap="2">
+              {rows.slice(0, PHONE_RECENT_LIMIT).map((row) => (
+                <Card key={row.id} asChild>
+                  <LocaleLink href={`/movements/${row.id}`}>
+                    <MovementRow
+                      tile={<CategoryTile color={rowColor(row, categoryColors)} />}
+                      title={rowTitle(row, categoryNames, kindLabels)}
+                      subtitle={rowSubtitle(row, accountNames)}
+                      amount={rowAmount(row, format)}
+                      tone={rowTone(row)}
+                    />
+                  </LocaleLink>
+                </Card>
+              ))}
+            </Flex>
+          </Flex>
+        </Box>
+
+        <Box display={{ initial: "none", md: "block" }} px="6">
+          <Flex direction="column" gap="4">
+            <QuickEntryPill variant="wide" />
+
+            <RecentMovements
+              rows={rows}
+              kindLabels={kindLabels}
+              accountNames={accountNames}
+              categoryNames={categoryNames}
+              categoryColors={categoryColors}
+            />
+          </Flex>
+        </Box>
       </Flex>
     </Page>
   );
 }
 
-// A transfer names no category, so its title is the fixed kind word; an income or
-// expense reads its first split's category (RF-19).
-function rowTitle(
-  row: TransactionListRow,
-  categoryNames: Map<string, string>,
-  kindLabels: KindLabels,
-): string {
-  if (row.kind === "transfer") return kindLabels.transfer;
-  const first = row.splits[0]?.categoryId;
-  const fallback = row.kind === "income" ? kindLabels.income : kindLabels.expense;
-  return (first && categoryNames.get(first)) || fallback;
-}
-
-// A transfer reads "origin → destination"; an income names its destination, an
-// expense its source.
-function rowSubtitle(
-  row: TransactionListRow,
-  accountNames: Map<string, string>,
-): string | undefined {
-  if (row.kind === "transfer") {
-    const from = (row.fromAccountId && accountNames.get(row.fromAccountId)) ?? "";
-    const to = (row.toAccountId && accountNames.get(row.toAccountId)) ?? "";
-    return `${from} → ${to}`;
-  }
-  const accountId = row.kind === "income" ? row.toAccountId : row.fromAccountId;
-  return (accountId && accountNames.get(accountId)) ?? undefined;
-}
-
-function rowColor(
-  row: TransactionListRow,
-  categoryColors: Map<string, string | null>,
-): string | null {
-  if (row.kind === "transfer") return null;
-  const first = row.splits[0]?.categoryId;
-  return (first && categoryColors.get(first)) ?? null;
+// The glyph of one account class, drawn at the size the guide's tile holds.
+function AccountClassIcon({
+  subtype,
+  color,
+}: {
+  subtype: (typeof ACCOUNT_CLASSES)[number]["subtype"];
+  color: string;
+}) {
+  if (subtype === "bancaria") return <Landmark size={22} strokeWidth={1.8} color={color} />;
+  if (subtype === "efectivo") return <Banknote size={22} strokeWidth={1.8} color={color} />;
+  return <CreditCard size={22} strokeWidth={1.8} color={color} />;
 }
 
 // Income reads with a leading +, expense with a −, a transfer with neither; the
@@ -223,10 +326,4 @@ function rowAmount(
 ): string {
   const sign = row.kind === "income" ? "+" : row.kind === "expense" ? "−" : "";
   return `${sign}${format.number(centsToPesos(row.amountCents), "currency")}`;
-}
-
-function rowTone(row: TransactionListRow): "income" | "expense" | "transfer" {
-  if (row.kind === "income") return "income";
-  if (row.kind === "transfer") return "transfer";
-  return "expense";
 }

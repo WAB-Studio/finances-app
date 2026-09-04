@@ -1,0 +1,99 @@
+/* Sticky rather than fixed: the document keeps its own scroll, so nothing beside
+   the column has to become a scroller for the column's foot to stay in view. */
+.sidebar {
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  flex-shrink: 0;
+  width: 248px;
+  height: 100dvh;
+  padding: 22px 14px 18px;
+  background-color: var(--color-panel-solid);
+  border-right: 1px solid var(--gray-a4);
+  overflow-y: auto;
+}
+
+/* A 720p laptop is shorter than the destinations, the button and the person row
+   together. The list scrolls between a pinned head and a pinned foot, so the
+   fund stays named and Registrar stays reachable at any height; on a canvas tall
+   enough for all of it, nothing sticks and nothing moves. */
+.sidebar > :first-child {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background-color: var(--color-panel-solid);
+}
+
+.sidebar > :last-child {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  background-color: var(--color-panel-solid);
+}
+
+.separator {
+  width: calc(100% - 20px);
+  align-self: center;
+  margin: 16px 0;
+}
+
+.head {
+  gap: 8px;
+  padding: 4px 10px 20px;
+}
+
+/* Doubled, here and below, to outrank Radix's own size and variant classes,
+   which land in another sheet at the same specificity and whichever order the
+   bundler chose. */
+.fund.fund {
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.foot {
+  margin-top: auto;
+  gap: 14px;
+}
+
+.action.action {
+  height: auto;
+  gap: 9px;
+  padding: 12px;
+  border-radius: 12px;
+  font-size: 14.5px;
+  font-weight: 600;
+}
+
+/* The whole row is the trigger, so it fills the foot and reads from its start. */
+.person.person {
+  width: 100%;
+  height: auto;
+  justify-content: flex-start;
+  gap: 9px;
+  margin: 0;
+  padding: 4px;
+  border-radius: 10px;
+}
+
+.avatar.avatar {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+}
+
+.name.name {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.role.role {
+  font-size: 11.5px;
+}
+
+/* Past the name, whatever the name measures. */
+.chevron {
+  margin-left: auto;
+  flex-shrink: 0;
+}

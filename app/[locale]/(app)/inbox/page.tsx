@@ -5,7 +5,10 @@ import { notFound } from "next/navigation";
 
 import { InboxScreen } from "@/components/ingest/inbox-screen";
 import { Page } from "@/components/ui";
-import { listPendingDeliveries } from "@/db/queries/ingest-review";
+import {
+  listPendingDeliveries,
+  listSilencedShapes,
+} from "@/db/queries/ingest-review";
 import { getTransactionFormOptions } from "@/db/queries/transaction-form";
 import { requireUser } from "@/db/session";
 import { routing } from "@/i18n/routing";
@@ -29,15 +32,20 @@ export default async function InboxPage(
 
   setRequestLocale(locale);
 
-  const [, deliveries, options] = await Promise.all([
+  const [, deliveries, shapes, options] = await Promise.all([
     requireUser(),
     listPendingDeliveries(),
+    listSilencedShapes(),
     getTransactionFormOptions(),
   ]);
 
   return (
     <Page>
-      <InboxScreen deliveries={deliveries} options={options} />
+      <InboxScreen
+        deliveries={deliveries}
+        shapes={shapes}
+        options={options}
+      />
     </Page>
   );
 }

@@ -20,11 +20,14 @@ const thresholdPctSchema = z
   .min(1, { error: "budgets.errors.thresholdInvalid" })
   .max(100, { error: "budgets.errors.thresholdInvalid" });
 
+// A name of nothing but spaces would title the card with a blank instead of
+// letting it fall back to the category's own name, so it lands as null.
 const nameSchema = z
   .string()
   .trim()
   .max(80, { error: "budgets.errors.nameTooLong" })
-  .nullish();
+  .nullish()
+  .transform((value) => value?.trim() || null);
 
 // The account and label only narrow the spend the limit is measured against;
 // leaving either off measures the category's whole spend.
@@ -54,6 +57,20 @@ export const updateBudgetSchema = z.object({
 });
 
 export type UpdateBudgetInput = z.infer<typeof updateBudgetSchema>;
+
+// RF-120: archiving names an existing budget, so its id is all that travels;
+// the policy decides the scope, and restore reverses the same field.
+export const archiveBudgetSchema = z.object({
+  budgetId: z.uuid({ error: "budgets.errors.budgetInvalid" }),
+});
+
+export type ArchiveBudgetInput = z.infer<typeof archiveBudgetSchema>;
+
+export const restoreBudgetSchema = z.object({
+  budgetId: z.uuid({ error: "budgets.errors.budgetInvalid" }),
+});
+
+export type RestoreBudgetInput = z.infer<typeof restoreBudgetSchema>;
 
 export const deleteBudgetSchema = z.object({
   budgetId: z.uuid({ error: "budgets.errors.budgetInvalid" }),

@@ -6,6 +6,7 @@ import {
   archiveAccount,
   createAccount,
   deleteAccount,
+  handAccountToGroup,
   restoreAccount,
   updateAccount,
 } from "@/db/queries/accounts";
@@ -18,6 +19,7 @@ import {
   archiveAccountSchema,
   createAccountSchema,
   deleteAccountSchema,
+  handAccountToGroupSchema,
   restoreAccountSchema,
   updateAccountSchema,
 } from "@/lib/validation/account";
@@ -85,9 +87,35 @@ export const restoreAccountAction = authActionClient
   });
 
 /**
+ * Hands a personal account to the group (RF-61), after which any member may
+ * write it. The engine refuses an account carrying anything at all — that one is
+ * archived instead — and every refusal it raises is a 23514.
+ *
+ * 23505 is a different refusal and reaches a different person: `external_ref` is
+ * unique per scope, so an account whose reference a group import already used
+ * lands on the group's twin the moment the placement changes. The row keeps its
+ * owner either way.
+ */
+export const handAccountToGroupAction = authActionClient
+  .inputSchema(handAccountToGroupSchema)
+  .action(async ({ parsedInput: { accountId } }) => {
+    try {
+      await handAccountToGroup({ accountId });
+    } catch (error) {
+      const code = pgErrorCode(error);
+      if (code === "23514") throw new ActionError("errors.accountHasHistory");
+      if (code === "23505") throw new ActionError("errors.accountRefTaken");
+      throw error;
+    }
+
+    refresh();
+  });
+
+/**
  * Deletes an account outright. Once movements reference accounts, deleting
  * one that has them will trip the foreign key (23503) before it trips a
- * row count.
+ * row count. This is the one 23503 in the app raised BY an account rather than
+ * ON one, so it names the movements and points at archiving instead (RF-11).
  */
 export const deleteAccountAction = authActionClient
   .inputSchema(deleteAccountSchema)
@@ -96,7 +124,8 @@ export const deleteAccountAction = authActionClient
     try {
       deleted = await deleteAccount({ accountId });
     } catch (error) {
-      if (pgErrorCode(error) === "23503") throw new ActionError("errors.accountInUse");
+      if (pgErrorCode(error) === "23503")
+        throw new ActionError("errors.accountHasMovements");
       throw error;
     }
     if (!deleted) throw new ActionError("errors.notFound");
