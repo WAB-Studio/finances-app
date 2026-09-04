@@ -72,9 +72,9 @@ export const PRIMARY_KEYS = [
   "inbox",
 ] as const;
 
-// Planeación's own five, in the order its hub and its sub-nav both keep. The
-// hub reads it for its cards; `PlanningSubNav` reads it for its chips — neither
-// screen lists a route of its own.
+// Planeación's own five, in the order the sidebar and `PlanningSubNav`'s chips
+// both keep. The hub reads this list only for each area's `href` and `icon`;
+// it orders its own cards separately.
 export const PLANNING_KEYS = [
   "budgets",
   "goals",
