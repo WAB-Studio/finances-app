@@ -149,7 +149,7 @@ export function PaymentsScreen({
         <PlanningSubNav />
       </Box>
 
-      <Box display={{ initial: "block", md: "none" }}>
+      <Box display={{ initial: "block", lg: "none" }}>
       {payments.length === 0 ? (
         <EmptyState
           title={t("emptyTitle")}
@@ -187,7 +187,7 @@ export function PaymentsScreen({
       )}
       </Box>
 
-      <Box display={{ initial: "none", md: "block" }}>
+      <Box display={{ initial: "none", lg: "block" }}>
         <PaymentsTable
           sections={sections}
           categoryNames={categoryNames}
