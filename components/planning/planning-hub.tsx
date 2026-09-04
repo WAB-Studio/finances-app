@@ -6,6 +6,17 @@ import { PLANNING_KEYS, destinations } from "@/components/fund/destinations";
 import { Box, Card, Flex, FundChip, Grid, Heading, Text } from "@/components/ui";
 import { Link as LocaleLink } from "@/i18n/navigation";
 
+// The hub's own order for its five cards. `PLANNING_KEYS` stays the sidebar's
+// order — `PlanningSubNav`'s chips read it directly — so the hub keeps its own
+// list rather than reordering the shared one.
+const HUB_ORDER = [
+  "budgets",
+  "goals",
+  "payments",
+  "debts",
+  "recurring",
+] as const satisfies readonly (typeof PLANNING_KEYS)[number][];
+
 // The one place a card's colour lives: `destinations.ts` owns the route and the
 // icon, and neither carries a tint of its own.
 const TINTS: Record<(typeof PLANNING_KEYS)[number], string> = {
@@ -68,7 +79,7 @@ export async function PlanningHub({
       </Flex>
 
       <Flex direction="column" gap="3">
-        {PLANNING_KEYS.map((key) => {
+        {HUB_ORDER.map((key) => {
           const area = areas.get(key);
           if (!area) return null;
           return (
@@ -89,9 +100,9 @@ export async function PlanningHub({
 
 // A row card: enabled when it names an href, muted with no chevron when it does
 // not. The icon rides a soft tinted disc; the summary carries the derived line.
-// Below `md` it stacks the title over the summary; from `md` up it gains the
-// three-column row of SPEC-A3, title, summary and chevron each keeping their
-// own width so the five rows line up.
+// Below `md` it stacks the title over the summary; from `md` up it gains a
+// three-column row, title, summary and chevron each keeping their own width
+// so the five rows line up.
 function HubCard({
   icon: Icon,
   tint,
