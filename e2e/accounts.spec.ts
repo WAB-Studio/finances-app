@@ -289,6 +289,48 @@ test.describe("the phone's card", () => {
   });
 });
 
+test.describe("the laptop row", () => {
+  // The dense table renders from `lg` up, and both projects drive it at the
+  // width the artboard states rather than skipping one of them (SPEC-A3,
+  // RNF-08).
+  test.use({ viewport: { width: 1280, height: 900 } });
+
+  test("states the derived balance in the cell under its own column", async ({
+    page,
+  }) => {
+    const openingCents = 1_000_000;
+    const movementCents = 250_000;
+    const account = await seedAccount({ openingCents, movementCents });
+
+    await page.goto("/es/settings/accounts");
+
+    // The view is where the balance comes from (RF-114): the cell is read
+    // against it, never against a figure this test computed on its own.
+    const [derived] = await fixtureSql<{ balance_cents: string }[]>`
+      select balance_cents::text as balance_cents
+      from account_balances where id = ${account.id}`;
+    expect(Number(derived.balance_cents)).toBe(openingCents - movementCents);
+
+    // The fifth of the six tracks, after the name, the entity, the last four
+    // digits and the class.
+    const cell = page
+      .getByRole("table", { name: accounts.title })
+      .getByRole("row")
+      .filter({ hasText: account.name })
+      .getByRole("cell")
+      .nth(4);
+    await expect(cell).toBeVisible();
+
+    // The table states no opening figure, so what says the column is derived is
+    // that it is not the one the account was written with.
+    const shown = pesosOf(await cell.innerText());
+    expect(shown).toBe(Number(derived.balance_cents) / 100);
+    expect(shown).not.toBe(openingCents / 100);
+
+    await dropAccount(account.id);
+  });
+});
+
 test("saves the name and the opening date the edit dialog was given", async ({
   page,
 }) => {

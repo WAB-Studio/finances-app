@@ -264,65 +264,72 @@ test("creates a planned payment and deletes it from the screen and the table", a
   expect(left).toHaveLength(0);
 });
 
-test.describe("the rule's card", () => {
-  // The card is the phone's, and both projects drive it at that width: the
-  // laptop's row leaves its concept cell nothing beside the badge and names its
-  // switch after the rule instead, so neither reading below is the table's
-  // (SPEC-A3, RNF-08).
-  test.use({ viewport: { width: 360, height: 740 } });
+test("creates a recurring rule and pauses it, the only write its card offers", async ({
+  page,
+}) => {
+  const rules = messages.recurringRules;
+  const concept = `Regla ${stamp}`;
+  const amountPesos = "56000";
+  const amountCents = 5600000;
+  const nextRunOn = "2027-04-05";
 
-  test("creates a recurring rule and pauses it, the only write its card offers", async ({
-    page,
-  }) => {
-    const rules = messages.recurringRules;
-    const concept = `Regla ${stamp}`;
-    const amountPesos = "56000";
-    const amountCents = 5600000;
-    const nextRunOn = "2027-04-05";
+  // The generated-movement fixture writes a rule of its own; cleared, so the
+  // card this test writes is the only one on screen.
+  await clearLedger();
 
-    // The generated-movement fixture writes a rule of its own; cleared, so the
-    // card this test writes is the only one on screen.
-    await clearLedger();
+  await page.goto("/es/planning/recurring");
+  await addButton(page, rules.add).click();
 
-    await page.goto("/es/planning/recurring");
-    await addButton(page, rules.add).click();
+  const form = page.getByRole("dialog");
+  await form.getByRole("textbox", { name: rules.conceptLabel }).fill(concept);
+  await form.getByRole("textbox", { name: rules.amountLabel }).fill(amountPesos);
+  await form.getByLabel(rules.nextRunLabel).fill(nextRunOn);
+  await form.getByRole("combobox", { name: rules.accountLabel }).click();
+  await page.getByRole("option", { name: scope.accountName, exact: true }).click();
+  await form.getByRole("combobox", { name: rules.categoryLabel }).click();
+  await page.getByRole("option", { name: scope.categoryName, exact: true }).click();
+  await form.getByRole("button", { name: rules.save, exact: true }).click();
 
-    const form = page.getByRole("dialog");
-    await form.getByRole("textbox", { name: rules.conceptLabel }).fill(concept);
-    await form.getByRole("textbox", { name: rules.amountLabel }).fill(amountPesos);
-    await form.getByLabel(rules.nextRunLabel).fill(nextRunOn);
-    await form.getByRole("combobox", { name: rules.accountLabel }).click();
-    await page.getByRole("option", { name: scope.accountName, exact: true }).click();
-    await form.getByRole("combobox", { name: rules.categoryLabel }).click();
-    await page.getByRole("option", { name: scope.categoryName, exact: true }).click();
-    await form.getByRole("button", { name: rules.save, exact: true }).click();
+  await expect(form).toBeHidden();
+  // The line each band names the rule on: the concept, with the Auto badge
+  // beside it. The laptop leaves that cell no width of its own between the seven
+  // fixed columns after it, so what the line says is the assertion.
+  const named = band(page)
+    .locator("div")
+    .filter({ has: page.getByText(rules.autoBadge, { exact: true }) })
+    .last();
+  await expect(named).toHaveText(`${concept}${rules.autoBadge}`);
 
-    await expect(form).toBeHidden();
-    await expect(band(page).getByText(concept, { exact: true })).toBeVisible();
+  const [created] = await fixtureSql<
+    { id: string; amount_cents: string; is_active: boolean }[]
+  >`
+    select id, amount_cents::text as amount_cents, is_active from recurring_rules
+    where owner_user_id = ${scope.userId} and description = ${concept}`;
+  expect(created.amount_cents).toBe(String(amountCents));
+  expect(created.is_active).toBe(true);
 
-    const [created] = await fixtureSql<
-      { id: string; amount_cents: string; is_active: boolean }[]
-    >`
-      select id, amount_cents::text as amount_cents, is_active from recurring_rules
-      where owner_user_id = ${scope.userId} and description = ${concept}`;
-    expect(created.amount_cents).toBe(String(amountCents));
-    expect(created.is_active).toBe(true);
+  // No card offers a rule's removal, so the pause switch is the only write left
+  // to drive: `deleteRecurringRuleAction` has no caller in the interface.
+  // Either band's switch: the card names it for the screen, the row for the rule.
+  const toggle = page
+    .getByRole("switch", { name: rules.activeToggle, exact: true })
+    .or(
+      page.getByRole("switch", {
+        name: rules.pauseSwitchLabel.replace("{name}", concept),
+        exact: true,
+      }),
+    );
+  await expect(toggle).toHaveCount(1);
+  await toggle.click();
+  await expect(band(page).getByText(rules.statePaused, { exact: true })).toBeVisible();
 
-    // No card offers a rule's removal, so the pause switch is the only write left
-    // to drive: `deleteRecurringRuleAction` has no caller in the interface.
-    const toggle = page.getByRole("switch", { name: rules.activeToggle, exact: true });
-    await expect(toggle).toHaveCount(1);
-    await toggle.click();
-    await expect(band(page).getByText(rules.statePaused, { exact: true })).toBeVisible();
+  const [paused] = await fixtureSql<{ is_active: boolean }[]>`
+    select is_active from recurring_rules where id = ${created.id}`;
+  expect(paused.is_active).toBe(false);
 
-    const [paused] = await fixtureSql<{ is_active: boolean }[]>`
-      select is_active from recurring_rules where id = ${created.id}`;
-    expect(paused.is_active).toBe(false);
-
-    // Written through the interface and unreachable by any control on it, so it is
-    // dropped here rather than by a screen.
-    await fixtureSql`delete from recurring_rules where id = ${created.id}`;
-  });
+  // Written through the interface and unreachable by any control on it, so it is
+  // dropped here rather than by a screen.
+  await fixtureSql`delete from recurring_rules where id = ${created.id}`;
 });
 
 /**
