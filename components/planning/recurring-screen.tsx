@@ -153,7 +153,7 @@ export function RecurringScreen({
         </LocaleLink>
       )}
 
-      <Box display={{ initial: "block", md: "none" }}>
+      <Box display={{ initial: "block", lg: "none" }}>
         {rules.length === 0 ? (
           <EmptyState
             title={t("emptyTitle")}
@@ -173,7 +173,7 @@ export function RecurringScreen({
         )}
       </Box>
 
-      <Box display={{ initial: "none", md: "block" }}>
+      <Box display={{ initial: "none", lg: "block" }}>
         <RecurringTable
           rows={tableRows}
           empty={

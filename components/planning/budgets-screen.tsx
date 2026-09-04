@@ -221,7 +221,7 @@ export function BudgetsScreen({
         </IconButton>
       </Flex>
 
-      <Box display={{ initial: "block", md: "none" }}>
+      <Box display={{ initial: "block", lg: "none" }}>
         {budgets.length === 0 ? (
           archived ? (
             <EmptyState title={t("archivedEmpty")} />
@@ -251,7 +251,7 @@ export function BudgetsScreen({
         )}
       </Box>
 
-      <Box display={{ initial: "none", md: "block" }}>
+      <Box display={{ initial: "none", lg: "block" }}>
         <BudgetsTable
           rows={tableRows}
           archived={archived}
