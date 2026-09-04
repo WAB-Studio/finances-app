@@ -46,11 +46,19 @@ function rowMenu(page: Page, name: string): Locator {
   });
 }
 
+/**
+ * The band the width displays. The laptop's table and the phone's cards are both
+ * in the DOM at every width, cut apart by CSS alone, so a locator that names no
+ * band reaches an account twice and dies on strict mode.
+ */
+function band(page: Page): Locator {
+  return page.locator("main > div > .rt-Box").filter({ visible: true });
+}
+
 // One account's card: the innermost node carrying both its name and the menu that
 // acts on it, so a figure read inside it can only be that account's.
 function card(page: Page, name: string): Locator {
-  return page
-    .getByRole("main")
+  return band(page)
     .locator("div")
     .filter({ has: rowMenu(page, name) })
     .filter({ hasText: name })
@@ -68,25 +76,65 @@ function pesosOf(text: string): number {
   return Number(text.replace(/\D/g, ""));
 }
 
+// The two sides an account may be drawn on, named the same way whichever band
+// the width is showing.
+type Placement = "personal" | "fund";
+
 /**
- * The band a card is drawn under: the last one to appear above it in the reading
- * order of `main`. The screen states an account's placement by which band holds
- * it, and a hand-over is only proved by the card changing sides.
+ * The placement the displayed band states for an account. The phone heads a run
+ * of cards with it and calls the group by its own name, so it is the last band
+ * to appear above the card; the laptop's table gives every row a scope cell
+ * under the name instead, and nothing at all precedes the first row's.
  */
-async function bandOf(
+async function placementOf(
   page: Page,
   name: string,
-  bands: string[],
-): Promise<string | null> {
-  const text = await page.getByRole("main").innerText();
+  fundBand: string,
+): Promise<Placement | null> {
+  const rows = page
+    .getByRole("table", { name: accounts.title })
+    .getByRole("row")
+    .filter({ hasText: name });
+
+  if ((await rows.count()) > 0) {
+    const scope = await rows.getByRole("cell").first().innerText();
+    if (scope.includes(accounts.ownerFund)) return "fund";
+
+    return scope.includes(accounts.ownerPersonal) ? "personal" : null;
+  }
+
+  const text = await band(page).innerText();
   const at = text.indexOf(name);
   if (at < 0) return null;
 
-  return bands
-    .map((band) => ({ band, at: text.lastIndexOf(band, at) }))
-    .filter((one) => one.at >= 0)
-    .sort((a, b) => a.at - b.at)
-    .at(-1)?.band ?? null;
+  const bands = [
+    [accounts.ownerPersonal, "personal"],
+    [fundBand, "fund"],
+  ] as const;
+
+  return (
+    bands
+      .map(([label, placement]) => ({ placement, at: text.lastIndexOf(label, at) }))
+      .filter((one) => one.at >= 0)
+      .sort((a, b) => a.at - b.at)
+      .at(-1)?.placement ?? null
+  );
+}
+
+/**
+ * Moves the list to one of its two tabs. The phone segments the states into a
+ * control of its own; the laptop keeps them in the filter bar's select, and only
+ * one of the pair is ever displayed.
+ */
+async function showTab(page: Page, label: string): Promise<void> {
+  const segment = page.getByRole("radio", { name: label, exact: true });
+  if ((await segment.count()) > 0) {
+    await segment.click();
+    return;
+  }
+
+  await page.getByRole("combobox", { name: accounts.statusLabel }).click();
+  await page.getByRole("option", { name: label, exact: true }).click();
 }
 
 /** Runs a row's menu item through the confirmation it raises. */
@@ -185,7 +233,7 @@ test("creates an account from the form and stores its opening balance signed by 
   await dialog.getByRole("button", { name: messages.common.save }).click();
 
   await expect(dialog).toBeHidden();
-  await expect(page.getByText(name, { exact: true })).toBeVisible();
+  await expect(band(page).getByText(name, { exact: true })).toBeVisible();
 
   const rows = await fixtureSql<
     { id: string; kind: string; subtype: string; initial_balance_cents: string }[]
@@ -204,33 +252,41 @@ test("creates an account from the form and stores its opening balance signed by 
   await fixtureSql`delete from accounts where id = ${rows[0].id}`;
 });
 
-test("draws the balance its movements derive and not the figure it opened with", async ({
-  page,
-}) => {
-  const openingCents = 1_000_000;
-  const movementCents = 250_000;
-  const account = await seedAccount({ openingCents, movementCents });
+test.describe("the phone's card", () => {
+  // The two figures below are two labelled lines of the card, and both projects
+  // drive them at the width that draws it: the laptop's table gives the balance a
+  // column of its own and states no opening figure anywhere, so the pair is only
+  // ever readable off the card (SPEC-A3, RNF-08).
+  test.use({ viewport: { width: 360, height: 740 } });
 
-  await page.goto("/es/settings/accounts");
+  test("draws the balance its movements derive and not the figure it opened with", async ({
+    page,
+  }) => {
+    const openingCents = 1_000_000;
+    const movementCents = 250_000;
+    const account = await seedAccount({ openingCents, movementCents });
 
-  // The view is where the balance comes from (RF-114): the card is read against
-  // it, never against a figure this test computed on its own.
-  const [derived] = await fixtureSql<{ balance_cents: string }[]>`
-    select balance_cents::text as balance_cents
-    from account_balances where id = ${account.id}`;
-  expect(Number(derived.balance_cents)).toBe(openingCents - movementCents);
+    await page.goto("/es/settings/accounts");
 
-  const subject = card(page, account.name);
-  const shown = pesosOf(await line(subject, accounts.balanceLabel).innerText());
-  expect(shown).toBe(Number(derived.balance_cents) / 100);
+    // The view is where the balance comes from (RF-114): the card is read against
+    // it, never against a figure this test computed on its own.
+    const [derived] = await fixtureSql<{ balance_cents: string }[]>`
+      select balance_cents::text as balance_cents
+      from account_balances where id = ${account.id}`;
+    expect(Number(derived.balance_cents)).toBe(openingCents - movementCents);
 
-  // And the opening figure is still on the same card, still saying what it said:
-  // a screen that drew one figure twice would agree with itself and be wrong.
-  const opening = await line(subject, accounts.openingBalanceLabel).innerText();
-  expect(pesosOf(opening.split(OPENING_SEPARATOR)[0])).toBe(openingCents / 100);
-  expect(shown).not.toBe(openingCents / 100);
+    const subject = card(page, account.name);
+    const shown = pesosOf(await line(subject, accounts.balanceLabel).innerText());
+    expect(shown).toBe(Number(derived.balance_cents) / 100);
 
-  await dropAccount(account.id);
+    // And the opening figure is still on the same card, still saying what it said:
+    // a screen that drew one figure twice would agree with itself and be wrong.
+    const opening = await line(subject, accounts.openingBalanceLabel).innerText();
+    expect(pesosOf(opening.split(OPENING_SEPARATOR)[0])).toBe(openingCents / 100);
+    expect(shown).not.toBe(openingCents / 100);
+
+    await dropAccount(account.id);
+  });
 });
 
 test("saves the name and the opening date the edit dialog was given", async ({
@@ -255,7 +311,7 @@ test("saves the name and the opening date the edit dialog was given", async ({
   await dialog.getByRole("button", { name: common.save, exact: true }).click();
 
   await expect(dialog).toBeHidden();
-  await expect(page.getByText(renamed, { exact: true })).toBeVisible();
+  await expect(band(page).getByText(renamed, { exact: true })).toBeVisible();
 
   const [saved] = await fixtureSql<{ name: string; initial_balance_on: string }[]>`
     select name, initial_balance_on::text as initial_balance_on
@@ -295,7 +351,7 @@ test("refuses to delete an account carrying a movement, and archives it instead"
   await dialog.getByRole("button", { name: common.cancel, exact: true }).click();
   await expect(dialog).toBeHidden();
 
-  await expect(page.getByText(account.name, { exact: true })).toBeVisible();
+  await expect(band(page).getByText(account.name, { exact: true })).toBeVisible();
   expect(
     await fixtureSql`select id from accounts where id = ${account.id}`,
   ).toHaveLength(1);
@@ -308,10 +364,10 @@ test("refuses to delete an account carrying a movement, and archives it instead"
     common.archive,
   );
   await expect(archiving).toBeHidden();
-  await expect(page.getByText(account.name, { exact: true })).toHaveCount(0);
+  await expect(band(page).getByText(account.name, { exact: true })).toHaveCount(0);
 
-  await page.getByRole("radio", { name: accounts.archivedTab, exact: true }).click();
-  await expect(page.getByText(account.name, { exact: true })).toBeVisible();
+  await showTab(page, accounts.archivedTab);
+  await expect(band(page).getByText(account.name, { exact: true })).toBeVisible();
 
   const [archived] = await fixtureSql<{ archived_at: string | null }[]>`
     select archived_at::text as archived_at from accounts where id = ${account.id}`;
@@ -337,7 +393,7 @@ test("deletes an account that carries nothing, from that same confirmation", asy
 
   await expect(page.getByText(accounts.deleted, { exact: true })).toBeVisible();
   await expect(dialog).toBeHidden();
-  await expect(page.getByText(account.name, { exact: true })).toHaveCount(0);
+  await expect(band(page).getByText(account.name, { exact: true })).toHaveCount(0);
 
   // Gone, not archived: nothing derived from it, so nothing had to be kept.
   expect(
@@ -381,7 +437,7 @@ test.describe("with a fund behind the caller", () => {
     await dialog.getByRole("button", { name: common.save, exact: true }).click();
 
     await expect(dialog).toBeHidden();
-    await expect(page.getByText(name, { exact: true })).toBeVisible();
+    await expect(band(page).getByText(name, { exact: true })).toBeVisible();
 
     // The placement is resolved from the session, so the row is what says where
     // it landed: a group account names its group, no owner, and is shared.
@@ -399,7 +455,7 @@ test.describe("with a fund behind the caller", () => {
     expect(created.group_id).toBe(groupId);
     expect(created.is_shared).toBe(true);
 
-    expect(await bandOf(page, name, [accounts.ownerPersonal, fundName])).toBe(fundName);
+    expect(await placementOf(page, name, fundName)).toBe("fund");
 
     await dropAccount(created.id);
   });
@@ -444,10 +500,9 @@ test.describe("with a fund behind the caller", () => {
     page,
   }) => {
     const account = await seedAccount({ openingCents: 300_000 });
-    const bands = [accounts.ownerPersonal, fundName];
 
     await page.goto("/es/settings/accounts");
-    expect(await bandOf(page, account.name, bands)).toBe(accounts.ownerPersonal);
+    expect(await placementOf(page, account.name, fundName)).toBe("personal");
 
     const dialog = await confirmThroughMenu(
       page,
@@ -458,11 +513,11 @@ test.describe("with a fund behind the caller", () => {
     await expect(page.getByText(accounts.handedOver, { exact: true })).toBeVisible();
     await expect(dialog).toBeHidden();
 
-    // The card changes sides, which is the only thing on screen that says the
-    // account stopped being one person's (RF-61).
+    // The account changes sides, which is the only thing on screen that says it
+    // stopped being one person's (RF-61).
     await expect
-      .poll(async () => await bandOf(page, account.name, bands))
-      .toBe(fundName);
+      .poll(async () => await placementOf(page, account.name, fundName))
+      .toBe("fund");
 
     const [handed] = await fixtureSql<
       { owner_user_id: string | null; group_id: string | null; is_shared: boolean }[]
