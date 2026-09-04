@@ -7,17 +7,21 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import {
+  deleteRecurringRuleAction,
   pauseRecurringRuleAction,
   resumeRecurringRuleAction,
 } from "@/app/actions/recurring-rules";
 import { PlanningSubNav } from "@/components/planning/planning-sub-nav";
 import { RecurringFormDialog } from "@/components/planning/recurring-form-dialog";
+import { RecurringTable } from "@/components/planning/recurring-table";
+import type { RecurringTableRow } from "@/components/planning/recurring-table";
 import {
   Badge,
   Box,
   Button,
   Callout,
   Card,
+  ConfirmDialog,
   EmptyState,
   Flex,
   FundChip,
@@ -28,7 +32,7 @@ import {
 } from "@/components/ui";
 import type { RecurringRuleRow } from "@/db/queries/recurring-rules";
 import type { TransactionFormOptions } from "@/db/queries/transaction-form";
-import { Link as LocaleLink } from "@/i18n/navigation";
+import { Link as LocaleLink, useRouter } from "@/i18n/navigation";
 import { civilDateToDate } from "@/lib/dates";
 import { centsToPesos } from "@/lib/money";
 import { useActionErrorToast } from "@/lib/use-action-toast";
@@ -53,11 +57,65 @@ export function RecurringScreen({
 }) {
   const t = useTranslations("recurringRules");
   const tKey = useTranslations();
+  const router = useRouter();
+  const onActionError = useActionErrorToast();
 
   // "new" and a row share one dialog instance; its own key resets the form.
   const [formTarget, setFormTarget] = useState<RecurringRuleRow | "new" | null>(
     null,
   );
+  const [deleteTarget, setDeleteTarget] = useState<RecurringRuleRow | null>(
+    null,
+  );
+
+  const deleteState = useAction(deleteRecurringRuleAction, {
+    onSuccess() {
+      toast.success(t("deleted"));
+      setDeleteTarget(null);
+    },
+    onError: onActionError,
+  });
+
+  // A name and colour per category id — children included — and a name per
+  // account id, so the dense table's cells cost no lookup of their own.
+  const categoryNames = new Map<string, string>();
+  const categoryColors = new Map<string, string | null>();
+  for (const category of options.categories) {
+    categoryNames.set(category.id, category.name);
+    categoryColors.set(category.id, category.color);
+    for (const child of category.children) {
+      categoryNames.set(child.id, child.name);
+      categoryColors.set(child.id, child.color);
+    }
+  }
+  const accountNames = new Map(options.accounts.map((a) => [a.id, a.name]));
+
+  const byId = new Map(rules.map((rule) => [rule.id, rule]));
+  const tableRows: RecurringTableRow[] = rules.map((rule) => {
+    // A destination-only rule is income, a source-only rule an expense (RF-29).
+    const accountId = rule.toAccountId ?? rule.fromAccountId;
+    return {
+      id: rule.id,
+      concept: rule.description ?? t("noConcept"),
+      frequency: rule.frequency,
+      intervalN: rule.intervalN,
+      nextRunOn: rule.nextRunOn,
+      category: {
+        name: categoryNames.get(rule.categoryId) ?? "",
+        color: categoryColors.get(rule.categoryId) ?? null,
+      },
+      account: (accountId && accountNames.get(accountId)) ?? "",
+      isActive: rule.isActive,
+      amountCents: rule.amountCents,
+      isIncome: rule.toAccountId !== null,
+    };
+  });
+
+  function fromRow(row: RecurringTableRow): RecurringRuleRow {
+    const rule = byId.get(row.id);
+    if (!rule) throw new Error("Row named a rule the screen never listed.");
+    return rule;
+  }
 
   const addButton = (
     <Button type="button" onClick={() => setFormTarget("new")}>
@@ -95,23 +153,49 @@ export function RecurringScreen({
         </LocaleLink>
       )}
 
-      {rules.length === 0 ? (
-        <EmptyState
-          title={t("emptyTitle")}
-          description={t("emptyDescription")}
-          action={addButton}
-        />
-      ) : (
-        <Flex direction="column" gap="3">
-          {rules.map((rule) => (
-            <RuleCard
-              key={rule.id}
-              rule={rule}
-              onEdit={() => setFormTarget(rule)}
+      <Box display={{ initial: "block", lg: "none" }}>
+        {rules.length === 0 ? (
+          <EmptyState
+            title={t("emptyTitle")}
+            description={t("emptyDescription")}
+            action={addButton}
+          />
+        ) : (
+          <Flex direction="column" gap="3">
+            {rules.map((rule) => (
+              <RuleCard
+                key={rule.id}
+                rule={rule}
+                onEdit={() => setFormTarget(rule)}
+              />
+            ))}
+          </Flex>
+        )}
+      </Box>
+
+      <Box display={{ initial: "none", lg: "block" }}>
+        <RecurringTable
+          rows={tableRows}
+          empty={
+            <EmptyState
+              variant="filtered"
+              title={t("emptyTitle")}
+              description={t("emptyDescription")}
+              action={addButton}
             />
-          ))}
-        </Flex>
-      )}
+          }
+          onEdit={(row) => setFormTarget(fromRow(row))}
+          // The rule names one account; the ledger, filtered to it, is the
+          // closest door onto what this rule generated without a filter of
+          // its own (RF-29).
+          onViewGenerated={(row) => {
+            const rule = fromRow(row);
+            const accountId = rule.toAccountId ?? rule.fromAccountId;
+            if (accountId) router.push(`/movements?account=${accountId}`);
+          }}
+          onDelete={(row) => setDeleteTarget(fromRow(row))}
+        />
+      </Box>
 
       <Callout.Root color="jade" variant="soft">
         <Callout.Icon>
@@ -128,6 +212,19 @@ export function RecurringScreen({
         options={options}
         rule={formTarget === "new" ? undefined : (formTarget ?? undefined)}
       />
+
+      {deleteTarget && (
+        <ConfirmDialog
+          open
+          onOpenChange={(open) => !open && setDeleteTarget(null)}
+          title={t("deleteTitle")}
+          description={t("deleteDescription")}
+          confirmLabel={tKey("common.delete")}
+          cancelLabel={tKey("common.cancel")}
+          pending={deleteState.isPending}
+          onConfirm={() => deleteState.execute({ id: deleteTarget.id })}
+        />
+      )}
     </Flex>
   );
 }

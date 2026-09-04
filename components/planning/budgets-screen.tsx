@@ -12,6 +12,8 @@ import {
   restoreBudgetAction,
 } from "@/app/actions/budgets";
 import { BudgetFormDialog } from "@/components/planning/budget-form-dialog";
+import { BudgetsTable } from "@/components/planning/budgets-table";
+import type { BudgetTableRow } from "@/components/planning/budgets-table";
 import { PlanningSubNav } from "@/components/planning/planning-sub-nav";
 import {
   Box,
@@ -114,6 +116,27 @@ export function BudgetsScreen({
     }
   }
 
+  // The dense table reads a row already named, same as a card's own title and
+  // dot; `byId` lets its handlers hand the row menu back its full BudgetStatus.
+  const byId = new Map(budgets.map((budget) => [budget.id, budget]));
+  const tableRows: BudgetTableRow[] = budgets.map((budget) => ({
+    id: budget.id,
+    title: budget.name ?? categoryNames.get(budget.categoryId) ?? "",
+    color: categoryColors.get(budget.categoryId) ?? null,
+    spentCents: budget.spentCents,
+    limitCents: budget.limitCents,
+    remainingCents: budget.remainingCents,
+    thresholdPct: budget.thresholdPct,
+    overThreshold: budget.overThreshold,
+    overspent: budget.overspent,
+  }));
+
+  function fromRow(row: BudgetTableRow): BudgetStatus {
+    const budget = byId.get(row.id);
+    if (!budget) throw new Error("Row named a budget the screen never listed.");
+    return budget;
+  }
+
   const anchor = `${month}-01`;
   const monthLabel = format.dateTime(civilDateToDate(anchor), {
     month: "long",
@@ -198,33 +221,58 @@ export function BudgetsScreen({
         </IconButton>
       </Flex>
 
-      {budgets.length === 0 ? (
-        archived ? (
-          <EmptyState title={t("archivedEmpty")} />
-        ) : (
-          <EmptyState
-            title={t("emptyTitle")}
-            description={t("emptyDescription")}
-            action={addButton}
-          />
-        )
-      ) : (
-        <Flex direction="column" gap="3">
-          {budgets.map((budget) => (
-            <BudgetCard
-              key={budget.id}
-              budget={budget}
-              title={budget.name ?? categoryNames.get(budget.categoryId) ?? ""}
-              color={categoryColors.get(budget.categoryId) ?? null}
-              archived={archived}
-              onEdit={() => setFormTarget(budget)}
-              onArchive={() => setRowAction({ kind: "archive", budget })}
-              onRestore={() => setRowAction({ kind: "restore", budget })}
-              onDelete={() => setRowAction({ kind: "delete", budget })}
+      <Box display={{ initial: "block", lg: "none" }}>
+        {budgets.length === 0 ? (
+          archived ? (
+            <EmptyState title={t("archivedEmpty")} />
+          ) : (
+            <EmptyState
+              title={t("emptyTitle")}
+              description={t("emptyDescription")}
+              action={addButton}
             />
-          ))}
-        </Flex>
-      )}
+          )
+        ) : (
+          <Flex direction="column" gap="3">
+            {budgets.map((budget) => (
+              <BudgetCard
+                key={budget.id}
+                budget={budget}
+                title={budget.name ?? categoryNames.get(budget.categoryId) ?? ""}
+                color={categoryColors.get(budget.categoryId) ?? null}
+                archived={archived}
+                onEdit={() => setFormTarget(budget)}
+                onArchive={() => setRowAction({ kind: "archive", budget })}
+                onRestore={() => setRowAction({ kind: "restore", budget })}
+                onDelete={() => setRowAction({ kind: "delete", budget })}
+              />
+            ))}
+          </Flex>
+        )}
+      </Box>
+
+      <Box display={{ initial: "none", lg: "block" }}>
+        <BudgetsTable
+          rows={tableRows}
+          archived={archived}
+          empty={
+            archived ? (
+              <EmptyState variant="filtered" title={t("archivedEmpty")} />
+            ) : (
+              <EmptyState
+                variant="filtered"
+                title={t("emptyTitle")}
+                description={t("emptyDescription")}
+                action={addButton}
+              />
+            )
+          }
+          onEdit={(row) => setFormTarget(fromRow(row))}
+          onArchive={(row) => setRowAction({ kind: "archive", budget: fromRow(row) })}
+          onRestore={(row) => setRowAction({ kind: "restore", budget: fromRow(row) })}
+          onDelete={(row) => setRowAction({ kind: "delete", budget: fromRow(row) })}
+        />
+      </Box>
 
       <BudgetFormDialog
         open={formTarget !== null}
