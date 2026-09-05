@@ -25,7 +25,6 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
 - Never ask whether to keep going or close the handoff. The `Stop` hook says when the window is full.
 - Never ask permission for the next step the plan already names. Take it and report it.
 - Never end a turn on a report while a module is ready to dispatch. Take it.
-- Never open a fan-out near the window's limit. Four lanes launched at 400k emitted no turn at all.
 - Tick a plan's module the moment its branch lands. `## [ ]` to `## [x]`, in the plan file.
 - Say who or what blocks a module, in one line, when one is blocked. Never go quiet.
 
