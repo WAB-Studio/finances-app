@@ -1,37 +1,113 @@
-// Pesos are what a person types and cents are what the ledger stores. No
-// function here knows an account's kind or a movement's sign: that belongs
-// to the one SQL expression that derives them from the accounts involved.
+import {
+  BASE_CURRENCY,
+  type CurrencyCode,
+  minorUnitExponent,
+} from "@/lib/currency";
 
-// COP has no coin smaller than the peso, so this bounds what a person can
-// type: eleven nines is comfortably past any fund this app will ever hold.
-export const MAX_AMOUNT_PESOS = 99_999_999_999;
+// Minor units are what a person types and what the ledger stores (RNF-05): the
+// peso for COP, the cent for USD. No function here knows an account's kind or a
+// movement's sign: that belongs to the one SQL expression that derives them
+// from the accounts involved.
 
-// Strips the separators `Intl.NumberFormat` writes and the ones a person
-// types by hand, so a pasted "500.000" and a typed "500000" parse the same.
-// Bank messages may append zero decimals in either locale; fractions stay invalid.
+// Eleven nines of the major unit is comfortably past any fund this app will
+// ever hold. Carried into the minor unit, USD lands at 9.99e12, well under
+// `Number.MAX_SAFE_INTEGER`.
+const MAX_AMOUNT_MAJOR = 99_999_999_999;
+
+export function maxAmountMinor(currency: CurrencyCode): number {
+  return MAX_AMOUNT_MAJOR * 10 ** minorUnitExponent(currency);
+}
+
+// Strips the separators `Intl.NumberFormat` writes and the ones a person types
+// by hand, so a pasted "500.000" and a typed "500000" parse the same. Bank
+// messages may append zero decimals in either locale.
 // Only a separator sitting where a thousands group falls — exactly three
-// digits, then another separator or the end — is a group mark; anything
-// else is left in place so "500.5" still reads as a decimal, not a peso.
+// digits, then another separator or the end — is a group mark; anything else
+// is left in place so "500.5" still reads as a decimal, not a group.
+function normalizeGroupMarks(raw: string): string {
+  const withoutZeroFraction = raw.trim().replace(/[.,]00$/, "");
+  return withoutZeroFraction.replace(/[.,   ](?=\d{3}(?:\D|$))/g, "");
+}
+
+/**
+ * A typed amount as an integer in the currency's minor unit, or `null` when it
+ * is not one. Takes up to as many decimals as the currency has and not one
+ * more, so "10,50" is a dollar amount and no peso amount at all. No sign and no
+ * exponent: a negative or fractional stored amount is not a value a form takes.
+ */
+export function parseAmount(
+  raw: string,
+  currency: CurrencyCode,
+): number | null {
+  const exponent = minorUnitExponent(currency);
+  const match = /^(\d+)(?:[.,](\d+))?$/.exec(normalizeGroupMarks(raw));
+  if (!match) return null;
+
+  const [, major, fraction = ""] = match;
+  if (fraction.length > exponent) return null;
+
+  const minor =
+    Number(major) * 10 ** exponent + Number(fraction.padEnd(exponent, "0") || 0);
+
+  return Number.isSafeInteger(minor) ? minor : null;
+}
+
+/**
+ * What the amount field shows for a stored figure. Writes the decimal mark
+ * Spanish uses, the language the copy is written in; `parseAmount` reads either
+ * mark back, so a person may still type the other one.
+ */
+export function amountToInput(minor: number, currency: CurrencyCode): string {
+  const exponent = minorUnitExponent(currency);
+  if (exponent === 0) return String(minor);
+
+  const unit = 10 ** exponent;
+  const major = Math.trunc(minor / unit);
+  const fraction = String(Math.abs(minor) % unit).padStart(exponent, "0");
+
+  return `${major},${fraction}`;
+}
+
+/**
+ * The quotient of the two amounts a cross-currency movement carries (RF-122).
+ * The one float in this module: it exists to be read, and it is never
+ * multiplied back out into an amount that gets stored.
+ */
+export function deriveRate(
+  amountMinor: number,
+  from: CurrencyCode,
+  counterMinor: number,
+  to: CurrencyCode,
+): number {
+  const amount = amountMinor / 10 ** minorUnitExponent(from);
+  const counter = counterMinor / 10 ** minorUnitExponent(to);
+
+  return counter / amount;
+}
+
+// COP-only wrappers, marked to retire. Forty-five files still call them, from
+// when every amount was a peso stored as a hundredth of itself. Each caller
+// drops its own as the screen it serves starts carrying a currency (RF-121).
+
+/** @deprecated Bound an amount with `maxAmountMinor(currency)`. */
+export const MAX_AMOUNT_PESOS = MAX_AMOUNT_MAJOR;
+
+/** @deprecated Normalising is `parseAmount`'s own business. */
 export function normalizeAmountInput(raw: string): string {
-  const integerPesos = raw.trim().replace(/[.,]00$/, "");
-  return integerPesos.replace(/[.,   ](?=\d{3}(?:\D|$))/g, "");
+  return normalizeGroupMarks(raw);
 }
 
-// `null` on anything but a plain run of digits: no sign, no decimal, no
-// exponent. A negative or fractional peso is not a value this form accepts.
+/** @deprecated Parse with `parseAmount(raw, currency)`. */
 export function parsePesos(raw: string): number | null {
-  const normalized = normalizeAmountInput(raw);
-  if (!/^\d+$/.test(normalized)) return null;
-
-  return Number(normalized);
+  return parseAmount(raw, BASE_CURRENCY);
 }
 
+/** @deprecated An amount is already stored in its currency's minor unit. */
 export function pesosToCents(pesos: number): number {
   return pesos * 100;
 }
 
-// Presentation only: a cent total that is not a multiple of 100 cannot occur
-// in COP, so this never rounds and never feeds back into a stored amount.
+/** @deprecated Formatting an amount is `Money`'s own business. */
 export function centsToPesos(cents: number): number {
   return cents / 100;
 }
