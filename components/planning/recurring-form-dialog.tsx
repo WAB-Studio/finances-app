@@ -31,7 +31,9 @@ import {
 import type { RecurringRuleRow } from "@/db/queries/recurring-rules";
 import type { TransactionFormOptions } from "@/db/queries/transaction-form";
 import { isCivilDate } from "@/lib/dates";
-import { centsToPesos } from "@/lib/money";
+// The field takes the decimals the row's currency is written with, so
+// reopening a figure and saving it back stores the integer it already held.
+import { amountToInput } from "@/lib/money";
 import { useActionErrorToast } from "@/lib/use-action-toast";
 import {
   createRecurringRuleSchema,
@@ -126,7 +128,7 @@ function RecurringForm({
           direction: rule.toAccountId !== null ? "income" : "expense",
           fromAccountId: rule.fromAccountId,
           toAccountId: rule.toAccountId,
-          amount: String(centsToPesos(rule.amountCents)),
+          amount: amountToInput(rule.amountCents, rule.currency),
           categoryId: rule.categoryId,
           description: rule.description,
           frequency: rule.frequency,

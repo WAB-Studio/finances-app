@@ -1,7 +1,7 @@
 "use client";
 
 import { ChevronLeft, ChevronRight, EllipsisVertical, Plus } from "lucide-react";
-import { useFormatter, useTranslations } from "next-intl";
+import { useFormatter, useLocale, useTranslations } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -35,7 +35,7 @@ import type { BudgetStatus } from "@/db/queries/budgets";
 import type { TransactionFormOptions } from "@/db/queries/transaction-form";
 import { usePathname, useRouter } from "@/i18n/navigation";
 import { addCivilMonths, civilDateToDate } from "@/lib/dates";
-import { centsToPesos } from "@/lib/money";
+import { formatMoney } from "@/lib/money";
 import { useActionErrorToast } from "@/lib/use-action-toast";
 
 // The subject of a menu action, not a dialog's own field state: closing any of
@@ -50,8 +50,9 @@ type RowAction =
  * derived server-side from the split spend over the selected month's window
  * (RF-72, RF-73). The month selector rewrites `?month=` so the page re-derives
  * the whole list; a budget is created, edited, archived, restored or deleted
- * through the dialog and the confirms below (RF-120). Money stays integer cents;
- * the peso figure is display only.
+ * through the dialog and the confirms below (RF-120). Money stays integer cents
+ * and every figure is drawn in the budget's own currency, which is what says
+ * which movements the limit counts (RF-121, RF-124).
  */
 export function BudgetsScreen({
   budgets,
@@ -123,6 +124,7 @@ export function BudgetsScreen({
     id: budget.id,
     title: budget.name ?? categoryNames.get(budget.categoryId) ?? "",
     color: categoryColors.get(budget.categoryId) ?? null,
+    currency: budget.currency,
     spentCents: budget.spentCents,
     limitCents: budget.limitCents,
     remainingCents: budget.remainingCents,
@@ -354,7 +356,7 @@ function BudgetCard({
 }) {
   const t = useTranslations("budgets");
   const tKey = useTranslations();
-  const format = useFormatter();
+  const locale = useLocale();
 
   // The bar and the percentage read the derived spend against the limit, clamped
   // so an overspend never runs the bar past its track (RF-72).
@@ -373,15 +375,16 @@ function BudgetCard({
 
   const status = budget.overspent
     ? t("overspent", {
-        amount: format.number(
-          centsToPesos(budget.spentCents - budget.limitCents),
-          "currency",
+        amount: formatMoney(
+          budget.spentCents - budget.limitCents,
+          budget.currency,
+          locale,
         ),
       })
     : budget.overThreshold
       ? t("nearLimit", { pct, threshold: budget.thresholdPct })
       : t("remaining", {
-          amount: format.number(centsToPesos(budget.remainingCents), "currency"),
+          amount: formatMoney(budget.remainingCents, budget.currency, locale),
           pct,
         });
 
@@ -403,9 +406,9 @@ function BudgetCard({
             color={budget.overspent ? "red" : undefined}
             style={{ fontVariantNumeric: "tabular-nums" }}
           >
-            {format.number(centsToPesos(budget.spentCents), "currency")}
+            {formatMoney(budget.spentCents, budget.currency, locale)}
             <Text color="gray" weight="regular">
-              {` / ${format.number(centsToPesos(budget.limitCents), "currency")}`}
+              {` / ${formatMoney(budget.limitCents, budget.currency, locale)}`}
             </Text>
           </Text>
           <DropdownMenu.Root>

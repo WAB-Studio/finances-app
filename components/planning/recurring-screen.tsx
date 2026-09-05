@@ -1,7 +1,7 @@
 "use client";
 
 import { Info, Pencil, Plus, Repeat, TriangleAlert } from "lucide-react";
-import { useFormatter, useTranslations } from "next-intl";
+import { useFormatter, useLocale, useTranslations } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -34,7 +34,7 @@ import type { RecurringRuleRow } from "@/db/queries/recurring-rules";
 import type { TransactionFormOptions } from "@/db/queries/transaction-form";
 import { Link as LocaleLink, useRouter } from "@/i18n/navigation";
 import { civilDateToDate } from "@/lib/dates";
-import { centsToPesos } from "@/lib/money";
+import { formatMoney } from "@/lib/money";
 import { useActionErrorToast } from "@/lib/use-action-toast";
 
 /**
@@ -42,7 +42,8 @@ import { useActionErrorToast } from "@/lib/use-action-toast";
  * next run first (RF-29), each carrying a frequency + next-run subtitle. A rule's
  * switch pauses or resumes it in place (RF-32); a paused rule reads muted. The
  * amber banner counts the generated movements still awaiting review (RF-31) and
- * hides when none are. Money stays integer cents; the peso figure is display only.
+ * hides when none are. Money stays integer cents and every figure is drawn in
+ * the settlement currency of the account the rule names (RF-121).
  */
 export function RecurringScreen({
   rules,
@@ -107,6 +108,7 @@ export function RecurringScreen({
       account: (accountId && accountNames.get(accountId)) ?? "",
       isActive: rule.isActive,
       amountCents: rule.amountCents,
+      currency: rule.currency,
       isIncome: rule.toAccountId !== null,
     };
   });
@@ -239,6 +241,7 @@ function RuleCard({
   const t = useTranslations("recurringRules");
   const tKey = useTranslations();
   const format = useFormatter();
+  const locale = useLocale();
   const onActionError = useActionErrorToast();
 
   // Two hooks, not one behind a ternary: rules of hooks forbid picking which one
@@ -318,7 +321,7 @@ function RuleCard({
           color={isIncome ? "grass" : undefined}
           style={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}
         >
-          {format.number(centsToPesos(rule.amountCents), "currency")}
+          {formatMoney(rule.amountCents, rule.currency, locale)}
         </Text>
       </Flex>
       <Flex align="center" justify="end" gap="3" mt="3">

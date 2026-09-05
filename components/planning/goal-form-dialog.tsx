@@ -25,7 +25,9 @@ import {
 } from "@/components/ui";
 import type { GoalProgress } from "@/db/queries/savings-goals";
 import type { TransactionFormOptions } from "@/db/queries/transaction-form";
-import { centsToPesos } from "@/lib/money";
+// The field takes the decimals the row's currency is written with, so
+// reopening a figure and saving it back stores the integer it already held.
+import { amountToInput } from "@/lib/money";
 import { useActionErrorToast } from "@/lib/use-action-toast";
 import {
   createGoalSchema,
@@ -103,7 +105,7 @@ function GoalForm({
       ? {
           goalId: goal.id,
           name: goal.name,
-          targetAmount: String(centsToPesos(goal.targetAmountCents)),
+          targetAmount: amountToInput(goal.targetAmountCents, goal.currency),
           targetDate: goal.targetDate,
           accountId: goal.accountId,
         }

@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useFormatter, useTranslations } from "next-intl";
+import { useFormatter, useLocale, useTranslations } from "next-intl";
 
 import {
   Badge,
@@ -17,7 +17,7 @@ import {
 } from "@/components/ui";
 import type { GoalProgress } from "@/db/queries/savings-goals";
 import { civilDateToDate } from "@/lib/dates";
-import { centsToPesos } from "@/lib/money";
+import { formatMoney } from "@/lib/money";
 
 // The em dash a cell with nothing to name reads as (SPEC-A3), not a word a
 // translator would ever change.
@@ -104,25 +104,38 @@ export function GoalsTable({
   const t = useTranslations("goals");
   const tKey = useTranslations();
   const format = useFormatter();
+  const locale = useLocale();
 
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
   const from = (page - 1) * pageSize + 1;
   const to = Math.min(page * pageSize, total);
 
-  function pesos(cents: number): string {
-    return format.number(centsToPesos(cents), "currency");
+  function figure(cents: number, currency: string): string {
+    return formatMoney(cents, currency, locale);
   }
 
-  // The rows on screen, which is what the total row states: a page sums itself.
-  const savedTotalCents = rows.reduce((sum, goal) => sum + goal.savedCents, 0);
-  const remainingTotalCents = rows.reduce(
-    (sum, goal) => sum + goal.remainingCents,
-    0,
-  );
-  const targetTotalCents = savedTotalCents + remainingTotalCents;
+  // The rows on screen, which is what the total row states: a page sums itself,
+  // and one running pair per currency, so no total adds two of them together
+  // (RF-124). With a single currency — every list until a goal settles
+  // elsewhere — each total cell draws the one figure it always did.
+  const totals = new Map<string, { savedCents: number; remainingCents: number }>();
+  for (const goal of rows) {
+    const running = totals.get(goal.currency) ?? {
+      savedCents: 0,
+      remainingCents: 0,
+    };
+    running.savedCents += goal.savedCents;
+    running.remainingCents += goal.remainingCents;
+    totals.set(goal.currency, running);
+  }
+  const totalRows = [...totals.entries()];
+  const single = totalRows.length === 1 ? totalRows[0] : null;
+  const singleTargetCents = single
+    ? single[1].savedCents + single[1].remainingCents
+    : 0;
   const totalPct =
-    targetTotalCents > 0
-      ? Math.round((savedTotalCents / targetTotalCents) * 100)
+    singleTargetCents > 0
+      ? Math.round((single![1].savedCents / singleTargetCents) * 100)
       : 0;
 
   const columns: DataColumn<GoalProgress>[] = [
@@ -146,7 +159,7 @@ export function GoalsTable({
           color={goal.behindPace ? "amber" : undefined}
           aria-label={t("progressLabel", {
             name: goal.name,
-            amount: pesos(goal.savedCents),
+            amount: figure(goal.savedCents, goal.currency),
             pct: goal.progressPct,
           })}
         />
@@ -175,7 +188,8 @@ export function GoalsTable({
             ) : (
               <Text size="2" color={pace === "behind" ? "amber" : "gray"}>
                 <Money
-                  cents={goal.requiredMonthlyCents}
+                  minor={goal.requiredMonthlyCents}
+                  currency={goal.currency}
                   size="inherit"
                   signed={false}
                 />
@@ -192,7 +206,9 @@ export function GoalsTable({
       width: WIDTHS.saved,
       align: "end",
       numeric: true,
-      cell: (goal) => <Money cents={goal.savedCents} signed={false} />,
+      cell: (goal) => (
+        <Money minor={goal.savedCents} currency={goal.currency} signed={false} />
+      ),
     },
     {
       key: "remaining",
@@ -202,7 +218,11 @@ export function GoalsTable({
       numeric: true,
       cell: (goal) => (
         <Text color="gray">
-          <Money cents={goal.remainingCents} signed={false} />
+          <Money
+            minor={goal.remainingCents}
+            currency={goal.currency}
+            signed={false}
+          />
         </Text>
       ),
     },
@@ -310,20 +330,41 @@ export function GoalsTable({
               <Text key="label" size="1" weight="bold" color="gray">
                 {t("tableTotal").toUpperCase()}
               </Text>,
-              <Progress
-                key="progress"
-                value={totalPct}
-                aria-label={t("totalProgressLabel", {
-                  saved: pesos(savedTotalCents),
-                  target: pesos(targetTotalCents),
-                  pct: totalPct,
-                })}
-              />,
+              // A bar over two currencies is a percentage of nothing, so it is
+              // drawn only while the page counts one.
+              single ? (
+                <Progress
+                  key="progress"
+                  value={totalPct}
+                  aria-label={t("totalProgressLabel", {
+                    saved: figure(single[1].savedCents, single[0]),
+                    target: figure(singleTargetCents, single[0]),
+                    pct: totalPct,
+                  })}
+                />
+              ) : null,
               null,
-              <Money key="saved" cents={savedTotalCents} signed={false} />,
-              <Text key="remaining" color="gray">
-                <Money cents={remainingTotalCents} signed={false} />
-              </Text>,
+              <Flex key="saved" direction="column" align="end">
+                {totalRows.map(([currency, sums]) => (
+                  <Money
+                    key={currency}
+                    minor={sums.savedCents}
+                    currency={currency}
+                    signed={false}
+                  />
+                ))}
+              </Flex>,
+              <Flex key="remaining" direction="column" align="end">
+                {totalRows.map(([currency, sums]) => (
+                  <Text key={currency} color="gray">
+                    <Money
+                      minor={sums.remainingCents}
+                      currency={currency}
+                      signed={false}
+                    />
+                  </Text>
+                ))}
+              </Flex>,
             ]
           : undefined
       }

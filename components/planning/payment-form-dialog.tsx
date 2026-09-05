@@ -28,7 +28,9 @@ import {
 } from "@/components/ui";
 import type { PlannedPaymentRow } from "@/db/queries/planned-payments";
 import type { TransactionFormOptions } from "@/db/queries/transaction-form";
-import { centsToPesos } from "@/lib/money";
+// The field takes the decimals the row's currency is written with, so
+// reopening a figure and saving it back stores the integer it already held.
+import { amountToInput } from "@/lib/money";
 import { useActionErrorToast } from "@/lib/use-action-toast";
 import {
   createPlannedPaymentSchema,
@@ -112,7 +114,7 @@ function PaymentForm({
           plannedPaymentId: payment.id,
           fromAccountId: payment.fromAccountId,
           toAccountId: payment.toAccountId,
-          amount: String(centsToPesos(payment.amountCents)),
+          amount: amountToInput(payment.amountCents, payment.currency),
           categoryId: payment.categoryId,
           dueDate: payment.dueDate,
           remindOn: payment.remindOn,

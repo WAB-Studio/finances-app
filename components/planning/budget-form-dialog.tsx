@@ -26,7 +26,9 @@ import {
 } from "@/components/ui";
 import type { BudgetStatus } from "@/db/queries/budgets";
 import type { TransactionFormOptions } from "@/db/queries/transaction-form";
-import { centsToPesos } from "@/lib/money";
+// The field takes the decimals the row's currency is written with, so
+// reopening a figure and saving it back stores the integer it already held.
+import { amountToInput } from "@/lib/money";
 import { useActionErrorToast } from "@/lib/use-action-toast";
 import {
   BUDGET_PERIODS,
@@ -122,7 +124,7 @@ function BudgetForm({
           accountId: budget.accountId,
           labelId: budget.labelId,
           period: budget.period,
-          limit: String(centsToPesos(budget.limitCents)),
+          limit: amountToInput(budget.limitCents, budget.currency),
           thresholdPct: budget.thresholdPct,
           name: budget.name,
         }

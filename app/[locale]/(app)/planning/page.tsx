@@ -12,8 +12,29 @@ import { listPlannedPayments } from "@/db/queries/planned-payments";
 import { listRecurringRules } from "@/db/queries/recurring-rules";
 import { listGoalsWithProgress } from "@/db/queries/savings-goals";
 import { civilDateToDate } from "@/lib/dates";
-import { centsToPesos } from "@/lib/money";
+import { formatMoney } from "@/lib/money";
 import { routing } from "@/i18n/routing";
+
+/**
+ * One running total per currency, in the order the rows introduce them, so a hub
+ * line never adds two currencies together (RF-124). Every row hands over its
+ * currency and the figures to run up in it.
+ */
+function sumByCurrency<Row>(
+  rows: Row[],
+  read: (row: Row) => [string, number[]],
+): [string, number[]][] {
+  const totals = new Map<string, number[]>();
+
+  for (const row of rows) {
+    const [currency, figures] = read(row);
+    const running = totals.get(currency);
+    if (running) figures.forEach((figure, index) => (running[index] += figure));
+    else totals.set(currency, [...figures]);
+  }
+
+  return [...totals.entries()];
+}
 
 export async function generateMetadata(
   props: PageProps<"/[locale]/planning">,
@@ -47,20 +68,31 @@ export default async function PlanningPage(
     ]);
 
   // Every summary is derived here from the same reads the areas use; money is
-  // formatted for display only, never re-stored, and cents stay integer.
-  const spentCents = budgets.reduce((sum, b) => sum + b.spentCents, 0);
-  const limitCents = budgets.reduce((sum, b) => sum + b.limitCents, 0);
-  const budgetsSummary = t("budgetsSummary", {
-    count: budgets.length,
-    spent: format.number(centsToPesos(spentCents), "currency"),
-    limit: format.number(centsToPesos(limitCents), "currency"),
-  });
+  // formatted for display only, never re-stored, and cents stay integer. A
+  // summary line holds one figure, so a hub that counts two currencies writes
+  // one sentence per currency rather than adding them (RF-124); the currency's
+  // own symbol is what says which movements each line counts.
+  const budgetsSummary = sumByCurrency(budgets, (b) => [
+    b.currency,
+    [b.spentCents, b.limitCents],
+  ])
+    .map(([currency, [spentCents, limitCents]]) =>
+      t("budgetsSummary", {
+        count: budgets.filter((b) => b.currency === currency).length,
+        spent: formatMoney(spentCents, currency, locale),
+        limit: formatMoney(limitCents, currency, locale),
+      }),
+    )
+    .join(" · ");
 
-  const savedCents = goals.reduce((sum, g) => sum + g.savedCents, 0);
-  const goalsSummary = t("goalsSummary", {
-    count: goals.length,
-    saved: format.number(centsToPesos(savedCents), "currency"),
-  });
+  const goalsSummary = sumByCurrency(goals, (g) => [g.currency, [g.savedCents]])
+    .map(([currency, [savedCents]]) =>
+      t("goalsSummary", {
+        count: goals.filter((g) => g.currency === currency).length,
+        saved: formatMoney(savedCents, currency, locale),
+      }),
+    )
+    .join(" · ");
 
   // The list arrives soonest due first, so the head is the next pending payment.
   const soonest = payments[0];
