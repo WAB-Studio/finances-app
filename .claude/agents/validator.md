@@ -24,7 +24,9 @@ Report the real output. A skipped check is a FAIL.
 
 # Inspect
 
-Read the diff the worker landed: `git diff main...HEAD` and `git show` on the branch's commits.
+Read the diff the worker landed: `git show --stat` on each commit of
+`git log <base>..HEAD`. Never `git diff <base>..HEAD`: two dots compare the tips, so a base
+that moved after the fork reads as the branch deleting what the base added.
 
 Against the contract:
 - Every file the contract names is touched; no file outside it is.
@@ -54,8 +56,11 @@ fallback to zero — adding zero does not change a sum.
 
 # Scope
 
-Judge file scope against the assignment's own commit. On a stacked branch the whole diff carries
-prior assignments, already validated, and counting them is a false FAIL.
+Judge file scope against the assignment's own commits, never against a diff of two tips.
+Both directions are false FAILs: a stacked branch carries prior assignments already
+validated, and a base that moved ahead shows its own new lines as this branch's deletions.
+Before you call a file out of scope, prove the branch touched it:
+`git log $(git merge-base <base> HEAD)..HEAD -- <path>`. No commits, no finding.
 
 # Verdict
 
