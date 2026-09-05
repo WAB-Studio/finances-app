@@ -201,6 +201,7 @@ async function main() {
   await checkGroupCategoryLeaderOnly();
   await checkLeadershipTransfer();
   await checkAccountHandOver();
+  await checkCurrencyPolicies();
 }
 
 // Assertions 9-26: the repivoted schema. A group holds accounts and categories a user XOR a group
@@ -501,7 +502,7 @@ async function checkLedgerPolicies() {
     "33. a split whose category sits in another scope is refused",
     "34. a split whose category is of the wrong kind is refused",
     "35. a member reads a group movement and another member's personal movement",
-    "36. account_balances returns the initial balance plus the net of movements",
+    "36. account_balances returns the initial balance plus the net of movements, in the account's settlement currency",
   ];
   const tailLabel = "37. the rolled-back ledger transaction leaves no trace";
 
@@ -695,16 +696,30 @@ async function checkLedgerPolicies() {
       );
 
       // 36: the derived balance is the opening figure plus what flowed in, less what flowed out.
+      // The view keys on `(id, currency)`, so the row is named by its currency and never by `[0]`:
+      // one account holds one pocket per currency it has touched, and only the settlement one answers
+      // for the figure a person calls "the balance" (RF-121, RF-124).
       await tx`insert into transactions (from_account_id, to_account_id, amount_cents, occurred_at)
         values (${balAccountB}, ${balAccountA}, 3000, (now() at time zone 'America/Bogota')::date)`;
       await tx`insert into transactions (from_account_id, to_account_id, amount_cents, occurred_at)
         values (${balAccountA}, ${balAccountB}, 1000, (now() at time zone 'America/Bogota')::date)`;
-      const [{ balance_cents: balance }] = await tx<{ balance_cents: string }[]>`
-        select balance_cents from account_balances where id = ${balAccountA}`;
+      // A dollar spend still on estimate opens a second pocket on the same account, so the row the
+      // assertion reads can only be found by naming a currency and never by taking the first one.
+      const [{ id: balAbroad }] = await tx<{ id: string }[]>`
+        insert into transactions (from_account_id, amount_cents, occurred_at, currency, counter_amount_cents, counter_is_estimate)
+        values (${balAccountA}, 500, (now() at time zone 'America/Bogota')::date, 'USD', 2000, true) returning id`;
+      await tx`insert into transaction_splits (transaction_id, category_id, amount_cents)
+        values (${balAbroad}, ${memberExpenseCat}, 500)`;
+      const settlementBalance = await tx<{ balance_cents: string }[]>`
+        select b.balance_cents
+        from account_balances b
+        join accounts a on a.id = b.id and a.settlement_currency = b.currency
+        where b.id = ${balAccountA}`;
+      const balance = settlementBalance[0]?.balance_cents;
       assert(
         labels[9],
-        balance === "102000",
-        `balance_cents = ${balance}, expected 102000 (100000 + 3000 − 1000)`,
+        settlementBalance.length === 1 && balance === "102000",
+        `settlement rows = ${settlementBalance.length}, balance_cents = ${balance}, expected 102000 (100000 + 3000 − 1000)`,
       );
 
       // Forces `sql.begin` to issue ROLLBACK: nothing this function wrote may survive it.
@@ -1859,17 +1874,22 @@ async function checkInstallmentPolicies() {
 
 // Assertions 78-79: the derived debt figures. No new policy ships — what is proved is that the overview's
 // arithmetic reads true. The monthly interest is the effective twelfth-root step of the annual rate, not
-// the linear annual/12; available credit nets the limit against the owed; and total owed is the sum of the
-// balances, which an installment plan (a schedule, never a movement) leaves untouched. The same SQL the
-// overview runs is replicated inline, and every fixture is seeded through the app's own policies and rolled
-// back.
+// the linear annual/12; available credit nets the limit against the pocket the card settles in; and what a
+// person calls "total owed" is one figure per currency, which an installment plan (a schedule, never a
+// movement) leaves untouched. The same SQL the overview runs is replicated inline, and every fixture is
+// seeded through the app's own policies and rolled back.
+//
+// The fixture holds a card with a foreign purchase still on estimate, so a card really does carry two
+// pockets here (RF-121). A credit limit is denominated in the currency the card settles in, so available
+// credit reads that pocket and no other; and a sum across the two cards can only answer per currency,
+// because adding a dollar to a peso is the one thing RF-124 forbids.
 async function checkDebtDerivedFigures() {
   console.log("");
   const leaderUser = randomUUID();
 
   const labels = [
     "78. the monthly interest is the effective rate, matching the hand figure and unlike the linear one",
-    "79. available credit nets the limit against the owed, and a plan never double-counts the total owed",
+    "79. available credit nets the limit against the settlement pocket, and total owed answers one figure per currency that a plan never double-counts",
   ];
   const tailLabel = "80. the rolled-back debt figures transaction leaves no trace";
 
@@ -1895,6 +1915,20 @@ async function checkDebtDerivedFigures() {
         values (${leaderUser}, 'rls debt figures card B', 'liability', -500000, (now() at time zone 'America/Bogota')::date) returning id`;
       await tx`insert into debt_terms (account_id, debt_kind, annual_rate, minimum_payment_pct, credit_limit_cents)
         values (${cardA}, 'revolving', ${rate}, 0.05, 1500000)`;
+      await tx`insert into debt_terms (account_id, debt_kind, annual_rate, minimum_payment_pct, credit_limit_cents)
+        values (${cardB}, 'revolving', 0.24, 0.05, 800000)`;
+
+      // A purchase abroad on card B, in dollars and still on estimate: RF-123 keeps it in the currency
+      // it was spent in until a statement says what the issuer billed, so the card holds a USD pocket of
+      // −20000 beside its COP pocket of −500000. One-sided, so it carries the split RF-69 demands.
+      const [{ id: leaderExpenseCat }] = await tx<{ id: string }[]>`
+        insert into categories (owner_user_id, name, kind)
+        values (${leaderUser}, 'rls debt figures abroad', 'expense') returning id`;
+      const [{ id: abroad }] = await tx<{ id: string }[]>`
+        insert into transactions (from_account_id, amount_cents, occurred_at, currency, counter_amount_cents, counter_is_estimate)
+        values (${cardB}, 20000, (now() at time zone 'America/Bogota')::date, 'USD', 80000, true) returning id`;
+      await tx`insert into transaction_splits (transaction_id, category_id, amount_cents)
+        values (${abroad}, ${leaderExpenseCat}, 20000)`;
 
       // 78: the SQL effective estimate matches the hand figure and diverges from the linear one.
       const [figures] = await tx<{ effective: string; linear: string }[]>`
@@ -1912,15 +1946,30 @@ async function checkDebtDerivedFigures() {
         `effective = ${figures.effective} (expected ${expectedEffective}), linear = ${figures.linear} (expected ${expectedLinear})`,
       );
 
-      // 79: available credit = limit − owed; total owed is the sum of the two balances. Materialising an
-      // installment plan over one card adds a schedule, no movement, so the total owed does not budge.
-      const [before] = await tx<{ available: string; total_owed: string }[]>`
-        select
-          (dt.credit_limit_cents - abs(b.balance_cents))::text as available,
-          (select sum(balance_cents) from account_balances where id in (${cardA}, ${cardB}))::text as total_owed
-        from account_balances b
-        join debt_terms dt on dt.account_id = b.id
-        where b.id = ${cardA}`;
+      // 79: available credit = limit − the settlement pocket's owed, one row per card because the join
+      // names the currency; total owed is a vector, one entry per currency the two cards hold. Materialising
+      // an installment plan over one card adds a schedule, no movement, so neither figure budges.
+      const availableCredit = () =>
+        tx<{ id: string; available: string }[]>`
+          select b.id, (dt.credit_limit_cents - abs(b.balance_cents))::text as available
+          from account_balances b
+          join accounts a on a.id = b.id and a.settlement_currency = b.currency
+          join debt_terms dt on dt.account_id = b.id
+          where b.id in (${cardA}, ${cardB})`;
+      const totalOwed = () =>
+        tx<{ currency: string; owed: string }[]>`
+          select currency, sum(balance_cents)::text as owed
+          from account_balances
+          where id in (${cardA}, ${cardB})
+          group by currency
+          order by currency`;
+      // A vector reads as one string so a missing pocket, an extra one and a wrong figure all fail alike.
+      const owedVector = (rows: { currency: string; owed: string }[]) =>
+        rows.map((row) => `${row.currency} ${row.owed}`).join(", ");
+      const expectedOwed = "COP -1500000, USD -20000";
+
+      const creditBefore = await availableCredit();
+      const owedBefore = owedVector(await totalOwed());
       const [{ id: plan }] = await tx<{ id: string }[]>`
         insert into installment_plans (account_id, principal_cents, n_installments, frequency, start_date)
         values (${cardA}, 900000, 3, 'monthly', (now() at time zone 'America/Bogota')::date) returning id`;
@@ -1928,14 +1977,18 @@ async function checkDebtDerivedFigures() {
         (${plan}, 1, '2026-01-15', 300000),
         (${plan}, 2, '2026-02-15', 300000),
         (${plan}, 3, '2026-03-15', 300000)`;
-      const [{ total_owed: totalAfter }] = await tx<{ total_owed: string }[]>`
-        select (select sum(balance_cents) from account_balances where id in (${cardA}, ${cardB}))::text as total_owed`;
+      const owedAfter = owedVector(await totalOwed());
+
+      const availableOf = (id: string) =>
+        creditBefore.find((row) => row.id === id)?.available ?? "no row";
       assert(
         labels[1],
-        before.available === "500000" &&
-          before.total_owed === "-1500000" &&
-          totalAfter === "-1500000",
-        `available = ${before.available} (expected 500000), total owed before = ${before.total_owed}, after plan = ${totalAfter} (expected -1500000)`,
+        creditBefore.length === 2 &&
+          availableOf(cardA) === "500000" &&
+          availableOf(cardB) === "300000" &&
+          owedBefore === expectedOwed &&
+          owedAfter === expectedOwed,
+        `credit rows = ${creditBefore.length} (expected 2), available A = ${availableOf(cardA)} (expected 500000), available B = ${availableOf(cardB)} (expected 300000), owed before = ${owedBefore}, after plan = ${owedAfter} (expected ${expectedOwed})`,
       );
 
       throw forcedRollback;
@@ -1965,7 +2018,7 @@ async function checkDebtStatementPolicies() {
   const otherUser = randomUUID();
 
   const labels = [
-    "81. the statement balance counts only the movements on or before the cut-off",
+    "81. the statement balance counts only what settled in the card's own currency on or before the cut-off",
     "82. re-running the same insert under the unique key inserts nothing",
     "83. an update of a statement by authenticated is refused",
     "84. an unrelated member can neither read nor write a statement on the subject's liability",
@@ -2016,10 +2069,33 @@ async function checkDebtStatementPolicies() {
       await tx`insert into transactions (from_account_id, to_account_id, amount_cents, occurred_at)
         values (${card}, ${cash}, 50000, ${dates.after_cut})`;
 
+      // Two purchases abroad before the cut-off, both in dollars on a card that settles in pesos. The
+      // first is confirmed, so it settled at its counter amount of 80000; the second is still an estimate,
+      // so nothing has settled yet and the statement owes nothing for it (RF-123). Both are one-sided and
+      // carry the split RF-69 demands.
+      const [{ id: abroadCat }] = await tx<{ id: string }[]>`
+        insert into categories (owner_user_id, name, kind)
+        values (${subject}, 'rls debt statement abroad', 'expense') returning id`;
+      const [{ id: settled }] = await tx<{ id: string }[]>`
+        insert into transactions (from_account_id, amount_cents, occurred_at, currency, counter_amount_cents, counter_is_estimate)
+        values (${card}, 20000, ${dates.before_cut}, 'USD', 80000, false) returning id`;
+      const [{ id: pending }] = await tx<{ id: string }[]>`
+        insert into transactions (from_account_id, amount_cents, occurred_at, currency, counter_amount_cents, counter_is_estimate)
+        values (${card}, 10000, ${dates.before_cut}, 'USD', 40000, true) returning id`;
+      await tx`insert into transaction_splits (transaction_id, category_id, amount_cents) values
+        (${settled}, ${abroadCat}, 20000),
+        (${pending}, ${abroadCat}, 10000)`;
+
       // The statement generator, replicated inline: the balance is the opening figure plus the signed
-      // movement sum windowed to the cut-off (the same signed sum account_balances uses), the minimum a
-      // percentage of it, the interest the effective estimate. Guarded by the unique key so a re-run
-      // inserts nothing (RF-84).
+      // movement sum windowed to the cut-off, the minimum a percentage of it, the interest the effective
+      // estimate. Guarded by the unique key so a re-run inserts nothing (RF-84).
+      //
+      // `debt_statements.statement_balance_cents` is one integer with no currency beside it, so a statement
+      // can only be what the issuer bills: the card's settlement pocket, and never a sum across pockets
+      // (RF-124). That is the settlement branch of `account_balances`, replicated here — a movement in the
+      // card's own currency counts its amount; one in another currency counts its counter amount once
+      // confirmed; and one still on estimate counts nothing, because it is the statement that settles it
+      // (RF-123). Summing `amount_cents` alone would add dollars to pesos.
       const generate = () =>
         tx<{ statement_balance_cents: string }[]>`
           insert into debt_statements
@@ -2032,20 +2108,31 @@ async function checkDebtStatementPolicies() {
           join accounts a on a.id = dt.account_id
           cross join lateral (
             select a.initial_balance_cents
-              + coalesce((select sum(t.amount_cents) from transactions t where t.to_account_id = ${card} and t.occurred_at <= ${dates.cut_off}), 0)
-              - coalesce((select sum(t.amount_cents) from transactions t where t.from_account_id = ${card} and t.occurred_at <= ${dates.cut_off}), 0)
+              + coalesce((select sum(case
+                    when t.currency = a.settlement_currency then t.amount_cents
+                    when t.counter_amount_cents is not null and not t.counter_is_estimate then t.counter_amount_cents
+                    else 0 end)
+                  from transactions t
+                  where t.to_account_id = ${card} and t.occurred_at <= ${dates.cut_off}), 0)
+              - coalesce((select sum(case
+                    when t.currency = a.settlement_currency then t.amount_cents
+                    when t.counter_amount_cents is not null and not t.counter_is_estimate then t.counter_amount_cents
+                    else 0 end)
+                  from transactions t
+                  where t.from_account_id = ${card} and t.occurred_at <= ${dates.cut_off}), 0)
               as statement_balance
           ) bal
           where dt.account_id = ${card}
           on conflict (account_id, cut_off_date) do nothing
           returning statement_balance_cents`;
 
-      // 81: the windowed balance is −200000 + 30000 = −170000; the post-cut −50000 purchase is excluded.
+      // 81: the windowed balance is −200000 + 30000 − 80000 = −250000. The post-cut −50000 purchase is
+      // excluded by the window; the estimated USD 100 purchase by not having settled.
       const first = await generate();
       assert(
         labels[0],
-        first.length === 1 && first[0].statement_balance_cents === "-170000",
-        `inserted rows = ${first.length}, statement balance = ${first[0]?.statement_balance_cents} (expected -170000)`,
+        first.length === 1 && first[0].statement_balance_cents === "-250000",
+        `inserted rows = ${first.length}, statement balance = ${first[0]?.statement_balance_cents} (expected -250000)`,
       );
 
       // 82: the second run collides on (account_id, cut_off_date) and inserts nothing.
@@ -8288,6 +8375,165 @@ async function checkAccountHandOver() {
     tailLabel,
     afterUser === "postgres" && probeCount === "0",
     `current_user = ${afterUser}, rows named 'rls hand over%' = ${probeCount}`,
+  );
+}
+
+// Assertions 277-280: the currency layer 0031 and 0032 shipped. `account_balances` was dropped and
+// recreated, and Supabase hands the client roles a grant at creation, so the view's own privileges are
+// read back from the catalogue alongside `security_invoker` — without that flag the view would read
+// with its owner's rights and walk past the policies of whoever queries it. The two triggers are then
+// driven as a real user, never asserted from the migration: one derives the currency a writer does not
+// name, which is what keeps the ten existing insert paths alive; the other refuses with `23901` a
+// movement whose second amount is missing, surplus, or attached to a shape that cannot carry it.
+async function checkCurrencyPolicies() {
+  console.log("");
+  const subject = randomUUID();
+
+  const labels = [
+    "277. authenticated holds SELECT and nothing else on account_balances, and the view reads as its caller",
+    "278. a writer that names no currency gets the account's, from the source or from the destination",
+    "279. a movement in another currency is refused without its counter amount, accepted with it, and refused for carrying one it does not need",
+    "280. a cross-currency transfer booked in a third currency and an estimate on a two-sided movement are both refused",
+  ];
+  const tailLabel = "281. the rolled-back currency transaction leaves no trace";
+
+  const forcedRollback = Symbol("forced rollback");
+
+  const viewGrants = await sql<{ role: string; priv: string }[]>`
+    select a.grantee::regrole::text as role, a.privilege_type as priv
+    from pg_class c
+    cross join lateral aclexplode(c.relacl) a
+    where c.oid = 'public.account_balances'::regclass
+      and a.grantee::regrole::text in ('anon', 'authenticated', 'service_role')
+    order by a.grantee::regrole::text, a.privilege_type`;
+  const [{ invoker }] = await sql<{ invoker: boolean }[]>`
+    select coalesce('security_invoker=on' = any(c.reloptions), false) as invoker
+    from pg_class c where c.oid = 'public.account_balances'::regclass`;
+
+  const handed = viewGrants.map((row) => `${row.role}:${row.priv}`).join(", ");
+  assert(
+    labels[0],
+    handed === "authenticated:SELECT" && invoker === true,
+    `the client roles hold [${handed || "nothing"}], security_invoker = ${invoker}`,
+  );
+
+  await sql
+    .begin(async (tx) => {
+      await tx`insert into auth.users (id) values (${subject})`;
+      await tx`insert into app_users (id) values (${subject})`;
+      await enterUserContext(tx, subject);
+
+      const [{ id: pesos }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_cents, initial_balance_on)
+        values (${subject}, 'rls currency pesos', 'asset', 1000000, (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: dollars }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, settlement_currency, initial_balance_cents, initial_balance_on)
+        values (${subject}, 'rls currency dollars', 'asset', 'USD', 100000, (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: expenseCat }] = await tx<{ id: string }[]>`
+        insert into categories (owner_user_id, name, kind)
+        values (${subject}, 'rls currency expense', 'expense') returning id`;
+      const [{ id: incomeCat }] = await tx<{ id: string }[]>`
+        insert into categories (owner_user_id, name, kind)
+        values (${subject}, 'rls currency income', 'income') returning id`;
+
+      // 278: neither insert names a currency, which is how every path written before 0031 writes. The
+      // expense takes the source account's, the income the destination's, and the derived value is what
+      // decides the pocket the view files the movement under.
+      const [spent] = await tx<{ id: string; currency: string }[]>`
+        insert into transactions (from_account_id, amount_cents, occurred_at)
+        values (${pesos}, 20000, (now() at time zone 'America/Bogota')::date) returning id, currency`;
+      const [earned] = await tx<{ id: string; currency: string }[]>`
+        insert into transactions (to_account_id, amount_cents, occurred_at)
+        values (${dollars}, 5000, (now() at time zone 'America/Bogota')::date) returning id, currency`;
+      await tx`insert into transaction_splits (transaction_id, category_id, amount_cents) values
+        (${spent.id}, ${expenseCat}, 20000),
+        (${earned.id}, ${incomeCat}, 5000)`;
+      const pockets = await tx<{ currency: string; balance_cents: string }[]>`
+        select currency, balance_cents::text from account_balances where id = ${dollars} order by currency`;
+      assert(
+        labels[1],
+        spent.currency === "COP" &&
+          earned.currency === "USD" &&
+          pockets.length === 1 &&
+          pockets[0].currency === "USD" &&
+          pockets[0].balance_cents === "105000",
+        `the expense out of the peso account = ${spent.currency} (expected COP), the income into the dollar account = ${earned.currency} (expected USD), pockets = ${pockets.map((row) => `${row.currency} ${row.balance_cents}`).join(", ")} (expected USD 105000)`,
+      );
+
+      // Each refusal runs in its own savepoint, so a statement that is wrongly accepted leaves no row
+      // behind for the next one to trip over.
+      const refusalCode = async (
+        run: (sp: postgres.TransactionSql) => Promise<unknown>,
+      ): Promise<string> => {
+        const discard = Symbol("discard the savepoint");
+        let code = "no refusal — the statement was accepted";
+        await tx
+          .savepoint(async (sp) => {
+            await run(sp);
+            throw discard;
+          })
+          .catch((error: unknown) => {
+            if (error !== discard) code = pgErrorCode(error) ?? "none";
+          });
+        return code;
+      };
+
+      // 279: spending pesos out of a dollar account needs the amount in dollars beside it, and spending
+      // pesos out of a peso account may not carry a second amount at all. The accepted one in between is
+      // the negative control: the trigger admits the shape it asks for.
+      const missingCounter = await refusalCode(
+        (sp) => sp`insert into transactions (from_account_id, amount_cents, occurred_at, currency)
+          values (${dollars}, 80000, (now() at time zone 'America/Bogota')::date, 'COP')`,
+      );
+      const surplusCounter = await refusalCode(
+        (sp) => sp`insert into transactions (from_account_id, amount_cents, occurred_at, currency, counter_amount_cents)
+          values (${pesos}, 20000, (now() at time zone 'America/Bogota')::date, 'COP', 5000)`,
+      );
+      const [abroad] = await tx<{ id: string; currency: string; counter_amount_cents: string }[]>`
+        insert into transactions (from_account_id, amount_cents, occurred_at, currency, counter_amount_cents)
+        values (${dollars}, 80000, (now() at time zone 'America/Bogota')::date, 'COP', 20)
+        returning id, currency, counter_amount_cents`;
+      await tx`insert into transaction_splits (transaction_id, category_id, amount_cents)
+        values (${abroad.id}, ${expenseCat}, 80000)`;
+      assert(
+        labels[2],
+        missingCounter === "23901" &&
+          surplusCounter === "23901" &&
+          abroad.currency === "COP" &&
+          abroad.counter_amount_cents === "20",
+        `no counter = ${missingCounter}, surplus counter = ${surplusCounter} (both expected 23901); the movement that carried one landed as ${abroad.currency} with counter ${abroad.counter_amount_cents}`,
+      );
+
+      // 280: a transfer between two currencies is booked in one of them and never in a third, and an
+      // estimate waits for a statement, which only a one-sided movement ever gets.
+      const thirdCurrency = await refusalCode(
+        (sp) => sp`insert into transactions (from_account_id, to_account_id, amount_cents, occurred_at, currency, counter_amount_cents)
+          values (${pesos}, ${dollars}, 40000, (now() at time zone 'America/Bogota')::date, 'EUR', 10)`,
+      );
+      const estimateOnTransfer = await refusalCode(
+        (sp) => sp`insert into transactions (from_account_id, to_account_id, amount_cents, occurred_at, currency, counter_amount_cents, counter_is_estimate)
+          values (${pesos}, ${dollars}, 40000, (now() at time zone 'America/Bogota')::date, 'COP', 10, true)`,
+      );
+      assert(
+        labels[3],
+        thirdCurrency === "23901" && estimateOnTransfer === "23901",
+        `a transfer booked in a third currency = ${thirdCurrency}, an estimate on a transfer = ${estimateOnTransfer} (both expected 23901)`,
+      );
+
+      // Nothing this section wrote may survive; force the ROLLBACK.
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`select current_user`;
+  const [{ count: probeCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from accounts where name like 'rls currency%'`;
+  assert(
+    tailLabel,
+    afterUser === "postgres" && probeCount === "0",
+    `current_user = ${afterUser}, rows named 'rls currency%' = ${probeCount}`,
   );
 }
 
