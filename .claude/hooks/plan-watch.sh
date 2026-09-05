@@ -37,8 +37,9 @@ print(json.dumps({
         "hookEventName": "Stop",
         "additionalContext": (
             f"{len(done)} de {len(done) + len(pending)} módulos de `{rel}` están hechos. "
-            f"El siguiente es **{nxt}**, y nada lo bloquea que vos sepas.\n\n"
-            "No cierres el turno con un informe si hay un módulo listo para despachar: "
+            f"El siguiente sin marcar es **{nxt}**.\n\n"
+            "Si ya lo despachaste y está en vuelo, ignorá esto: el gancho lee el plan, no sabe "
+            "qué corre. No cierres el turno con un informe si hay un módulo listo para despachar: "
             "tomalo. Si de verdad está bloqueado, decí en una línea por quién o por qué. "
             "Y cuando un módulo aterrice, marcá su `## [ ]` como `## [x]` en el plan — "
             "un plan sin estado sólo existe mientras una sesión lo recuerde."
