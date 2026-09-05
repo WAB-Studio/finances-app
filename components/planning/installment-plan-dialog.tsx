@@ -21,6 +21,11 @@ import {
   Text,
   TextField,
 } from "@/components/ui";
+import {
+  BASE_CURRENCY,
+  minorUnitExponent,
+  type CurrencyCode,
+} from "@/lib/currency";
 import { todayInBogota } from "@/lib/dates";
 import { useActionErrorToast } from "@/lib/use-action-toast";
 import {
@@ -32,6 +37,11 @@ import {
 // The liability the plan schedules. It is fixed by the caller and never chosen
 // here: the scope comes from the account through RLS (RF-81).
 export type InstallmentPlanAccount = { id: string; name: string };
+
+// A currency with decimals needs the keypad that types one (RF-121).
+function amountInputMode(currency: CurrencyCode): "decimal" | "numeric" {
+  return minorUnitExponent(currency) > 0 ? "decimal" : "numeric";
+}
 
 const FREQUENCY_LABEL = {
   monthly: "frequencyMonthly",
@@ -48,10 +58,15 @@ export function InstallmentPlanDialog({
   open,
   onOpenChange,
   account,
+  currency = BASE_CURRENCY,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   account: InstallmentPlanAccount;
+  // The currency the debt settles in: a plan schedules that balance, so its
+  // amounts are typed in that currency's minor unit (RF-121). A caller that
+  // names none is on an account that settles in the base currency.
+  currency?: CurrencyCode;
 }) {
   const t = useTranslations("installments");
 
@@ -64,6 +79,7 @@ export function InstallmentPlanDialog({
         <PlanForm
           key={account.id}
           account={account}
+          currency={currency}
           onOpenChange={onOpenChange}
         />
       </Dialog.Content>
@@ -73,9 +89,11 @@ export function InstallmentPlanDialog({
 
 function PlanForm({
   account,
+  currency,
   onOpenChange,
 }: {
   account: InstallmentPlanAccount;
+  currency: CurrencyCode;
   onOpenChange: (open: boolean) => void;
 }) {
   const t = useTranslations("installments");
@@ -175,7 +193,7 @@ function PlanForm({
                   {...field}
                   id="plan-principal"
                   size="3"
-                  inputMode="numeric"
+                  inputMode={amountInputMode(currency)}
                   disabled={isPending}
                 />
               </FieldControl>
@@ -293,7 +311,7 @@ function PlanForm({
                 <TextField.Root
                   id="plan-down-payment"
                   size="3"
-                  inputMode="numeric"
+                  inputMode={amountInputMode(currency)}
                   value={field.value ?? ""}
                   onChange={(event) => field.onChange(event.target.value || null)}
                   onBlur={field.onBlur}
@@ -324,7 +342,7 @@ function PlanForm({
                 <TextField.Root
                   id="plan-aval"
                   size="3"
-                  inputMode="numeric"
+                  inputMode={amountInputMode(currency)}
                   value={field.value ?? ""}
                   onChange={(event) => field.onChange(event.target.value || null)}
                   onBlur={field.onBlur}
