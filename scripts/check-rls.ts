@@ -4810,7 +4810,7 @@ const INSERT_GRANT_GAPS: Record<string, string[]> = {
   debt_terms: ["created_at", "updated_at"],
   goal_contributions: ["created_at", "id"],
   group_members: ["archived_at", "created_at", "id", "updated_at"],
-  groups: ["created_at", "currency", "updated_at"],
+  groups: ["created_at", "updated_at"],
   ingest_deliveries: [
     "created_at",
     "id",
@@ -4925,7 +4925,7 @@ const UPDATE_GRANT_GAPS: Record<string, string[]> = {
     "updated_at",
     "user_id",
   ],
-  groups: ["created_at", "currency", "id", "updated_at"],
+  groups: ["created_at", "id", "updated_at"],
   ingest_deliveries: [
     "category_source",
     "created_at",
@@ -5906,9 +5906,10 @@ async function checkSlippedGrants() {
   );
 }
 
-// Assertions 198-201: `GRANT UPDATE (name, cash_mode)` has stood on `groups` since the first
-// migration with no UPDATE policy behind it, so a leader's rename answered UPDATE 0 and the name
-// chosen at creation was the only one the group would ever have. The rename is executed here as
+// Assertions 198-201: `GRANT UPDATE (name, cash_mode)` stood on `groups` since the first migration
+// with no UPDATE policy behind it, so a leader's rename answered UPDATE 0 and the name chosen at
+// creation was the only one the group would ever have. RF-121 added `currency` to that grant, so
+// where the fund settles is now the leader's to change. Rename and re-currency are executed here as
 // the leader and as a plain member. Fixtures live in one transaction forced to roll back; each
 // barred statement runs in its own savepoint.
 async function checkGroupUpdatePolicy() {
@@ -5921,7 +5922,7 @@ async function checkGroupUpdatePolicy() {
   const labels = [
     "198. the leader renames her own group",
     "199. a plain member's rename of the group touches nothing",
-    "200. the leader cannot rewrite the group's currency",
+    "200. the leader rewrites the group's currency and a plain member's identical statement touches no row",
   ];
   const tailLabel = "201. the rolled-back group rename transaction leaves no trace";
 
@@ -5975,20 +5976,9 @@ async function checkGroupUpdatePolicy() {
         `renamed ${renamed.length} row to '${renamed[0]?.name}'`,
       );
 
-      // 200: `currency` sits outside the grant, so the refusal is the grant and not the policy —
-      // which is why the message is read as well as the sqlstate.
-      const currencyRefusal = await refusalOf((sp) =>
-        sp.execute(dsql`update groups set currency = 'USD' where id = ${groupId}`),
-      );
-      const [{ currency }] = await tx.execute<{ currency: string }>(
-        dsql`select currency from groups where id = ${groupId}`,
-      );
-      assert(
-        labels[2],
-        currencyRefusal.includes("42501") &&
-          currencyRefusal.includes("permission denied for table groups") &&
-          currency === "COP",
-        `${currencyRefusal}, currency = ${currency}`,
+      // 200, first half: the leader's re-currency, written as `updateGroupSettings` would write it.
+      const reCurrencied = await tx.execute<{ currency: string }>(
+        dsql`update groups set currency = 'USD' where id = ${groupId} returning currency`,
       );
 
       // 199: the USING is what keeps the rename the leader's — the member holds the same grant.
@@ -6009,6 +5999,31 @@ async function checkGroupUpdatePolicy() {
         (memberRows === 0 || memberRefusal.includes("42501")) &&
           nameNow === "rls group rename taken",
         `rows = ${memberRows === -1 ? "none issued" : memberRows}, ${memberRefusal}, name = '${nameNow}'`,
+      );
+
+      // 200, second half: the member holds the very same column grant, so the statement is admitted
+      // and `groups_update_leader`'s USING matches no row. What she gets back is silence — zero rows
+      // and no sqlstate — which is the whole of the authorisation here.
+      let memberCurrencyRows = -1;
+      const memberCurrencyRefusal = await refusalOf(async (sp) => {
+        const rows = await sp.execute<{ id: string }>(
+          dsql`update groups set currency = 'EUR' where id = ${groupId} returning id`,
+        );
+        memberCurrencyRows = rows.length;
+      });
+      // Read as the owner: the assertion is about what the row STORES, not what the member is shown.
+      await tx.execute(dsql`reset role`);
+      const [{ currency }] = await tx.execute<{ currency: string }>(
+        dsql`select currency from groups where id = ${groupId}`,
+      );
+      assert(
+        labels[2],
+        reCurrencied.length === 1 &&
+          reCurrencied[0].currency === "USD" &&
+          memberCurrencyRows === 0 &&
+          memberCurrencyRefusal.startsWith("no refusal") &&
+          currency === "USD",
+        `leader wrote ${reCurrencied.length} row to ${reCurrencied[0]?.currency}, member wrote ${memberCurrencyRows === -1 ? "none issued" : memberCurrencyRows} (${memberCurrencyRefusal}), currency = ${currency}`,
       );
 
       // Nothing this section wrote may survive; force the ROLLBACK.
@@ -7110,9 +7125,9 @@ async function checkReportFunctionsExcludeTransfers() {
 }
 
 // Assertions 236-240: the group's settings, written the way `updateGroupSettings` writes them — one
-// statement carrying both `name` and `cash_mode`, because `GRANT UPDATE (name, cash_mode)` names
-// exactly that pair. Assertion 198 proved the rename alone; the mode rode in on the same grant and
-// was never issued here. The two CHECKs are what stands between the form's Zod schema and a stored
+// statement carrying both `name` and `cash_mode`, the two of the group's three updatable columns the
+// form owns. Assertion 198 proved the rename alone; the mode rode in on the same grant and was
+// never issued here. The two CHECKs are what stands between the form's Zod schema and a stored
 // value nothing reads back. Fixtures live in one transaction forced to roll back.
 async function checkGroupSettingsWrite() {
   console.log("");
