@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useFormatter, useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
 import { Controller, useForm } from "react-hook-form";
 import { toast } from "sonner";
@@ -22,9 +22,15 @@ import {
   Text,
   TextField,
 } from "@/components/ui";
+import {
+  BASE_CURRENCY,
+  minorUnitExponent,
+  type CurrencyCode,
+} from "@/lib/currency";
 import { todayInBogota } from "@/lib/dates";
-import { centsToPesos } from "@/lib/money";
+import { formatMoney } from "@/lib/money";
 import { useActionErrorToast } from "@/lib/use-action-toast";
+import { storedToMinor } from "@/lib/validation/debt-settlement";
 import {
   recordDebtPaymentSchema,
   type RecordDebtPaymentInput,
@@ -48,11 +54,16 @@ export function DebtPaymentDialog({
   open,
   onOpenChange,
   debt,
+  currency = BASE_CURRENCY,
   payFrom,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   debt: PaymentDebt;
+  // The currency the debt bills in: every figure here is read in it, and the
+  // amount is typed in its minor unit (RF-121). A caller that names none is on
+  // an account that settles in the base currency.
+  currency?: CurrencyCode;
   payFrom: PaymentSource[];
 }) {
   const t = useTranslations("installments");
@@ -66,6 +77,7 @@ export function DebtPaymentDialog({
         <PaymentForm
           key={debt.accountId}
           debt={debt}
+          currency={currency}
           payFrom={payFrom}
           onOpenChange={onOpenChange}
         />
@@ -76,17 +88,19 @@ export function DebtPaymentDialog({
 
 function PaymentForm({
   debt,
+  currency,
   payFrom,
   onOpenChange,
 }: {
   debt: PaymentDebt;
+  currency: CurrencyCode;
   payFrom: PaymentSource[];
   onOpenChange: (open: boolean) => void;
 }) {
   const t = useTranslations("installments");
   // Root-scoped: the keys under `common` and `debts` sit outside this namespace.
   const tKey = useTranslations();
-  const format = useFormatter();
+  const locale = useLocale();
 
   const form = useForm<RecordDebtPaymentInput>({
     resolver: zodResolver(recordDebtPaymentSchema),
@@ -114,9 +128,12 @@ function PaymentForm({
         remainderCents > 0
           ? {
               description: t("paymentRemainder", {
-                amount: format.number(
-                  centsToPesos(remainderCents),
-                  "currency",
+                // JSX cannot travel through `t()`, so the one path from a stored
+                // integer to a figure is called straight (RF-121).
+                amount: formatMoney(
+                  storedToMinor(remainderCents, currency),
+                  currency,
+                  locale,
                 ),
               }),
             }
@@ -143,7 +160,12 @@ function PaymentForm({
         <Field>
           <FieldLabel>{tKey("debts.tableBalance")}</FieldLabel>
           <Text size="3">
-            <Money cents={debt.owedCents} size="inherit" signed={false} />
+            <Money
+              minor={storedToMinor(debt.owedCents, currency)}
+              currency={currency}
+              size="inherit"
+              signed={false}
+            />
           </Text>
         </Field>
 
@@ -195,7 +217,7 @@ function PaymentForm({
                   {...field}
                   id="debt-payment-amount"
                   size="3"
-                  inputMode="numeric"
+                  inputMode={minorUnitExponent(currency) > 0 ? "decimal" : "numeric"}
                   autoFocus
                   disabled={isPending}
                 />
