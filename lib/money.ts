@@ -32,15 +32,25 @@ function normalizeGroupMarks(raw: string): string {
 /**
  * A typed amount as an integer in the currency's minor unit, or `null` when it
  * is not one. Takes up to as many decimals as the currency has and not one
- * more, so "10,50" is a dollar amount and no peso amount at all. No sign and no
- * exponent: a negative or fractional stored amount is not a value a form takes.
+ * more, so "10,50" is a dollar amount and no peso amount at all, and refuses a
+ * separator that could be read either way. No sign and no exponent: a negative
+ * or fractional stored amount is not a value a form takes.
  */
 export function parseAmount(
   raw: string,
   currency: CurrencyCode,
 ): number | null {
   const exponent = minorUnitExponent(currency);
-  const match = /^(\d+)(?:[.,](\d+))?$/.exec(normalizeGroupMarks(raw));
+  const trimmed = raw.trim();
+
+  // A separator with exactly three digits behind it and nothing after is a
+  // group mark and a fraction at once, and the two readings are a thousand
+  // apart. A currency with decimals refuses it rather than pick one in silence.
+  // A currency without decimals has only the group reading, which is what
+  // "500.000" has always been.
+  if (exponent > 0 && /[.,]\d{3}$/.test(trimmed)) return null;
+
+  const match = /^(\d+)(?:[.,](\d+))?$/.exec(normalizeGroupMarks(trimmed));
   if (!match) return null;
 
   const [, major, fraction = ""] = match;
