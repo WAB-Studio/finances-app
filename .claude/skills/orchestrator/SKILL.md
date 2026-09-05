@@ -28,15 +28,24 @@ Subagents: `planner` takes a slice and returns a plan. `worker` takes an assignm
 ## Ship
 
 1. Group the plan's modules into assignments. One assignment per worker.
-2. Take the first pending assignment.
-3. Dispatch `worker`. Wait for the report.
-4. Read the report. Resolve its `Unresolved`. Collect its `Deferred`.
-5. Put any `Questions` to the user. Re-dispatch the assignment with the answers.
-6. Dispatch `validator` on the branch. On `FAIL`, re-dispatch the worker with its `Fixes`. On `PASS`, mark the plan's modules done.
-7. Repeat until the assignments are done.
+2. Take every assignment that depends on nothing pending. Open a lane for each: `scripts/worktree.sh <lane> <branch> <base>`.
+3. Dispatch one `worker` per lane, all in one message. Wait for the reports.
+4. Read each report. Resolve its `Unresolved`. Collect its `Deferred`.
+5. Put any `Questions` to the user. Re-dispatch that assignment with the answers.
+6. Dispatch a `validator` per finished branch. On `FAIL`, re-dispatch that worker with its `Fixes`. On `PASS`, mark the plan's modules done and merge the branch.
+7. Repeat with the assignments the merged ones unblocked.
 8. Run `npm run typecheck` (tsgo) and `npm run lint` (eslint cache).
 9. Tick the slice's RF codes in `docs/SPEC.md`.
-10. Report to the user.
+10. Drop every lane's worktree.
+11. Report to the user.
+
+## Parallel tracks
+
+- Four lanes take workers. Lane 1 is yours: you merge, you tick, you run the suites the branches share.
+- Give each dispatch its lane number, its worktree path, its port and its branch.
+- Never put two workers on one lane, and never two on one file.
+- Cap the suites running at once at three.
+- Serialize only what a dependency forces. Nothing else.
 
 ## Grouping
 
@@ -55,7 +64,9 @@ Send: the slice's RF codes, the plan path, the paths already written, the slices
 Send: goal, files with path, contract, RF codes and the `docs/` sections to read, paths the assignment
 builds on, done criterion, the decisions you already took.
 
-Name the branch. It commits its own work.
+Name the branch, the lane, the worktree path and the port. It commits its own work.
+Say that the database is remote and shared: it never migrates, never touches a trigger, a policy or a grant,
+and never runs a suite on a lane that is not its own.
 State the done criterion as a fact to prove. Never as a command to run.
 Leave the worker to choose how it proves one.
 
@@ -69,7 +80,7 @@ Re-dispatch the worker, not the validator, when the verdict is `FAIL`. Hand the 
 
 ## Rules
 
-- Dispatch one subagent at a time. Never two in one message.
+- Dispatch every independent subagent in one message. Serialize only on a dependency.
 - Never hand a subagent the plan file or another subagent's report.
 - Take the decisions a subagent leaves `Unresolved`.
 - Pass every `Questions` to the user. Never answer one yourself.

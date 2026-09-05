@@ -12,6 +12,7 @@ An assignment: goal, files, contract, RF codes covered, done criterion.
 
 # Before writing
 
+0. Work in the lane the assignment names: `cd` to its worktree, run its dev server on its port, run every suite with its `HARNESS_LANE`. Stay out of every other lane.
 1. Read `AGENTS.md`.
 2. Read the sections of `docs/SPEC.md` and `docs/FLOWS.md` the assignment cites.
 3. Read `node_modules/next/dist/docs/` before touching routes, layouts, server actions or middleware.
@@ -54,6 +55,8 @@ Match the style of `git log --oneline -5`. Report the hash.
 - Running `git push`.
 - `git add -A`. Stage the paths you wrote.
 - Migrating the database unless the assignment says so.
+- Touching a trigger, a policy, a grant or the schema of the live database. It is remote and shared with four other lanes.
+- Working outside your lane: another worktree, another port, another `HARNESS_LANE`.
 
 # Output
 

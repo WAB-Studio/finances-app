@@ -17,14 +17,26 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
 - Run the `orchestrator` skill to develop. It dispatches `planner`, `worker` and `validator`.
 - Keep plans in `private/`.
 - Ship one slice at a time.
+- Work five tracks at once, one per lane. See `## Parallel tracks`.
 - Start the dev server on :3000 yourself and keep it running. Restart it when you must.
-- Run one instance. Take `Another next dev server is already running` as: one is up, use it.
+- Run one instance per worktree. Take `Another next dev server is already running` as: one is up, use it.
+
+## Parallel tracks
+
+- Five lanes exist. Lane 1 is this checkout on :3000; lanes 2 to 5 are worktrees at `../finances-app-l<n>` on :300<n-1>.
+- Open a lane: `scripts/worktree.sh <lane> <branch> [base]`. It costs 4 seconds.
+- Give every track its own lane. Never two tracks on one lane.
+- Split the work before you start it. A track per defect, per module, per screen.
+- Cut a lane's branch from the branch it serves, never from `integracion` by inertia.
+- Run at most three suites at once. Nine GB of RAM holds three dev servers and three Chromiums.
+- Run the RNF-09 timing alone: it lives in `check:http` and `check:queries`, and a second lane inflates it.
+- Drop the worktree when its branch lands: `git worktree remove ../finances-app-l<n> --force`.
 
 ## Harness lanes
 
 - Set `HARNESS_LANE=n` to give a track its own identities, session files, storage states and seeded rows.
 - Leave it unset for lane 1. `HARNESS_LANE=1` is the same lane.
-- Bootstrap a lane once: `HARNESS_LANE=2 npm run harness:token`. It creates `harness-2@example.invalid` and `harness-member-2@example.invalid` and lands their token rows.
+- `scripts/worktree.sh` bootstraps a lane. Bootstrap one by hand only outside a worktree: `HARNESS_LANE=2 npm run harness:token`. It creates `harness-2@example.invalid` and `harness-member-2@example.invalid` and lands their token rows.
 - Run any suite on that lane: `HARNESS_LANE=2 npm run check:http`, `HARNESS_LANE=2 npm run check:e2e`, `HARNESS_LANE=2 npm run seed:year`.
 - Share one dev server between lanes, or point a lane at its own with `HARNESS_BASE_URL`.
 - Run the RNF-09 timing alone. A second lane on the same server inflates it.
