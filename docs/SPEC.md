@@ -56,9 +56,9 @@ accounting exports, native apps. None of this gets built or left
 - [x] **RF-61** — Archiving a member does not archive their accounts. The owner decides per account: archive it or hand it to the group.
 - [x] **RF-100** — Only the group `leader` adds, renames, archives, restores and removes a member; every member renames their own row and no other.
 - [x] **RF-114** — The accounts list shows each account's balance, derived from its opening balance and its movements and never stored.
-- [ ] **RF-121** — An account and a group each declare the currency they settle in. A movement carries its own currency, so one account holds several at once — a card bills in pesos and buys in dollars — and a balance derives one figure per account and currency. Amounts are stored in the minor unit of the currency they are in, and are read, written and formatted in it, so a currency with two decimal places accepts them.
-- [ ] **RF-122** — A movement between two currencies carries the rate a person confirmed at the moment they made it. The app proposes a rate and never imposes one, and nothing converts without a confirmed one.
-- [ ] **RF-123** — A card purchase in a foreign currency settles later. The movement books what was spent in the currency it was spent in, and carries a rate the person confirmed so the screen can state what it is expected to cost in the account's settlement currency, marked as an estimate. What the issuer actually billed arrives with the statement (RF-84) and replaces the estimate; from then on the rate derives from the two amounts and the estimate is gone.
+- [ ] **RF-121** — An account, a group and a person each declare the currency they settle in; what a person declares is what a budget, a goal or a planned payment of their own falls back to when it names no account. A movement carries its own currency, so one account holds several at once — a card bills in pesos and buys in dollars — and a balance derives one figure per account and currency. Amounts are stored in the minor unit of the currency they are in, and are read, written and formatted in it, so a currency with two decimal places accepts them.
+- [ ] **RF-122** — A movement between two currencies carries both amounts, each an integer in its own currency's minor unit, and a person confirms the second one before it is booked. The rate is their quotient: derived to be read, never stored and never multiplied back out. The app proposes an amount and never imposes one.
+- [ ] **RF-123** — A card purchase in a foreign currency settles later. The movement books what was spent in the currency it was spent in, and carries the amount a person confirmed it is expected to cost in the account's settlement currency, marked as an estimate. What the issuer actually billed arrives with the statement (RF-84) and replaces the estimate; from then on the two amounts are both settled and the estimate is gone.
 - [ ] **RF-124** — No surface sums two currencies. A balance, a total and a chart derive per currency and state which one they count.
 
 #### Debts
@@ -187,7 +187,7 @@ The webhook (RF-90) reuses RF-22 (quick entry), RF-25 (created_by) and RF-45 (no
 | RNF-10 | All input is validated on the server, with the same schema that validates the form. Client-side validation is never sufficient. |
 | RNF-11 | The database schema is versioned in migrations. TypeScript types are derived from the schema, never written by hand. |
 | RNF-12 | The service cannot go down because of free-tier inactivity. |
-| RNF-13 | No data leaves to third parties: no analytics, no bank credentials, no scraping. |
+| RNF-13 | No data leaves to third parties: no analytics, no bank credentials, no scraping. Reading a public figure from the server — an exchange rate — sends nothing about the fund or the person and is not an exit. |
 | RNF-14 | The audit log is purged automatically after 24 months. |
 | RNF-15 | Import is processed on the server and must work within the free tier's execution limits, in batches if necessary. |
 
