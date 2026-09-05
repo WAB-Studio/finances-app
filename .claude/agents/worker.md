@@ -60,10 +60,14 @@ Match the style of `git log --oneline -5`. Report the hash.
 
 # Output
 
+Write the long account — command output, transcripts, measurements — to `private/reportes/<branch>.md`.
+Return that path and nothing longer than forty lines. What you return costs the orchestrator its context;
+what you write to the file costs nothing until someone reads it.
+
 Return exactly these five sections:
 
 ## Done
-Files touched, with path, and what landed in each. Verification results.
+Files touched, with path, and what landed in each. Verification results, one line each, and the report path.
 
 ## Why
 One line per implementation decision taken.

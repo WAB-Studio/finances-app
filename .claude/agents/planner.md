@@ -29,6 +29,14 @@ A slice: a set of RF codes from `docs/SPEC.md`, and the path to write the plan t
 - RF codes covered.
 - Done criterion, written as a fact to prove. Never as a command to run.
 - Dependencies: numbers of prior modules.
+- Track, and the docs to read cited by heading and line range, never a whole file.
+
+# Cut so tracks never collide
+
+- Give every file exactly one owner. A path in two modules is a cut you have not finished.
+- Group modules into tracks that share no file and no dependency. Name the tracks.
+- State each module's track. Say which tracks run at once and which wait on which.
+- Prefer four disjoint tracks over eight that interleave.
 
 # Limits
 

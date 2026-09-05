@@ -47,6 +47,16 @@ Subagents: `planner` takes a slice and returns a plan. `worker` takes an assignm
 - Cap the suites running at once at three.
 - Serialize only what a dependency forces. Nothing else.
 
+## What a dispatch costs
+
+A fan-out spends around fifteen times the tokens of one agent. Earn it.
+
+- Fan out on tracks that share no file. Keep interdependent work in one worker.
+- Name the boundary: the files this worker owns, and the files it must not touch.
+- Cite a doc by heading and line range. A worker told to "read §2" reads a whole file, five times over.
+- Put the contract in the dispatch. Never send a plan file, a report, or another worker's account.
+- Take the worker's report path. Read the file only when its summary leaves you deciding blind.
+
 ## Grouping
 
 - Load the assignment full. Never cut for size.
