@@ -24,6 +24,24 @@ export type WithdrawalTarget = {
   reason?: "no-cash-account";
 };
 
+// The outer references are written qualified, once each: drizzle renders an
+// embedded column bare inside a projection, and a bare `id` binds to the view
+// the subquery reads, which turns the correlation into one constant.
+const outerId = sql`"accounts"."id"`;
+const outerCurrency = sql`"accounts"."settlement_currency"`;
+
+// One balance per currency, the settlement one first (RF-121, RF-124). A
+// correlated subquery and not a join: `account_balances` answers one row per
+// account AND currency, so a join would list a source account once per currency
+// it holds.
+const balancesJson = sql<{ currency: string; balanceCents: string }[]>`coalesce((
+  select jsonb_agg(
+    jsonb_build_object('currency', b.currency, 'balanceCents', b.balance_cents::text)
+    order by (b.currency = ${outerCurrency}) desc, b.currency
+  )
+  from account_balances b where b.id = ${outerId}
+), '[]'::jsonb)`;
+
 const accountRowColumns = {
   id: accounts.id,
   name: accounts.name,
@@ -33,9 +51,10 @@ const accountRowColumns = {
   ownerUserId: accounts.ownerUserId,
   groupId: accounts.groupId,
   isShared: accounts.isShared,
+  settlementCurrency: accounts.settlementCurrency,
   initialBalanceCents: accounts.initialBalanceCents,
   initialBalanceOn: accounts.initialBalanceOn,
-  balanceCents: sql<string>`b.balance_cents`,
+  balances: balancesJson,
   // Written with the column's own name, never a Drizzle column reference: a
   // reference inside a projection fragment renders bare and binds inward. The
   // WHERE below already keeps this list to own-or-shared, so it reads true here.
@@ -180,9 +199,6 @@ async function listWithdrawalSources(userId: string): Promise<AccountRow[]> {
     const rows = await tx
       .select(accountRowColumns)
       .from(accounts)
-      // The balance an `AccountRow` carries is derived by the view, in the same
-      // statement — the source list still costs the one round trip it did.
-      .innerJoin(sql`account_balances b`, sql`b.id = ${accounts.id}`)
       .where(
         and(
           eq(accounts.kind, "asset"),
@@ -193,7 +209,14 @@ async function listWithdrawalSources(userId: string): Promise<AccountRow[]> {
       )
       .orderBy(desc(sql`${accounts.ownerUserId} is not null`), asc(accounts.name));
 
-    // A bigint sum arrives from the driver as a string; the ledger keeps cents a number.
-    return rows.map((row) => ({ ...row, balanceCents: Number(row.balanceCents) }));
+    // A bigint sum rides the aggregate as text; the ledger keeps the amount a
+    // number, in the minor unit of the currency beside it.
+    return rows.map((row) => ({
+      ...row,
+      balances: row.balances.map((balance) => ({
+        currency: balance.currency,
+        balanceCents: Number(balance.balanceCents),
+      })),
+    }));
   });
 }

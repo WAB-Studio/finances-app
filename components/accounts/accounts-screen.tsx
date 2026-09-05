@@ -478,6 +478,10 @@ function AccountCard({
   const tKey = useTranslations();
   const format = useFormatter();
 
+  // The query orders the settlement currency first (RF-121), so the lead figure
+  // is the first entry and every other currency the account holds follows it.
+  const [settlement, ...others] = account.balances;
+
   return (
     <Card>
       <Flex justify="between" align="start" gap="3">
@@ -493,14 +497,41 @@ function AccountCard({
               {account.institution}
             </Text>
           )}
-          {/* Signed: the badge above states the kind, but a balance below zero is
+          {/* The settlement currency is the figure the card leads with, and each
+              other currency the account holds sits under it naming itself: no
+              line here is the sum of two currencies (RF-124).
+
+              Signed: the badge above states the kind, but a balance below zero is
               an overdraft on an asset and what is owed on a liability (RF-114),
               and drawn as a magnitude it reads as money there is. */}
-          <Flex align="center" gap="1" wrap="wrap">
-            <Text size="2" color="gray">
-              {t("balanceLabel")}
-            </Text>
-            <Money cents={account.balanceCents} tone="plain" />
+          <Flex direction="column" gap="1">
+            {settlement && (
+              <Flex align="center" gap="1" wrap="wrap">
+                <Text size="2" color="gray">
+                  {t("balanceLabel")}
+                </Text>
+                <Money
+                  minor={settlement.balanceCents}
+                  currency={settlement.currency}
+                  tone="plain"
+                />
+              </Flex>
+            )}
+            {others.map((balance) => (
+              <Text key={balance.currency} size="2" color="gray">
+                {t.rich("balanceInCurrency", {
+                  amount: () => (
+                    <Money
+                      minor={balance.balanceCents}
+                      currency={balance.currency}
+                      tone="plain"
+                      size="inherit"
+                    />
+                  ),
+                  currency: balance.currency,
+                })}
+              </Text>
+            ))}
           </Flex>
           <Flex align="center" gap="1" wrap="wrap">
             <Text size="2" color="gray">
@@ -510,7 +541,8 @@ function AccountCard({
               {t.rich("openingBalanceRow", {
                 amount: () => (
                   <Money
-                    cents={account.initialBalanceCents}
+                    minor={account.initialBalanceCents}
+                    currency={account.settlementCurrency}
                     tone="plain"
                     size="inherit"
                     signed={false}

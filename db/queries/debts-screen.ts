@@ -142,7 +142,9 @@ export async function getDebtsScreenData(): Promise<DebtsScreenData> {
     .map((account) => ({
       id: account.id,
       name: account.name,
-      balanceCents: account.balanceCents,
+      // What the source settles in, never a sum across the currencies it holds
+      // (RF-124). The roster orders the settlement pocket first.
+      balanceCents: account.balances[0]?.balanceCents ?? 0,
     }));
 
   return {

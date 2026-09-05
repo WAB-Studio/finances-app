@@ -56,6 +56,7 @@ import {
 import { insertTransaction, listTransactions } from "@/db/queries/transactions";
 import type { CreateTransactionArgs } from "@/db/queries/transactions";
 import { withUserDb } from "@/db/session";
+import { BASE_CURRENCY } from "@/lib/currency";
 import { addCivilDays, addCivilMonths, todayInBogota } from "@/lib/dates";
 import { pesosToCents } from "@/lib/money";
 
@@ -992,7 +993,8 @@ async function ensureScaffold(userId: string): Promise<Scaffold> {
       isShared: false,
       institution: account.institution,
       lastFour: account.lastFour,
-      pesos: account.openingPesos,
+      settlementCurrency: BASE_CURRENCY,
+      amountMinor: account.openingPesos,
       balanceOn,
     });
 

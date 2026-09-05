@@ -121,6 +121,7 @@ import {
   listWebhookCredentials,
 } from "@/db/queries/webhook-credentials";
 import { withUserDb } from "@/db/session";
+import { BASE_CURRENCY } from "@/lib/currency";
 import {
   addCivilMonths,
   currentMonthRange,
@@ -542,7 +543,8 @@ async function writeSuite(
         isShared: false,
         institution: "Bancolombia",
         lastFour: "4321",
-        pesos: 1500,
+        settlementCurrency: BASE_CURRENCY,
+        amountMinor: 1500,
         balanceOn: today,
       }),
     ({ accountId }) => {
@@ -565,7 +567,8 @@ async function writeSuite(
         isShared: false,
         institution: "Davivienda",
         lastFour: "9876",
-        pesos: 1800,
+        settlementCurrency: BASE_CURRENCY,
+        amountMinor: 1800,
         balanceOn: today,
       }),
     async (updated) => ({
