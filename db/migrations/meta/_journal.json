@@ -232,6 +232,13 @@
       "when": 1788640242362,
       "tag": "0032_one_balance_per_currency",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1788645352838,
+      "tag": "0033_a_fund_is_born_in_its_currency",
+      "breakpoints": true
     }
   ]
 }
