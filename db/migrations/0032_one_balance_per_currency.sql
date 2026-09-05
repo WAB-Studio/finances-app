@@ -102,14 +102,13 @@ create view account_balances with (security_invoker = on) as
   select s.id, s.currency, sum(s.amount_cents) as balance_cents
   from (
     -- The opening balance is one row, in the currency the account settles in (RF-121).
-    select a.id, a.settlement_currency as currency, a.initial_balance_cents as amount_cents
+    select a.id, a.settlement_currency as currency, a.initial_balance_cents as amount_cents, true as is_settlement
       from public.accounts a
     union all
     -- Each side of a movement lands in the pocket it belongs to: its own currency while it is what
-    -- was spent, the account's once a confirmed second amount says what it settled for. The zero
-    -- row is the other pocket, which keeps a settled purchase visible at 0 in the currency it was
-    -- made in instead of vanishing from the account.
-    select t.to_account_id as id, v.currency, v.amount_cents
+    -- was spent, the account's once a confirmed second amount says what it settled for. The other
+    -- pocket takes a zero, so the move between the two nets out instead of leaving the amount in both.
+    select t.to_account_id as id, v.currency, v.amount_cents, v.currency = a.settlement_currency
       from public.transactions t
       join public.accounts a on a.id = t.to_account_id
       cross join lateral (values
@@ -118,7 +117,7 @@ create view account_balances with (security_invoker = on) as
       ) as v(currency, amount_cents)
      where t.to_account_id is not null
     union all
-    select t.from_account_id as id, v.currency, -v.amount_cents
+    select t.from_account_id as id, v.currency, -v.amount_cents, v.currency = a.settlement_currency
       from public.transactions t
       join public.accounts a on a.id = t.from_account_id
       cross join lateral (values
@@ -127,7 +126,14 @@ create view account_balances with (security_invoker = on) as
       ) as v(currency, amount_cents)
      where t.from_account_id is not null
   ) s
-  group by s.id, s.currency;
+  group by s.id, s.currency
+  -- The list holds the currencies the account holds now: a pocket the statement settled back to zero
+  -- is noise that grows with every currency ever touched, and the movements keep that history. The
+  -- settlement currency is the exception and always answers, so a new account and an account spent
+  -- back to zero both keep their row. `bool_or` reads the flag the legs already carry, so this is a
+  -- HAVING over the same HashAggregate: it filters groups, never tuples, and the index-only scan
+  -- underneath is untouched.
+  having sum(s.amount_cents) <> 0 or bool_or(s.is_settlement);
 --> statement-breakpoint
 revoke all on account_balances from public, anon, authenticated, service_role;--> statement-breakpoint
 grant select on account_balances to authenticated;
