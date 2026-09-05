@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # Stop hook — tells the session to close its handoff once the window is large.
 #
-# The size is an estimate: the transcript on disk is bytes, not tokens, and it
-# keeps what compaction already dropped. Four bytes to a token is close enough to
-# fire a warning and never close enough to quote. Fires once per session.
+# The size is read, not guessed: every assistant turn records its usage in the
+# transcript, and the last one's input + cache creation + cache read is the
+# window as the API saw it. Measured 2026-09-05: that sum read 262 626 against
+# the 262k the client displayed, while bytes/4 claimed 438k — the real ratio on
+# this transcript was 7.03 bytes a token, and it drifts with how much of a turn
+# is tool output. Only a transcript with no usage line falls back to bytes.
 #
-# Threshold: HANDOFF_TOKENS, default 400000. Never blocks: always exits 0.
+# Threshold: HANDOFF_TOKENS, default 400000. Fires once. Never blocks.
 
 input=$(cat)
 
@@ -20,12 +23,36 @@ try:
 except Exception:
     sys.exit(0)
 
-path = d.get("transcript_path") or ""
+path = Path(d.get("transcript_path") or "")
 session = d.get("session_id") or "unknown"
-if not path or not Path(path).exists():
+if not path.is_file():
     sys.exit(0)
 
-tokens = Path(path).stat().st_size // 4
+# The tail holds the newest turns; the whole file is reread every turn otherwise.
+with path.open("rb") as fh:
+    size = fh.seek(0, os.SEEK_END)
+    fh.seek(max(0, size - 512_000))
+    lines = fh.read().splitlines()
+
+tokens, measured = None, False
+for line in reversed(lines):
+    try:
+        usage = (json.loads(line).get("message") or {}).get("usage") or {}
+    except Exception:
+        continue
+    if "cache_read_input_tokens" not in usage:
+        continue
+    tokens = (
+        usage.get("input_tokens", 0)
+        + usage.get("cache_creation_input_tokens", 0)
+        + usage.get("cache_read_input_tokens", 0)
+    )
+    measured = True
+    break
+
+if tokens is None:
+    tokens = size // 7
+
 if tokens < LIMIT:
     sys.exit(0)
 
@@ -34,18 +61,19 @@ if marker.exists():
     sys.exit(0)
 marker.touch()
 
+k = tokens // 1000
+how = "leídos del transcript" if measured else "estimados por tamaño"
 print(json.dumps({
     "hookSpecificOutput": {
         # Required by the schema; the output is rejected whole without it.
         "hookEventName": "Stop",
-        "systemMessage": f"Contexto ~{tokens // 1000}k tokens: toca cerrar handoff.",
+        "systemMessage": f"Contexto {k}k tokens ({how}): toca cerrar handoff.",
         "additionalContext": (
-            f"The window is around {tokens // 1000}k tokens, past the {LIMIT // 1000}k mark "
-            "the user set for closing a session. Finish the step in hand, then run the "
-            "`handoff` skill to close: push every branch, verify no Claude attribution, write "
-            "private/handoffs/, and tell the user the path so they can open a new chat. "
-            "Do not start new work. The figure is an estimate from the transcript's size on "
-            "disk, so report it as approximate."
+            f"The window is at {k}k tokens, {how}, past the {LIMIT // 1000}k mark the user set "
+            "for closing a session. Finish the step in hand, then run the `handoff` skill to "
+            "close: push every branch, verify no Claude attribution, write private/handoffs/, "
+            "and tell the user the path so they can open a new chat. Do not start new work."
+            + ("" if measured else " The figure is an estimate; report it as approximate.")
         ),
     }
 }))
