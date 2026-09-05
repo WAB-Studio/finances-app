@@ -5,18 +5,46 @@ import {
 } from "@/lib/currency";
 import { FORMAT_LOCALE, type Locale } from "@/lib/locales";
 
-// Minor units are what a person types and what the ledger stores (RNF-05): the
-// peso for COP, the cent for USD. No function here knows an account's kind or a
-// movement's sign: that belongs to the one SQL expression that derives them
-// from the accounts involved.
+// Two scales live here, and they are not the same one (RNF-05).
+//
+// The stored scale is hundredths of the major unit, for every currency alike.
+// The ledger was written when the peso was the only currency and every amount
+// column has held hundredths of a peso since the first row: 350.000 pesos is
+// the integer 35000000. The scale belongs to the column, not to the code the
+// row carries, so nothing has to be rewritten to let a second currency in.
+//
+// The written exponent is how many decimals a person types and reads, and that
+// one does come from the currency: `Intl` says the peso has no circulating
+// coin below itself, so a peso amount is written without decimals, while a
+// dollar amount is written with two. Reading the stored scale off `Intl` is
+// what would write an amount a hundred times too small.
+const STORAGE_EXPONENT = 2;
+const STORAGE_UNIT = 10 ** STORAGE_EXPONENT;
+
+type AmountScale = {
+  // The divisor between the integer the column keeps and the amount it stands
+  // for. The same for every currency, and asked of the currency anyway, so the
+  // two scales are read side by side and neither is taken for the other.
+  stored: number;
+  // Decimals a person types and a figure draws. Never finer than the column
+  // keeps: a digit the row cannot hold is one a field must not accept.
+  written: number;
+};
+
+function amountScale(currency: CurrencyCode): AmountScale {
+  return {
+    stored: STORAGE_UNIT,
+    written: Math.min(minorUnitExponent(currency), STORAGE_EXPONENT),
+  };
+}
 
 // Eleven nines of the major unit is comfortably past any fund this app will
-// ever hold. Carried into the minor unit, USD lands at 9.99e12, well under
-// `Number.MAX_SAFE_INTEGER`.
+// ever hold. Carried into the stored scale it lands at 9.9999999999e12, three
+// decimal orders under `Number.MAX_SAFE_INTEGER`.
 const MAX_AMOUNT_MAJOR = 99_999_999_999;
 
 export function maxAmountMinor(currency: CurrencyCode): number {
-  return MAX_AMOUNT_MAJOR * 10 ** minorUnitExponent(currency);
+  return MAX_AMOUNT_MAJOR * amountScale(currency).stored;
 }
 
 // Strips the separators `Intl.NumberFormat` writes and the ones a person types
@@ -27,21 +55,17 @@ export function maxAmountMinor(currency: CurrencyCode): number {
 // is left in place so "500.5" still reads as a decimal, not a group.
 function normalizeGroupMarks(raw: string): string {
   const withoutZeroFraction = raw.trim().replace(/[.,]00$/, "");
-  return withoutZeroFraction.replace(/[.,   ](?=\d{3}(?:\D|$))/g, "");
+  return withoutZeroFraction.replace(/[.,   ](?=\d{3}(?:\D|$))/g, "");
 }
 
-/**
- * A typed amount as an integer in the currency's minor unit, or `null` when it
- * is not one. Takes up to as many decimals as the currency has and not one
- * more, so "10,50" is a dollar amount and no peso amount at all, and refuses a
- * separator that could be read either way. No sign and no exponent: a negative
- * or fractional stored amount is not a value a form takes.
- */
-export function parseAmount(
+// Reads a written figure and hands back an integer scaled by `exponent`. The
+// two scales enter separately on purpose: `written` bounds the decimals the
+// text may carry, `exponent` decides what the integer counts.
+function parseWritten(
   raw: string,
-  currency: CurrencyCode,
+  written: number,
+  exponent: number,
 ): number | null {
-  const exponent = minorUnitExponent(currency);
   const trimmed = raw.trim();
 
   // A lone separator with exactly three digits behind it and nothing after is a
@@ -51,18 +75,38 @@ export function parseAmount(
   // a currency without decimals has only the group reading, which is what
   // "500.000" has always been.
   const separators = trimmed.match(/[.,]/g)?.length ?? 0;
-  if (exponent > 0 && separators === 1 && /[.,]\d{3}$/.test(trimmed)) return null;
+  if (written > 0 && separators === 1 && /[.,]\d{3}$/.test(trimmed)) return null;
 
   const match = /^(\d+)(?:[.,](\d+))?$/.exec(normalizeGroupMarks(trimmed));
   if (!match) return null;
 
   const [, major, fraction = ""] = match;
-  if (fraction.length > exponent) return null;
+  if (fraction.length > written) return null;
 
-  const minor =
+  // Integers throughout: no digit of a written amount ever sits in the
+  // fractional part of a `number` on its way to a column.
+  const value =
     Number(major) * 10 ** exponent + Number(fraction.padEnd(exponent, "0") || 0);
 
-  return Number.isSafeInteger(minor) ? minor : null;
+  return Number.isSafeInteger(value) ? value : null;
+}
+
+/**
+ * A typed amount as the integer the ledger stores, or `null` when it is not
+ * one. Takes up to as many decimals as the currency is written with and not one
+ * more, so "10,50" is a dollar amount and no peso amount at all, and refuses a
+ * separator that could be read either way. No sign and no exponent: a negative
+ * or fractional stored amount is not a value a form takes.
+ *
+ * The result is in the stored scale, not in the currency's own minor unit:
+ * "1000" pesos comes back as 100000, the same integer the column already holds
+ * for a thousand pesos.
+ */
+export function parseAmount(
+  raw: string,
+  currency: CurrencyCode,
+): number | null {
+  return parseWritten(raw, amountScale(currency).written, STORAGE_EXPONENT);
 }
 
 /**
@@ -71,14 +115,16 @@ export function parseAmount(
  * mark back, so a person may still type the other one.
  */
 export function amountToInput(minor: number, currency: CurrencyCode): string {
-  const exponent = minorUnitExponent(currency);
-  if (exponent === 0) return String(minor);
+  const { stored, written } = amountScale(currency);
+  const major = Math.trunc(minor / stored);
+  if (written === 0) return String(major);
 
-  const unit = 10 ** exponent;
-  const major = Math.trunc(minor / unit);
-  const fraction = String(Math.abs(minor) % unit).padStart(exponent, "0");
+  // How many stored units one written decimal is worth: one, wherever the two
+  // scales meet. Truncating, never rounding, for the reason `formatMoney` gives.
+  const step = stored / 10 ** written;
+  const fraction = Math.trunc(Math.abs(minor) / step) % 10 ** written;
 
-  return `${major},${fraction}`;
+  return `${major},${String(fraction).padStart(written, "0")}`;
 }
 
 /**
@@ -92,8 +138,8 @@ export function deriveRate(
   counterMinor: number,
   to: CurrencyCode,
 ): number {
-  const amount = amountMinor / 10 ** minorUnitExponent(from);
-  const counter = counterMinor / 10 ** minorUnitExponent(to);
+  const amount = amountMinor / amountScale(from).stored;
+  const counter = counterMinor / amountScale(to).stored;
 
   return counter / amount;
 }
@@ -120,7 +166,7 @@ export function formatMoney(
   currency: CurrencyCode,
   locale: Locale,
 ): string {
-  const exponent = minorUnitExponent(currency);
+  const { stored, written } = amountScale(currency);
   const key = `${locale}:${currency}`;
   let formatter = FORMATTERS.get(key);
 
@@ -130,20 +176,30 @@ export function formatMoney(
     formatter = new Intl.NumberFormat(FORMAT_LOCALE[locale], {
       style: "currency",
       currency,
-      minimumFractionDigits: exponent,
-      maximumFractionDigits: exponent,
+      minimumFractionDigits: written,
+      maximumFractionDigits: written,
     });
     FORMATTERS.set(key, formatter);
   }
 
-  // Presentation, and the only division here: the stored integer never leaves
-  // the minor unit, and the formatter takes the major one.
-  return formatter.format(Math.abs(minor) / 10 ** exponent);
+  // Truncates to the decimals the currency is written with, as `amountToInput`
+  // does, so opening a figure and saving it back writes the integer it already
+  // held. Rounding here would draw a peso row of 50 hundredths as one peso and
+  // the field would then store a hundred: a data change caused by looking at a
+  // screen. A peso amount with hundredths of its own is a defect in the data —
+  // none can exist today, every write goes through `parseAmount` — and drawing
+  // it as zero leaves it visible instead of dressing it up.
+  const step = stored / 10 ** written;
+  const value = Math.trunc(Math.abs(minor) / step) / 10 ** written;
+
+  return formatter.format(value);
 }
 
 // COP-only wrappers, marked to retire. Forty-five files still call them, from
 // when every amount was a peso stored as a hundredth of itself. Each caller
 // drops its own as the screen it serves starts carrying a currency (RF-121).
+// They count whole pesos, which is a third scale and the reason they go: only
+// `pesosToCents` bridges them to the integer a column holds.
 
 /** @deprecated Bound an amount with `maxAmountMinor(currency)`. */
 export const MAX_AMOUNT_PESOS = MAX_AMOUNT_MAJOR;
@@ -153,12 +209,12 @@ export function normalizeAmountInput(raw: string): string {
   return normalizeGroupMarks(raw);
 }
 
-/** @deprecated Parse with `parseAmount(raw, currency)`. */
+/** @deprecated Parse with `parseAmount(raw, currency)`, which stores the result. */
 export function parsePesos(raw: string): number | null {
-  return parseAmount(raw, BASE_CURRENCY);
+  return parseWritten(raw, amountScale(BASE_CURRENCY).written, 0);
 }
 
-/** @deprecated An amount is already stored in its currency's minor unit. */
+/** @deprecated An amount is already stored in the scale a column keeps. */
 export function pesosToCents(pesos: number): number {
   return pesos * 100;
 }

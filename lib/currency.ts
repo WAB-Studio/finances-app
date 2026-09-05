@@ -10,6 +10,12 @@ export type CurrencyCode = string;
 
 // The codes a selector offers. A row may still carry another one, so nothing
 // here narrows what can be read — only what a person can choose.
+//
+// Every amount column keeps hundredths of the major unit, whatever the code
+// (RNF-05). A currency `Intl` writes with three decimals — the dinar, the
+// dinar's neighbours — loses its last digit between the field and the row, so
+// it does not go on this list. `lib/money.ts` clips the written decimals to the
+// stored scale as a net under that rule, not as support for one.
 export const OFFERED_CURRENCIES = ["COP", "USD"] as const;
 
 // What a new account, group or person settles in until they say otherwise.
