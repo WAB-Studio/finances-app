@@ -16,6 +16,17 @@ python3 - "$input" <<'PY'
 import json, os, re, sys
 from pathlib import Path
 
+# `context-watch.sh` drops this the turn it tells the session to close. A session
+# that is closing has been told to start nothing new, so naming the next module
+# after that is noise on every remaining turn.
+try:
+    d = json.loads(sys.argv[1])
+except Exception:
+    d = {}
+session = Path(str(d.get("transcript_path") or "")).stem
+if session and (Path(os.environ.get("TMPDIR", "/tmp")) / f"claude-handoff-warned-{session}").exists():
+    sys.exit(0)
+
 root = Path(os.environ.get("CLAUDE_PROJECT_DIR", "."))
 plans = sorted((root / "private").glob("plan-*.md"), key=lambda p: p.stat().st_mtime, reverse=True)
 if not plans:
