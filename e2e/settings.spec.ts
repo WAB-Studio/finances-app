@@ -53,9 +53,17 @@ test("the categories screen renders the categories it read", async ({ page }) =>
 
   await expect(page.getByText(scope.categoryName, { exact: true })).toBeVisible();
   // The count comes from the row's own children, so it only reads at all once
-  // the category behind it loaded.
+  // the category behind it loaded. It is read inside that row: every childless
+  // category on the screen words its count the same, so a page-wide locator
+  // matches whichever other one the run left standing.
+  const row = page
+    .getByRole("main")
+    .locator("div")
+    .filter({ hasText: scope.categoryName })
+    .last();
+
   await expect(
-    page.getByText(atCount(messages.categories.subcategoryCount, 0), {
+    row.getByText(atCount(messages.categories.subcategoryCount, 0), {
       exact: true,
     }),
   ).toBeVisible();
@@ -86,23 +94,32 @@ test("the labels screen renders a label with its usage counts", async ({
   await fixtureSql`delete from labels where id = ${labelId}`;
 });
 
-test("the audit screen lists the record a write just left", async ({ page }) => {
+test.describe("the audit screen", () => {
   const categoryId = randomUUID();
 
   // The trail answers only to its triggers (RF-44), so a write is the only way
   // to put a row on this screen; the id it stamps is what the table shows.
-  await asHarnessUser(async (tx) => {
-    await tx`
-      insert into categories (id, owner_user_id, name, kind, color)
-      values (${categoryId}, ${scope.userId}, ${`Auditoría ${stamp}`}, 'expense', '#4C8C4A')`;
+  test.beforeEach(async () => {
+    await asHarnessUser(async (tx) => {
+      await tx`
+        insert into categories (id, owner_user_id, name, kind, color)
+        values (${categoryId}, ${scope.userId}, ${`Auditoría ${stamp}`}, 'expense', '#4C8C4A')`;
+    });
   });
 
-  await page.goto("/es/settings/audit");
+  // The drop rides a hook rather than the end of the test: a category this one
+  // leaves alive when it fails is a second '0 subcategorías' for the categories
+  // test above, which turns one red into two and hides which was the real one.
+  test.afterEach(async () => {
+    await fixtureSql`delete from categories where id = ${categoryId}`;
+  });
 
-  // Newest first, so the row this test wrote is on the first page.
-  await expect(page.getByRole("cell", { name: categoryId })).toBeVisible();
+  test("lists the record a write just left", async ({ page }) => {
+    await page.goto("/es/settings/audit");
 
-  await fixtureSql`delete from categories where id = ${categoryId}`;
+    // Newest first, so the row this test wrote is on the first page.
+    await expect(page.getByRole("cell", { name: categoryId })).toBeVisible();
+  });
 });
 
 test("the data screen carries every exportable entity into its download link", async ({
