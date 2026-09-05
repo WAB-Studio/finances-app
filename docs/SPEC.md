@@ -56,6 +56,10 @@ accounting exports, native apps. None of this gets built or left
 - [x] **RF-61** — Archiving a member does not archive their accounts. The owner decides per account: archive it or hand it to the group.
 - [x] **RF-100** — Only the group `leader` adds, renames, archives, restores and removes a member; every member renames their own row and no other.
 - [x] **RF-114** — The accounts list shows each account's balance, derived from its opening balance and its movements and never stored.
+- [ ] **RF-121** — An account and a group each declare the currency they hold. Amounts are stored in that currency's minor unit and are read, written and formatted in it, so a currency with two decimal places accepts them.
+- [ ] **RF-122** — A movement between two currencies carries the rate a person confirmed at the moment they made it. The app proposes a rate and never imposes one, and nothing converts without a confirmed one.
+- [ ] **RF-123** — A card purchase in a foreign currency settles later: the movement books what was spent in the currency it was spent in, and what the issuer billed arrives with the statement (RF-84) in the account's billing currency. The rate derives from the two amounts, so it is never stored and never multiplied back out.
+- [ ] **RF-124** — No surface sums two currencies. A balance, a total and a chart derive per currency and state which one they count.
 
 #### Debts
 
