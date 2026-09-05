@@ -15,12 +15,17 @@ The one document that survives a session. `private/handoffs/HANDOFF-<YYYY-MM-DD>
 4. Compare what the handoff says against what the repo shows. Say every difference out loud.
 5. Take the first item of its `Lo que sigue` and start. Ask nothing the handoff already answers.
 
-## Closing — "cerremos handoff"
+## Closing — "cerremos handoff", or on the window's own warning
+
+The `context-watch.sh` hook says when the window passes 400k tokens. Take it as the phrase:
+finish the step in hand, close, and tell the user to open a new chat. Start nothing new.
 
 1. Commit and push every branch that carries work. Leave no tree dirty.
 2. Run `git log <base>..HEAD --format='%h %an <%ae>%n%(trailers)'` on each. No Claude attribution.
-3. Write the file. Then update the memory index with one line per fact worth surviving.
-4. Tell the user the path.
+3. Write the file.
+4. Put what outlives the session in the file that owns it, never in memory outside the repo:
+   a rule in `AGENTS.md`, a trap in `docs/TRAPS.md`, a tick in `docs/SPEC.md`.
+5. Tell the user the path.
 
 ## What the file carries
 
