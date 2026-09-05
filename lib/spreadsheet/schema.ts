@@ -86,8 +86,10 @@ type TransactionModel = typeof transactions.$inferSelect;
 // Every entity now carries an `external_ref` column: its stable per-scope import
 // key (RF-52), matched on to update instead of duplicate. Bounded like the model
 // (trimmed, <= 200); the sheet leaves it blank for a brand-new row, so it stays
-// optional — a trigger backfills it to `id::text` on insert.
-const externalRefSchema = z.string().trim().max(200).optional();
+// optional — a trigger backfills it to `id::text` on insert. Nullish, not
+// optional: a blank cell arrives as null, and `.optional()` refused every new row
+// the RF-49 template offers.
+const externalRefSchema = z.string().trim().max(200).nullish();
 
 // A cross-entity reference travels as the referenced row's name (RF-49), bounded
 // like the entities' own name (1..80). Names are not unique in a scope, so the
