@@ -14,6 +14,8 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
 
 ## Working here
 
+- Take «iniciemos» as: run the `handoff` skill, read the newest `private/handoffs/`, pick the work back up.
+- Take «cerremos handoff» as: run the `handoff` skill, close the session, write the next one's handoff.
 - Run the `orchestrator` skill to develop. It dispatches `planner`, `worker` and `validator`.
 - Keep plans in `private/`.
 - Ship one slice at a time.
