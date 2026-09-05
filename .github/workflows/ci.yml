@@ -4,6 +4,9 @@ on:
   pull_request:
   push:
     branches: [main, integracion]
+  # So the browser suite can be driven on demand — to smoke-test the job itself,
+  # or to re-run it after a stall in the remote database without an empty commit.
+  workflow_dispatch:
 
 jobs:
   typecheck:
