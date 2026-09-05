@@ -120,7 +120,7 @@ export function amountToInput(minor: number, currency: CurrencyCode): string {
   if (written === 0) return String(major);
 
   // How many stored units one written decimal is worth: one, wherever the two
-  // scales meet.
+  // scales meet. Truncating, never rounding, for the reason `formatMoney` gives.
   const step = stored / 10 ** written;
   const fraction = Math.trunc(Math.abs(minor) / step) % 10 ** written;
 
@@ -182,9 +182,17 @@ export function formatMoney(
     FORMATTERS.set(key, formatter);
   }
 
-  // Presentation, and the only division here: the stored integer stays whole
-  // everywhere else, and the formatter takes the amount it stands for.
-  return formatter.format(Math.abs(minor) / stored);
+  // Truncates to the decimals the currency is written with, as `amountToInput`
+  // does, so opening a figure and saving it back writes the integer it already
+  // held. Rounding here would draw a peso row of 50 hundredths as one peso and
+  // the field would then store a hundred: a data change caused by looking at a
+  // screen. A peso amount with hundredths of its own is a defect in the data —
+  // none can exist today, every write goes through `parseAmount` — and drawing
+  // it as zero leaves it visible instead of dressing it up.
+  const step = stored / 10 ** written;
+  const value = Math.trunc(Math.abs(minor) / step) / 10 ** written;
+
+  return formatter.format(value);
 }
 
 // COP-only wrappers, marked to retire. Forty-five files still call them, from
