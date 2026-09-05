@@ -32,14 +32,19 @@ const FREQUENCY_LABEL = {
   yearly: "frequencyYearly",
 } as const;
 
-// The tracks of the Recurrentes artboard, in order.
+// The tracks of the Recurrentes artboard, in order. Each range holds the
+// artboard's width as its maximum, so the 1440 canvas draws exactly what
+// SPEC-A3 specifies; below it the seven fixed tracks would together leave the
+// concept nothing, so they give room back until the rule's name reaches its
+// floor of 168px — enough for a name and the "Auto" badge beside it. The amount
+// never shrinks: a figure would spill out of the cell rather than truncate.
 const WIDTHS = {
-  concept: "minmax(0, 1fr)",
-  frequency: "140px",
-  nextRun: "96px",
-  category: "152px",
-  account: "156px",
-  status: "132px",
+  concept: "minmax(168px, 1fr)",
+  frequency: "minmax(118px, 140px)",
+  nextRun: "minmax(84px, 96px)",
+  category: "minmax(112px, 152px)",
+  account: "minmax(112px, 156px)",
+  status: "minmax(100px, 132px)",
   amount: "128px",
   menu: "36px",
 } as const;
@@ -119,8 +124,10 @@ export function RecurringTable({
       key: "frequency",
       header: t("tableFrequency"),
       width: WIDTHS.frequency,
+      // A block, not the default inline span: `truncate` clips nothing on an
+      // inline box, so an overlong label would paint over the next column.
       cell: (row) => (
-        <Text size="2" color="gray" truncate>
+        <Text as="div" size="2" color="gray" truncate>
           {frequencyLabel(row)}
         </Text>
       ),
@@ -158,7 +165,7 @@ export function RecurringTable({
       header: t("tableAccount"),
       width: WIDTHS.account,
       cell: (row) => (
-        <Text size="2" color="gray" truncate>
+        <Text as="div" size="2" color="gray" truncate>
           {row.account}
         </Text>
       ),
