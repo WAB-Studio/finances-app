@@ -22,6 +22,8 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
 - Work five tracks at once, one per lane. See `## Parallel tracks`.
 - Start the dev server on :3000 yourself and keep it running. Restart it when you must.
 - Run one instance per worktree. Take `Another next dev server is already running` as: one is up, use it.
+- Never ask whether to keep going or close the handoff. The `Stop` hook says when the window is full.
+- Never ask permission for the next step the plan already names. Take it and report it.
 
 ## Parallel tracks
 

@@ -35,10 +35,19 @@ jobs:
   # a second concurrent run would contend with it and with a lane running locally.
   e2e:
     runs-on: ubuntu-latest
-    # The repository is public, and GitHub hands no secret to a run triggered from
-    # a fork. Skipping those cleanly beats a job that fails on an empty DATABASE_URL
-    # and reads like the suite broke.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    # Off until the repository variable E2E_IN_CI is "true". The secrets do not
+    # exist until someone puts them there, and without them every step that reads
+    # .env.local dies on an empty URL — a red run on every push that says nothing.
+    # Turning it on is deliberate, because it also decides which database the
+    # suite seeds and purges on every pull request:
+    #   gh variable set E2E_IN_CI --body true
+    #
+    # The second half: the repository is public and GitHub hands no secret to a
+    # run triggered from a fork, so those are skipped rather than failed.
+    if: >-
+      vars.E2E_IN_CI == 'true' &&
+      (github.event_name != 'pull_request' ||
+       github.event.pull_request.head.repo.full_name == github.repository)
     timeout-minutes: 30
     concurrency:
       group: e2e-remote-db
@@ -67,10 +76,18 @@ jobs:
       # to the process environment: without this file every one of them dies.
       - name: Write .env.local from the secrets
         run: |
+          missing=""
           for name in DATABASE_URL MIGRATION_DATABASE_URL NEXT_PUBLIC_SUPABASE_URL \
                       NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY NEXT_PUBLIC_SITE_URL CRON_SECRET; do
+            [ -n "${!name}" ] || missing="$missing $name"
             printf '%s=%s\n' "$name" "${!name}" >> .env.local
           done
+          # Named here, or it surfaces three steps later as `Invalid URL` on an
+          # empty string and reads like the harness broke.
+          if [ -n "$missing" ]; then
+            echo "::error::missing repository secrets:$missing"
+            exit 1
+          fi
 
       - run: npx playwright install --with-deps chromium
 
