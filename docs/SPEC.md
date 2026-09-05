@@ -21,7 +21,7 @@ members and history. Personal accounts hang off the fund, not the other way
 around. The immediate use case is a household, but nothing in the model depends
 on that.
 
-Default language: Spanish. Currency: COP. Time zone: `America/Bogota`.
+Default language: Spanish. Settlement currency of a new account: COP. Time zone: `America/Bogota`.
 
 ### Scope and phases
 
@@ -31,7 +31,7 @@ Default language: Spanish. Currency: COP. Time zone: `America/Bogota`.
 changes required: `external_ref` exists from phase 1 so that importing is
 idempotent from day one.
 
-**Out of scope:** bank synchronisation, receipt OCR, multi-currency,
+**Out of scope:** bank synchronisation, receipt OCR,
 accounting exports, native apps. None of this gets built or left
 "prepared for".
 
@@ -56,6 +56,10 @@ accounting exports, native apps. None of this gets built or left
 - [x] **RF-61** — Archiving a member does not archive their accounts. The owner decides per account: archive it or hand it to the group.
 - [x] **RF-100** — Only the group `leader` adds, renames, archives, restores and removes a member; every member renames their own row and no other.
 - [x] **RF-114** — The accounts list shows each account's balance, derived from its opening balance and its movements and never stored.
+- [ ] **RF-121** — An account and a group each declare the currency they settle in. A movement carries its own currency, so one account holds several at once — a card bills in pesos and buys in dollars — and a balance derives one figure per account and currency. Amounts are stored in the minor unit of the currency they are in, and are read, written and formatted in it, so a currency with two decimal places accepts them.
+- [ ] **RF-122** — A movement between two currencies carries the rate a person confirmed at the moment they made it. The app proposes a rate and never imposes one, and nothing converts without a confirmed one.
+- [ ] **RF-123** — A card purchase in a foreign currency settles later. The movement books what was spent in the currency it was spent in, and carries a rate the person confirmed so the screen can state what it is expected to cost in the account's settlement currency, marked as an estimate. What the issuer actually billed arrives with the statement (RF-84) and replaces the estimate; from then on the rate derives from the two amounts and the estimate is gone.
+- [ ] **RF-124** — No surface sums two currencies. A balance, a total and a chart derive per currency and state which one they count.
 
 #### Debts
 
@@ -136,7 +140,7 @@ accounting exports, native apps. None of this gets built or left
 
 - [x] **RF-46** — Interface in Spanish and English, with the language visible in the URL. Spanish by default.
 - [x] **RF-47** — The preference belongs to the user and holds wherever they sign in, fund or no fund.
-- [x] **RF-48** — No interface text is hardcoded. Dates and numbers follow the active language; the currency is always COP.
+- [x] **RF-125** — No interface text is hardcoded. Dates and numbers follow the active language, and an amount is formatted in the currency it is in.
 
 #### Appearance
 
@@ -175,7 +179,7 @@ The webhook (RF-90) reuses RF-22 (quick entry), RF-25 (created_by) and RF-45 (no
 | RNF-02 | Fixed stack, the one in section 4. Every library must save a substantial amount of code. |
 | RNF-03 | The browser never queries the database directly. Everything goes through the server. |
 | RNF-04 | Authorisation is enforced in the database, evaluated against the real session user. Automatic system writes run with their own privileges and are identified as such. |
-| RNF-05 | Money is stored as an integer number of cents. Floating point is forbidden. COP formatting exists only in the presentation layer. |
+| RNF-05 | Money is stored as an integer number of its currency's minor units. Floating point is forbidden. Formatting exists only in the presentation layer. |
 | RNF-06 | Movement dates carry no time and are interpreted in `America/Bogota`. |
 | RNF-07 | Balances are derived from movements. They are never stored in a column that has to be kept in sync. |
 | RNF-08 | Mobile-first and installable as a PWA. |
@@ -194,6 +198,7 @@ Dead codes. The number stays burned and the tick stays as it was.
 - [x] **RF-02** — A user can belong to several funds; they operate on one at a time and can switch. _Retired 2026-08-28. Successor: RF-55 (one optional group per user, no switching)._
 - [x] **RF-38** — The fund has a shared cash account, created along with the fund. _Retired 2026-08-28. Successor: RF-56 (configurable `cash_mode`)._
 - [ ] **RF-03** — Only the `owner` invites members, edits the fund and manages categories. _Retired 2026-08-28. Successor: RF-57 (group leader manages the group)._
+- [x] **RF-48** — No interface text is hardcoded. Dates and numbers follow the active language; the currency is always COP. _Retired 2026-09-05. Successor: RF-125 (an amount is formatted in the currency it is in)._
 - [x] **RF-04** — All members of a fund see the same data. There are no partial-read roles. _Retired 2026-08-28. Successor: RF-58 (universal read, bounded write)._
 - [ ] **RF-05** — Whoever creates the fund becomes `owner`. The role is transferable, but a fund is never left without an owner. _Retired 2026-08-28. Successor: RF-59 (group leader)._
 - [x] **RF-08** — CRUD for accounts. Every account belongs to the fund; linking it to a member is optional. Without a member it is a shared account. _Retired 2026-08-28. Successor: RF-60 (personal vs group account)._

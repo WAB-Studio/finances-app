@@ -11,6 +11,8 @@ import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+import type { z } from "zod";
+
 // FIRST, and it has to stay first: it plants the counted pool `@/db/client` picks
 // up, and a client already built is a client that cannot be instrumented.
 import { roundTrips } from "./harness/instrument";
@@ -127,7 +129,13 @@ import {
 } from "@/lib/dates";
 import { pgErrorCode } from "@/lib/db-error";
 import { SEED_CATEGORIES } from "@/lib/fund/seed";
-import { SHEET_ENTITIES } from "@/lib/spreadsheet/schema";
+import {
+  accountRowSchema,
+  categoryRowSchema,
+  memberRowSchema,
+  recurringRuleRowSchema,
+  SHEET_ENTITIES,
+} from "@/lib/spreadsheet/schema";
 import { createTransactionSchema } from "@/lib/validation/transaction";
 import en from "@/messages/en.json";
 import es from "@/messages/es.json";
@@ -1906,6 +1914,73 @@ async function readSuite(
   await checkRead("readExport", () => readExport({ entityKeys: [...SHEET_ENTITIES] }));
   await checkRead("readImportScope", () => readImportScope());
   await checkRead("getUserLocale", () => getUserLocale());
+
+  // D7: the RF-49 template leaves external_ref blank for a brand-new row, and a
+  // blank cell parses to null — not undefined — so `.optional()` refused every
+  // new row the template itself offers. No database round trip here: the four
+  // row schemas that carry external_ref are pure zod, driven directly rather
+  // than through a parsed workbook, to isolate the one column under test.
+  await checkReadValue(
+    "sheet row schemas accept a blank external_ref cell",
+    async () => {
+      const today = todayInBogota();
+      const rows: { schema: z.ZodType; row: Record<string, unknown> }[] = [
+        {
+          schema: accountRowSchema,
+          row: {
+            name: "Harness fila",
+            kind: "asset",
+            subtype: "bancaria",
+            placement: "personal",
+            institution: null,
+            lastFour: "",
+            amount: "1000",
+            balanceOn: today,
+          },
+        },
+        {
+          schema: memberRowSchema,
+          row: { name: "Harness fila", email: undefined },
+        },
+        {
+          schema: categoryRowSchema,
+          row: { name: "Harness fila", kind: "expense", parent: null, color: "#E11D48" },
+        },
+        {
+          schema: recurringRuleRowSchema,
+          row: {
+            fromAccount: "Harness cuenta",
+            toAccount: null,
+            amount: "1000",
+            category: "Harness categoría",
+            description: null,
+            frequency: "monthly",
+            intervalN: 1,
+            dayOfMonth: null,
+            nextRunOn: today,
+            endsOn: null,
+          },
+        },
+      ];
+      const overlong = "x".repeat(201);
+
+      return rows.map(({ schema, row }) => ({
+        blank: schema.safeParse({ ...row, externalRef: null }).success,
+        absent: schema.safeParse(row).success,
+        overlong: schema.safeParse({ ...row, externalRef: overlong }).success,
+      }));
+    },
+    (results) => {
+      const blank = results.filter((row) => row.blank).length;
+      const absent = results.filter((row) => row.absent).length;
+      const overlongRejected = results.filter((row) => !row.overlong).length;
+
+      return {
+        ok: blank === results.length && absent === results.length && overlongRejected === results.length,
+        detail: `blank external_ref accepted on ${blank} of ${results.length} row schemas, absent cell accepted on ${absent}, a 201-char external_ref rejected on ${overlongRejected}`,
+      };
+    },
+  );
 }
 
 // The two modules that name a message key for an installment plan or a debt

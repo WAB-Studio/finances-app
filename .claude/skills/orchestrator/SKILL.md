@@ -28,15 +28,59 @@ Subagents: `planner` takes a slice and returns a plan. `worker` takes an assignm
 ## Ship
 
 1. Group the plan's modules into assignments. One assignment per worker.
-2. Take the first pending assignment.
-3. Dispatch `worker`. Wait for the report.
-4. Read the report. Resolve its `Unresolved`. Collect its `Deferred`.
-5. Put any `Questions` to the user. Re-dispatch the assignment with the answers.
-6. Dispatch `validator` on the branch. On `FAIL`, re-dispatch the worker with its `Fixes`. On `PASS`, mark the plan's modules done.
-7. Repeat until the assignments are done.
+2. Take every assignment that depends on nothing pending. Open a lane for each: `scripts/worktree.sh <lane> <branch> <base>`.
+3. Dispatch one `worker` per lane, all in one message. Wait for the reports.
+4. Read each report. Resolve its `Unresolved`. Collect its `Deferred`.
+5. Put any `Questions` to the user. Re-dispatch that assignment with the answers.
+6. Dispatch a `validator` per finished branch. On `FAIL`, re-dispatch that worker with its `Fixes`. On `PASS`, mark the plan's modules done and merge the branch.
+7. Repeat with the assignments the merged ones unblocked.
 8. Run `npm run typecheck` (tsgo) and `npm run lint` (eslint cache).
 9. Tick the slice's RF codes in `docs/SPEC.md`.
-10. Report to the user.
+10. Drop every lane's worktree.
+11. Report to the user.
+
+## Parallel tracks
+
+- Four lanes take workers. Lane 1 is yours: you merge, you tick, you run the suites the branches share.
+- Give each dispatch its lane number, its worktree path, its port and its branch.
+- Never put two workers on one lane, and never two on one file.
+- Cap the suites running at once at three.
+- Serialize only what a dependency forces. Nothing else.
+
+## What a dispatch costs
+
+A fan-out spends around fifteen times the tokens of one agent. Earn it.
+
+- Fan out on tracks that share no file. Keep interdependent work in one worker.
+- Name the boundary: the files this worker owns, and the files it must not touch.
+- Cite a doc by heading and line range. A worker told to "read §2" reads a whole file, five times over.
+- Put the contract in the dispatch. Never send a plan file, a report, or another worker's account.
+- Take the worker's report path. Read the file only when its summary leaves you deciding blind.
+- Hand paths, never contents. A worker opens what it needs; you pay for what you paste.
+
+## Which model runs it
+
+A subscription's window is shared across models, and an Opus turn spends several times what
+a Sonnet turn spends. Plan on Opus, execute on Sonnet.
+
+- `planner` and `auditor` run on Opus. Judgement is what they are for.
+- `worker` and `validator` run on Sonnet by default.
+- Raise one assignment to Opus when it touches money, a policy, a grant, a migration or a
+  primitive every screen composes. Say why in the dispatch.
+- Never raise the whole fan-out. Raise the module.
+
+## Where a sentence belongs
+
+The cache covers tools, then the system prompt, then the messages, in that order, and a
+dispatch sits after all of it. So a rule written in `worker.md` is read back at a tenth of
+the input price on every later worker, and the same rule pasted into five dispatches is paid
+five times at full price.
+
+- Write anything every worker needs in `worker.md` or `AGENTS.md`. Never repeat it per dispatch.
+- Keep in the dispatch only what this one worker needs: its goal, its files, its lane, its criterion.
+- Never vary a worker's tool list. A tool that changes invalidates the whole prefix.
+- Dispatch the first worker alone. Send the rest once it has started: a cache entry exists only
+  after the first response begins, so five at once write five copies instead of reading one.
 
 ## Grouping
 
@@ -55,11 +99,22 @@ Send: the slice's RF codes, the plan path, the paths already written, the slices
 Send: goal, files with path, contract, RF codes and the `docs/` sections to read, paths the assignment
 builds on, done criterion, the decisions you already took.
 
-Name the branch. It commits its own work.
+Name the branch, the lane, the worktree path and the port. It commits its own work.
+Say that the database is remote and shared: it never migrates, never touches a trigger, a policy or a grant,
+and never runs a suite on a lane that is not its own.
 State the done criterion as a fact to prove. Never as a command to run.
 Leave the worker to choose how it proves one.
 
 Strip the plan's numbering, its other modules and its rationale.
+
+**Derive the file list from the done criterion, not from the plan.** Measured over 18 subagent runs:
+four of five tracks needed a second round, a quarter of the session, and every time the missing
+thing was in the dispatch's file list. A branch that touches a screen owns that screen's
+`e2e/*.spec.ts`. A worker forbidden the harness cannot look at what it changed.
+
+Name the constraints the landed code already carries — the breakpoint it uses, the locator
+convention its specs follow. A worker meets the contract it is given; an omission in the contract
+is an omission in the result, and it surfaces as a red suite two hours later.
 
 ## Dispatching validator
 
@@ -69,7 +124,7 @@ Re-dispatch the worker, not the validator, when the verdict is `FAIL`. Hand the 
 
 ## Rules
 
-- Dispatch one subagent at a time. Never two in one message.
+- Dispatch every independent subagent in one message. Serialize only on a dependency.
 - Never hand a subagent the plan file or another subagent's report.
 - Take the decisions a subagent leaves `Unresolved`.
 - Pass every `Questions` to the user. Never answer one yourself.

@@ -44,8 +44,10 @@ export function Money({
 }) {
   const format = useFormatter();
 
-  // The magnitude, never the stored sign: the accounts involved decide how an
-  // amount reads, and a zero total reads without a sign whatever its tone.
+  // A movement's sign comes from the accounts it touches, which is what its tone
+  // says; a plain figure has no tone to read it from, so a signed one carries the
+  // sign it stores — a balance below zero is an overdraft, not an amount. A zero
+  // total reads without a sign whatever its tone.
   const sign =
     !signed || cents === 0
       ? ""
@@ -53,7 +55,9 @@ export function Money({
         ? "+"
         : tone === "expense"
           ? MINUS
-          : "";
+          : cents < 0
+            ? MINUS
+            : "";
 
   return (
     <span

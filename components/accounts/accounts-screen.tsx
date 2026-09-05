@@ -493,13 +493,14 @@ function AccountCard({
               {account.institution}
             </Text>
           )}
-          {/* The magnitude only: the badge above already states the kind, and a
-              liability stores what it owes as a negative figure (RF-114). */}
+          {/* Signed: the badge above states the kind, but a balance below zero is
+              an overdraft on an asset and what is owed on a liability (RF-114),
+              and drawn as a magnitude it reads as money there is. */}
           <Flex align="center" gap="1" wrap="wrap">
             <Text size="2" color="gray">
               {t("balanceLabel")}
             </Text>
-            <Money cents={account.balanceCents} tone="plain" signed={false} />
+            <Money cents={account.balanceCents} tone="plain" />
           </Flex>
           <Flex align="center" gap="1" wrap="wrap">
             <Text size="2" color="gray">

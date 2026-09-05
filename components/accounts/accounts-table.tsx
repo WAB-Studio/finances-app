@@ -132,15 +132,9 @@ export function AccountsTable({
       align: "end",
       numeric: true,
       // The query already derived this from movements, never a stored column
-      // (RF-114); a liability's own negative cents reads with the minus, an
-      // asset's positive cents reads plain.
-      cell: (row) => (
-        <Money
-          cents={row.balanceCents}
-          signed
-          tone={row.balanceCents < 0 ? "expense" : "plain"}
-        />
-      ),
+      // (RF-114). The figure carries its own minus; the expense tone it used to
+      // borrow to draw one painted a balance as if it were a movement.
+      cell: (row) => <Money cents={row.balanceCents} tone="plain" />,
     },
     {
       key: "menu",
