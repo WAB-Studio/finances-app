@@ -46,7 +46,9 @@ const accountLastFourSchema = z
 
 // The codes the picker offers, carrying the message the field shows for one
 // that is not among them. Read off `currencySchema` so the list stays in one place.
-const accountCurrencySchema = z.enum(currencySchema.options, {
+// Exported required, without a default: a form has someone to choose, so it asks.
+// A surface with no chooser — the RF-51 sheet — defaults it where it reads.
+export const accountCurrencySchema = z.enum(currencySchema.options, {
   error: "accounts.errors.currencyInvalid",
 });
 

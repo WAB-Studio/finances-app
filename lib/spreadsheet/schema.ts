@@ -5,10 +5,11 @@ import { categories } from "@/db/schema/categories";
 import { groupMembers } from "@/db/schema/group-members";
 import { recurringRules } from "@/db/schema/recurring-rules";
 import { transactions } from "@/db/schema/transactions";
+import { BASE_CURRENCY } from "@/lib/currency";
 import { isCivilDate } from "@/lib/dates";
 import { centsToPesos, pesosToCents } from "@/lib/money";
 import { CATEGORY_COLORS } from "@/lib/fund/category-color";
-import { createAccountSchema } from "@/lib/validation/account";
+import { accountCurrencySchema, createAccountSchema } from "@/lib/validation/account";
 import { CATEGORY_KINDS } from "@/lib/validation/category";
 import { createMemberSchema } from "@/lib/validation/member";
 import { occurredAtSchema, pesoAmountSchema } from "@/lib/validation/transaction";
@@ -108,7 +109,25 @@ const sheetCivilDateSchema = z.string().trim().refine(isCivilDate);
 
 // Accounts and members carry no cross-entity reference, so their row keeps the
 // create schema unchanged, its external ref appended (RF-52).
-export const accountRowSchema = createAccountSchema.extend({ externalRef: externalRefSchema });
+const accountRowFields = createAccountSchema.extend({ externalRef: externalRefSchema });
+
+// The settlement currency is the one cell a workbook may not carry (RF-121). The
+// form has a picker and so demands it; a sheet written before the column existed
+// has nobody to choose, and re-importing one has to keep matching on `external_ref`
+// rather than fail every row. So the fallback sits over the create schema and never
+// inside it, and it is the same 'COP' the column itself defaults to; a sheet that
+// does bring the cell is read by the picker's own enum.
+//
+// A stage of its own because zod admits no other place: `.extend` refuses to
+// overwrite a key on a schema holding refinements, and `.safeExtend` refuses to
+// widen an input, which is what a default does. The pipe fills the cell, then the
+// create schema judges the row — refinements included — exactly as the form does.
+export const accountRowSchema = z
+  .object({
+    ...accountRowFields.shape,
+    settlementCurrency: accountCurrencySchema.default(BASE_CURRENCY),
+  })
+  .pipe(accountRowFields);
 export type AccountRow = z.infer<typeof accountRowSchema>;
 
 export const memberRowSchema = createMemberSchema.extend({ externalRef: externalRefSchema });
