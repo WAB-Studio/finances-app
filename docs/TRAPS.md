@@ -152,3 +152,17 @@ HARNESS_LANE=2 HARNESS_BASE_URL=http://localhost:3001 \
 The helper in `e2e/accounts.spec.ts` strips `\D`, which takes the U+2212 minus along with the
 currency symbol. A sign asserted through it passes with the sign and without it. **Assert a sign
 against the raw `innerText`.**
+
+### A hook committed 644 dies on the next checkout
+
+Git tracks the execute bit. A hook that works locally because the shell that wrote it left `+x` on
+disk is stored `100644` all the same, and the next branch switch rewrites it without the bit. On
+2026-09-05 both hooks went dead that way at a checkout: `context-watch.sh` reported `Permission
+denied` because the harness surfaces a `Stop` hook's failure, and `log-usage.sh` said nothing at
+all and simply stopped appending — six minutes and about a dozen tool calls missing from
+`.claude/usage-log.tsv` before anyone noticed. **`chmod +x` fixes the disk, not the repository:**
+
+```
+git update-index --chmod=+x .claude/hooks/*.sh
+git ls-files -s .claude/hooks/    # 100755, not 100644
+```
