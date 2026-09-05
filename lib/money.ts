@@ -43,12 +43,14 @@ export function parseAmount(
   const exponent = minorUnitExponent(currency);
   const trimmed = raw.trim();
 
-  // A separator with exactly three digits behind it and nothing after is a
+  // A lone separator with exactly three digits behind it and nothing after is a
   // group mark and a fraction at once, and the two readings are a thousand
   // apart. A currency with decimals refuses it rather than pick one in silence.
-  // A currency without decimals has only the group reading, which is what
+  // A second separator settles the reading whether or not the two are alike, and
+  // a currency without decimals has only the group reading, which is what
   // "500.000" has always been.
-  if (exponent > 0 && /[.,]\d{3}$/.test(trimmed)) return null;
+  const separators = trimmed.match(/[.,]/g)?.length ?? 0;
+  if (exponent > 0 && separators === 1 && /[.,]\d{3}$/.test(trimmed)) return null;
 
   const match = /^(\d+)(?:[.,](\d+))?$/.exec(normalizeGroupMarks(trimmed));
   if (!match) return null;
