@@ -2,7 +2,7 @@ import type { CSSProperties } from "react";
 import { useLocale } from "next-intl";
 
 import { BASE_CURRENCY, type CurrencyCode } from "@/lib/currency";
-import { centsToPesos, formatMoney } from "@/lib/money";
+import { formatMoney } from "@/lib/money";
 
 // The ledger's minus is U+2212, never the hyphen a keyboard types (SPEC-A3).
 const MINUS = "−";
@@ -43,14 +43,16 @@ type MoneyStyle = {
 };
 
 export type MoneyProps = MoneyStyle &
-  // `cents` is the COP-only spelling, marked to retire with the wrappers in
-  // `lib/money`: a hundredth of a peso, where `minor` is the peso itself.
+  // Two names for one integer: the amount as the column keeps it, in hundredths
+  // of the currency's major unit. `cents` is the COP-only spelling, marked to
+  // retire with the wrappers in `lib/money`; `minor` is what a screen carrying
+  // its row's currency writes.
   ({ minor: number; cents?: never } | { cents: number; minor?: never });
 
 /**
- * The one place an amount turns into a figure (RF-48, RF-121, RNF-05). Minor
- * units in, the currency's own figure out — no screen divides by the minor
- * unit, none names a currency and none writes its own sign.
+ * The one place an amount turns into a figure (RF-48, RF-121, RNF-05). The
+ * stored integer in, the currency's own figure out — no screen divides by the
+ * stored scale, none names a currency and none writes its own sign.
  */
 export function Money(props: MoneyProps) {
   const {
@@ -62,8 +64,9 @@ export function Money(props: MoneyProps) {
   } = props;
   const locale = useLocale();
 
-  const amountMinor =
-    props.minor === undefined ? centsToPesos(props.cents) : props.minor;
+  // Both props spell the same integer: the division into a drawable amount is
+  // `formatMoney`'s, and it is the same for every currency.
+  const amountMinor = props.minor === undefined ? props.cents : props.minor;
 
   // A movement's sign comes from the accounts it touches, which is what its tone
   // says; a plain figure has no tone to read it from, so a signed one carries the

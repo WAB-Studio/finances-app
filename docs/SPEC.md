@@ -179,7 +179,7 @@ The webhook (RF-90) reuses RF-22 (quick entry), RF-25 (created_by) and RF-45 (no
 | RNF-02 | Fixed stack, the one in section 4. Every library must save a substantial amount of code. |
 | RNF-03 | The browser never queries the database directly. Everything goes through the server. |
 | RNF-04 | Authorisation is enforced in the database, evaluated against the real session user. Automatic system writes run with their own privileges and are identified as such. |
-| RNF-05 | Money is stored as an integer number of its currency's minor units. Floating point is forbidden. Formatting exists only in the presentation layer. |
+| RNF-05 | Money is stored as an integer number of hundredths of its currency's major unit — one scale for every currency, whatever its own minor unit is. How many decimals a person types and reads comes from the currency. Floating point is forbidden. Formatting exists only in the presentation layer. |
 | RNF-06 | Movement dates carry no time and are interpreted in `America/Bogota`. |
 | RNF-07 | Balances are derived from movements. They are never stored in a column that has to be kept in sync. |
 | RNF-08 | Mobile-first and installable as a PWA. |
