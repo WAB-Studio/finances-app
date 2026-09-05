@@ -298,7 +298,7 @@ erDiagram
     groups {
         uuid id PK
         text name
-        text currency "default COP"
+        text currency "ISO 4217 shape; default COP"
         text cash_mode "shared | per_member"
         timestamptz created_at
         timestamptz updated_at
@@ -324,7 +324,8 @@ erDiagram
         text kind "asset | liability"
         text institution
         text last_four "nullable; exactly four digits"
-        bigint initial_balance_cents
+        text settlement_currency "ISO 4217 shape; default COP"
+        bigint initial_balance_cents "minor unit of settlement_currency"
         date initial_balance_on
         timestamptz archived_at
         timestamptz created_at
@@ -401,7 +402,10 @@ erDiagram
         uuid group_id FK "null = personal movement"
         uuid from_account_id FK "null if income"
         uuid to_account_id FK "null if expense"
-        bigint amount_cents
+        bigint amount_cents "minor unit of currency"
+        text currency "ISO 4217 shape; from the accounts when unset"
+        bigint counter_amount_cents "null unless an account settles elsewhere"
+        boolean counter_is_estimate "true until the statement confirms it"
         text kind "income | expense | transfer (generated)"
         date occurred_at
         text description

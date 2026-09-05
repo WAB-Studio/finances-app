@@ -8,6 +8,7 @@ export const groups = pgTable(
   {
     id: uuid().primaryKey().defaultRandom(),
     name: text().notNull(),
+    // The ISO 4217 code the group reports in (RF-121); an account still settles in its own.
     currency: text().notNull().default("COP"),
     // 'shared' is one group cash account; 'per_member' is one cash account per member (RF-68).
     cashMode: text({ enum: ["shared", "per_member"] }).notNull().default("shared"),
@@ -17,6 +18,8 @@ export const groups = pgTable(
   (table) => [
     check("groups_name_length", sql`length(btrim(${table.name})) between 1 and 80`),
     check("groups_cash_mode_valid", sql`${table.cashMode} in ('shared', 'per_member')`),
+    // The shape of ISO 4217, not a list of codes: which ones a person may pick is an interface question.
+    check("groups_currency_iso", sql`${table.currency} ~ '^[A-Z]{3}$'`),
     // Membership, not ownership, gates read access — see RF-58.
     pgPolicy("groups_select_member", {
       for: "select",

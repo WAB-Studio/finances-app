@@ -35,7 +35,11 @@ export const accounts = pgTable(
     subtype: text({ enum: ["bancaria", "efectivo", "tarjeta"] }).notNull().default("bancaria"),
     institution: text(),
     lastFour: text(),
-    // The opening balance only (RNF-05). No running balance column exists anywhere (RNF-07).
+    // The ISO 4217 code the account settles in (RF-121): what the issuer bills, what the bank holds.
+    // Any code is accepted; the short list a person picks from lives in the interface.
+    settlementCurrency: text().notNull().default("COP"),
+    // The opening balance only (RNF-05), in the minor unit of `settlement_currency`. No running
+    // balance column exists anywhere (RNF-07).
     initialBalanceCents: bigint({ mode: "number" }).notNull().default(0),
     initialBalanceOn: date().notNull(),
     archivedAt: timestamp({ withTimezone: true }),
@@ -65,6 +69,8 @@ export const accounts = pgTable(
     check("accounts_personal_not_shared", sql`${table.ownerUserId} is null or ${table.isShared} = false`),
     check("accounts_external_ref_length", sql`length(${table.externalRef}) <= 200`),
     check("accounts_last_four_digits", sql`${table.lastFour} is null or ${table.lastFour} ~ '^[0-9]{4}$'`),
+    // The shape of ISO 4217, not a list of codes: which ones a person may pick is an interface question.
+    check("accounts_settlement_currency_iso", sql`${table.settlementCurrency} ~ '^[A-Z]{3}$'`),
     index("accounts_group_id_idx").on(table.groupId),
     index("accounts_owner_user_id_idx").on(table.ownerUserId),
     // `external_ref` is unique within a scope, so re-importing the same row updates instead of duplicating (RF-51).
