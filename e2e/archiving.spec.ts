@@ -16,7 +16,7 @@ import { expect, type Locator, type Page } from "@playwright/test";
 import messages from "@/messages/es.json";
 
 import { fixtureSql } from "../scripts/harness/fixtures";
-import { readScope, test } from "./global-setup";
+import { asHarnessUser, readScope, test } from "./global-setup";
 
 const budgets = messages.budgets;
 const goals = messages.goals;
@@ -205,9 +205,13 @@ test("archives a savings goal and restores it still saving the same amount", asy
   expect(await savedCents(created.id)).toBe(openingCents);
 
   // The aporte is named before its goal even though it cascades: one that
-  // outlived its goal would be a leak no later count could explain.
-  await fixtureSql`delete from goal_contributions where goal_id = ${created.id}`;
-  await fixtureSql`delete from savings_goals where id = ${created.id}`;
+  // outlived its goal would be a leak no later count could explain. Under the
+  // caller's claims, so the trail rows this drop stamps name an actor the next
+  // run's purge can find again.
+  await asHarnessUser(async (tx) => {
+    await tx`delete from goal_contributions where goal_id = ${created.id}`;
+    await tx`delete from savings_goals where id = ${created.id}`;
+  });
 });
 
 // What the goal has set aside, summed from the aportes the progress derives from

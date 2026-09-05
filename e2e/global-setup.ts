@@ -97,8 +97,19 @@ function claimsFor(userId: string): string {
 export async function asHarnessUser(
   fn: (tx: TransactionSql) => Promise<void>,
 ): Promise<void> {
-  const { userId } = readScope();
+  await asUser(readScope().userId, fn);
+}
 
+/**
+ * The same, for a caller that holds the id rather than the scope file: `purge`
+ * runs before that file is written. Every write inside leaves the trail a row
+ * naming this actor, which is the column `purgeAuditTrail` reads them back by —
+ * a delete run without claims stamps an actor nothing can name again.
+ */
+async function asUser(
+  userId: string,
+  fn: (tx: TransactionSql) => Promise<void>,
+): Promise<void> {
   await fixtureSql.begin(async (tx) => {
     await tx`select set_config('request.jwt.claims', ${claimsFor(userId)}, true)`;
     await fn(tx);
@@ -224,23 +235,27 @@ export async function clearGroup(): Promise<void> {
   const scope = readScope();
   const users = [scope.userId, scope.memberUserId];
 
-  await fixtureSql`
-    delete from groups
-    where id in (
-      select group_id from group_members where user_id in ${fixtureSql(users)})`;
-  await fixtureSql`delete from group_members where user_id in ${fixtureSql(users)}`;
+  await asUser(scope.userId, async (tx) => {
+    await tx`
+      delete from groups
+      where id in (
+        select group_id from group_members where user_id in ${tx(users)})`;
+    await tx`delete from group_members where user_id in ${tx(users)}`;
+  });
 }
 
 export async function clearLedger(): Promise<void> {
   const { userId } = readScope();
 
-  // A delivery points at the movement it recorded, and the queue is what a spec
-  // reads next, so it goes first. Splits and labels ride the movement's cascade:
-  // deleting a split on its own trips the trigger that keeps an expense carrying
-  // one, and that trigger stands down only once the parent is gone.
-  await fixtureSql`delete from ingest_deliveries where owner_user_id = ${userId}`;
-  await fixtureSql`delete from transactions where owner_user_id = ${userId}`;
-  await fixtureSql`delete from recurring_rules where owner_user_id = ${userId}`;
+  await asUser(userId, async (tx) => {
+    // A delivery points at the movement it recorded, and the queue is what a spec
+    // reads next, so it goes first. Splits and labels ride the movement's cascade:
+    // deleting a split on its own trips the trigger that keeps an expense carrying
+    // one, and that trigger stands down only once the parent is gone.
+    await tx`delete from ingest_deliveries where owner_user_id = ${userId}`;
+    await tx`delete from transactions where owner_user_id = ${userId}`;
+    await tx`delete from recurring_rules where owner_user_id = ${userId}`;
+  });
 }
 
 /**
@@ -278,46 +293,68 @@ export async function seedUnreviewedMovement(): Promise<void> {
 
 // Everything the harness user owns, child before parent. The specs write through
 // the interface, so the rows a run leaves behind are not all tracked by id, and a
-// run must end at the row counts it found — `audit_log` excepted, which no
-// harness ever deletes from.
+// run must end at the row counts it found — `audit_log` apart, which
+// `purgeAuditTrail` takes down to the same footing.
 async function purge(userId: string): Promise<void> {
-  await fixtureSql`delete from ingest_deliveries where owner_user_id = ${userId}`;
-  await fixtureSql`delete from ingest_shapes where owner_user_id = ${userId}`;
-  await fixtureSql`delete from ingest_merchants where owner_user_id = ${userId}`;
-  // A contribution is named before its goal even though it cascades: an aporte
-  // that outlived its goal would be a leak no later count could explain.
+  await asUser(userId, async (tx) => {
+    await tx`delete from ingest_deliveries where owner_user_id = ${userId}`;
+    await tx`delete from ingest_shapes where owner_user_id = ${userId}`;
+    await tx`delete from ingest_merchants where owner_user_id = ${userId}`;
+    // A contribution is named before its goal even though it cascades: an aporte
+    // that outlived its goal would be a leak no later count could explain.
+    await tx`
+      delete from goal_contributions
+      where goal_id in (select id from savings_goals where owner_user_id = ${userId})`;
+    await tx`delete from savings_goals where owner_user_id = ${userId}`;
+    await tx`delete from budgets where owner_user_id = ${userId}`;
+    await tx`delete from planned_payments where owner_user_id = ${userId}`;
+    // These three hang off an account rather than off a user. `debt_terms` goes
+    // before `accounts` in particular: its row is what makes an account's deletion
+    // fail rather than cascade.
+    await tx`
+      delete from installment_plans
+      where account_id in (select id from accounts where owner_user_id = ${userId})`;
+    await tx`
+      delete from debt_statements
+      where account_id in (select id from accounts where owner_user_id = ${userId})`;
+    await tx`
+      delete from debt_terms
+      where account_id in (select id from accounts where owner_user_id = ${userId})`;
+    // Splits and labels ride the movement's cascade; see `clearLedger`.
+    await tx`delete from transactions where owner_user_id = ${userId}`;
+    await tx`delete from recurring_rules where owner_user_id = ${userId}`;
+    await tx`delete from webhook_credentials where owner_user_id = ${userId}`;
+    await tx`delete from labels where owner_user_id = ${userId}`;
+    await tx`delete from categories where owner_user_id = ${userId}`;
+    await tx`delete from accounts where owner_user_id = ${userId}`;
+    // The group goes before its members: `assert_group_keeps_leader` refuses to
+    // leave a live group leaderless, and the cascade from a deleted group is the
+    // one path that may take a leader row with it.
+    await tx`
+      delete from groups
+      where id in (select group_id from group_members where user_id = ${userId})`;
+    await tx`delete from group_members where user_id = ${userId}`;
+  });
+}
+
+/**
+ * The trail rows the two harness identities left behind. RF-44 makes the log
+ * append-only and RNF-14's purge its only deleter; this is the exception the
+ * user granted, because every row it names was fabricated by a run of this
+ * harness — some 945 of them per run, kept for weeks — and the viewer reads its
+ * first page by scanning every one of them, which is what put that screen's
+ * query over the 8 s `statement_timeout` once a run in two.
+ *
+ * Bounded to those two ids on the two columns that name a person: a real user's
+ * row carries neither, so none is reachable from here. What the harness writes
+ * without claims lands with both columns null and is unreachable in turn, which
+ * is why every delete above runs under `asUser`.
+ */
+async function purgeAuditTrail(userIds: string[]): Promise<void> {
   await fixtureSql`
-    delete from goal_contributions
-    where goal_id in (select id from savings_goals where owner_user_id = ${userId})`;
-  await fixtureSql`delete from savings_goals where owner_user_id = ${userId}`;
-  await fixtureSql`delete from budgets where owner_user_id = ${userId}`;
-  await fixtureSql`delete from planned_payments where owner_user_id = ${userId}`;
-  // These three hang off an account rather than off a user. `debt_terms` goes
-  // before `accounts` in particular: its row is what makes an account's deletion
-  // fail rather than cascade.
-  await fixtureSql`
-    delete from installment_plans
-    where account_id in (select id from accounts where owner_user_id = ${userId})`;
-  await fixtureSql`
-    delete from debt_statements
-    where account_id in (select id from accounts where owner_user_id = ${userId})`;
-  await fixtureSql`
-    delete from debt_terms
-    where account_id in (select id from accounts where owner_user_id = ${userId})`;
-  // Splits and labels ride the movement's cascade; see `clearLedger`.
-  await fixtureSql`delete from transactions where owner_user_id = ${userId}`;
-  await fixtureSql`delete from recurring_rules where owner_user_id = ${userId}`;
-  await fixtureSql`delete from webhook_credentials where owner_user_id = ${userId}`;
-  await fixtureSql`delete from labels where owner_user_id = ${userId}`;
-  await fixtureSql`delete from categories where owner_user_id = ${userId}`;
-  await fixtureSql`delete from accounts where owner_user_id = ${userId}`;
-  // The group goes before its members: `assert_group_keeps_leader` refuses to
-  // leave a live group leaderless, and the cascade from a deleted group is the
-  // one path that may take a leader row with it.
-  await fixtureSql`
-    delete from groups
-    where id in (select group_id from group_members where user_id = ${userId})`;
-  await fixtureSql`delete from group_members where user_id = ${userId}`;
+    delete from audit_log
+    where actor_user_id in ${fixtureSql(userIds)}
+       or owner_user_id in ${fixtureSql(userIds)}`;
 }
 
 async function seedScope(userId: string, memberUserId: string): Promise<E2eScope> {
@@ -392,6 +429,9 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   writeFileSync(SCOPE_FILE, `${JSON.stringify(scope, null, 2)}\n`, "utf8");
   // After the scope file, which is what `clearGroup` reads both ids from.
   await clearGroup();
+  // Last of the writes, so the rows the purge above stamped go down with the
+  // ones the previous run left.
+  await purgeAuditTrail([userId, memberUserId]);
 
   await signIn(HARNESS_EMAIL, STORAGE_STATE);
   await signIn(HARNESS_MEMBER_EMAIL, MEMBER_STORAGE_STATE);
@@ -404,6 +444,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     try {
       await clearGroup();
       await purge(userId);
+      await purgeAuditTrail([userId, memberUserId]);
     } finally {
       await fixtureSql.end();
     }

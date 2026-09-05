@@ -492,8 +492,12 @@ test.describe("the fund's roster", () => {
   });
 
   test.afterEach(async () => {
-    await fixtureSql`delete from groups where id = ${groupId}`;
-    await fixtureSql`delete from group_members where group_id = ${groupId}`;
+    // Under the caller's claims, so the trail rows this drop stamps name an actor
+    // the next run's purge can find again.
+    await asHarnessUser(async (tx) => {
+      await tx`delete from groups where id = ${groupId}`;
+      await tx`delete from group_members where group_id = ${groupId}`;
+    });
   });
 
   test("archives a member, restores them and finally deletes them", async ({

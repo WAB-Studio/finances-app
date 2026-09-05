@@ -134,8 +134,12 @@ test.beforeAll(async () => {
 });
 
 test.afterAll(async () => {
-  await fixtureSql`delete from debt_terms where account_id = ${cardId}`;
-  await fixtureSql`delete from accounts where id in ${fixtureSql([cardId, bareId])}`;
+  // Under the caller's claims, so the trail rows this drop stamps name an actor
+  // the next run's purge can find again.
+  await asHarnessUser(async (tx) => {
+    await tx`delete from debt_terms where account_id = ${cardId}`;
+    await tx`delete from accounts where id in ${tx([cardId, bareId])}`;
+  });
 });
 
 test("the consolidated view totals both debts and carries the card's own figures", async ({
@@ -399,13 +403,17 @@ async function seedPlan({
 // Child before parent: the plan's lines ride its cascade, and a movement naming
 // an account is what makes that account's deletion fail rather than cascade.
 async function dropAccounts(ids: string[]): Promise<void> {
-  await fixtureSql`delete from installment_plans where account_id in ${fixtureSql(ids)}`;
-  await fixtureSql`delete from debt_statements where account_id in ${fixtureSql(ids)}`;
-  await fixtureSql`delete from debt_terms where account_id in ${fixtureSql(ids)}`;
-  await fixtureSql`
-    delete from transactions
-    where from_account_id in ${fixtureSql(ids)} or to_account_id in ${fixtureSql(ids)}`;
-  await fixtureSql`delete from accounts where id in ${fixtureSql(ids)}`;
+  // Under the caller's claims, so the trail rows this drop stamps name an actor
+  // the next run's purge can find again.
+  await asHarnessUser(async (tx) => {
+    await tx`delete from installment_plans where account_id in ${tx(ids)}`;
+    await tx`delete from debt_statements where account_id in ${tx(ids)}`;
+    await tx`delete from debt_terms where account_id in ${tx(ids)}`;
+    await tx`
+      delete from transactions
+      where from_account_id in ${tx(ids)} or to_account_id in ${tx(ids)}`;
+    await tx`delete from accounts where id in ${tx(ids)}`;
+  });
 }
 
 const SECOND_OWED_CENTS = 50_000_000;
