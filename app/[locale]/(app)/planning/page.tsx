@@ -12,7 +12,7 @@ import { listPlannedPayments } from "@/db/queries/planned-payments";
 import { listRecurringRules } from "@/db/queries/recurring-rules";
 import { listGoalsWithProgress } from "@/db/queries/savings-goals";
 import { civilDateToDate } from "@/lib/dates";
-import { centsToPesos } from "@/lib/money";
+import { centsToPesos, formatMoney } from "@/lib/money";
 import { routing } from "@/i18n/routing";
 
 export async function generateMetadata(
@@ -77,7 +77,9 @@ export default async function PlanningPage(
   // Three states: no debts reads the empty line; a debt with a next payment names
   // its total and date; a debt without a due date names its total alone, since the
   // dated message cannot carry a missing date.
-  const total = format.number(centsToPesos(debts.totals.owedCents), "currency");
+  // The base-currency set, drawn in its own currency: the head of the vector the
+  // debts screen labels, never a sum across it (RF-124).
+  const total = formatMoney(debts.totals.owedCents, debts.totals.currency, locale);
   const hasDebts = debts.withTerms.length > 0 || debts.withoutTerms.length > 0;
   const debtsSummary = !hasDebts
     ? t("debtsEmpty")

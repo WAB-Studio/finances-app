@@ -9,7 +9,7 @@ import {
 } from "@tanstack/react-table";
 import type { LucideIcon } from "lucide-react";
 import { CalendarDays, CircleAlert, CreditCard, Plus } from "lucide-react";
-import { useFormatter, useTranslations } from "next-intl";
+import { useFormatter, useLocale, useTranslations } from "next-intl";
 import { useMemo, useState } from "react";
 
 import { DebtFormDialog } from "@/components/planning/debt-form-dialog";
@@ -33,12 +33,19 @@ import {
   StatTiles,
   Text,
 } from "@/components/ui";
-import type { DebtsScreenData } from "@/db/queries/debts-screen";
-import type { DebtOverviewRow } from "@/db/queries/debt-overview";
+import type { DebtCurrencyTotals, DebtsScreenData } from "@/db/queries/debts-screen";
+import type { DebtOverviewRow, DebtPocket } from "@/db/queries/debt-overview";
 import type { PlanPosition } from "@/db/queries/installment-plans";
 import { Link as LocaleLink, useRouter } from "@/i18n/navigation";
+import {
+  BASE_CURRENCY,
+  OFFERED_CURRENCIES,
+  type CurrencyCode,
+  type OfferedCurrency,
+} from "@/lib/currency";
 import { civilDateToDate } from "@/lib/dates";
-import { centsToPesos } from "@/lib/money";
+import { formatMoney } from "@/lib/money";
+import type { Locale } from "@/lib/locales";
 
 const PAGE_SIZE = 10;
 
@@ -55,19 +62,45 @@ const features = tableFeatures({
 const columnHelper = createColumnHelper<typeof features, DebtTableRow>();
 const columns = columnHelper.columns([columnHelper.accessor("accountId", {})]);
 
-// The dialog is one instance driven by this: which mode it opens in and, for
-// everything but "create", which liability it acts on.
+// The dialog is one instance driven by this: which mode it opens in, for
+// everything but "create" which liability it acts on, and what that liability
+// bills in — every amount the dialog reads and writes is in that currency.
 type DialogTarget =
   | { mode: "create" }
-  | { mode: "complete"; account: DebtAccount }
-  | { mode: "pay"; account: DebtAccount }
-  | { mode: "plan"; account: DebtAccount };
+  | { mode: "complete"; account: DebtAccount; currency: CurrencyCode }
+  | { mode: "pay"; account: DebtAccount; currency: CurrencyCode }
+  | { mode: "plan"; account: DebtAccount; currency: CurrencyCode };
 
 // A row carrying its plan position, which is what the phone's cards read.
 type OverviewCard = DebtOverviewRow & {
   name: string;
   planPosition: PlanPosition | null;
 };
+
+// What the currency picker offers and what the terms schema takes. A row may
+// settle in a code that reached the ledger before the list did; its terms are
+// then typed in the base currency's scale, which is the one the column keeps.
+function offeredCurrency(currency: CurrencyCode): OfferedCurrency {
+  return (OFFERED_CURRENCIES as readonly string[]).includes(currency)
+    ? (currency as OfferedCurrency)
+    : BASE_CURRENCY;
+}
+
+// The pockets a debt holds beside the one it bills in, each drawn in its own
+// currency and never added to the figure above it (RF-124).
+function OtherOwed({
+  pockets,
+  locale,
+}: {
+  pockets: DebtPocket[];
+  locale: Locale;
+}) {
+  return pockets.map((pocket) => (
+    <Text key={pocket.currency} size="1" color="gray">
+      {formatMoney(pocket.owedCents, pocket.currency, locale)}
+    </Text>
+  ));
+}
 
 /**
  * The consolidated debts area (RF-83, RF-117): the fund's four figures over the
@@ -88,6 +121,7 @@ export function DebtsScreen({
   const t = useTranslations("debts");
   const tKey = useTranslations();
   const format = useFormatter();
+  const locale = useLocale() as Locale;
   const router = useRouter();
 
   const [target, setTarget] = useState<DialogTarget | null>(null);
@@ -103,8 +137,8 @@ export function DebtsScreen({
     });
   }
 
-  function payTarget(account: DebtAccount) {
-    setTarget({ mode: "pay", account });
+  function payTarget(account: DebtAccount, currency: CurrencyCode) {
+    setTarget({ mode: "pay", account, currency });
   }
 
   // The table sorts nothing: the rows arrive here in the order its due-date
@@ -114,7 +148,9 @@ export function DebtsScreen({
       ...withTerms.map((row) => ({
         accountId: row.accountId,
         name: row.name,
+        currency: row.currency,
         owedCents: row.owedCents,
+        otherOwed: row.otherOwed,
         planPosition: row.planPosition,
         terms: row,
         canWrite: row.canWrite,
@@ -164,66 +200,110 @@ export function DebtsScreen({
     />
   );
 
-  // The four figures of the artboard, the whole consolidated view. Every one of
-  // them arrives derived: the rate is the backend's own share of the balance and
-  // the cupo its own sum over the debts that carry a limit, so no tile can
-  // disagree with the column it sits over.
-  const tiles = [
-    {
-      key: "total",
-      label: t("tileTotal"),
-      value: <Money cents={totals.owedCents} signed={false} size="inherit" />,
-      note: t("tileTotalNote", { count: debtCount }),
-    },
-    {
-      key: "interest",
-      label: t("tileMonthlyInterest"),
-      value: (
-        <Money cents={totals.monthlyInterestCents} signed={false} size="inherit" />
-      ),
-      note: t("tileMonthlyInterestNote", {
-        pct: format.number(totals.monthlyRatePct, {
-          style: "percent",
-          minimumFractionDigits: 1,
-          maximumFractionDigits: 1,
-        }),
-      }),
-    },
-    {
-      key: "nextPayment",
-      label: t("tileNextPayment"),
-      value:
-        totals.nextPayment === null ? (
-          NO_VALUE
-        ) : (
+  // Every set the fund's debts add up to, one currency each, and the label each
+  // one is read under. A single-currency fund is its own label, so it keeps the
+  // bare band it has always had.
+  const currencySets = totals.byCurrency;
+  const manyCurrencies = currencySets.length > 1;
+
+  function currencyLabel(currency: CurrencyCode): string {
+    return tKey("planning.inCurrency", { currency });
+  }
+
+  // The four figures of the artboard, struck IN ONE CURRENCY: every one of them
+  // arrives derived — the rate is the backend's own share of that currency's
+  // balance and the cupo its own sum over the debts that carry a limit and bill
+  // in it — so no tile can disagree with the column it sits over, and none of
+  // them counts a figure booked in another currency (RF-124).
+  //
+  // The next payment falls in the currency the paying debt bills in, so it sits
+  // in that set alone rather than under every one of them.
+  function tilesFor(set: DebtCurrencyTotals) {
+    const nextPayment =
+      totals.nextPayment !== null && totals.nextPayment.currency === set.currency
+        ? totals.nextPayment
+        : null;
+
+    return [
+      {
+        key: "total",
+        label: t("tileTotal"),
+        value: (
           <Money
-            cents={totals.nextPayment.amountCents}
+            minor={set.owedCents}
+            currency={set.currency}
             signed={false}
             size="inherit"
           />
         ),
-      note:
-        totals.nextPayment === null
-          ? undefined
-          : t("tileNextPaymentNote", {
-              date: shortDate(totals.nextPayment.date),
-              name: totals.nextPayment.name,
-            }),
-    },
-    {
-      key: "availableCredit",
-      label: t("tileAvailableCredit"),
-      value: (
-        <Money cents={totals.availableCreditCents} signed={false} size="inherit" />
-      ),
-      note: t("tileAvailableCreditNote", {
-        amount: format.number(
-          centsToPesos(totals.creditLimitCents),
-          "currency",
+        note: t("tileTotalNote", { count: set.debtCount }),
+      },
+      {
+        key: "interest",
+        label: t("tileMonthlyInterest"),
+        value: (
+          <Money
+            minor={set.monthlyInterestCents}
+            currency={set.currency}
+            signed={false}
+            size="inherit"
+          />
         ),
-      }),
-    },
-  ];
+        note: t("tileMonthlyInterestNote", {
+          pct: format.number(set.monthlyRatePct, {
+            style: "percent",
+            minimumFractionDigits: 1,
+            maximumFractionDigits: 1,
+          }),
+        }),
+      },
+      {
+        key: "nextPayment",
+        label: t("tileNextPayment"),
+        value:
+          nextPayment === null ? (
+            NO_VALUE
+          ) : (
+            <Money
+              minor={nextPayment.amountCents}
+              currency={nextPayment.currency}
+              signed={false}
+              size="inherit"
+            />
+          ),
+        note:
+          nextPayment === null
+            ? undefined
+            : t("tileNextPaymentNote", {
+                date: shortDate(nextPayment.date),
+                name: nextPayment.name,
+              }),
+      },
+      {
+        key: "availableCredit",
+        label: t("tileAvailableCredit"),
+        // Absent, not a zero, when no debt billing in this currency carries a
+        // limit: a cupo nobody granted is not a cupo spent (RF-117).
+        value:
+          set.availableCreditCents === null ? (
+            NO_VALUE
+          ) : (
+            <Money
+              minor={set.availableCreditCents}
+              currency={set.currency}
+              signed={false}
+              size="inherit"
+            />
+          ),
+        note:
+          set.creditLimitCents === null
+            ? undefined
+            : t("tileAvailableCreditNote", {
+                amount: formatMoney(set.creditLimitCents, set.currency, locale),
+              }),
+      },
+    ];
+  }
 
   return (
     <Flex direction="column" gap="4">
@@ -255,7 +335,25 @@ export function DebtsScreen({
         <Box display={{ initial: "none", md: "block" }}>
           <PlanningSubNav />
         </Box>
-        <StatTiles tiles={tiles} />
+        {/* One labelled set per currency, none of them summing another: a card
+            that bills in pesos and buys in dollars owes in both (RF-124). */}
+        <Flex direction="column" gap="3">
+          {manyCurrencies && (
+            <Heading as="h2" size="3">
+              {tKey("common.currencyTotals")}
+            </Heading>
+          )}
+          {currencySets.map((set) => (
+            <Flex key={set.currency} direction="column" gap="2">
+              {manyCurrencies && (
+                <Text size="2" color="gray">
+                  {currencyLabel(set.currency)}
+                </Text>
+              )}
+              <StatTiles tiles={tilesFor(set)} />
+            </Flex>
+          ))}
+        </Flex>
         <DebtsTable
           rows={pageRows}
           // The fund's next payment, so the badge names the same debt on every
@@ -268,11 +366,14 @@ export function DebtsScreen({
           onPrev={() => table.previousPage()}
           onNext={() => table.nextPage()}
           onPay={(row) =>
-            payTarget({
-              accountId: row.accountId,
-              name: row.name,
-              owedCents: row.owedCents,
-            })
+            payTarget(
+              {
+                accountId: row.accountId,
+                name: row.name,
+                owedCents: row.owedCents,
+              },
+              row.currency,
+            )
           }
           onNewPlan={(row) =>
             setTarget({
@@ -282,6 +383,7 @@ export function DebtsScreen({
                 name: row.name,
                 owedCents: row.owedCents,
               },
+              currency: row.currency,
             })
           }
           onDetail={(row) => router.push(`/planning/debts/${row.accountId}`)}
@@ -293,6 +395,7 @@ export function DebtsScreen({
                 name: row.name,
                 owedCents: row.owedCents,
               },
+              currency: row.currency,
             })
           }
         />
@@ -312,39 +415,54 @@ export function DebtsScreen({
             <PlanningSubNav />
           </Box>
 
-          <Flex direction="column" gap="1">
-            <Text size="2" color="gray">
-              {t("total")}
-            </Text>
-            <Heading
-              as="h2"
-              size="8"
-              style={{ fontVariantNumeric: "tabular-nums" }}
-            >
-              {format.number(centsToPesos(totals.owedCents), "currency")}
-            </Heading>
-            {totals.nextPayment !== null && (
-              <Text size="2" color="gray">
-                {t("nextPayment", {
-                  amount: format.number(
-                    centsToPesos(totals.nextPayment.amountCents),
-                    "currency",
-                  ),
-                  date: format.dateTime(
-                    civilDateToDate(totals.nextPayment.date),
-                    { day: "numeric", month: "short" },
-                  ),
-                })}
+          {/* The same labelled sets the laptop's band draws, stacked (RF-124). */}
+          <Flex direction="column" gap="4">
+            {manyCurrencies && (
+              <Text size="2" weight="medium">
+                {tKey("common.currencyTotals")}
               </Text>
             )}
-            <Text size="2" color="gray">
-              {t("monthlyInterest", {
-                amount: format.number(
-                  centsToPesos(totals.monthlyInterestCents),
-                  "currency",
-                ),
-              })}
-            </Text>
+            {currencySets.map((set) => (
+              <Flex key={set.currency} direction="column" gap="1">
+                <Text size="2" color="gray">
+                  {manyCurrencies
+                    ? `${t("total")} · ${currencyLabel(set.currency)}`
+                    : t("total")}
+                </Text>
+                <Heading
+                  as="h2"
+                  size="8"
+                  style={{ fontVariantNumeric: "tabular-nums" }}
+                >
+                  {formatMoney(set.owedCents, set.currency, locale)}
+                </Heading>
+                {totals.nextPayment !== null &&
+                  totals.nextPayment.currency === set.currency && (
+                    <Text size="2" color="gray">
+                      {t("nextPayment", {
+                        amount: formatMoney(
+                          totals.nextPayment.amountCents,
+                          totals.nextPayment.currency,
+                          locale,
+                        ),
+                        date: format.dateTime(
+                          civilDateToDate(totals.nextPayment.date),
+                          { day: "numeric", month: "short" },
+                        ),
+                      })}
+                    </Text>
+                  )}
+                <Text size="2" color="gray">
+                  {t("monthlyInterest", {
+                    amount: formatMoney(
+                      set.monthlyInterestCents,
+                      set.currency,
+                      locale,
+                    ),
+                  })}
+                </Text>
+              </Flex>
+            ))}
           </Flex>
 
           {isEmpty ? (
@@ -355,39 +473,25 @@ export function DebtsScreen({
             />
           ) : (
             <Flex direction="column" gap="3">
-              {withTerms.map((row) =>
-                row.debtKind === "revolving" ? (
-                  <RevolvingCard
-                    key={row.accountId}
-                    row={row}
-                    onPay={
-                      row.canWrite
-                        ? () =>
-                            payTarget({
-                              accountId: row.accountId,
-                              name: row.name,
-                              owedCents: row.owedCents,
-                            })
-                        : undefined
-                    }
-                  />
+              {withTerms.map((row) => {
+                const onPay = row.canWrite
+                  ? () =>
+                      payTarget(
+                        {
+                          accountId: row.accountId,
+                          name: row.name,
+                          owedCents: row.owedCents,
+                        },
+                        row.currency,
+                      )
+                  : undefined;
+
+                return row.debtKind === "revolving" ? (
+                  <RevolvingCard key={row.accountId} row={row} onPay={onPay} />
                 ) : (
-                  <InstallmentCard
-                    key={row.accountId}
-                    row={row}
-                    onPay={
-                      row.canWrite
-                        ? () =>
-                            payTarget({
-                              accountId: row.accountId,
-                              name: row.name,
-                              owedCents: row.owedCents,
-                            })
-                        : undefined
-                    }
-                  />
-                ),
-              )}
+                  <InstallmentCard key={row.accountId} row={row} onPay={onPay} />
+                );
+              })}
               {withoutTerms.map((debt) => (
                 <NoTermsCard
                   key={debt.accountId}
@@ -402,17 +506,21 @@ export function DebtsScreen({
                               name: debt.name,
                               owedCents: debt.owedCents,
                             },
+                            currency: debt.currency,
                           })
                       : undefined
                   }
                   onPay={
                     debt.canWrite
                       ? () =>
-                          payTarget({
-                            accountId: debt.accountId,
-                            name: debt.name,
-                            owedCents: debt.owedCents,
-                          })
+                          payTarget(
+                            {
+                              accountId: debt.accountId,
+                              name: debt.name,
+                              owedCents: debt.owedCents,
+                            },
+                            debt.currency,
+                          )
                       : undefined
                   }
                 />
@@ -430,6 +538,14 @@ export function DebtsScreen({
         mode={target?.mode === "complete" ? "complete" : "create"}
         hasGroup={hasGroup}
         account={target?.mode === "complete" ? target.account : undefined}
+        // The terms are typed in the minor unit of what the card bills in
+        // (RF-121). A new debt picks its own currency, so the create mode falls
+        // back to the base one.
+        currency={
+          target?.mode === "complete"
+            ? offeredCurrency(target.currency)
+            : BASE_CURRENCY
+        }
       />
 
       {target?.mode === "pay" && (
@@ -439,6 +555,7 @@ export function DebtsScreen({
             if (!open) setTarget(null);
           }}
           debt={target.account}
+          currency={target.currency}
           payFrom={payFrom}
         />
       )}
@@ -453,6 +570,7 @@ export function DebtsScreen({
             id: target.account.accountId,
             name: target.account.name,
           }}
+          currency={target.currency}
         />
       )}
     </Flex>
@@ -479,21 +597,27 @@ function Disc({ icon: Icon, tint }: { icon: LucideIcon; tint: string }) {
   );
 }
 
-// The head row every card shares: disc, name over a meta line, owed on the right.
+// The head row every card shares: disc, name over a meta line, owed on the
+// right — the pocket the debt bills in, and under it what it owes in a currency
+// it does not, each drawn in its own and never added to the other (RF-124).
 function CardHead({
   icon,
   tint,
   name,
   meta,
+  currency,
   owedCents,
+  otherOwed,
 }: {
   icon: LucideIcon;
   tint: string;
   name: string;
   meta: string;
+  currency: CurrencyCode;
   owedCents: number;
+  otherOwed: DebtPocket[];
 }) {
-  const format = useFormatter();
+  const locale = useLocale() as Locale;
 
   return (
     <Flex align="center" gap="3">
@@ -506,9 +630,10 @@ function CardHead({
           {meta}
         </Text>
       </Flex>
-      <Text weight="bold" style={{ fontVariantNumeric: "tabular-nums" }}>
-        {format.number(centsToPesos(owedCents), "currency")}
-      </Text>
+      <Flex direction="column" align="end" style={{ fontVariantNumeric: "tabular-nums" }}>
+        <Text weight="bold">{formatMoney(owedCents, currency, locale)}</Text>
+        <OtherOwed pockets={otherOwed} locale={locale} />
+      </Flex>
     </Flex>
   );
 }
@@ -575,6 +700,7 @@ function RevolvingCard({
 }) {
   const t = useTranslations("debts");
   const format = useFormatter();
+  const locale = useLocale() as Locale;
 
   const hasFooter =
     row.minimumPaymentCents !== null ||
@@ -598,7 +724,9 @@ function RevolvingCard({
               maximumFractionDigits: 1,
             }),
           })}
+          currency={row.currency}
           owedCents={row.owedCents}
+          otherOwed={row.otherOwed}
         />
 
         {hasFooter && (
@@ -610,9 +738,10 @@ function RevolvingCard({
                 {row.minimumPaymentCents !== null && (
                   <Stat
                     label={t("minimumPayment")}
-                    value={format.number(
-                      centsToPesos(row.minimumPaymentCents),
-                      "currency",
+                    value={formatMoney(
+                      row.minimumPaymentCents,
+                      row.currency,
+                      locale,
                     )}
                   />
                 )}
@@ -631,9 +760,10 @@ function RevolvingCard({
             {row.availableCreditCents !== null && (
               <Text size="1" color="gray">
                 {t("availableCredit", {
-                  amount: format.number(
-                    centsToPesos(row.availableCreditCents),
-                    "currency",
+                  amount: formatMoney(
+                    row.availableCreditCents,
+                    row.currency,
+                    locale,
                   ),
                 })}
               </Text>
@@ -656,6 +786,7 @@ function InstallmentCard({
 }) {
   const t = useTranslations("debts");
   const format = useFormatter();
+  const locale = useLocale() as Locale;
 
   const position = row.planPosition;
   const nextLine =
@@ -682,17 +813,16 @@ function InstallmentCard({
                   total: position.linesTotal,
                 })
           }
+          currency={row.currency}
           owedCents={row.owedCents}
+          otherOwed={row.otherOwed}
         />
 
         <Separator size="4" />
         <Flex justify="between" gap="3">
           <Stat
             label={t("dueInstallments")}
-            value={format.number(
-              centsToPesos(row.dueInstallmentsCents),
-              "currency",
-            )}
+            value={formatMoney(row.dueInstallmentsCents, row.currency, locale)}
           />
           {row.nextDueDate !== null && (
             <Stat
@@ -717,7 +847,12 @@ function InstallmentCard({
               })}
             </Text>
             <Text size="2" weight="medium">
-              <Money cents={nextLine.amountCents} signed={false} size="inherit" />
+              <Money
+                minor={nextLine.amountCents}
+                currency={row.currency}
+                signed={false}
+                size="inherit"
+              />
             </Text>
           </Flex>
         )}
@@ -733,7 +868,13 @@ function NoTermsCard({
   onComplete,
   onPay,
 }: {
-  debt: { accountId: string; name: string; owedCents: number };
+  debt: {
+    accountId: string;
+    name: string;
+    currency: CurrencyCode;
+    owedCents: number;
+    otherOwed: DebtPocket[];
+  };
   // Absent for a caller who cannot write the debt: the head already says what it
   // lacks, and the invitation would only lead to a refusal.
   onComplete?: () => void;
@@ -749,7 +890,9 @@ function NoTermsCard({
           tint="amber"
           name={debt.name}
           meta={t("noTermsMeta")}
+          currency={debt.currency}
           owedCents={debt.owedCents}
+          otherOwed={debt.otherOwed}
         />
         {onComplete && (
           <Button
