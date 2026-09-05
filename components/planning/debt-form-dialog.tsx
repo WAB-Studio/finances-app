@@ -27,6 +27,7 @@ import {
   BASE_CURRENCY,
   minorUnitExponent,
   type CurrencyCode,
+  type OfferedCurrency,
 } from "@/lib/currency";
 import { todayInBogota } from "@/lib/dates";
 import { formatMoney } from "@/lib/money";
@@ -107,7 +108,7 @@ export function DebtFormDialog({
   // The currency the account settles in: the balance reads in it and the terms
   // are typed in its minor unit (RF-121). A new debt has none yet, so a caller
   // that names none is on the base currency.
-  currency?: CurrencyCode;
+  currency?: OfferedCurrency;
 }) {
   const t = useTranslations("debts");
 
@@ -142,7 +143,7 @@ function DebtForm({
   mode: "create" | "complete";
   hasGroup: boolean;
   account?: DebtAccount;
-  currency: CurrencyCode;
+  currency: OfferedCurrency;
   onOpenChange: (open: boolean) => void;
 }) {
   const t = useTranslations("debts");
@@ -211,7 +212,8 @@ function DebtForm({
   async function onSubmit(values: DebtFormValues) {
     if (isCreate) {
       // Step one: the account. A liability's opening balance is submitted as a
-      // positive peso string; the query signs it negative from its kind.
+      // positive string in the currency it settles in; the query signs it
+      // negative from its kind.
       const created = await createAccount.executeAsync({
         name: values.name,
         kind: "liability",
@@ -219,6 +221,7 @@ function DebtForm({
         subtype: "tarjeta",
         placement: values.placement,
         institution: values.institution,
+        settlementCurrency: currency,
         amount: values.amount,
         balanceOn: values.balanceOn,
       } satisfies CreateAccountInput);

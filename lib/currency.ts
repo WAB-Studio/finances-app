@@ -18,6 +18,12 @@ export type CurrencyCode = string;
 // stored scale as a net under that rule, not as support for one.
 export const OFFERED_CURRENCIES = ["COP", "USD"] as const;
 
+// What a form may write, as narrow as the schema that validates it. `CurrencyCode`
+// stays loose because a column holds any ISO code — a row imported or seeded
+// before a currency reached this list still reads. Creation is the other
+// direction and has to be narrow, or a screen offers what the schema refuses.
+export type OfferedCurrency = (typeof OFFERED_CURRENCIES)[number];
+
 // What a new account, group or person settles in until they say otherwise.
 export const BASE_CURRENCY = "COP";
 
