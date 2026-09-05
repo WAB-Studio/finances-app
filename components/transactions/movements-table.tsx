@@ -17,6 +17,7 @@ import {
   type MoneyTone,
 } from "@/components/ui";
 import { Link as LocaleLink } from "@/i18n/navigation";
+import type { CurrencyCode } from "@/lib/currency";
 import { civilDateToDate } from "@/lib/dates";
 
 // One movement, already named: the screen holds the account and category maps,
@@ -30,7 +31,9 @@ export type MovementTableRow = {
   category: { name: string; color: string | null } | null;
   account: string;
   label: string | null;
-  amountCents: number;
+  // In the movement's own currency, an integer of its minor unit (RF-121).
+  amountMinor: number;
+  currency: CurrencyCode;
   // Derived from the accounts the movement carries, never stored (RF-18).
   tone: MoneyTone;
   auto: boolean;
@@ -169,7 +172,7 @@ export function MovementsTable({
       align: "end",
       cell: (row) => (
         <Flex align="center" justify="end" gap="1">
-          <Money cents={row.amountCents} tone={row.tone} />
+          <Money minor={row.amountMinor} currency={row.currency} tone={row.tone} />
           <RowMenu
             rowName={row.title}
             items={[

@@ -31,11 +31,17 @@ import type { TransactionFormOptions } from "@/db/queries/transaction-form";
 import type { TransactionListRow } from "@/db/queries/transactions";
 import { useRouter } from "@/i18n/navigation";
 import { civilDateToDate } from "@/lib/dates";
+import { deriveRate } from "@/lib/money";
+import { foreignSettlementCurrency } from "@/lib/validation/transaction";
 import { useActionErrorToast } from "@/lib/use-action-toast";
 
 // The side pane of the DetalleMovimiento artboard, beside a main pane that takes
 // what is left.
 const SIDE_PANE = "396px";
+
+// A rate is read, not counted with: enough figures to recognise it, whichever
+// way round the two currencies are.
+const RATE_FORMAT = { maximumSignificantDigits: 6 } as const;
 
 /**
  * The two panes of one movement: the amount over its category tile, the
@@ -119,6 +125,23 @@ export function MovementDetailDesktop({
         ? (movement.toAccountId && accountNames.get(movement.toAccountId)) ?? ""
         : (movement.fromAccountId && accountNames.get(movement.fromAccountId)) ?? "";
 
+  // The other side of a movement whose account settles elsewhere, and the rate
+  // the two figures make between them (RF-122, RF-123).
+  const foreign = foreignSettlementCurrency(movement.currency, {
+    from: movement.fromSettlementCurrency,
+    to: movement.toSettlementCurrency,
+  });
+  const counterAmountCents = foreign === null ? null : movement.counterAmountCents;
+  const rate =
+    counterAmountCents === null || foreign === null || movement.amountCents === 0
+      ? null
+      : deriveRate(
+          movement.amountCents,
+          movement.currency,
+          counterAmountCents,
+          foreign,
+        );
+
   const occurredAt = civilDateToDate(movement.occurredAt);
   const longDate = format.dateTime(occurredAt, {
     day: "numeric",
@@ -144,7 +167,24 @@ export function MovementDetailDesktop({
           <Panel>
             <Flex direction="column" align="center" gap="2" px="4" py="7">
               <CategoryTile color={tileColor} size={60} />
-              <Money cents={movement.amountCents} tone={tone} size="hero" />
+              <Money
+                minor={movement.amountCents}
+                currency={movement.currency}
+                tone={tone}
+                size="hero"
+              />
+              {/* The same movement in what the account settles in, marked as
+                  what a statement has yet to confirm (RF-122, RF-123). Neither
+                  figure ever stands for the other, and no total adds the two. */}
+              {counterAmountCents !== null && foreign !== null && (
+                <Money
+                  minor={counterAmountCents}
+                  currency={foreign}
+                  signed={false}
+                  estimate={movement.counterIsEstimate}
+                  size="figure"
+                />
+              )}
               {movement.description && (
                 <Text size="4" weight="medium" align="center">
                   {movement.description}
@@ -170,7 +210,12 @@ export function MovementDetailDesktop({
                 <Text size="2" color="gray">
                   {t.rich("splitsTotal", {
                     amount: () => (
-                      <Money cents={movement.amountCents} signed={false} size="inherit" />
+                      <Money
+                        minor={movement.amountCents}
+                        currency={movement.currency}
+                        signed={false}
+                        size="inherit"
+                      />
                     ),
                   })}
                 </Text>
@@ -189,7 +234,11 @@ export function MovementDetailDesktop({
                         {categoryNames.get(split.categoryId)}
                       </Text>
                     </Flex>
-                    <Money cents={split.amountCents} signed={false} />
+                    <Money
+                      minor={split.amountCents}
+                      currency={movement.currency}
+                      signed={false}
+                    />
                   </Flex>
                 </Fragment>
               ))}
@@ -203,6 +252,17 @@ export function MovementDetailDesktop({
               <Fact label={t("accountLabel")} value={account} />
               <Separator size="4" />
               <Fact label={t("typeLabel")} value={kindLabel} />
+              {rate !== null && foreign !== null && (
+                <>
+                  <Separator size="4" />
+                  {/* Derived, never stored: the quotient of the two figures
+                      above it (RF-122). */}
+                  <Fact
+                    label={t("rateLabel")}
+                    value={`1 ${movement.currency} = ${format.number(rate, RATE_FORMAT)} ${foreign}`}
+                  />
+                </>
+              )}
               <Separator size="4" />
               <Fact label={t("dateLabel")} value={longDate} />
               {creatorName && (

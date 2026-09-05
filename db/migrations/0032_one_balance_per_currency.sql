@@ -38,6 +38,12 @@ revoke all on function private.set_transaction_currency() from public, anon, aut
 -- when none does, so no movement carries a rate it does not need or hides one it does. An estimate
 -- waits for a statement (RF-123), which only a one-sided movement does: a transfer is confirmed
 -- whole when it is recorded (RF-122).
+--
+-- Every refusal here carries `23901`, not `check_violation`: class 23 is what an integrity rule
+-- raises, and `514` is already the code the split, scope and placement triggers have raised since
+-- `0001`. The `9xx` subclass is in neither the standard's range nor Postgres's own `P` extension
+-- space, so nothing can claim it out from under us, and the action layer tells a currency refusal
+-- from a category out of scope by the code alone — never by the sentence.
 create or replace function private.assert_transaction_currency() returns trigger
 language plpgsql security definer set search_path = '' as $$
 declare
@@ -49,17 +55,17 @@ begin
   select a.settlement_currency into v_to from public.accounts a where a.id = new.to_account_id;
   if v_from is not null and v_to is not null and v_from is distinct from v_to
      and new.currency not in (v_from, v_to) then
-    raise exception 'a transfer between two currencies is booked in one of them' using errcode = 'check_violation';
+    raise exception 'a transfer between two currencies is booked in one of them' using errcode = '23901';
   end if;
   v_foreign := (v_from is not null and v_from <> new.currency) or (v_to is not null and v_to <> new.currency);
   if v_foreign and new.counter_amount_cents is null then
-    raise exception 'a movement in another currency carries its amount in the account''s own' using errcode = 'check_violation';
+    raise exception 'a movement in another currency carries its amount in the account''s own' using errcode = '23901';
   end if;
   if not v_foreign and new.counter_amount_cents is not null then
-    raise exception 'a movement in the account''s own currency carries no second amount' using errcode = 'check_violation';
+    raise exception 'a movement in the account''s own currency carries no second amount' using errcode = '23901';
   end if;
   if new.counter_is_estimate and num_nonnulls(new.from_account_id, new.to_account_id) = 2 then
-    raise exception 'only a one-sided movement carries an estimate' using errcode = 'check_violation';
+    raise exception 'only a one-sided movement carries an estimate' using errcode = '23901';
   end if;
   return new;
 end;

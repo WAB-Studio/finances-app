@@ -1,7 +1,7 @@
 "use client";
 
 import { PlusIcon, XIcon } from "lucide-react";
-import { useFormatter, useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { useMemo } from "react";
 
 import {
@@ -14,35 +14,38 @@ import {
   TextField,
 } from "@/components/ui";
 import type { ScopedCategory } from "@/db/queries/transaction-form";
-import { centsToPesos, parsePesos, pesosToCents } from "@/lib/money";
+import type { CurrencyCode } from "@/lib/currency";
+import { formatMoney, parseAmount } from "@/lib/money";
 
-// A split as the form owns it: a category and a peso string, cents only under
-// the hood. Kept identical to the form's `splits` element so `value`/`onChange`
-// hand straight to a React Hook Form field.
+// A split as the form owns it: a category and a typed string, minor units only
+// under the hood. Kept identical to the form's `splits` element so
+// `value`/`onChange` hand straight to a React Hook Form field.
 type Split = { categoryId: string; amount: string };
 
-// A row's peso string in cents, or zero while it is empty or half-typed: the
-// remainder must read as the whole total until a figure lands, never as NaN.
-function toCents(pesos: string): number {
-  const parsed = parsePesos(pesos);
-  return parsed === null ? 0 : pesosToCents(parsed);
+// A row's typed string in minor units, or zero while it is empty or half-typed:
+// the remainder must read as the whole total until a figure lands, never as NaN.
+function toMinor(amount: string, currency: CurrencyCode): number {
+  return parseAmount(amount, currency) ?? 0;
 }
 
 /**
  * Assigns an income or expense across categories of its own scope and kind
  * (RF-62). It mirrors `refineSplits` on screen — one or more rows summing to the
  * total (RF-69) — and shows the live remainder the form's schema enforces; a
- * transfer never mounts it. Money is integer cents throughout.
+ * transfer never mounts it. Every row is in the movement's own currency: a split
+ * never changes currency (RF-121), and money stays an integer of its minor unit.
  */
 export function SplitEditor({
-  totalPesos,
+  total,
+  currency,
   scope,
   kind,
   categories,
   value,
   onChange,
 }: {
-  totalPesos: string;
+  total: string;
+  currency: CurrencyCode;
   scope: "personal" | "group";
   kind: "expense" | "income";
   categories: ScopedCategory[];
@@ -50,7 +53,7 @@ export function SplitEditor({
   onChange: (splits: Split[]) => void;
 }) {
   const t = useTranslations("transactions");
-  const format = useFormatter();
+  const locale = useLocale();
 
   // Only the movement's scope and kind, parents and their children flattened
   // into one pickable list (a child wears its parent's colour already).
@@ -69,9 +72,9 @@ export function SplitEditor({
     [categories, scope, kind],
   );
 
-  const remainderCents =
-    toCents(totalPesos) -
-    value.reduce((sum, split) => sum + toCents(split.amount), 0);
+  const remainderMinor =
+    toMinor(total, currency) -
+    value.reduce((sum, split) => sum + toMinor(split.amount, currency), 0);
 
   function updateSplit(index: number, patch: Partial<Split>) {
     onChange(
@@ -167,19 +170,19 @@ export function SplitEditor({
         style={{
           borderRadius: "var(--radius-3)",
           background:
-            remainderCents === 0 ? "var(--grass-a3)" : "var(--red-a3)",
+            remainderMinor === 0 ? "var(--grass-a3)" : "var(--red-a3)",
         }}
       >
-        <Text size="2" weight="medium" color={remainderCents === 0 ? "grass" : "red"}>
+        <Text size="2" weight="medium" color={remainderMinor === 0 ? "grass" : "red"}>
           {t("splitUnassigned")}
         </Text>
         <Text
           size="2"
           weight="bold"
-          color={remainderCents === 0 ? "grass" : "red"}
+          color={remainderMinor === 0 ? "grass" : "red"}
           style={{ fontVariantNumeric: "tabular-nums" }}
         >
-          {format.number(centsToPesos(remainderCents), "currency")}
+          {formatMoney(remainderMinor, currency, locale)}
         </Text>
       </Flex>
     </Flex>
