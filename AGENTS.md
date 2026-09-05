@@ -70,6 +70,7 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
 - Chase a red with the one spec that failed and the server log. Never by repeating the suite.
 - Read a range, not a file: `sed -n 200,260p`. Read a whole file only when you will change most of it.
 - Fan out only across tracks that share no file. A fan-out costs about fifteen agents' worth of tokens.
+- Every tool call lands in `.claude/usage-log.tsv`. Run the `uso` skill to read where a session went and what repeats enough to become a script.
 
 ## Requirements
 
