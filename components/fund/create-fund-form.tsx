@@ -18,18 +18,21 @@ import {
   FieldLabel,
   FieldMessage,
   Flex,
+  SegmentedControl,
   Spinner,
   TextField,
 } from "@/components/ui";
+import { BASE_CURRENCY, OFFERED_CURRENCIES } from "@/lib/currency";
 import { useActionErrorToast } from "@/lib/use-action-toast";
 import { createFundSchema, type CreateFundInput } from "@/lib/validation/fund";
 
 export function CreateFundForm() {
   const t = useTranslations("onboarding");
+  const tFund = useTranslations("fund");
 
-  const form = useForm({
+  const form = useForm<CreateFundInput>({
     resolver: zodResolver(createFundSchema),
-    defaultValues: { name: "", memberName: "" },
+    defaultValues: { name: "", memberName: "", currency: BASE_CURRENCY },
   });
 
   const { execute, isPending } = useAction(createGroupAction, {
@@ -88,6 +91,32 @@ export function CreateFundForm() {
                   <FieldDescription>
                     {t("memberNameDescription")}
                   </FieldDescription>
+                  <FieldMessage error={fieldState.error} />
+                </Field>
+              )}
+            />
+            <Controller
+              name="currency"
+              control={form.control}
+              render={({ field, fieldState }) => (
+                <Field invalid={fieldState.invalid}>
+                  <FieldLabel id="fund-currency-label">
+                    {tFund("currencyLabel")}
+                  </FieldLabel>
+                  <FieldControl>
+                    <SegmentedControl.Root
+                      size="3"
+                      value={field.value}
+                      onValueChange={field.onChange}
+                      aria-labelledby="fund-currency-label"
+                    >
+                      {OFFERED_CURRENCIES.map((code) => (
+                        <SegmentedControl.Item key={code} value={code}>
+                          {code}
+                        </SegmentedControl.Item>
+                      ))}
+                    </SegmentedControl.Root>
+                  </FieldControl>
                   <FieldMessage error={fieldState.error} />
                 </Field>
               )}
