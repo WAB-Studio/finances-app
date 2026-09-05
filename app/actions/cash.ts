@@ -52,10 +52,12 @@ export const withdrawCashAction = authActionClient
     } catch (error) {
       // 42501 is a denied write, which reads the same as an account that was never
       // there — a source deleted mid-withdrawal included, since the policy names it
-      // ahead of any foreign key; 23514 is the check trigger; 23503 the net under
-      // both, a reference gone after it was picked.
+      // ahead of any foreign key; 23901 is a withdrawal into cash that settles in
+      // another currency, refused by `0032`; 23514 is the check trigger; 23503 the
+      // net under all three, a reference gone after it was picked.
       const code = pgErrorCode(error);
       if (code === "42501") throw new ActionError("errors.notFound");
+      if (code === "23901") throw new ActionError("transactions.errors.currencyMismatch");
       if (code === "23514") throw new ActionError("transactions.errors.splitsScopeViolation");
       if (code === "23503") throw new ActionError("errors.referenceGone");
       throw error;

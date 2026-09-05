@@ -92,51 +92,24 @@ async function resolveCounterAmount(movement: {
   };
 }
 
-// The four sentences `transactions_verify_currency` and its checks write. They
-// raise `check_violation`, the very code the split and scope triggers have
-// always raised, so the code alone cannot tell a currency refusal from a
-// category out of scope: only the sentence can.
-const CURRENCY_REFUSALS = [
-  "a transfer between two currencies",
-  "a movement in another currency",
-  "a movement in the account's own currency",
-  "only a one-sided movement",
-];
-
-// Walked, not read off the thrown error: drizzle hangs the driver's PostgresError
-// off `.cause`, exactly as `pgErrorCode` finds the code.
-function isCurrencyRefusal(error: unknown): boolean {
-  let current: unknown = error;
-
-  for (let hop = 0; hop < 5; hop++) {
-    if (!(current instanceof Error)) return false;
-
-    const { message } = current;
-    if (CURRENCY_REFUSALS.some((refusal) => message.includes(refusal))) return true;
-
-    current = current.cause;
-  }
-
-  return false;
-}
+// `transactions_verify_currency` raises this and nothing else does: a movement
+// whose currency does not agree with the accounts it names (migration `0032`).
+const CURRENCY_REFUSAL = "23901";
 
 // The scope, `kind` and `created_by` are the DB's to set, so none travels in the
-// payload. The check trigger raises one code, 23514, for every split/scope
-// refusal and for every currency one, so the two are told apart by what the
-// trigger said; a denied write raises 42501, which reads the same as a movement
-// that was never there — an account deleted under the open form lands there,
-// since the INSERT policy runs before any foreign key. What is left for 23503 is
-// a reference the row names that vanished after it was picked.
+// payload. 23514 is left to what it has always meant here — the split, scope and
+// placement triggers, and the column checks; a denied write raises 42501, which
+// reads the same as a movement that was never there — an account deleted under
+// the open form lands there, since the INSERT policy runs before any foreign key.
+// What is left for 23503 is a reference the row names that vanished after it was
+// picked.
 function mapTransactionError(error: unknown): never {
   const code = pgErrorCode(error);
   if (code === "42501") throw new ActionError("errors.notFound");
-  if (code === "23514") {
-    throw new ActionError(
-      isCurrencyRefusal(error)
-        ? "transactions.errors.currencyMismatch"
-        : "transactions.errors.splitsScopeViolation",
-    );
+  if (code === CURRENCY_REFUSAL) {
+    throw new ActionError("transactions.errors.currencyMismatch");
   }
+  if (code === "23514") throw new ActionError("transactions.errors.splitsScopeViolation");
   if (code === "23503") throw new ActionError("errors.referenceGone");
   throw error;
 }
