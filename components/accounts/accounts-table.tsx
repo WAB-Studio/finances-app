@@ -131,10 +131,42 @@ export function AccountsTable({
       width: WIDTHS.balance,
       align: "end",
       numeric: true,
-      // The query already derived this from movements, never a stored column
-      // (RF-114). The figure carries its own minus; the expense tone it used to
-      // borrow to draw one painted a balance as if it were a movement.
-      cell: (row) => <Money cents={row.balanceCents} tone="plain" />,
+      // The query already derived these from movements, never a stored column
+      // (RF-114), and ordered the settlement currency first (RF-121). The cell
+      // leads with it and names every other currency the account holds under it,
+      // the same cut the phone's card makes; no cell here adds two currencies
+      // together (RF-124). The figure carries its own minus; the expense tone it
+      // used to borrow to draw one painted a balance as if it were a movement.
+      cell: (row) => {
+        const [settlement, ...others] = row.balances;
+
+        return (
+          <Flex direction="column" gap="1" align="end">
+            {settlement && (
+              <Money
+                minor={settlement.balanceCents}
+                currency={settlement.currency}
+                tone="plain"
+              />
+            )}
+            {others.map((balance) => (
+              <Text key={balance.currency} size="1" color="gray">
+                {t.rich("balanceInCurrency", {
+                  amount: () => (
+                    <Money
+                      minor={balance.balanceCents}
+                      currency={balance.currency}
+                      tone="plain"
+                      size="inherit"
+                    />
+                  ),
+                  currency: balance.currency,
+                })}
+              </Text>
+            ))}
+          </Flex>
+        );
+      },
     },
     {
       key: "menu",

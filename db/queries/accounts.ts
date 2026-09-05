@@ -7,7 +7,7 @@ import { accounts } from "@/db/schema";
 import type { Account } from "@/db/schema";
 import type { Transaction } from "@/db/session";
 import { withUserDb } from "@/db/session";
-import { pesosToCents } from "@/lib/money";
+import type { CurrencyCode } from "@/lib/currency";
 
 type AccountKind = Account["kind"];
 type AccountSubtype = Account["subtype"];
@@ -22,9 +22,12 @@ export type AccountRow = {
   ownerUserId: string | null;
   groupId: string | null;
   isShared: boolean;
+  settlementCurrency: CurrencyCode;
   initialBalanceCents: number;
   initialBalanceOn: string;
-  balanceCents: number;
+  // One balance per currency the account holds, its settlement currency first
+  // (RF-121, RF-124). No caller adds two of them together.
+  balances: { currency: CurrencyCode; balanceCents: number }[];
   // What the policies would admit on this account, so a screen offers no action
   // the database would refuse (RF-58, RF-100).
   canWrite: boolean;
@@ -39,6 +42,24 @@ export type AccountRow = {
 export async function listAccounts(
   options: { archived: boolean },
 ): Promise<AccountRow[]> {
+  // The outer references are written qualified, once each: drizzle renders an
+  // embedded column bare inside a projection, and a bare `id` binds to the view
+  // the subquery reads, which turns the correlation into one constant for the
+  // whole result set.
+  const outerId = sql`"accounts"."id"`;
+  const outerCurrency = sql`"accounts"."settlement_currency"`;
+
+  // A correlated subquery and not a join: the view answers one row per account
+  // AND currency (RF-121), so a join would return the account once per currency
+  // it holds. `::text` keeps a bigint out of a JSON number.
+  const balancesJson = sql<{ currency: string; balanceCents: string }[]>`coalesce((
+    select jsonb_agg(
+      jsonb_build_object('currency', b.currency, 'balanceCents', b.balance_cents::text)
+      order by (b.currency = ${outerCurrency}) desc, b.currency
+    )
+    from account_balances b where b.id = ${outerId}
+  ), '[]'::jsonb)`;
+
   return withUserDb(async (tx) => {
     const rows = await tx
       .select({
@@ -51,26 +72,34 @@ export async function listAccounts(
         ownerUserId: accounts.ownerUserId,
         groupId: accounts.groupId,
         isShared: accounts.isShared,
+        settlementCurrency: accounts.settlementCurrency,
         initialBalanceCents: accounts.initialBalanceCents,
         initialBalanceOn: accounts.initialBalanceOn,
-        balanceCents: sql<string>`b.balance_cents`,
+        // The view derives every balance from movements, never a stored column,
+        // and runs `security_invoker`: it shows what the account policy already
+        // showed. An account always answers at least its settlement row, so the
+        // empty fallback is the shape of the expression, not a state a row reaches.
+        balances: balancesJson,
         // Written with the column's own name, never a Drizzle column reference: a
         // reference inside a projection fragment renders bare and binds inward.
         canWrite: sql<boolean>`private.can_write_account(accounts.id)`,
         archivedAt: accounts.archivedAt,
       })
       .from(accounts)
-      // The view derives one row per account from movements, never a stored
-      // column, and runs `security_invoker`: the join drops nothing the account
-      // policy already showed.
-      .innerJoin(sql`account_balances b`, sql`b.id = ${accounts.id}`)
       .where(
         options.archived ? isNotNull(accounts.archivedAt) : isNull(accounts.archivedAt),
       )
       .orderBy(desc(sql`${accounts.ownerUserId} is not null`), asc(accounts.name));
 
-    // A bigint sum arrives from the driver as a string; the ledger keeps cents a number.
-    return rows.map((row) => ({ ...row, balanceCents: Number(row.balanceCents) }));
+    // A bigint sum rides the aggregate as text; the ledger keeps the amount a
+    // number, in the minor unit of the currency beside it.
+    return rows.map((row) => ({
+      ...row,
+      balances: row.balances.map((balance) => ({
+        currency: balance.currency,
+        balanceCents: Number(balance.balanceCents),
+      })),
+    }));
   });
 }
 
@@ -85,7 +114,10 @@ export type CreateAccountArgs = {
   isShared: boolean;
   institution: string | null;
   lastFour?: string | null;
-  pesos: number;
+  // The currency the account settles in, and the opening amount as an integer
+  // in that currency's minor unit (RF-121, RNF-05).
+  settlementCurrency: CurrencyCode;
+  amountMinor: number;
   balanceOn: string;
 };
 
@@ -108,12 +140,11 @@ async function insertAccount(
     isShared,
     institution,
     lastFour,
-    pesos,
+    settlementCurrency,
+    amountMinor,
     balanceOn,
   }: CreateAccountArgs,
 ): Promise<{ accountId: string }> {
-  const cents = pesosToCents(pesos);
-
   const [row] = await insertRow(
     tx,
     accounts,
@@ -128,10 +159,12 @@ async function insertAccount(
       // A blank field means "no institution", the same as an absent one.
       institution: institution === "" ? null : institution,
       lastFour: lastFour ? lastFour : null,
-      // A liability opens negative so net worth stays a plain sum (RNF-05).
-      // `cents` is cast explicitly: an untyped param leaves unary minus with
+      settlementCurrency,
+      // A liability opens negative so net worth stays a plain sum (RNF-05). The
+      // amount arrives already in this currency's minor unit and is written as
+      // it came. It is cast explicitly: an untyped param leaves unary minus with
       // no single best operator, and Postgres refuses to parse the case.
-      initialBalanceCents: sql`case when ${kind} = 'liability' then -${cents}::bigint else ${cents}::bigint end`,
+      initialBalanceCents: sql`case when ${kind} = 'liability' then -${amountMinor}::bigint else ${amountMinor}::bigint end`,
       initialBalanceOn: balanceOn,
     },
     { returning: { id: accounts.id } },
@@ -149,7 +182,8 @@ export type UpdateAccountArgs = {
   isShared: boolean;
   institution: string | null;
   lastFour?: string | null;
-  pesos: number;
+  settlementCurrency: CurrencyCode;
+  amountMinor: number;
   balanceOn: string;
 };
 
@@ -160,11 +194,10 @@ export async function updateAccount({
   isShared,
   institution,
   lastFour,
-  pesos,
+  settlementCurrency,
+  amountMinor,
   balanceOn,
 }: UpdateAccountArgs): Promise<boolean> {
-  const cents = pesosToCents(pesos);
-
   return withUserDb(async (tx) => {
     const rows = await tx
       .update(accounts)
@@ -175,10 +208,13 @@ export async function updateAccount({
         isShared,
         institution: institution === "" ? null : institution,
         lastFour: lastFour ? lastFour : null,
+        // Granted for update since 0031, so the opening amount and the unit it
+        // is counted in always change together.
+        settlementCurrency,
         // `kind` is immutable and absent from the grant, so it is read from
-        // the row itself rather than named in this `set`. `cents` is cast
+        // the row itself rather than named in this `set`. The amount is cast
         // explicitly for the same reason as in `createAccount`.
-        initialBalanceCents: sql`case when ${accounts.kind} = 'liability' then -${cents}::bigint else ${cents}::bigint end`,
+        initialBalanceCents: sql`case when ${accounts.kind} = 'liability' then -${amountMinor}::bigint else ${amountMinor}::bigint end`,
         initialBalanceOn: balanceOn,
       })
       .where(eq(accounts.id, accountId))

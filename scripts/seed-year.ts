@@ -23,6 +23,7 @@ import { createCategory } from "@/db/queries/categories";
 import { insertTransaction } from "@/db/queries/transactions";
 import type { CreateTransactionArgs } from "@/db/queries/transactions";
 import { withUserDb } from "@/db/session";
+import { BASE_CURRENCY } from "@/lib/currency";
 import { addCivilDays, todayInBogota } from "@/lib/dates";
 
 import {
@@ -264,7 +265,8 @@ async function ensureScaffold(userId: string): Promise<Scaffold> {
       isShared: false,
       institution: "Bancolombia",
       lastFour: null,
-      pesos,
+      settlementCurrency: BASE_CURRENCY,
+      amountMinor: pesos,
       // A year back, so the opening balance predates the oldest movement.
       balanceOn: addCivilDays(today, -366),
     });

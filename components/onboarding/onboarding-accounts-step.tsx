@@ -1,7 +1,7 @@
 "use client";
 
 import { Plus } from "lucide-react";
-import { useFormatter, useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
 
 import { AccountFormDialog } from "@/components/accounts/account-form-dialog";
@@ -14,7 +14,7 @@ import {
 } from "@/components/ui";
 import type { AccountRow } from "@/db/queries/accounts";
 import { Link as LocaleLink } from "@/i18n/navigation";
-import { centsToPesos } from "@/lib/money";
+import { formatMoney } from "@/lib/money";
 
 // The list is the server's `accounts` prop: `createAccountAction` calls
 // `refresh()`, so a new account re-renders here without any client copy.
@@ -71,7 +71,7 @@ export function OnboardingAccountsStep({
 
 function AddedAccountCard({ account }: { account: AccountRow }) {
   const t = useTranslations("accounts");
-  const format = useFormatter();
+  const locale = useLocale();
 
   return (
     <Card>
@@ -83,11 +83,15 @@ function AddedAccountCard({ account }: { account: AccountRow }) {
           </Badge>
         </Flex>
         {/* The entered opening figure, never a derived balance: no movement
-            exists yet on this screen. */}
+            exists yet on this screen. Drawn in the account's own currency
+            (RF-121, RF-125), which a named format cannot do: one carries a fixed
+            currency and no locale. `formatMoney` takes the magnitude, and the
+            badge beside it is what says which side the account is on. */}
         <Text weight="medium">
-          {format.number(
-            centsToPesos(Math.abs(account.initialBalanceCents)),
-            "currency",
+          {formatMoney(
+            account.initialBalanceCents,
+            account.settlementCurrency,
+            locale,
           )}
         </Text>
       </Flex>

@@ -13,7 +13,7 @@ import {
 import { getUserGroup } from "@/db/queries/groups";
 import { pgErrorCode } from "@/lib/db-error";
 import { ActionError } from "@/lib/errors";
-import { parsePesos } from "@/lib/money";
+import { parseAmount } from "@/lib/money";
 import { authActionClient } from "@/lib/safe-action";
 import {
   archiveAccountSchema,
@@ -25,16 +25,17 @@ import {
 } from "@/lib/validation/account";
 
 /**
- * Creates an account (RF-60, RF-09, RF-10). A personal account is owned by the
- * caller; a group account is held by their group and shared so any member may
- * write it. The amount arrives as a Zod-validated peso string; parsing it here
- * can only fail if the schema let something through it should not have.
+ * Creates an account (RF-60, RF-09, RF-10, RF-121). A personal account is owned
+ * by the caller; a group account is held by their group and shared so any member
+ * may write it. The amount arrives as a string the schema already read in the
+ * account's own currency; parsing it again here can only fail if the schema let
+ * something through it should not have.
  */
 export const createAccountAction = authActionClient
   .inputSchema(createAccountSchema)
   .action(async ({ parsedInput: { amount, placement, ...account }, ctx }) => {
-    const pesos = parsePesos(amount);
-    if (pesos === null) throw new ActionError("errors.unexpected");
+    const amountMinor = parseAmount(amount, account.settlementCurrency);
+    if (amountMinor === null) throw new ActionError("errors.unexpected");
 
     // The owner/group XOR is resolved from the session, never trusted from the
     // form; a group placement without a group has nowhere to land.
@@ -47,7 +48,22 @@ export const createAccountAction = authActionClient
       placementFields = { ownerUserId: ctx.user.id, groupId: null, isShared: false };
     }
 
-    const { accountId } = await createAccount({ ...account, ...placementFields, pesos });
+    let accountId: string;
+    try {
+      ({ accountId } = await createAccount({
+        ...account,
+        ...placementFields,
+        amountMinor,
+      }));
+    } catch (error) {
+      // `accounts_settlement_currency_iso`: a code the picker does not offer and
+      // the shape check refuses. Every other 23514 on this table is a placement
+      // the form cannot express.
+      if (pgErrorCode(error) === "23514")
+        throw new ActionError("accounts.errors.currencyInvalid");
+      throw error;
+    }
+
     refresh();
     return { accountId };
   });
@@ -59,10 +75,17 @@ export const createAccountAction = authActionClient
 export const updateAccountAction = authActionClient
   .inputSchema(updateAccountSchema)
   .action(async ({ parsedInput: { amount, ...account } }) => {
-    const pesos = parsePesos(amount);
-    if (pesos === null) throw new ActionError("errors.unexpected");
+    const amountMinor = parseAmount(amount, account.settlementCurrency);
+    if (amountMinor === null) throw new ActionError("errors.unexpected");
 
-    const updated = await updateAccount({ ...account, pesos });
+    let updated: boolean;
+    try {
+      updated = await updateAccount({ ...account, amountMinor });
+    } catch (error) {
+      if (pgErrorCode(error) === "23514")
+        throw new ActionError("accounts.errors.currencyInvalid");
+      throw error;
+    }
     if (!updated) throw new ActionError("errors.notFound");
 
     refresh();
