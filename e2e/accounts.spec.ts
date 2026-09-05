@@ -71,10 +71,16 @@ function line(subject: Locator, label: string): Locator {
 }
 
 // The pesos a line is showing: COP rounds to the peso, so the digits of the
-// figure are the cents behind it divided by a hundred.
+// figure are the cents behind it divided by a hundred. `\D` throws away the
+// sign along with the currency symbol, so this alone can never prove a minus
+// made it to the screen (D4) — the raw text has to be read for that.
 function pesosOf(text: string): number {
   return Number(text.replace(/\D/g, ""));
 }
+
+// `Money`'s own sign, U+2212 (components/ui/money.tsx), never the hyphen a
+// keyboard types.
+const MINUS = "−";
 
 // The two sides an account may be drawn on, named the same way whichever band
 // the width is showing.
@@ -287,6 +293,27 @@ test.describe("the phone's card", () => {
 
     await dropAccount(account.id);
   });
+
+  // D4: a balance drawn with `tone="plain"` has no tone to carry the sign, so
+  // an overdraft used to lose it and read as a positive figure.
+  test("draws the minus when the derived balance is negative", async ({ page }) => {
+    const openingCents = 200_000;
+    const movementCents = 500_000;
+    const account = await seedAccount({ openingCents, movementCents });
+
+    await page.goto("/es/settings/accounts");
+
+    const [derived] = await fixtureSql<{ balance_cents: string }[]>`
+      select balance_cents::text as balance_cents
+      from account_balances where id = ${account.id}`;
+    expect(Number(derived.balance_cents)).toBeLessThan(0);
+
+    const shown = await line(card(page, account.name), accounts.balanceLabel).innerText();
+    expect(shown).toContain(MINUS);
+    expect(pesosOf(shown)).toBe(Math.abs(Number(derived.balance_cents)) / 100);
+
+    await dropAccount(account.id);
+  });
 });
 
 test.describe("the laptop row", () => {
@@ -326,6 +353,35 @@ test.describe("the laptop row", () => {
     const shown = pesosOf(await cell.innerText());
     expect(shown).toBe(Number(derived.balance_cents) / 100);
     expect(shown).not.toBe(openingCents / 100);
+
+    await dropAccount(account.id);
+  });
+
+  // D4: the fifth cell also draws through `Money` with `tone="plain"`, the same
+  // tone that lost the sign on the phone's card.
+  test("draws the minus when the derived balance is negative", async ({ page }) => {
+    const openingCents = 200_000;
+    const movementCents = 500_000;
+    const account = await seedAccount({ openingCents, movementCents });
+
+    await page.goto("/es/settings/accounts");
+
+    const [derived] = await fixtureSql<{ balance_cents: string }[]>`
+      select balance_cents::text as balance_cents
+      from account_balances where id = ${account.id}`;
+    expect(Number(derived.balance_cents)).toBeLessThan(0);
+
+    const cell = page
+      .getByRole("table", { name: accounts.title })
+      .getByRole("row")
+      .filter({ hasText: account.name })
+      .getByRole("cell")
+      .nth(4);
+    await expect(cell).toBeVisible();
+
+    const shown = await cell.innerText();
+    expect(shown).toContain(MINUS);
+    expect(pesosOf(shown)).toBe(Math.abs(Number(derived.balance_cents)) / 100);
 
     await dropAccount(account.id);
   });
