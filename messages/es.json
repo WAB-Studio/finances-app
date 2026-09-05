@@ -20,6 +20,7 @@
     "actionsFor": "Acciones de {name}",
     "removeFilter": "Quitar {label}",
     "fund": "Fondo",
+    "currencyTotals": "Totales por moneda",
     "optional": "Opcional"
   },
   "auth": {
@@ -41,6 +42,7 @@
   },
   "fund": {
     "label": "Fondo",
+    "currencyLabel": "Tu moneda",
     "errors": {
       "nameRequired": "Escribe un nombre para el fondo.",
       "nameTooLong": "El nombre no puede pasar de 80 caracteres.",
@@ -51,13 +53,15 @@
   "group": {
     "title": "Ajustes del fondo",
     "nameLabel": "Nombre del fondo",
+    "currencyLabel": "Moneda del fondo",
     "cashModeLabel": "Efectivo",
     "cashModeShared": "Efectivo del grupo",
     "cashModePerMember": "Un efectivo por persona",
     "save": "Guardar",
     "saved": "Ajustes guardados.",
     "errors": {
-      "cashModeInvalid": "Elige dónde vive el efectivo."
+      "cashModeInvalid": "Elige dónde vive el efectivo.",
+      "currencyInvalid": "Elige una moneda válida."
     }
   },
   "onboarding": {
@@ -100,6 +104,7 @@
     "createAccount": "Crear cuenta",
     "createFund": "Crear un fondo",
     "netWorthTitle": "Patrimonio del fondo",
+    "netWorthIn": "Patrimonio en {currency}",
     "ownerChip": "{name} · <amount></amount>",
     "groupLabel": "El grupo",
     "selfLabel": "Tú",
@@ -115,6 +120,7 @@
   },
   "reports": {
     "title": "Reportes",
+    "inCurrency": "en {currency}",
     "nav": "Reportes",
     "byCategoryTitle": "Gastos por categoría",
     "byCategoryEmpty": "Sin gastos este mes.",
@@ -260,11 +266,15 @@
     "institutionLabel": "Entidad",
     "lastFourLabel": "Últimos cuatro",
     "lastFourDescription": "Para reconocer esta cuenta en los avisos del banco.",
+    "settlementCurrencyLabel": "Moneda de liquidación",
+    "settlementCurrencyHint": "Es la moneda en la que la cuenta liquida sus movimientos.",
     "balanceLabel": "Saldo",
     "openingBalanceLabel": "Saldo inicial",
     "openingOwedLabel": "Deuda inicial",
     "openingBalanceOnLabel": "Fecha inicial",
     "openingBalanceRow": "<amount></amount> el {date}",
+    "balanceInCurrency": "<amount></amount> en {currency}",
+    "otherCurrencies": "{count, plural, one {# moneda más} other {# monedas más}}",
     "activeTab": "Activas",
     "archivedTab": "Archivadas",
     "statusLabel": "Estado",
@@ -299,6 +309,7 @@
       "institutionTooLong": "El nombre de la entidad no puede pasar de 80 caracteres.",
       "lastFourInvalid": "Escribe exactamente cuatro dígitos.",
       "kindInvalid": "Elige un tipo de cuenta válido.",
+      "currencyInvalid": "Elige una moneda válida.",
       "subtypeInvalid": "Elige una clase de cuenta válida.",
       "subtypeKindMismatch": "Esta clase no corresponde al tipo de cuenta.",
       "placementInvalid": "Elige dónde va la cuenta.",
@@ -392,6 +403,14 @@
     "accountNone": "Ninguna",
     "saveMovement": "Guardar movimiento",
     "amountLabel": "Monto",
+    "currencyLabel": "Moneda",
+    "counterAmountLabel": "Monto en destino",
+    "counterAmountHint": "Ajusta el monto si no coincide: la tasa se calcula con los dos montos.",
+    "rateLabel": "Tasa de cambio",
+    "rateDerived": "Se calcula con los dos montos, no se guarda.",
+    "suggestRate": "Sugerir monto",
+    "rateUnavailable": "No hay una tasa sugerida para estas monedas; escribe el monto.",
+    "estimated": "Estimado",
     "categoryLabel": "Categoría",
     "accountLabel": "Cuenta",
     "dateLabel": "Fecha",
@@ -446,6 +465,10 @@
       "accountInvalid": "Elige una cuenta válida.",
       "accountRequired": "Elige al menos una cuenta.",
       "accountSame": "Elige una cuenta distinta para el destino.",
+      "currencyMismatch": "Elige una moneda que coincida con las cuentas elegidas.",
+      "counterAmountRequired": "Escribe el monto en la otra moneda.",
+      "counterAmountInvalid": "Escribe un monto válido en la otra moneda.",
+      "counterAmountForbidden": "Un movimiento en la misma moneda no lleva un segundo monto.",
       "dateRequired": "Elige una fecha.",
       "dateInvalid": "Elige una fecha válida.",
       "dateInFuture": "La fecha no puede ser futura.",
@@ -490,6 +513,7 @@
   },
   "planning": {
     "title": "Planeación",
+    "inCurrency": "en {currency}",
     "budgetsTitle": "Presupuestos",
     "budgetsSummary": "{count, plural, =0 {Sin presupuestos activos} one {# activo · {spent} de {limit} este mes} other {# activos · {spent} de {limit} este mes}}",
     "goalsTitle": "Metas de ahorro",
@@ -860,6 +884,18 @@
     "rowPay": "Abonar",
     "rowNewPlan": "Nueva compra a cuotas",
     "rowDetail": "Ver detalle",
+    "settlement": {
+      "title": "Compras en otra moneda",
+      "pending": "Pendientes de facturar",
+      "spent": "Gastado",
+      "estimate": "Estimado",
+      "billedLabel": "Monto facturado",
+      "rate": "Tasa",
+      "save": "Guardar monto",
+      "saved": "Monto facturado guardado.",
+      "empty": "No hay compras en otra moneda por liquidar.",
+      "replacedEstimate": "Reemplaza el estimado."
+    },
     "errors": {
       "accountInvalid": "Elige una cuenta válida.",
       "kindInvalid": "Elige un tipo de deuda válido.",
@@ -994,7 +1030,8 @@
     "accountHasMovements": "Esta cuenta tiene movimientos. Archívala en su lugar.",
     "accountHasHistory": "No puedes pasar al grupo una cuenta con movimientos. Archívala en su lugar.",
     "accountRefTaken": "El grupo ya tiene una cuenta con la misma referencia de importación. Archiva esta cuenta en su lugar.",
-    "labelInUse": "Un presupuesto usa esta etiqueta. Quítala del presupuesto para eliminarla."
+    "labelInUse": "Un presupuesto usa esta etiqueta. Quítala del presupuesto para eliminarla.",
+    "foreignCurrencyUnsupported": "Esta operación no admite otra moneda. Elige una cuenta en la moneda de liquidación."
   },
   "data": {
     "screen": {
