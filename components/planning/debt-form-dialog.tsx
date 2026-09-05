@@ -31,7 +31,6 @@ import {
 import { todayInBogota } from "@/lib/dates";
 import { formatMoney } from "@/lib/money";
 import { useActionErrorToast } from "@/lib/use-action-toast";
-import { storedToMinor } from "@/lib/validation/debt-settlement";
 import {
   ACCOUNT_PLACEMENTS,
   createAccountSchema,
@@ -279,11 +278,7 @@ function DebtForm({
               <Text size="3">
                 {/* JSX cannot travel through `t()`, and this is the same figure
                     `Money` draws, character for character (RF-121). */}
-                {formatMoney(
-                  storedToMinor(Math.abs(account?.owedCents ?? 0), currency),
-                  currency,
-                  locale,
-                )}
+                {formatMoney(Math.abs(account?.owedCents ?? 0), currency, locale)}
               </Text>
             </Field>
           </>

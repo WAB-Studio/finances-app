@@ -30,7 +30,6 @@ import {
 import { todayInBogota } from "@/lib/dates";
 import { formatMoney } from "@/lib/money";
 import { useActionErrorToast } from "@/lib/use-action-toast";
-import { storedToMinor } from "@/lib/validation/debt-settlement";
 import {
   recordDebtPaymentSchema,
   type RecordDebtPaymentInput,
@@ -130,11 +129,7 @@ function PaymentForm({
               description: t("paymentRemainder", {
                 // JSX cannot travel through `t()`, so the one path from a stored
                 // integer to a figure is called straight (RF-121).
-                amount: formatMoney(
-                  storedToMinor(remainderCents, currency),
-                  currency,
-                  locale,
-                ),
+                amount: formatMoney(remainderCents, currency, locale),
               }),
             }
           : undefined,
@@ -161,7 +156,7 @@ function PaymentForm({
           <FieldLabel>{tKey("debts.tableBalance")}</FieldLabel>
           <Text size="3">
             <Money
-              minor={storedToMinor(debt.owedCents, currency)}
+              minor={debt.owedCents}
               currency={currency}
               size="inherit"
               signed={false}

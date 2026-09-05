@@ -7,10 +7,7 @@ import { pgErrorCode } from "@/lib/db-error";
 import { ActionError } from "@/lib/errors";
 import { parseAmount } from "@/lib/money";
 import { authActionClient } from "@/lib/safe-action";
-import {
-  minorToStored,
-  recordBilledAmountSchema,
-} from "@/lib/validation/debt-settlement";
+import { recordBilledAmountSchema } from "@/lib/validation/debt-settlement";
 
 /**
  * Writes what the issuer billed for one foreign-currency purchase (RF-123). The
@@ -28,10 +25,11 @@ export const recordBilledAmountAction = authActionClient
     async ({
       parsedInput: { transactionId, accountId, currency, billedAmount },
     }) => {
-      // The schema already parsed this string; a null here means it let through
-      // something it should not have, which is not a field message.
-      const minor = parseAmount(billedAmount, currency);
-      if (minor === null) throw new ActionError("errors.unexpected");
+      // The schema already parsed this string, and the parse lands in the scale
+      // the column keeps; a null here means the schema let through something it
+      // should not have, which is not a field message.
+      const billedCents = parseAmount(billedAmount, currency);
+      if (billedCents === null) throw new ActionError("errors.unexpected");
 
       let replaced: boolean;
       try {
@@ -39,7 +37,7 @@ export const recordBilledAmountAction = authActionClient
           transactionId,
           accountId,
           currency,
-          billedCents: minorToStored(minor, currency),
+          billedCents,
         });
       } catch (error) {
         // The UPDATE grant is column-scoped, so a caller outside it takes 42501

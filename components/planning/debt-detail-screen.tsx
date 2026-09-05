@@ -51,7 +51,6 @@ import { deriveRate, formatMoney, parseAmount } from "@/lib/money";
 import { useActionErrorToast } from "@/lib/use-action-toast";
 import {
   recordBilledAmountSchema,
-  storedToMinor,
   type RecordBilledAmountInput,
 } from "@/lib/validation/debt-settlement";
 
@@ -158,10 +157,7 @@ export function DebtDetailScreen({ data }: { data: DebtDetailData }) {
           {account.balances.map((pocket) => (
             <Money
               key={pocket.currency}
-              minor={storedToMinor(
-                Math.abs(pocket.balanceCents),
-                pocket.currency,
-              )}
+              minor={Math.abs(pocket.balanceCents)}
               currency={pocket.currency}
               signed={false}
               size="inherit"
@@ -178,7 +174,7 @@ export function DebtDetailScreen({ data }: { data: DebtDetailData }) {
           NO_VALUE
         ) : (
           <Money
-            minor={storedToMinor(pendingCents, currency)}
+            minor={pendingCents}
             currency={currency}
             signed={false}
             size="inherit"
@@ -195,7 +191,7 @@ export function DebtDetailScreen({ data }: { data: DebtDetailData }) {
           NO_VALUE
         ) : (
           <Money
-            minor={storedToMinor(currentStatement.minimumPaymentCents, currency)}
+            minor={currentStatement.minimumPaymentCents}
             currency={currency}
             signed={false}
             size="inherit"
@@ -214,7 +210,7 @@ export function DebtDetailScreen({ data }: { data: DebtDetailData }) {
           NO_VALUE
         ) : (
           <Money
-            minor={storedToMinor(availableCreditCents, currency)}
+            minor={availableCreditCents}
             currency={currency}
             signed={false}
             size="inherit"
@@ -226,11 +222,7 @@ export function DebtDetailScreen({ data }: { data: DebtDetailData }) {
           : tDebts("tileAvailableCreditNote", {
               // JSX cannot travel through `t()`, so the one path from a stored
               // integer to a figure is called straight (RF-121).
-              amount: formatMoney(
-                storedToMinor(terms.creditLimitCents, currency),
-                currency,
-                locale,
-              ),
+              amount: formatMoney(terms.creditLimitCents, currency, locale),
             }),
     },
   ];
@@ -253,7 +245,7 @@ export function DebtDetailScreen({ data }: { data: DebtDetailData }) {
         title={account.name}
         meta={
           <Money
-            minor={storedToMinor(owedCents, currency)}
+            minor={owedCents}
             currency={currency}
             signed={false}
             size="inherit"
@@ -333,10 +325,7 @@ export function DebtDetailScreen({ data }: { data: DebtDetailData }) {
                 label={t("statementBalance")}
                 value={
                   <Money
-                    minor={storedToMinor(
-                      Math.abs(currentStatement.balanceCents),
-                      currency,
-                    )}
+                    minor={Math.abs(currentStatement.balanceCents)}
                     currency={currency}
                     signed={false}
                     size="inherit"
@@ -348,10 +337,7 @@ export function DebtDetailScreen({ data }: { data: DebtDetailData }) {
                 label={t("statementMinimum")}
                 value={
                   <Money
-                    minor={storedToMinor(
-                      currentStatement.minimumPaymentCents,
-                      currency,
-                    )}
+                    minor={currentStatement.minimumPaymentCents}
                     currency={currency}
                     signed={false}
                     size="inherit"
@@ -508,7 +494,7 @@ function PlanTable({
       numeric: true,
       cell: (line) => (
         <Money
-          minor={storedToMinor(line.amountCents, currency)}
+          minor={line.amountCents}
           currency={currency}
           signed={false}
         />
@@ -586,7 +572,7 @@ function PlanTable({
         null,
         <Money
           key="pending"
-          minor={storedToMinor(plan.pendingCents, currency)}
+          minor={plan.pendingCents}
           currency={currency}
           signed={false}
         />,
@@ -660,10 +646,7 @@ function StatementsTable({
       numeric: true,
       cell: (statement) => (
         <Money
-          minor={storedToMinor(
-            Math.abs(statement.statementBalanceCents),
-            currency,
-          )}
+          minor={Math.abs(statement.statementBalanceCents)}
           currency={currency}
           signed={false}
         />
@@ -678,7 +661,7 @@ function StatementsTable({
       cell: (statement) => (
         <Text color="gray">
           <Money
-            minor={storedToMinor(statement.minimumPaymentCents, currency)}
+            minor={statement.minimumPaymentCents}
             currency={currency}
             signed={false}
           />
@@ -694,7 +677,7 @@ function StatementsTable({
       cell: (statement) => (
         <Text color="gray">
           <Money
-            minor={storedToMinor(statement.interestEstimateCents, currency)}
+            minor={statement.interestEstimateCents}
             currency={currency}
             signed={false}
           />
@@ -817,11 +800,12 @@ function SettlementRow({
 
   const typed = useWatch({ control: form.control, name: "billedAmount" });
 
-  const spentMinor = storedToMinor(movement.amountCents, movement.currency);
-  const billedMinor =
-    parseAmount(typed, currency) ??
-    storedToMinor(movement.counterAmountCents, currency);
-  const rate = deriveRate(spentMinor, movement.currency, billedMinor, currency);
+  // Both integers are in the scale the columns keep, which is what `deriveRate`
+  // divides: the rate is their quotient and lands in no column of its own.
+  const spentCents = movement.amountCents;
+  const billedCents =
+    parseAmount(typed, currency) ?? movement.counterAmountCents;
+  const rate = deriveRate(spentCents, movement.currency, billedCents, currency);
 
   const occurred = format.dateTime(civilDateToDate(movement.occurredAt), {
     day: "numeric",
@@ -847,7 +831,7 @@ function SettlementRow({
         </Text>
         <Text size="2" weight="medium">
           <Money
-            minor={spentMinor}
+            minor={spentCents}
             currency={movement.currency}
             signed={false}
             size="inherit"
@@ -861,7 +845,7 @@ function SettlementRow({
         </Text>
         <Text size="2" weight="medium">
           <Money
-            minor={storedToMinor(movement.counterAmountCents, currency)}
+            minor={movement.counterAmountCents}
             currency={currency}
             estimate
             signed={false}
