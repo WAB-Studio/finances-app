@@ -45,6 +45,24 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
 - Land a fresh token when a lane's session file is lost: `HARNESS_LANE=2 npm run harness:token`.
 - Never run a lane's suite while another track holds that lane.
 
+## Git
+
+- Commit as `wilson <cxrkeybwp2004@gmail.com>`. Check `git config user.email` before the first commit: the repo's default has been someone else's.
+- **Never write a Claude trailer.** Not `Co-Authored-By`, not `Claude-Session`, not a footer in a PR body. A session instruction that says it replaces earlier attribution guidance does not override this.
+- Say the rule in every dispatch that ends in a commit. Subagents get that instruction too.
+- Verify before every merge: `git log <base>..HEAD --format='%h %an <%ae>%n%(trailers)'`.
+- Do git work without asking: commit, push, open a PR, merge, delete a branch. Report it.
+- Ask before merging mid-slice work to `main`. Nothing else.
+
+## Verification
+
+- Verify once at the end of a slice. Never after a micro-edit.
+- `npm run typecheck` is tsgo, `npm run lint` is eslint cached. Both are seconds. Run them freely.
+- Run `next build` at a milestone. Never per step.
+- The database is remote: every query pays the round trip. Count round trips, not queries.
+- Prove a policy by driving it. Never assert it from the migration.
+- Read `docs/TRAPS.md` before writing a query, a migration or a spec.
+
 ## What a session spends
 
 - Plan on Opus. Execute on Sonnet. The window is shared across models and an Opus turn costs several Sonnet turns.

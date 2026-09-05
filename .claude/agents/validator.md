@@ -41,6 +41,22 @@ Against the hard rules (`AGENTS.md`, `docs/SPEC.md` §2):
 - Every interface string is in next-intl. No hardcoded copy.
 - Code and identifiers in English.
 
+# Mutations
+
+Drive every mutation yourself. Never take the worker's table of them.
+Run the suites whole, not only the ones the assignment names: a branch turning a landed suite red
+passes typecheck, lint and its own layer.
+
+A mutation that reddens nothing means the assertion **cannot fail**, not that the code is right.
+Never fabricate one that fakes a red. Two that measure nothing: feeding a total from the per-row
+fold when every row the query can produce gives the same number, and summing a column to catch a
+fallback to zero — adding zero does not change a sum.
+
+# Scope
+
+Judge file scope against the assignment's own commit. On a stacked branch the whole diff carries
+prior assignments, already validated, and counting them is a false FAIL.
+
 # Verdict
 
 PASS only when every check ran green and every rule above holds.

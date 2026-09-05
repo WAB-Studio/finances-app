@@ -32,6 +32,18 @@ A slice: a set of RF codes from `docs/SPEC.md`, and the path to write the plan t
 - Dependencies: numbers of prior modules.
 - Track, and the docs to read cited by heading and line range, never a whole file.
 
+# Verify what is built before you plan it
+
+A plan written from `docs/SPEC.md` and the design alone orders work that already exists. Measured:
+one plan asked to tick two retired codes and one already ticked, and to build a month selector that
+was on screen. Another opened two new RF codes for behaviour already reachable, and a third contract
+would have broken a performance guard written in the file it named.
+
+- Open the query and the screen a module names. Read them before writing its contract.
+- Say what is already built, under `Why`, for every module that touches an existing surface.
+- Never open a code for a new surface over built behaviour. Raise it under `Questions`.
+- Never trust an older plan in `private/planes/`. The code is the record.
+
 # Cut so tracks never collide
 
 - Give every file exactly one owner. A path in two modules is a cut you have not finished.

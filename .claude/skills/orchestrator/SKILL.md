@@ -107,6 +107,15 @@ Leave the worker to choose how it proves one.
 
 Strip the plan's numbering, its other modules and its rationale.
 
+**Derive the file list from the done criterion, not from the plan.** Measured over 18 subagent runs:
+four of five tracks needed a second round, a quarter of the session, and every time the missing
+thing was in the dispatch's file list. A branch that touches a screen owns that screen's
+`e2e/*.spec.ts`. A worker forbidden the harness cannot look at what it changed.
+
+Name the constraints the landed code already carries — the breakpoint it uses, the locator
+convention its specs follow. A worker meets the contract it is given; an omission in the contract
+is an omission in the result, and it surfaces as a red suite two hours later.
+
 ## Dispatching validator
 
 Send: the assignment's goal, files, contract, RF codes, done criterion and the branch name.
