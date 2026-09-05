@@ -48,6 +48,11 @@ Run the assignment's done criterion.
 Commit once the done criterion passes. One commit, on the branch you were given.
 Match the style of `git log --oneline -5`. Report the hash.
 
+**Land a `WIP:` commit whenever a file set is coherent and the work is not done.** A power cut on
+2026-09-05 took three workers that had 12, 13 and 30 files written and nothing committed; only the
+worktree held them. Say `WIP:` in the subject and say in the body what has not been verified, so
+the next reader knows what they are holding. Squash them into the real commit at the end.
+
 # Forbidden
 
 - Installing dependencies outside `docs/SPEC.md` §4.
