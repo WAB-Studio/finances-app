@@ -1,45 +1,14 @@
 import type { CSSProperties } from "react";
 import { useLocale } from "next-intl";
 
-import {
-  BASE_CURRENCY,
-  type CurrencyCode,
-  minorUnitExponent,
-} from "@/lib/currency";
-import { FORMAT_LOCALE, type Locale } from "@/lib/locales";
-import { centsToPesos } from "@/lib/money";
+import { BASE_CURRENCY, type CurrencyCode } from "@/lib/currency";
+import { centsToPesos, formatMoney } from "@/lib/money";
 
 // The ledger's minus is U+2212, never the hyphen a keyboard types (SPEC-A3).
 const MINUS = "−";
 
 // U+2248, the mark a figure the issuer has not billed yet carries (RF-123).
 const APPROXIMATELY = "≈";
-
-// Built per language and currency, kept because a screen draws fifty figures
-// and constructing a formatter costs more than the figure it writes.
-const FORMATTERS = new Map<string, Intl.NumberFormat>();
-
-function currencyFormatter(
-  locale: Locale,
-  currency: CurrencyCode,
-  exponent: number,
-): Intl.NumberFormat {
-  const key = `${locale}:${currency}`;
-  const cached = FORMATTERS.get(key);
-  if (cached) return cached;
-
-  // Not `useFormatter`: a named format carries no locale, and the figure is
-  // drawn for the region the language belongs to, not for the bare language.
-  const formatter = new Intl.NumberFormat(FORMAT_LOCALE[locale], {
-    style: "currency",
-    currency,
-    minimumFractionDigits: exponent,
-    maximumFractionDigits: exponent,
-  });
-
-  FORMATTERS.set(key, formatter);
-  return formatter;
-}
 
 export type MoneyTone = "expense" | "income" | "transfer" | "plain";
 
@@ -111,11 +80,6 @@ export function Money(props: MoneyProps) {
             ? MINUS
             : "";
 
-  // Presentation, and the only division here: the stored integer never leaves
-  // the minor unit, the formatter takes the major one.
-  const exponent = minorUnitExponent(currency);
-  const figure = Math.abs(amountMinor) / 10 ** exponent;
-
   return (
     <span
       style={{
@@ -127,7 +91,7 @@ export function Money(props: MoneyProps) {
     >
       {estimate ? `${APPROXIMATELY} ` : ""}
       {sign}
-      {currencyFormatter(locale, currency, exponent).format(figure)}
+      {formatMoney(amountMinor, currency, locale)}
     </span>
   );
 }

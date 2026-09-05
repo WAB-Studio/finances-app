@@ -3,6 +3,7 @@ import {
   type CurrencyCode,
   minorUnitExponent,
 } from "@/lib/currency";
+import { FORMAT_LOCALE, type Locale } from "@/lib/locales";
 
 // Minor units are what a person types and what the ledger stores (RNF-05): the
 // peso for COP, the cent for USD. No function here knows an account's kind or a
@@ -95,6 +96,49 @@ export function deriveRate(
   const counter = counterMinor / 10 ** minorUnitExponent(to);
 
   return counter / amount;
+}
+
+// Built per language and per currency, and kept: a screen draws fifty figures,
+// and constructing a formatter costs more than the figure it writes.
+const FORMATTERS = new Map<string, Intl.NumberFormat>();
+
+/**
+ * The magnitude of an amount, drawn in its currency and in the region the
+ * language belongs to (RF-125). The one path from a stored integer to a figure:
+ * `Money` composes over this and adds the sign, the tone and the estimate mark,
+ * which only the primitive knows about. A message that interpolates an amount
+ * calls it directly, since JSX cannot travel through `t()`.
+ *
+ * Takes a magnitude on purpose, applying `Math.abs` itself, so no sign can
+ * leave here: `Intl` writes a hyphen-minus, and the only minus this app draws
+ * is the primitive's U+2212 (SPEC-A3).
+ *
+ * The locale is a parameter, not a hook: half the callers are not components.
+ */
+export function formatMoney(
+  minor: number,
+  currency: CurrencyCode,
+  locale: Locale,
+): string {
+  const exponent = minorUnitExponent(currency);
+  const key = `${locale}:${currency}`;
+  let formatter = FORMATTERS.get(key);
+
+  if (!formatter) {
+    // Not a next-intl named format: one carries no locale, and a figure is
+    // drawn for the region a language belongs to, not for the bare language.
+    formatter = new Intl.NumberFormat(FORMAT_LOCALE[locale], {
+      style: "currency",
+      currency,
+      minimumFractionDigits: exponent,
+      maximumFractionDigits: exponent,
+    });
+    FORMATTERS.set(key, formatter);
+  }
+
+  // Presentation, and the only division here: the stored integer never leaves
+  // the minor unit, and the formatter takes the major one.
+  return formatter.format(Math.abs(minor) / 10 ** exponent);
 }
 
 // COP-only wrappers, marked to retire. Forty-five files still call them, from
