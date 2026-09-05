@@ -36,6 +36,8 @@ marker.touch()
 
 print(json.dumps({
     "hookSpecificOutput": {
+        # Required by the schema; the output is rejected whole without it.
+        "hookEventName": "Stop",
         "systemMessage": f"Contexto ~{tokens // 1000}k tokens: toca cerrar handoff.",
         "additionalContext": (
             f"The window is around {tokens // 1000}k tokens, past the {LIMIT // 1000}k mark "
