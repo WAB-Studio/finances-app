@@ -1,6 +1,7 @@
 ---
 name: worker
 description: Implements one bounded assignment naming goal, files, contract and done criterion. Use to write or edit the code of a bounded piece of the app.
+model: sonnet
 tools: Read, Write, Edit, Bash, Grep, Glob, ToolSearch
 ---
 

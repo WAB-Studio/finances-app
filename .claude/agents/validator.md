@@ -1,6 +1,7 @@
 ---
 name: validator
 description: Independently verifies one finished assignment against its contract and the repo's hard rules. Reads and runs; never edits. Returns a PASS/FAIL verdict with a fix list. Use after a worker reports an assignment done, before marking it landed.
+model: sonnet
 tools: Read, Bash, Grep, Glob
 ---
 

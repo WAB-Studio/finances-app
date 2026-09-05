@@ -1,6 +1,7 @@
 ---
 name: auditor
 description: Sweeps the whole codebase for rot and gaps — empty stubs, dead and commented-out code, hard-rule breaches, and SPEC codes ticked but unbuilt. Reads and runs; never edits. Returns findings ranked by severity. Use to audit a shipped slice or the built backend, not to verify one assignment against its contract.
+model: opus
 tools: Read, Bash, Grep, Glob
 ---
 

@@ -56,6 +56,31 @@ A fan-out spends around fifteen times the tokens of one agent. Earn it.
 - Cite a doc by heading and line range. A worker told to "read §2" reads a whole file, five times over.
 - Put the contract in the dispatch. Never send a plan file, a report, or another worker's account.
 - Take the worker's report path. Read the file only when its summary leaves you deciding blind.
+- Hand paths, never contents. A worker opens what it needs; you pay for what you paste.
+
+## Which model runs it
+
+A subscription's window is shared across models, and an Opus turn spends several times what
+a Sonnet turn spends. Plan on Opus, execute on Sonnet.
+
+- `planner` and `auditor` run on Opus. Judgement is what they are for.
+- `worker` and `validator` run on Sonnet by default.
+- Raise one assignment to Opus when it touches money, a policy, a grant, a migration or a
+  primitive every screen composes. Say why in the dispatch.
+- Never raise the whole fan-out. Raise the module.
+
+## Where a sentence belongs
+
+The cache covers tools, then the system prompt, then the messages, in that order, and a
+dispatch sits after all of it. So a rule written in `worker.md` is read back at a tenth of
+the input price on every later worker, and the same rule pasted into five dispatches is paid
+five times at full price.
+
+- Write anything every worker needs in `worker.md` or `AGENTS.md`. Never repeat it per dispatch.
+- Keep in the dispatch only what this one worker needs: its goal, its files, its lane, its criterion.
+- Never vary a worker's tool list. A tool that changes invalidates the whole prefix.
+- Dispatch the first worker alone. Send the rest once it has started: a cache entry exists only
+  after the first response begins, so five at once write five copies instead of reading one.
 
 ## Grouping
 

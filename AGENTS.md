@@ -43,6 +43,14 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
 - Land a fresh token when a lane's session file is lost: `HARNESS_LANE=2 npm run harness:token`.
 - Never run a lane's suite while another track holds that lane.
 
+## What a session spends
+
+- Plan on Opus. Execute on Sonnet. The window is shared across models and an Opus turn costs several Sonnet turns.
+- Send a suite's output to a file and grep it. Never read a 12-minute log into the conversation.
+- Chase a red with the one spec that failed and the server log. Never by repeating the suite.
+- Read a range, not a file: `sed -n 200,260p`. Read a whole file only when you will change most of it.
+- Fan out only across tracks that share no file. A fan-out costs about fifteen agents' worth of tokens.
+
 ## Requirements
 
 - Never renumber an RF or RNF. Never reuse a retired number.

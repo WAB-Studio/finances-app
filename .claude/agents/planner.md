@@ -1,6 +1,7 @@
 ---
 name: planner
 description: Turns a slice of the app into a plan of bounded modules ordered by dependency, written to a given path. Use before writing code for a new slice. Returns the plan; does not execute it.
+model: opus
 tools: Read, Write, Edit, Grep, Glob, Bash
 ---
 
