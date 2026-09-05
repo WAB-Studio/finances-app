@@ -134,3 +134,21 @@ Three times on 2026-09-05, a trivial statement crossed the 8 s `statement_timeou
 insert, and a `categories` select on a screen that renders in 640 ms. The page answers 200 with
 the error boundary and the spec says it could not find the row. **Look for `57014` in the dev
 server log before touching a locator.**
+
+### `npx playwright test` cannot reach the app
+
+The binary reads no `.env.local`, so it starts without `HARNESS_BASE_URL` and dies on `Invalid URL`
+before a single spec runs. `check:e2e` works because it is `node --env-file=.env.local
+./node_modules/@playwright/test/cli.js test`. **Run one spec by extending that line, never by
+reaching for `npx`:**
+
+```
+HARNESS_LANE=2 HARNESS_BASE_URL=http://localhost:3001 \
+  node --env-file=.env.local ./node_modules/@playwright/test/cli.js test e2e/accounts.spec.ts
+```
+
+### `pesosOf` throws the sign away
+
+The helper in `e2e/accounts.spec.ts` strips `\D`, which takes the U+2212 minus along with the
+currency symbol. A sign asserted through it passes with the sign and without it. **Assert a sign
+against the raw `innerText`.**
