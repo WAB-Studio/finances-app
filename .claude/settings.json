@@ -25,6 +25,14 @@
             "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/context-watch.sh"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/plan-watch.sh"
+          }
+        ]
       }
     ]
   }
