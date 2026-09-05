@@ -181,8 +181,14 @@ async function listWithdrawalSources(userId: string): Promise<AccountRow[]> {
       .select(accountRowColumns)
       .from(accounts)
       // The balance an `AccountRow` carries is derived by the view, in the same
-      // statement — the source list still costs the one round trip it did.
-      .innerJoin(sql`account_balances b`, sql`b.id = ${accounts.id}`)
+      // statement — the source list still costs the one round trip it did. The
+      // view holds one row per account and currency (RF-121), so the join names
+      // the settlement one: without it every account this list offers would come
+      // back once per pocket it holds.
+      .innerJoin(
+        sql`account_balances b`,
+        sql`b.id = ${accounts.id} and b.currency = ${accounts.settlementCurrency}`,
+      )
       .where(
         and(
           eq(accounts.kind, "asset"),

@@ -4,11 +4,13 @@ import { refresh } from "next/cache";
 import { getLocale } from "next-intl/server";
 
 import { withdrawCash } from "@/db/queries/cash";
+import { getSettlementCurrencies } from "@/db/queries/transactions";
+import { BASE_CURRENCY } from "@/lib/currency";
 import { pgErrorCode } from "@/lib/db-error";
 import { ActionError } from "@/lib/errors";
 import { PERSONAL_CASH_ACCOUNT_NAME } from "@/lib/fund/seed";
 import { DEFAULT_LOCALE, isLocale } from "@/lib/locales";
-import { parsePesos, pesosToCents } from "@/lib/money";
+import { parseAmount } from "@/lib/money";
 import { authActionClient } from "@/lib/safe-action";
 import { withdrawCashSchema } from "@/lib/validation/cash";
 
@@ -16,20 +18,30 @@ import { withdrawCashSchema } from "@/lib/validation/cash";
  * Withdraws cash (RF-68, RF-40). The move is a transfer from a source asset
  * account into the caller's cash, routed by `cash_mode`; a per-member or personal
  * caller with no cash yet has it created in the same transaction. The amount
- * arrives as a Zod-validated peso string and turns into integer cents here, so a
- * null parse can only mean the schema let something through — `errors.unexpected`,
- * not a field message. The scope, kind and `created_by` are the DB's to set.
+ * arrives as a Zod-validated string and is read in the minor unit of what the
+ * source settles in — read off the account, never off the payload (RF-121) — so
+ * an amount that reads in no offered currency is a schema that let something
+ * through: `errors.unexpected`, not a field message. The scope, kind, currency
+ * and `created_by` are the DB's to set.
  */
 export const withdrawCashAction = authActionClient
   .inputSchema(withdrawCashSchema)
   .action(async ({ parsedInput: { sourceAccountId, amount } }) => {
-    const pesos = parsePesos(amount);
-    if (pesos === null) throw new ActionError("errors.unexpected");
-    const amountCents = pesosToCents(pesos);
+    // The withdrawal is booked in the source's own currency, so the trigger
+    // derives the movement's from the same account this read names.
+    const [settlement, locale] = await Promise.all([
+      getSettlementCurrencies({
+        fromAccountId: sourceAccountId,
+        toAccountId: null,
+      }),
+      // The create-on-demand account is named in the caller's active language
+      // (RF-64); it is read only when no cash exists yet.
+      getLocale(),
+    ]);
 
-    // The create-on-demand account is named in the caller's active language (RF-64);
-    // it is read only when no cash exists yet.
-    const locale = await getLocale();
+    const amountCents = parseAmount(amount, settlement.from ?? BASE_CURRENCY);
+    if (amountCents === null) throw new ActionError("cash.errors.amountInvalid");
+
     const cashAccountName =
       PERSONAL_CASH_ACCOUNT_NAME[isLocale(locale) ? locale : DEFAULT_LOCALE];
 

@@ -24,16 +24,23 @@ import {
   Flex,
   Heading,
   IconButton,
+  Money,
   Separator,
   Text,
   VisuallyHidden,
 } from "@/components/ui";
+import type { MoneyTone } from "@/components/ui";
 import type { TransactionFormOptions } from "@/db/queries/transaction-form";
 import type { TransactionListRow } from "@/db/queries/transactions";
 import { Link as LocaleLink, useRouter } from "@/i18n/navigation";
 import { civilDateToDate } from "@/lib/dates";
-import { centsToPesos } from "@/lib/money";
+import { deriveRate } from "@/lib/money";
+import { foreignSettlementCurrency } from "@/lib/validation/transaction";
 import { useActionErrorToast } from "@/lib/use-action-toast";
+
+// A rate is read, not counted with: enough figures to recognise it, whichever
+// way round the two currencies are.
+const RATE_FORMAT = { maximumSignificantDigits: 6 } as const;
 
 /**
  * One movement's detail (RF-25): the signed amount over its category tile, the
@@ -99,9 +106,26 @@ export function MovementDetail({
   const kind = movement.kind;
   const firstSplit = movement.splits[0]?.categoryId;
 
-  const sign = kind === "income" ? "+" : kind === "expense" ? "−" : "";
-  const amountColor = kind === "income" ? "grass" : kind === "expense" ? "red" : "gray";
-  const amount = `${sign}${format.number(centsToPesos(movement.amountCents), "currency")}`;
+  const tone: MoneyTone =
+    kind === "income" ? "income" : kind === "transfer" ? "transfer" : "expense";
+
+  // The other side of a movement whose account settles elsewhere: the figure it
+  // is expected to cost there while a statement is still to come, and the rate
+  // the two figures make (RF-122, RF-123).
+  const foreign = foreignSettlementCurrency(movement.currency, {
+    from: movement.fromSettlementCurrency,
+    to: movement.toSettlementCurrency,
+  });
+  const counterAmountCents = foreign === null ? null : movement.counterAmountCents;
+  const rate =
+    counterAmountCents === null || foreign === null || movement.amountCents === 0
+      ? null
+      : deriveRate(
+          movement.amountCents,
+          movement.currency,
+          counterAmountCents,
+          foreign,
+        );
 
   // A transfer names no category, so its heading subtitle is the kind word; an
   // income or expense reads its first split's category (RF-19).
@@ -154,14 +178,12 @@ export function MovementDetail({
 
         <Flex direction="column" align="center" gap="2" py="4">
           <CategoryTile color={tileColor} size={60} />
-          <Heading
-            as="h2"
-            size="8"
-            color={amountColor}
-            style={{ fontVariantNumeric: "tabular-nums" }}
-          >
-            {amount}
-          </Heading>
+          <Money
+            minor={movement.amountCents}
+            currency={movement.currency}
+            tone={tone}
+            size="hero"
+          />
           <Text size="3" color="gray">
             {caption}
           </Text>
@@ -170,6 +192,33 @@ export function MovementDetail({
         <Card>
           <Flex direction="column">
             <DetailRow label={t("accountLabel")} value={account} />
+            {/* Both figures, never one standing for the other, and the rate
+                they make between them (RF-122, RF-124). */}
+            {counterAmountCents !== null && foreign !== null && (
+              <>
+                <Separator size="4" my="3" />
+                <DetailRow
+                  label={t("counterAmountLabel")}
+                  value={
+                    <Money
+                      minor={counterAmountCents}
+                      currency={foreign}
+                      signed={false}
+                      estimate={movement.counterIsEstimate}
+                    />
+                  }
+                />
+                {rate !== null && (
+                  <>
+                    <Separator size="4" my="3" />
+                    <DetailRow
+                      label={t("rateLabel")}
+                      value={`1 ${movement.currency} = ${format.number(rate, RATE_FORMAT)} ${foreign}`}
+                    />
+                  </>
+                )}
+              </>
+            )}
             <Separator size="4" my="3" />
             <DetailRow label={t("dateLabel")} value={date} />
             {creatorName && (

@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { useFormatter, useLocale, useTranslations } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
 import { deleteTransactionAction } from "@/app/actions/transactions";
 import {
@@ -60,8 +60,8 @@ import {
 import type { TransactionFormOptions } from "@/db/queries/transaction-form";
 import type { TransactionListRow } from "@/db/queries/transactions";
 import { usePathname, useRouter, Link as LocaleLink } from "@/i18n/navigation";
+import { BASE_CURRENCY, type CurrencyCode } from "@/lib/currency";
 import { addCivilDays, civilDateToDate, todayInBogota } from "@/lib/dates";
-import { centsToPesos } from "@/lib/money";
 import { useActionErrorToast } from "@/lib/use-action-toast";
 
 // A Radix Select item may not carry an empty value, so the "any" option rides
@@ -182,22 +182,30 @@ export function MovementsScreen({
     category: rowCategory(row, categoryNames, categoryColors),
     account: rowSubtitle(row, accountNames) ?? "",
     label: row.labels[0]?.name ?? null,
-    amountCents: row.amountCents,
+    amountMinor: row.amountCents,
+    currency: row.currency,
     tone: rowTone(row),
     auto: row.recurringRuleId !== null,
   }));
 
   // A transfer moves money between the caller's own accounts, so it moves the net
-  // by nothing (RF-19). The figure spans every filtered row, not just this page.
-  const netCents = rows.reduce(
-    (total, row) =>
-      row.kind === "income"
-        ? total + row.amountCents
-        : row.kind === "expense"
-          ? total - row.amountCents
-          : total,
-    0,
-  );
+  // by nothing (RF-19). One net per currency, and no figure that adds two of them
+  // (RF-124); each spans every filtered row, not just this page.
+  const netByCurrency = new Map<CurrencyCode, number>();
+  for (const row of rows) {
+    if (row.kind === "transfer") continue;
+    const signed = row.kind === "income" ? row.amountCents : -row.amountCents;
+    netByCurrency.set(
+      row.currency,
+      (netByCurrency.get(row.currency) ?? 0) + signed,
+    );
+  }
+  // Nothing filtered in is still a net: one zero, in the currency the fund
+  // reports in, rather than a heading that names no figure at all.
+  const nets: [CurrencyCode, number][] =
+    netByCurrency.size === 0
+      ? [[BASE_CURRENCY, 0]]
+      : [...netByCurrency].sort(([a], [b]) => a.localeCompare(b));
 
   const filtersActive =
     filters.type !== "all" ||
@@ -292,11 +300,20 @@ export function MovementsScreen({
           meta={
             <>
               {t("listMeta", { count: rows.length })}{" "}
-              <Money
-                cents={netCents}
-                tone={netCents < 0 ? "expense" : "income"}
-                size="inherit"
-              />
+              {/* One figure per currency, each naming the one it counts: no
+                  total on this screen is the sum of two of them (RF-124). */}
+              {nets.map(([currency, net], index) => (
+                <span key={currency}>
+                  {index > 0 && " · "}
+                  <Money
+                    minor={net}
+                    currency={currency}
+                    tone={net < 0 ? "expense" : "income"}
+                    size="inherit"
+                  />{" "}
+                  {currency}
+                </span>
+              ))}
             </>
           }
           actions={
@@ -542,7 +559,14 @@ export function MovementsScreen({
                       title={rowTitle(row, categoryNames, t)}
                       subtitle={rowSubtitle(row, accountNames)}
                       color={rowColor(row, categoryColors)}
-                      amount={rowAmount(row, format)}
+                      amount={
+                        <Money
+                          minor={row.amountCents}
+                          currency={row.currency}
+                          tone={rowTone(row)}
+                          size="inherit"
+                        />
+                      }
                       badge={
                         row.recurringRuleId !== null ? t("autoBadge") : undefined
                       }
@@ -683,16 +707,6 @@ function rowTone(
   return "expense";
 }
 
-// Income reads with a leading +, expense with a −, a transfer with neither; the
-// figure is the peso view of the stored cents.
-function rowAmount(
-  row: TransactionListRow,
-  format: ReturnType<typeof useFormatter>,
-): string {
-  const sign = row.kind === "income" ? "+" : row.kind === "expense" ? "−" : "";
-  return `${sign}${format.number(centsToPesos(row.amountCents), "currency")}`;
-}
-
 function MovementCard({
   row,
   title,
@@ -705,7 +719,7 @@ function MovementCard({
   title: string;
   subtitle?: string;
   color: string | null;
-  amount: string;
+  amount: ReactNode;
   badge?: string;
 }) {
   return (
