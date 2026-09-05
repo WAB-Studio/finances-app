@@ -107,7 +107,15 @@ export function RecentMovements({
             {
               key: "amount",
               align: "end",
-              content: <Money cents={row.amountCents} tone={rowTone(row)} />,
+              // The amount as it was booked, in the currency it was booked in
+              // (RF-121); the second amount belongs to the detail screen.
+              content: (
+                <Money
+                  minor={row.amountCents}
+                  currency={row.currency}
+                  tone={rowTone(row)}
+                />
+              ),
             },
           ]}
         />
