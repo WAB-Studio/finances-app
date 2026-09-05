@@ -20,6 +20,7 @@
     "actionsFor": "Actions for {name}",
     "removeFilter": "Remove {label}",
     "fund": "Fund",
+    "currencyTotals": "Totals by currency",
     "optional": "Optional"
   },
   "auth": {
@@ -41,6 +42,7 @@
   },
   "fund": {
     "label": "Fund",
+    "currencyLabel": "Your currency",
     "errors": {
       "nameRequired": "Enter a name for the fund.",
       "nameTooLong": "The name cannot exceed 80 characters.",
@@ -51,13 +53,15 @@
   "group": {
     "title": "Fund settings",
     "nameLabel": "Fund name",
+    "currencyLabel": "Fund currency",
     "cashModeLabel": "Cash",
     "cashModeShared": "Group cash",
     "cashModePerMember": "One cash account per person",
     "save": "Save",
     "saved": "Settings saved.",
     "errors": {
-      "cashModeInvalid": "Choose where cash sits."
+      "cashModeInvalid": "Choose where cash sits.",
+      "currencyInvalid": "Choose a valid currency."
     }
   },
   "onboarding": {
@@ -100,6 +104,7 @@
     "createAccount": "Create account",
     "createFund": "Create a fund",
     "netWorthTitle": "Net worth",
+    "netWorthIn": "Net worth in {currency}",
     "ownerChip": "{name} · <amount></amount>",
     "groupLabel": "The group",
     "selfLabel": "You",
@@ -115,6 +120,7 @@
   },
   "reports": {
     "title": "Reports",
+    "inCurrency": "in {currency}",
     "nav": "Reports",
     "byCategoryTitle": "Expenses by category",
     "byCategoryEmpty": "No expenses this month.",
@@ -260,11 +266,15 @@
     "institutionLabel": "Institution",
     "lastFourLabel": "Last four",
     "lastFourDescription": "Used to recognize this account in bank alerts.",
+    "settlementCurrencyLabel": "Settlement currency",
+    "settlementCurrencyHint": "It's the currency the account settles its movements in.",
     "balanceLabel": "Balance",
     "openingBalanceLabel": "Opening balance",
     "openingOwedLabel": "Opening debt",
     "openingBalanceOnLabel": "Opening date",
     "openingBalanceRow": "<amount></amount> on {date}",
+    "balanceInCurrency": "<amount></amount> in {currency}",
+    "otherCurrencies": "{count, plural, one {# more currency} other {# more currencies}}",
     "activeTab": "Active",
     "archivedTab": "Archived",
     "statusLabel": "Status",
@@ -299,6 +309,7 @@
       "institutionTooLong": "The institution's name cannot exceed 80 characters.",
       "lastFourInvalid": "Enter exactly four digits.",
       "kindInvalid": "Choose a valid account kind.",
+      "currencyInvalid": "Choose a valid currency.",
       "subtypeInvalid": "Choose a valid account class.",
       "subtypeKindMismatch": "This class does not match the account kind.",
       "placementInvalid": "Choose where the account belongs.",
@@ -392,6 +403,14 @@
     "accountNone": "None",
     "saveMovement": "Save movement",
     "amountLabel": "Amount",
+    "currencyLabel": "Currency",
+    "counterAmountLabel": "Amount at destination",
+    "counterAmountHint": "Adjust the amount if it doesn't match: the rate is calculated from both amounts.",
+    "rateLabel": "Exchange rate",
+    "rateDerived": "Calculated from both amounts, not stored.",
+    "suggestRate": "Suggest amount",
+    "rateUnavailable": "No suggested rate for these currencies; enter the amount.",
+    "estimated": "Estimated",
     "categoryLabel": "Category",
     "accountLabel": "Account",
     "dateLabel": "Date",
@@ -446,6 +465,10 @@
       "accountInvalid": "Choose a valid account.",
       "accountRequired": "Choose at least one account.",
       "accountSame": "Choose a different destination account.",
+      "currencyMismatch": "Choose a currency that matches the accounts you picked.",
+      "counterAmountRequired": "Enter the amount in the other currency.",
+      "counterAmountInvalid": "Enter a valid amount in the other currency.",
+      "counterAmountForbidden": "A movement in the same currency doesn't take a second amount.",
       "dateRequired": "Choose a date.",
       "dateInvalid": "Choose a valid date.",
       "dateInFuture": "The date cannot be in the future.",
@@ -490,6 +513,7 @@
   },
   "planning": {
     "title": "Planning",
+    "inCurrency": "in {currency}",
     "budgetsTitle": "Budgets",
     "budgetsSummary": "{count, plural, =0 {No active budgets} one {# active · {spent} of {limit} this month} other {# active · {spent} of {limit} this month}}",
     "goalsTitle": "Savings goals",
@@ -860,6 +884,18 @@
     "rowPay": "Pay down",
     "rowNewPlan": "New installment purchase",
     "rowDetail": "See detail",
+    "settlement": {
+      "title": "Purchases in another currency",
+      "pending": "Pending billing",
+      "spent": "Spent",
+      "estimate": "Estimated",
+      "billedLabel": "Billed amount",
+      "rate": "Rate",
+      "save": "Save amount",
+      "saved": "Billed amount saved.",
+      "empty": "No purchases in another currency to settle.",
+      "replacedEstimate": "Replaces the estimate."
+    },
     "errors": {
       "accountInvalid": "Choose a valid account.",
       "kindInvalid": "Choose a valid debt type.",
@@ -994,7 +1030,8 @@
     "accountHasMovements": "This account has movements. Archive it instead.",
     "accountHasHistory": "You cannot hand over an account that has movements. Archive it instead.",
     "accountRefTaken": "The group already has an account with the same import reference. Archive this one instead.",
-    "labelInUse": "A budget uses this label. Remove it from the budget to delete it."
+    "labelInUse": "A budget uses this label. Remove it from the budget to delete it.",
+    "foreignCurrencyUnsupported": "This action does not support another currency. Choose an account in the settlement currency."
   },
   "data": {
     "screen": {
