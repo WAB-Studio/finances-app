@@ -10,7 +10,7 @@ The one document that survives a session. `private/handoffs/HANDOFF-<YYYY-MM-DD>
 ## Opening — "iniciemos"
 
 1. Read the newest file in `private/handoffs/`.
-2. Read `git log --oneline -8`, `git branch -vv`, `git worktree list`, `git status --short`.
+6. Read `git log --oneline -8`, `git branch -vv`, `git worktree list`, `git status --short`.
 3. Check the dev server on :3000. Start it if it is down.
 4. Compare what the handoff says against what the repo shows. Say every difference out loud.
 5. Take the first item of its `Lo que sigue` and start. Ask nothing the handoff already answers.
@@ -20,12 +20,16 @@ The one document that survives a session. `private/handoffs/HANDOFF-<YYYY-MM-DD>
 The `context-watch.sh` hook says when the window passes 400k tokens. Take it as the phrase:
 finish the step in hand, close, and tell the user to open a new chat. Start nothing new.
 
-1. Commit and push every branch that carries work. Leave no tree dirty.
-2. Run `git log <base>..HEAD --format='%h %an <%ae>%n%(trailers)'` on each. No Claude attribution.
-3. Write the file.
-4. Put what outlives the session in the file that owns it, never in memory outside the repo:
+1. **Wait for every subagent still running.** They are the step in hand. Writing the handoff over
+   four working agents describes a repo that does not exist yet, and killing them throws away work
+   nobody measured. A subagent's transcript file is written when it finishes, so **zero bytes says
+   nothing about whether it is alive** — ask the user what they see before calling one dead.
+2. Commit and push every branch that carries work. Leave no tree dirty.
+3. Run `git log <base>..HEAD --format='%h %an <%ae>%n%(trailers)'` on each. No Claude attribution.
+4. Write the file.
+5. Put what outlives the session in the file that owns it, never in memory outside the repo:
    a rule in `AGENTS.md`, a trap in `docs/TRAPS.md`, a tick in `docs/SPEC.md`.
-5. Tell the user the path.
+6. Tell the user the path.
 
 ## What the file carries
 

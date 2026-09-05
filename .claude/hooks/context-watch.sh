@@ -70,7 +70,7 @@ print(json.dumps({
         "systemMessage": f"Contexto {k}k tokens ({how}): toca cerrar handoff.",
         "additionalContext": (
             f"The window is at {k}k tokens, {how}, past the {LIMIT // 1000}k mark the user set "
-            "for closing a session. Finish the step in hand, then run the `handoff` skill to "
+            "for closing a session. Finish the step in hand — **a subagent still running IS the step in hand, so wait for it** — then run the `handoff` skill to "
             "close: push every branch, verify no Claude attribution, write private/handoffs/, "
             "and tell the user the path so they can open a new chat. Do not start new work."
             + ("" if measured else " The figure is an estimate; report it as approximate.")
