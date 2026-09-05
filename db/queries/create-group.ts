@@ -9,6 +9,7 @@ import { accounts, categories, groupMembers, groups } from "@/db/schema";
 import type { Group } from "@/db/schema";
 import type { Transaction } from "@/db/session";
 import { getSessionUser, withUserDb } from "@/db/session";
+import { BASE_CURRENCY } from "@/lib/currency";
 import {
   GROUP_CASH_ACCOUNT_NAME,
   PERSONAL_CASH_ACCOUNT_NAME,
@@ -23,6 +24,10 @@ export type CreateGroupArgs = {
   name: string;
   leaderName: string;
   cashMode: CashMode;
+  // What the group and its seeded cash account settle in (RF-121). Optional
+  // only for the callers that predate the field; falls back to the base
+  // currency, same as the column's own default.
+  currency?: string;
   locale: Locale;
 };
 
@@ -54,6 +59,7 @@ async function insertGroup(
     name,
     leaderName,
     cashMode,
+    currency = BASE_CURRENCY,
     locale,
     userId,
     groupId,
@@ -61,7 +67,7 @@ async function insertGroup(
 ): Promise<void> {
   const today = sql`(now() at time zone ${TIME_ZONE})::date`;
 
-  await insertRow(tx, groups, { id: groupId, name, cashMode });
+  await insertRow(tx, groups, { id: groupId, name, cashMode, currency });
 
   await insertRow(tx, groupMembers, {
     groupId,
@@ -72,6 +78,7 @@ async function insertGroup(
 
   // 'shared' holds one group cash account any member may write; 'per_member'
   // seeds the leader their own personal cash and leaves the rest to join.
+  // Either way the seeded account settles where the fund does (RF-121).
   if (cashMode === "shared") {
     await insertRow(tx, accounts, {
       groupId,
@@ -80,6 +87,7 @@ async function insertGroup(
       name: GROUP_CASH_ACCOUNT_NAME[locale],
       kind: "asset",
       subtype: "efectivo",
+      settlementCurrency: currency,
       initialBalanceCents: 0,
       initialBalanceOn: today,
     });
@@ -91,6 +99,7 @@ async function insertGroup(
       name: PERSONAL_CASH_ACCOUNT_NAME[locale],
       kind: "asset",
       subtype: "efectivo",
+      settlementCurrency: currency,
       initialBalanceCents: 0,
       initialBalanceOn: today,
     });

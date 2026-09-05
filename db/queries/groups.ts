@@ -9,6 +9,7 @@ import { accounts, groupMembers, groups } from "@/db/schema";
 import type { Group } from "@/db/schema";
 import { getSessionUser, withUserDb } from "@/db/session";
 import type { Transaction } from "@/db/session";
+import { BASE_CURRENCY } from "@/lib/currency";
 import { GROUP_CASH_ACCOUNT_NAME } from "@/lib/fund/seed";
 import { TIME_ZONE } from "@/lib/locales";
 import type { Locale } from "@/lib/locales";
@@ -86,28 +87,33 @@ export type UpdateGroupSettingsArgs = {
   groupId: string;
   name: string;
   cashMode: Group["cashMode"];
+  // What the group reports in (RF-121). Optional only for the callers that
+  // predate the field; falls back to the group's own default so the SET
+  // clause below always names it, same as `name` and `cashMode`.
+  currency?: string;
   // Names a cash account created here; never touches an existing one.
   locale: Locale;
 };
 
 /**
- * Renames a group and sets where its cash sits, in one transaction (RF-56,
- * RF-57). Both columns go in one statement: `GRANT UPDATE (name, cash_mode)`
- * names exactly these two, and a second statement would pay the pooler twice for
- * one form. The row filter is `groups_update_leader`'s alone — it hands a plain
- * member no row back, so `false` is the refusal and the query asserts no role of
- * its own. `currency` is outside the grant and is never named.
+ * Renames a group, sets where its cash sits and what it reports in, in one
+ * transaction (RF-56, RF-57, RF-121). All three columns go in one statement:
+ * `GRANT UPDATE (name, cash_mode, currency)` names exactly these, and a second
+ * statement would pay the pooler twice for one form. The row filter is
+ * `groups_update_leader`'s alone — it hands a plain member no row back, so
+ * `false` is the refusal and the query asserts no role of its own.
  */
 export async function updateGroupSettings({
   groupId,
   name,
   cashMode,
+  currency = BASE_CURRENCY,
   locale,
 }: UpdateGroupSettingsArgs): Promise<boolean> {
   return withUserDb(async (tx) => {
     const rows = await tx
       .update(groups)
-      .set({ name, cashMode })
+      .set({ name, cashMode, currency })
       .where(eq(groups.id, groupId))
       .returning({ id: groups.id });
 
@@ -119,7 +125,7 @@ export async function updateGroupSettings({
     // movements (RNF-07), so a group cash holding money keeps it and its whole
     // history, and simply stops being what the cash scope points at.
     if (cashMode === "shared") {
-      await ensureGroupCashAccount(tx, { groupId, locale });
+      await ensureGroupCashAccount(tx, { groupId, locale, currency });
     }
 
     return true;
@@ -128,10 +134,11 @@ export async function updateGroupSettings({
 
 // Creates the group's `efectivo` account only when it has none, seeded at zero
 // like the one `createGroup` writes. The lookup is what keeps a group that
-// already has its cash from getting a second one.
+// already has its cash from getting a second one. Settles where the group
+// does (RF-121): the currency just written in the same statement above.
 async function ensureGroupCashAccount(
   tx: Transaction,
-  { groupId, locale }: { groupId: string; locale: Locale },
+  { groupId, locale, currency }: { groupId: string; locale: Locale; currency: string },
 ): Promise<void> {
   const [existing] = await tx
     .select({ id: accounts.id })
@@ -154,6 +161,7 @@ async function ensureGroupCashAccount(
     name: GROUP_CASH_ACCOUNT_NAME[locale],
     kind: "asset",
     subtype: "efectivo",
+    settlementCurrency: currency,
     initialBalanceCents: 0,
     initialBalanceOn: sql`(now() at time zone ${TIME_ZONE})::date`,
   });
