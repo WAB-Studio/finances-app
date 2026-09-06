@@ -34,7 +34,7 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
 
 - Five lanes exist. Lane 1 is this checkout on :3000; lanes 2 to 5 are worktrees at `../finances-app-l<n>` on :300<n-1>.
 - Open a lane: `scripts/worktree.sh <lane> <branch> [base]`. It costs 4 seconds.
-- `private/` is gitignored. `worktree.sh` copies the plans into the lane; nothing carries a report back.
+- `private/` is gitignored. `worktree.sh` copies the plans into the lane at birth; a plan you edit after that is stale there. Re-copy before you dispatch, and carry the report back by hand.
 - Give every track its own lane. Never two tracks on one lane.
 - Split the work before you start it. A track per defect, per module, per screen.
 - Cut a lane's branch from the branch it serves, never from `integracion` by inertia.
