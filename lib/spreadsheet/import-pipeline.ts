@@ -60,6 +60,17 @@ const createSchemas = {
 // A raw parsed record holds a name, a scalar, integer cents or nothing.
 type RawRow = Record<string, string | number | boolean | null>;
 
+// One problem on one row, traced back to the cell it came from (RF-51). `column`
+// is the sheet's own column key (the screen translates it) — null for the rare
+// check that spans more than one cell, which names no single column honestly.
+// `value` is the cell exactly as the person typed it, read back through the
+// money boundary when the column is one; null wherever `column` is.
+export type RowFieldError = {
+  key: string;
+  column: string | null;
+  value: string | null;
+};
+
 // One row after the three gates: its position, its new-vs-update classification, the
 // errors it collected, and — only when it passed clean — the resolved, id-shaped and
 // schema-validated object a later commit writes. `object` is null for an errored row.
@@ -70,7 +81,7 @@ type RawRow = Record<string, string | number | boolean | null>;
 export type ResolvedRow = {
   index: number;
   status: "new" | "update";
-  errors: string[];
+  errors: RowFieldError[];
   object: unknown | null;
   // The row's raw stable key, null when the file left it blank (a trigger backfills it).
   externalRef: string | null;
@@ -214,17 +225,105 @@ function classify(entity: SheetEntity, raw: RawRow, existingRefs: Set<string>): 
   return ref.length > 0 && existingRefs.has(ref) ? "update" : "new";
 }
 
-// A distinct, ordered list of the message keys a Zod failure raised. A field with a
-// custom key passes its key through; a default English message from a number, enum
-// or date field maps to the generic invalid-cell key.
-function issueKeys(error: z.ZodError): string[] {
-  return [
-    ...new Set(
-      error.issues.map((issue) =>
-        CATALOGUE_KEY.test(issue.message) ? issue.message : INVALID_CELL,
-      ),
-    ),
-  ];
+// The cell exactly as the person typed it, read back for display (RF-51). A
+// malformed money cell survived `parseWorkbook` as its own text — never
+// coerced, so it reads back unchanged; a well-formed one already crossed to
+// cents there, so it crosses back to pesos here. Every other column reads its
+// raw scalar as a plain string; a blank cell reads as none.
+function rawCellValue(entity: SheetEntity, raw: RawRow, column: string): string | null {
+  const value = raw[column];
+  if (value === null || value === undefined) return null;
+  if (moneyKeysByEntity[entity].has(column) && typeof value === "number") {
+    return String(centsToPesos(value));
+  }
+  return String(value);
+}
+
+// Gate 2 (the authoritative `createSchemas[entity]`) reshapes three entities'
+// guard output into an id-shaped object first, so its own field names diverge
+// from the sheet's column keys; this walks one back to the other. Accounts and
+// members carry no reference and reshape into nothing (`resolveAndShape`
+// returns the guard's own data unchanged), so their gate-2 field names already
+// equal their column keys and need no entry here.
+const GATE2_COLUMN_BY_FIELD: Partial<Record<SheetEntity, Record<string, string>>> = {
+  categories: { name: "name", kind: "kind", parentId: "parent", color: "color" },
+  recurringRules: {
+    fromAccountId: "fromAccount",
+    toAccountId: "toAccount",
+    amount: "amount",
+    categoryId: "category",
+    description: "description",
+    frequency: "frequency",
+    intervalN: "intervalN",
+    dayOfMonth: "dayOfMonth",
+    nextRunOn: "nextRunOn",
+    endsOn: "endsOn",
+  },
+  transactions: {
+    fromAccountId: "fromAccount",
+    toAccountId: "toAccount",
+    amount: "amount",
+    occurredAt: "occurredAt",
+    description: "description",
+    externalRef: "externalRef",
+  },
+};
+
+// The column a Zod issue's path names, at whichever gate raised it (RF-51). Gate
+// 1 (`rowSchema`) shares its field names with the sheet's own columns, so a
+// path segment already is one. A transaction's split carries its own amount
+// and category (RF-69) — the sheet holds one flat cell for each, so every path
+// under `splits` folds back to the cell it came from, `amount` included for
+// the sum-mismatch and required/forbidden checks, which a single-split import
+// row still keeps there. A path this map does not know is a check that spans
+// more than one cell: it draws no column, honestly, rather than guess one.
+function columnForPath(
+  entity: SheetEntity,
+  gate: "row" | "authoritative",
+  path: readonly PropertyKey[],
+): string | null {
+  const columnKeys = new Set(
+    (sheetDescriptors[entity].columns as readonly { key: string }[]).map((c) => c.key),
+  );
+  const field = String(path[0] ?? "");
+
+  if (gate === "row") return columnKeys.has(field) ? field : null;
+
+  if (entity === "transactions" && field === "splits") {
+    if (path[2] === "categoryId") return "category";
+    return "amount";
+  }
+
+  const mapped = GATE2_COLUMN_BY_FIELD[entity]?.[field];
+  if (mapped !== undefined) return mapped;
+  return columnKeys.has(field) ? field : null;
+}
+
+// A distinct, ordered list of the errors a Zod failure raised, each traced back
+// to its column and its raw cell (RF-51). A field with a custom key passes its
+// key through; a default English message from a number, enum or date field
+// maps to the generic invalid-cell key. Deduplicated by key and column
+// together, not by key alone — two different cells failing the same generic
+// check are two lines, not one.
+function issueErrors(
+  entity: SheetEntity,
+  gate: "row" | "authoritative",
+  raw: RawRow,
+  error: z.ZodError,
+): RowFieldError[] {
+  const seen = new Set<string>();
+  const out: RowFieldError[] = [];
+
+  for (const issue of error.issues) {
+    const key = CATALOGUE_KEY.test(issue.message) ? issue.message : INVALID_CELL;
+    const column = columnForPath(entity, gate, issue.path);
+    const dedupeKey = `${key} ${column ?? ""}`;
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+    out.push({ key, column, value: column ? rawCellValue(entity, raw, column) : null });
+  }
+
+  return out;
 }
 
 // One reference name to an id in the effective set: no match is unknown, more than
@@ -243,32 +342,46 @@ function resolveOne(name: string, map: Map<string, string[]>): { id?: string; er
 // map does not carry (unresolved, or a file-new account, always base by default) —
 // this only ever raises the ONE reason resolution itself does not already cover.
 function checkBaseCurrency(
+  entity: SheetEntity,
+  raw: RawRow,
   accountId: string | null,
+  column: string,
   currencies: Map<string, string>,
-  errors: string[],
+  errors: RowFieldError[],
 ): void {
   const currency = accountId !== null ? currencies.get(accountId) : undefined;
   if (currency !== undefined && currency !== BASE_CURRENCY) {
-    errors.push(FOREIGN_CURRENCY_UNSUPPORTED);
+    errors.push({
+      key: FOREIGN_CURRENCY_UNSUPPORTED,
+      column,
+      value: rawCellValue(entity, raw, column),
+    });
   }
 }
 
 // The guard's output (names, all references still names) turned id-shaped for the
 // authoritative schema, gathering a per-row error for every reference that does not
 // resolve to exactly one entity in the effective set. The object is only meaningful
-// when `errors` is empty; the caller stops before validating otherwise.
+// when `errors` is empty; the caller stops before validating otherwise. `raw` never
+// feeds the object a reference resolves to — only the error a failed one carries,
+// so its cell reads back as what the person typed (RF-51).
 function resolveAndShape(
   entity: SheetEntity,
   data: Record<string, unknown>,
   refs: EffectiveRefs,
-): { object: unknown; errors: string[] } {
-  const errors: string[] = [];
+  raw: RawRow,
+): { object: unknown; errors: RowFieldError[] } {
+  const errors: RowFieldError[] = [];
 
-  const resolveInto = (name: unknown, map: Map<string, string[]>): string | null => {
+  const resolveInto = (
+    name: unknown,
+    map: Map<string, string[]>,
+    column: string,
+  ): string | null => {
     if (name == null) return null;
     const resolved = resolveOne(name as string, map);
     if (resolved.error) {
-      errors.push(resolved.error);
+      errors.push({ key: resolved.error, column, value: rawCellValue(entity, raw, column) });
       return null;
     }
     return resolved.id ?? null;
@@ -281,7 +394,7 @@ function resolveAndShape(
       return { object: data, errors };
 
     case "categories": {
-      const parentId = resolveInto(data.parent, refs.categories);
+      const parentId = resolveInto(data.parent, refs.categories, "parent");
       return {
         object: { name: data.name, kind: data.kind, parentId, color: data.color },
         errors,
@@ -289,11 +402,11 @@ function resolveAndShape(
     }
 
     case "recurringRules": {
-      const fromAccountId = resolveInto(data.fromAccount, refs.accounts);
-      const toAccountId = resolveInto(data.toAccount, refs.accounts);
-      const categoryId = resolveInto(data.category, refs.categories);
-      checkBaseCurrency(fromAccountId, refs.accountCurrencies, errors);
-      checkBaseCurrency(toAccountId, refs.accountCurrencies, errors);
+      const fromAccountId = resolveInto(data.fromAccount, refs.accounts, "fromAccount");
+      const toAccountId = resolveInto(data.toAccount, refs.accounts, "toAccount");
+      const categoryId = resolveInto(data.category, refs.categories, "category");
+      checkBaseCurrency(entity, raw, fromAccountId, "fromAccount", refs.accountCurrencies, errors);
+      checkBaseCurrency(entity, raw, toAccountId, "toAccount", refs.accountCurrencies, errors);
       return {
         object: {
           fromAccountId,
@@ -312,16 +425,18 @@ function resolveAndShape(
     }
 
     case "transactions": {
-      const fromAccountId = resolveInto(data.fromAccount, refs.accounts);
-      const toAccountId = resolveInto(data.toAccount, refs.accounts);
-      checkBaseCurrency(fromAccountId, refs.accountCurrencies, errors);
-      checkBaseCurrency(toAccountId, refs.accountCurrencies, errors);
+      const fromAccountId = resolveInto(data.fromAccount, refs.accounts, "fromAccount");
+      const toAccountId = resolveInto(data.toAccount, refs.accounts, "toAccount");
+      checkBaseCurrency(entity, raw, fromAccountId, "fromAccount", refs.accountCurrencies, errors);
+      checkBaseCurrency(entity, raw, toAccountId, "toAccount", refs.accountCurrencies, errors);
 
       // The kind follows the account pair: both names present is a transfer, which
       // carries no category and no splits (RF-20/RF-69). An income or expense builds
       // a single split for the row's full amount, so the split-sum rule holds.
       const isTransfer = data.fromAccount != null && data.toAccount != null;
-      const categoryId = isTransfer ? null : resolveInto(data.category, refs.categories);
+      const categoryId = isTransfer
+        ? null
+        : resolveInto(data.category, refs.categories, "category");
       const splits = isTransfer ? [] : [{ categoryId, amount: data.amount }];
 
       return {
@@ -366,13 +481,21 @@ function processRow(
   const carried = { index, status, externalRef, placeholderId };
 
   const guarded = sheetDescriptors[entity].rowSchema.safeParse(toNameShaped(entity, raw));
-  if (!guarded.success) return { ...carried, errors: issueKeys(guarded.error), object: null };
+  if (!guarded.success) {
+    return { ...carried, errors: issueErrors(entity, "row", raw, guarded.error), object: null };
+  }
 
-  const resolved = resolveAndShape(entity, guarded.data as Record<string, unknown>, refs);
+  const resolved = resolveAndShape(entity, guarded.data as Record<string, unknown>, refs, raw);
   if (resolved.errors.length > 0) return { ...carried, errors: resolved.errors, object: null };
 
   const checked = createSchemas[entity].safeParse(resolved.object);
-  if (!checked.success) return { ...carried, errors: issueKeys(checked.error), object: null };
+  if (!checked.success) {
+    return {
+      ...carried,
+      errors: issueErrors(entity, "authoritative", raw, checked.error),
+      object: null,
+    };
+  }
 
   return { ...carried, errors: [], object: checked.data };
 }

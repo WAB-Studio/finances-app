@@ -112,6 +112,8 @@ export function DataScreen({
 
   // Every sheet's errored rows in one flat run, each error its own line: the
   // desktop table names the sheet a row belongs to instead of grouping by it.
+  // The column and the raw value ride straight from the pipeline (RF-51); only
+  // the column's own header and the message key still need translating here.
   const errorRows = importPreview
     ? importPreview.perEntity.flatMap((entity) =>
         entity.rows
@@ -121,7 +123,11 @@ export function DataScreen({
               key: `${entity.entity}-${row.index}-${position}`,
               sheet: t(`sheets.${entity.entity}`),
               rowIndex: row.index,
-              problem: tKey(error as MessageKey),
+              column: error.column
+                ? tKey(`data.columns.${error.column}` as MessageKey)
+                : null,
+              value: error.value,
+              problem: tKey(error.key as MessageKey),
             })),
           ),
       )
@@ -310,10 +316,10 @@ export function DataScreen({
                                         <Flex direction="column" gap="1">
                                           {row.errors.map((error, position) => (
                                             <Text
-                                              key={`${error}-${position}`}
+                                              key={`${error.key}-${position}`}
                                               size="2"
                                             >
-                                              {tKey(error as MessageKey)}
+                                              {tKey(error.key as MessageKey)}
                                             </Text>
                                           ))}
                                         </Flex>

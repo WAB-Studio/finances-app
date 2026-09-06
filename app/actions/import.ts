@@ -10,7 +10,7 @@ import { withUserDb } from "@/db/session";
 import { ActionError } from "@/lib/errors";
 import { authActionClient } from "@/lib/safe-action";
 import { runImportPipeline } from "@/lib/spreadsheet/import-pipeline";
-import type { ImportResult } from "@/lib/spreadsheet/import-pipeline";
+import type { ImportResult, RowFieldError } from "@/lib/spreadsheet/import-pipeline";
 import type { SheetEntity } from "@/lib/spreadsheet/schema";
 import type { CreateAccountInput } from "@/lib/validation/account";
 import type { CreateCategoryInput } from "@/lib/validation/category";
@@ -29,7 +29,7 @@ const FILE_HAS_ERRORS = "data.import.errors.hasErrors";
 type PreviewRow = {
   index: number;
   status: "new" | "update";
-  errors: string[];
+  errors: RowFieldError[];
 };
 
 type PreviewEntity = {
@@ -48,7 +48,8 @@ export type ImportPreview = {
  * accounts and categories, and classify each row new-vs-update by its stable key.
  * Writes NOTHING — the caller confirms first, a later commit action applies the same
  * `runImportPipeline` result. The resolved objects stay server-side; the payload
- * carries only each row's position, classification and error keys.
+ * carries only each row's position, classification and its errors, each already
+ * traced back to its column and its raw cell (RF-51).
  */
 export const previewImportAction = authActionClient
   .inputSchema(z.instanceof(FormData))

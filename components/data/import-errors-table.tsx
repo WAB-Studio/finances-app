@@ -4,25 +4,29 @@ import { useTranslations } from "next-intl";
 
 import { DataTable, Text, type DataColumn } from "@/components/ui";
 
-// The em dash a cell with nothing to name reads as (SPEC-A3), not a word a
-// translator would ever change.
+// The em dash a cell with nothing to name reads as (SPEC-A3): here, honestly,
+// only for the rare check that spans more than one cell, never for every row.
 const NO_VALUE = "—";
 
 // One error, already flattened and translated: the screen owns the entity and
-// message lookups (`sheets.*`, the error's own namespace), so this table costs
-// no lookup of its own.
+// message lookups (`sheets.*`, the error's own namespace, `columns.*` for the
+// header `column` already carries translated), so this table costs no lookup
+// of its own. `column` and `value` are null together, for the one check that
+// names no single cell (RF-51).
 export type ImportErrorRow = {
   key: string;
   sheet: string;
   rowIndex: number;
+  column: string | null;
+  value: string | null;
   problem: string;
 };
 
 const WIDTHS = {
-  sheet: "170px",
-  rowIndex: "88px",
-  column: "170px",
-  value: "170px",
+  sheet: "150px",
+  rowIndex: "70px",
+  column: "150px",
+  value: "150px",
   problem: "minmax(0, 1fr)",
 } as const;
 
@@ -30,11 +34,10 @@ const WIDTHS = {
  * The import preview's per-row errors (RF-51), flattened across every sheet
  * into one table over the same all-or-nothing confirm the screen already
  * gates: one errored row anywhere still writes nothing. "Columna" and "valor"
- * read as unknown for now — the preview the server returns
- * (`app/actions/import.ts`) carries only a row's position and its message
- * keys, never the field path or the raw cell `lib/spreadsheet/import-pipeline.ts`
- * read it from, so naming either here would be a guess neither of those files
- * makes today.
+ * trace back through the pipeline to the cell a problem came from and the raw
+ * text the person typed there; a check that spans more than one cell (an
+ * account named twice, a split that does not sum to its total) draws neither,
+ * rather than pin the blame on one cell that did not cause it.
  */
 export function ImportErrorsTable({ rows }: { rows: ImportErrorRow[] }) {
   const t = useTranslations("data");
@@ -61,9 +64,9 @@ export function ImportErrorsTable({ rows }: { rows: ImportErrorRow[] }) {
       key: "column",
       header: t("screen.reportColumn"),
       width: WIDTHS.column,
-      cell: () => (
-        <Text size="2" color="gray">
-          {NO_VALUE}
+      cell: (row) => (
+        <Text size="2" color="gray" truncate>
+          {row.column ?? NO_VALUE}
         </Text>
       ),
     },
@@ -71,9 +74,9 @@ export function ImportErrorsTable({ rows }: { rows: ImportErrorRow[] }) {
       key: "value",
       header: t("screen.reportValue"),
       width: WIDTHS.value,
-      cell: () => (
-        <Text size="2" color="gray">
-          {NO_VALUE}
+      cell: (row) => (
+        <Text size="2" color="gray" truncate>
+          {row.value ?? NO_VALUE}
         </Text>
       ),
     },
