@@ -23,7 +23,10 @@ git worktree add -b "$BRANCH" "$DIR" "$BASE"
 # the filesystem root, and a copy would cost 909 MB a lane.
 cp -al node_modules "$DIR/node_modules"
 cp .env.local "$DIR/.env.local"
-mkdir -p "$DIR/private"
+# `private/` is gitignored, so the worktree is born without the plans a dispatch
+# names. Reports stay behind: the lane writes its own and it is copied out.
+mkdir -p "$DIR/private/planes" "$DIR/private/reportes"
+cp private/planes/*.md "$DIR/private/planes/"
 
 # Once per worktree, and never with that worktree's dev server up: typegen and
 # `next dev` race over .next/dev/types.
