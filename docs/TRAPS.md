@@ -94,6 +94,33 @@ purges: `gh variable set E2E_IN_CI --body false`.
 **And the table of identities only grows.** 62 rows matched `harness-%` in `auth.users` on
 2026-09-06; most are `harness-<uuid>@example.invalid` left by old runs. Nothing prunes them.
 
+**Closed 2026-09-06, the scan half.** The `OR` was never the whole cause: `owner_user_id` and
+`group_id` each already carried a partial index, but `actor_user_id` carried none. One indexable
+branch missing a supporting index is enough to make Postgres refuse a `BitmapOr` for the *whole*
+`OR` and fall back to a Seq Scan with a Filter — the plan measured above. Migration `0036` adds
+`audit_log_actor_user_id_idx` (partial, `where actor_user_id is not null`, mirroring the other two).
+No policy text changed. Measured after, real `listAuditLog`/`getAuditFilterOptions` SQL, three real
+identities (a 20%-of-the-table CI harness account, an 84-row ordinary owner, and a stranger with
+zero rows): every plan now reads `BitmapOr` of three `Bitmap Index Scan`s into a `Bitmap Heap Scan`,
+never `Seq Scan on audit_log`. Warm-cache execution time: 200–380 ms against the 8 000 ms budget,
+for every identity tried, the CI account included. `check:queries` Q91/Q92 and `db:check-rls`
+129–132 (the audit-viewer identity-swap: owner, group member, actor, stranger) all pass under
+`HARNESS_LANE=2`.
+
+**One rewrite tried and discarded, same session.** The group branch, `group_id is not null and
+private.is_group_member(group_id)`, still walks every group-scoped row (13 500-ish of them) on a
+`Bitmap Index Scan` and rechecks the function per row — cheap today (that recheck is most of the
+200–380 ms above) but it grows with total group-scoped rows, not with the caller's own groups.
+Rewriting it as `group_id in (select group_id from group_members where user_id = auth.uid() and
+archived_at is null)` tested beautifully in isolation — a `Nested Loop` off `group_members_user_id_
+idx` into `audit_log_group_id_idx`, sub-millisecond — but landed in the full policy (migration
+`0037`) it made things worse, not better: `in` compiles to `= any(hashed SubPlan)`, which cannot
+join a `BitmapOr` with the other two branches, so Postgres dropped the *entire* `OR` back to a
+`Seq Scan` with a Filter, timing out at `57014` for two of the three identities tried. Reverted in
+`0038`, same session, before either landed on a branch anyone else reads. **The scan is closed; the
+per-row function recheck on the group branch is not, and is a plan away, not a size away, if the
+group-scoped share of the table keeps growing.**
+
 ## Next
 
 ### A `loading.tsx` makes every `notFound()` under it answer 200
