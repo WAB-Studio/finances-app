@@ -223,14 +223,10 @@ test.describe("a movement between two currencies", () => {
 test("the edit dialog titles itself for editing, not for a new movement (D12)", async ({
   page,
 }, testInfo) => {
-  // The phone's only edit entry is the row's own detail page, and
-  // `app/[locale]/(app)/loading.tsx` throws on every render of that route (a
-  // pre-existing defect, unrelated to D12, reported alongside this fix). The
-  // laptop's row menu reaches the same edit dialog without that page.
-  test.skip(
-    testInfo.project.name !== "desktop",
-    "movements/[id] crashes on every render; see private/reportes/defecto-d12.md",
-  );
+  // The row menu this drives is the laptop band's. The phone reaches the same
+  // edit dialog from the movement's own detail page, which is a second entry
+  // and a second test; `loading.tsx` no longer stands in the way of it.
+  test.skip(testInfo.project.name !== "desktop", "the row menu is the laptop's");
 
   await page.goto("/es/movements");
   await page
