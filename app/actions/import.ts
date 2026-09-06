@@ -78,6 +78,7 @@ export const previewImportAction = authActionClient
 function rowsFor<T>(result: ImportResult, entity: SheetEntity): CommitRow<T>[] {
   const bucket = result.perEntity.find((set) => set.entity === entity);
   return (bucket?.rows ?? []).map((row) => ({
+    index: row.index,
     status: row.status,
     externalRef: row.externalRef,
     placeholderId: row.placeholderId,
