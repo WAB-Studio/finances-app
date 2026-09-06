@@ -4,7 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { ChevronLeftIcon, InfoIcon } from "lucide-react";
 import { useFormatter, useLocale, useTranslations } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Controller,
   useForm,
@@ -17,6 +17,7 @@ import {
   updateTransactionAction,
 } from "@/app/actions/transactions";
 import { acceptDeliveryAction } from "@/app/actions/ingest";
+import { proposeRateAction } from "@/app/actions/rates";
 import { SplitEditor } from "@/components/transactions/split-editor";
 import {
   Badge,
@@ -446,6 +447,41 @@ export function MovementForm({
       ? deriveRate(amountMinor, currency, counterMinor, foreign)
       : null;
 
+  // The proposal a person may take or ignore (RF-122): a source down, too slow
+  // or missing one of the two currencies leaves this on, and the field waits
+  // for a figure typed by hand instead of one this screen invented.
+  const [rateUnavailable, setRateUnavailable] = useState(false);
+  const lastForeign = useRef(foreign);
+  useEffect(() => {
+    if (foreign !== lastForeign.current) {
+      lastForeign.current = foreign;
+      setRateUnavailable(false);
+    }
+  }, [foreign]);
+
+  const proposeRate = useAction(proposeRateAction, {
+    onSuccess: ({ data }) => {
+      if (!data || amountMinor === null || foreign === null) {
+        setRateUnavailable(true);
+        return;
+      }
+      // The stored scale is the same 100 for every currency (RF-121), so the
+      // quotient converts minor to minor with no exponent of its own to read.
+      setRateUnavailable(false);
+      form.setValue(
+        "counterAmount",
+        amountToInput(Math.round(amountMinor * data.rate), foreign),
+        { shouldValidate: true },
+      );
+    },
+    onError: () => setRateUnavailable(true),
+  });
+
+  function handleSuggestRate() {
+    if (foreign === null || amountMinor === null || amountMinor <= 0) return;
+    proposeRate.execute({ from: currency, to: foreign });
+  }
+
   return (
     <form onSubmit={form.handleSubmit(onSubmit)} noValidate>
       <Flex align="center" gap="3" mb="4">
@@ -644,21 +680,48 @@ export function MovementForm({
                       )}
                     </Flex>
                   </FieldLabel>
-                  <FieldControl>
-                    <TextField.Root
-                      id="movement-counter-amount"
+                  <Flex align="start" gap="3" width="100%">
+                    <Box flexGrow="1" minWidth="0">
+                      <FieldControl>
+                        <TextField.Root
+                          id="movement-counter-amount"
+                          size="3"
+                          inputMode="numeric"
+                          disabled={isPending}
+                          value={field.value ?? ""}
+                          onChange={(event) =>
+                            field.onChange(event.target.value || null)
+                          }
+                          onBlur={field.onBlur}
+                          name={field.name}
+                          ref={field.ref}
+                        />
+                      </FieldControl>
+                    </Box>
+                    {/* Proposes a figure, never one this screen writes on its
+                        own (RF-122): the field above still saves whatever a
+                        person leaves or types in it. */}
+                    <Button
+                      type="button"
                       size="3"
-                      inputMode="numeric"
-                      disabled={isPending}
-                      value={field.value ?? ""}
-                      onChange={(event) =>
-                        field.onChange(event.target.value || null)
+                      variant="soft"
+                      disabled={
+                        isPending ||
+                        proposeRate.isPending ||
+                        amountMinor === null ||
+                        amountMinor <= 0
                       }
-                      onBlur={field.onBlur}
-                      name={field.name}
-                      ref={field.ref}
-                    />
-                  </FieldControl>
+                      onClick={handleSuggestRate}
+                    >
+                      {proposeRate.isPending && <Spinner />}
+                      {t("suggestRate")}
+                    </Button>
+                  </Flex>
+                  {rateUnavailable && (
+                    <Text size="1" color="amber">
+                      {t("rateUnavailable")}
+                    </Text>
+                  )}
                   <Text size="1" color="gray">
                     {t("counterAmountHint")}
                   </Text>
