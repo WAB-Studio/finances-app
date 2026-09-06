@@ -63,6 +63,9 @@ export type RecurringTableRow = {
   account: string;
   isActive: boolean;
   amountCents: number;
+  // What the amount is drawn in: the settlement currency of the one account the
+  // rule names (RF-121).
+  currency: string;
   // A destination-only rule is income, a source-only rule an expense (RF-29).
   isIncome: boolean;
 };
@@ -183,7 +186,11 @@ export function RecurringTable({
       align: "end",
       numeric: true,
       cell: (row) => (
-        <Money cents={row.amountCents} tone={row.isIncome ? "income" : "expense"} />
+        <Money
+          minor={row.amountCents}
+          currency={row.currency}
+          tone={row.isIncome ? "income" : "expense"}
+        />
       ),
     },
     {

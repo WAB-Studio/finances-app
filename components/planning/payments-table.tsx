@@ -173,7 +173,8 @@ export function PaymentsTable({
       numeric: true,
       cell: (payment) => (
         <Money
-          cents={payment.amountCents}
+          minor={payment.amountCents}
+          currency={payment.currency}
           tone={payment.status === "pending" ? "expense" : "transfer"}
           signed={false}
         />

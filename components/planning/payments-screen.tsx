@@ -1,7 +1,7 @@
 "use client";
 
 import { EllipsisVertical, Info, Plus } from "lucide-react";
-import { useFormatter, useTranslations } from "next-intl";
+import { useFormatter, useLocale, useTranslations } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -33,15 +33,16 @@ import {
 import type { PlannedPaymentRow } from "@/db/queries/planned-payments";
 import type { TransactionFormOptions } from "@/db/queries/transaction-form";
 import { civilDateToDate } from "@/lib/dates";
-import { centsToPesos } from "@/lib/money";
+import { formatMoney } from "@/lib/money";
 import { useActionErrorToast } from "@/lib/use-action-toast";
 
 /**
  * The planned-payments area: pending payments read as dated reminder rows grouped
  * by their due month, soonest first (RF-74). Each row's dropdown settles it into a
  * real movement, edits it, cancels it or deletes it; settling runs the reused
- * action and removes the row on refresh (RF-75). Money stays integer cents; the
- * peso figure is display only.
+ * action and removes the row on refresh (RF-75). Money stays integer cents and
+ * every figure is drawn in the settlement currency of the account the payment
+ * names (RF-121).
  */
 export function PaymentsScreen({
   payments,
@@ -283,6 +284,7 @@ function PaymentCard({
   const t = useTranslations("plannedPayments");
   const tKey = useTranslations();
   const format = useFormatter();
+  const locale = useLocale();
 
   const due = civilDateToDate(payment.dueDate);
 
@@ -299,7 +301,7 @@ function PaymentCard({
             }
             title={payment.description ?? t("noConcept")}
             subtitle={t("reminder")}
-            amount={format.number(centsToPesos(payment.amountCents), "currency")}
+            amount={formatMoney(payment.amountCents, payment.currency, locale)}
             tone="transfer"
           />
         </Flex>

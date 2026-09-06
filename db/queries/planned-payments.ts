@@ -1,19 +1,37 @@
 import "server-only";
 
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 
 import { insertRow } from "@/db/insert-row";
-import { plannedPayments, transactionSplits, transactions } from "@/db/schema";
+import {
+  accounts,
+  plannedPayments,
+  transactionSplits,
+  transactions,
+} from "@/db/schema";
 import type { PlannedPayment } from "@/db/schema";
 import { withUserDb } from "@/db/session";
+import { BASE_CURRENCY } from "@/lib/currency";
 
 type PlannedPaymentStatus = PlannedPayment["status"];
+
+// The source settles the payment, or the destination when there is no source —
+// the very `coalesce` `set_transaction_currency` runs when the movement lands.
+// An account the caller cannot read answers null, so the base currency closes it.
+const settledIn = sql<string>`coalesce(
+  from_account.settlement_currency, to_account.settlement_currency, ${BASE_CURRENCY}
+)`;
 
 export type PlannedPaymentRow = {
   id: string;
   fromAccountId: string | null;
   toAccountId: string | null;
   amountCents: number;
+  // What the amount is written and read in (RF-121): the settlement currency of
+  // the account it leaves, or the one it lands in for an income. Derived from
+  // the accounts the same way `set_transaction_currency` derives a movement's,
+  // so settling a payment books the figure the screen showed.
+  currency: string;
   categoryId: string | null;
   dueDate: string;
   remindOn: string | null;
@@ -23,7 +41,8 @@ export type PlannedPaymentRow = {
 };
 
 // Every readable planned payment, soonest due first, in ONE round trip (RF-74).
-// `status` narrows the same query; scope is the policy's job.
+// `status` narrows the same query; scope is the policy's job. The two account
+// joins ride along so no row costs a lookup of its own currency.
 export async function listPlannedPayments({
   status,
 }: {
@@ -36,6 +55,7 @@ export async function listPlannedPayments({
         fromAccountId: plannedPayments.fromAccountId,
         toAccountId: plannedPayments.toAccountId,
         amountCents: plannedPayments.amountCents,
+        currency: settledIn,
         categoryId: plannedPayments.categoryId,
         dueDate: plannedPayments.dueDate,
         remindOn: plannedPayments.remindOn,
@@ -44,6 +64,14 @@ export async function listPlannedPayments({
         settledTransactionId: plannedPayments.settledTransactionId,
       })
       .from(plannedPayments)
+      .leftJoin(
+        sql`${accounts} from_account`,
+        sql`from_account.id = ${plannedPayments.fromAccountId}`,
+      )
+      .leftJoin(
+        sql`${accounts} to_account`,
+        sql`to_account.id = ${plannedPayments.toAccountId}`,
+      )
       .where(status ? eq(plannedPayments.status, status) : undefined)
       .orderBy(asc(plannedPayments.dueDate)),
   );

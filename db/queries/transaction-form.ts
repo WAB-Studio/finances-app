@@ -10,7 +10,7 @@ import type { ScopedCategoryNode } from "@/db/queries/categories";
 import { listCallerMembers } from "@/db/queries/group-members";
 import { listScopedLabels } from "@/db/queries/labels";
 import type { ScopedLabelRow } from "@/db/queries/labels";
-import { accounts, transactions } from "@/db/schema";
+import { transactions } from "@/db/schema";
 import { getSessionUser, requireUser, withUserDb } from "@/db/session";
 import { BASE_CURRENCY, currencySchema } from "@/lib/currency";
 
@@ -36,6 +36,11 @@ export type TransactionFormOptions = {
   // What each selectable account settles in (RF-121), so the form knows when to
   // ask for the second amount without going back to the server for it.
   accountCurrencies: Record<string, OfferedCurrency>;
+  // What a budget, a goal or a planned payment of the caller's own falls back to
+  // when it names no account (RF-121): their fund's currency, or their own when
+  // they hold no fund. Two rows a form cannot see, so it rides here rather than
+  // costing a read of its own.
+  scopeCurrency: OfferedCurrency;
 };
 
 /**
@@ -56,14 +61,14 @@ export const getTransactionFormOptions = cache(
       labels,
       members,
       lastUsedAccountId,
-      accountCurrencies,
+      currencies,
     ] = await Promise.all([
       listAccounts({ archived: false }),
       listScopedCategories(user.id),
       listScopedLabels(user.id),
       listCallerMembers(user.id, { archived: false }),
       getLastUsedAccountId(),
-      listAccountCurrencies(),
+      listCurrencyOptions(),
     ]);
 
     return {
@@ -75,28 +80,54 @@ export const getTransactionFormOptions = cache(
         member.userId ? [{ userId: member.userId, name: member.name }] : [],
       ),
       lastUsedAccountId,
-      accountCurrencies,
+      accountCurrencies: currencies.accountCurrencies,
+      scopeCurrency: currencies.scopeCurrency,
     };
   },
 );
 
-// The settlement currency of every account the caller may read, keyed by id
-// (RF-121). Its own read, fanned out with the rest: the roster it rides beside
-// does not carry the column yet, and one more statement in the same fan-out
-// costs no wall time.
-async function listAccountCurrencies(): Promise<
-  Record<string, OfferedCurrency>
-> {
+/**
+ * Both currency answers the write screens need, in ONE round trip (RF-121): what
+ * every account the caller may read settles in, keyed by id, and what a budget,
+ * a goal or a payment of their own falls back to when it names no account.
+ *
+ * The scope leads the join rather than riding each account row, so a caller with
+ * no account still gets it: `left join ... on true` keeps the one row the
+ * subselects built. RLS does the scoping — `groups` shows the caller their one
+ * fund and `app_users` only their own row — and the scope is an XOR, so at most
+ * one of the two ever answers.
+ */
+async function listCurrencyOptions(): Promise<{
+  accountCurrencies: Record<string, OfferedCurrency>;
+  scopeCurrency: OfferedCurrency;
+}> {
   const offered = currencySchema.catch(BASE_CURRENCY);
 
   return withUserDb(async (tx) => {
-    const rows = await tx
-      .select({ id: accounts.id, currency: accounts.settlementCurrency })
-      .from(accounts);
+    const rows = await tx.execute<{
+      scope_currency: string;
+      id: string | null;
+      settlement_currency: string | null;
+    }>(sql`
+      select cur.code as scope_currency, a.id, a.settlement_currency
+      from (select coalesce(
+        (select g.currency from groups g limit 1),
+        (select u.settlement_currency from app_users u limit 1),
+        ${BASE_CURRENCY}
+      ) as code) cur
+      left join accounts a on true
+    `);
 
-    return Object.fromEntries(
-      rows.map((row) => [row.id, offered.parse(row.currency)]),
-    );
+    return {
+      accountCurrencies: Object.fromEntries(
+        rows.flatMap((row) =>
+          row.id === null
+            ? []
+            : [[row.id, offered.parse(row.settlement_currency)] as const],
+        ),
+      ),
+      scopeCurrency: offered.parse(rows[0]?.scope_currency),
+    };
   });
 }
 

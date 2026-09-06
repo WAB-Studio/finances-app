@@ -239,6 +239,13 @@
       "when": 1788645352838,
       "tag": "0033_a_fund_is_born_in_its_currency",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1788650529865,
+      "tag": "0034_a_person_declares_their_currency",
+      "breakpoints": true
     }
   ]
 }

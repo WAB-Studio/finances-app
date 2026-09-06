@@ -1,7 +1,11 @@
 import { z } from "zod";
 
+import type { CurrencyCode } from "@/lib/currency";
 import { isCivilDate } from "@/lib/dates";
-import { pesoAmountSchema } from "@/lib/validation/transaction";
+import {
+  anyCurrencyAmountSchema,
+  minorAmountSchema,
+} from "@/lib/validation/transaction";
 
 const nameSchema = z
   .string()
@@ -9,11 +13,56 @@ const nameSchema = z
   .min(1, { error: "goals.errors.nameRequired" })
   .max(80, { error: "goals.errors.nameTooLong" });
 
-const targetAmountSchema = pesoAmountSchema({
+const targetKeys = {
   required: "goals.errors.targetRequired",
   invalid: "goals.errors.targetInvalid",
   tooLarge: "goals.errors.targetTooLarge",
-});
+};
+
+const amountKeys = {
+  required: "goals.errors.amountRequired",
+  invalid: "goals.errors.amountInvalid",
+  tooLarge: "goals.errors.amountTooLarge",
+};
+
+// A goal's currency is derived from its account, its fund or its owner
+// (RF-121), which is a read, so neither field can know its minor unit on its
+// own: the shape passes if any offered currency reads it and the refinements
+// below run the one right reading.
+const targetAmountSchema = anyCurrencyAmountSchema(targetKeys);
+
+const checkTarget = minorAmountSchema(targetKeys);
+const checkAmount = minorAmountSchema(amountKeys);
+
+/**
+ * The meta and the opening aporte read in the goal's own currency (RF-121). The
+ * form runs it against the currency it was handed and the action against the
+ * one it reads back — the same rule on both sides (RNF-10).
+ */
+export function refineGoalAmounts(currency: CurrencyCode) {
+  return function refine(
+    data: { targetAmount: string; initialContribution?: string | null },
+    ctx: z.RefinementCtx,
+  ) {
+    checkTarget(data.targetAmount, currency, ["targetAmount"], ctx);
+    if (data.initialContribution != null) {
+      checkAmount(
+        data.initialContribution,
+        currency,
+        ["initialContribution"],
+        ctx,
+      );
+    }
+  };
+}
+
+// An aporte is set aside in the goal's currency, whatever the movement it may
+// earmark settles in (RF-87).
+export function refineContributionAmount(currency: CurrencyCode) {
+  return function refine(data: { amount: string }, ctx: z.RefinementCtx) {
+    checkAmount(data.amount, currency, ["amount"], ctx);
+  };
+}
 
 // The day the goal aims to be met; it sits in the future by nature, so no
 // not-future bound applies (RF-76).
@@ -35,12 +84,8 @@ const goalFields = {
   accountId: z.uuid({ error: "goals.errors.accountInvalid" }).nullish(),
 };
 
-// An opening virtual aporte seeded at creation (RF-87); optional, same peso rules.
-const initialContributionSchema = pesoAmountSchema({
-  required: "goals.errors.amountRequired",
-  invalid: "goals.errors.amountInvalid",
-  tooLarge: "goals.errors.amountTooLarge",
-}).nullish();
+// An opening virtual aporte seeded at creation (RF-87); optional, same rules.
+const initialContributionSchema = anyCurrencyAmountSchema(amountKeys).nullish();
 
 export const createGoalSchema = z.object({
   ...goalFields,
@@ -80,11 +125,7 @@ export type DeleteGoalInput = z.infer<typeof deleteGoalSchema>;
 // movement, so the amount alone crosses as a peso string.
 export const contributeGoalSchema = z.object({
   goalId: z.uuid({ error: "goals.errors.goalInvalid" }),
-  amount: pesoAmountSchema({
-    required: "goals.errors.amountRequired",
-    invalid: "goals.errors.amountInvalid",
-    tooLarge: "goals.errors.amountTooLarge",
-  }),
+  amount: anyCurrencyAmountSchema(amountKeys),
 });
 
 export type ContributeGoalInput = z.infer<typeof contributeGoalSchema>;
