@@ -415,6 +415,7 @@
     "quickSave": "Guardar",
     "quickTypeLink": "¿Ingreso o traspaso?",
     "formTitle": "Nuevo movimiento",
+    "editTitle": "Editar movimiento",
     "fromLabel": "De (origen)",
     "toLabel": "Para (destino)",
     "kindIncome": "Ingreso",

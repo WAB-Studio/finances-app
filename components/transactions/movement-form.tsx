@@ -500,7 +500,7 @@ export function MovementForm({
           <ChevronLeftIcon size={18} />
         </IconButton>
         <Heading size="5" style={{ flex: 1 }}>
-          {t("formTitle")}
+          {t(isEdit ? "editTitle" : "formTitle")}
         </Heading>
         {isGroupScoped && <FundChip label={tKey("fund.label")} />}
       </Flex>
