@@ -13,7 +13,7 @@ import { BASE_CURRENCY } from "@/lib/currency";
 import { pgErrorCode } from "@/lib/db-error";
 import { todayInBogota } from "@/lib/dates";
 import { fingerprintMessage } from "@/lib/ingest/fingerprint";
-import { parsePesos, pesosToCents } from "@/lib/money";
+import { parseAmount } from "@/lib/money";
 import { interpretQuickEntry } from "@/lib/transactions/interpret";
 import type { WebhookPayloadInput } from "@/lib/validation/webhook";
 
@@ -92,12 +92,15 @@ export async function recordIngestDelivery({
       defaultAccountId,
     });
 
+    // Reads the same way the importer does (RF-128): thousands separators in
+    // either convention, an optional zero-decimal suffix, up to the two
+    // decimals the column stores. A finer amount or a non-positive one is
+    // dropped here, not rounded — the proposal is left without a figure
+    // rather than one nobody wrote.
     const rawPesos = payload.amount ?? proposal.amountPesos;
-    const pesos =
-      rawPesos === null || rawPesos === undefined
-        ? null
-        : parsePesos(rawPesos);
-    const proposedAmountCents = pesos !== null && pesos > 0 ? pesosToCents(pesos) : null;
+    const parsedAmountCents = rawPesos === null ? null : parseAmount(rawPesos);
+    const proposedAmountCents =
+      parsedAmountCents !== null && parsedAmountCents > 0 ? parsedAmountCents : null;
 
     const merchant = merchantRows?.[0] ?? null;
     const trustedCategoryId =
