@@ -24,7 +24,7 @@ export default async function OnboardingLayout(
       direction="column"
       flexGrow="1"
       width="100%"
-      maxWidth="30rem"
+      maxWidth={{ initial: "30rem", md: "40rem" }}
       mx="auto"
     >
       <Flex align="center" px="4" pt="4" pb="2">
@@ -41,7 +41,7 @@ export default async function OnboardingLayout(
           </LocaleLink>
         </IconButton>
       </Flex>
-      <Box flexGrow="1" px="5" pb="6">
+      <Box flexGrow="1" px={{ initial: "5", md: "6" }} pb="6">
         {props.children}
       </Box>
     </Flex>

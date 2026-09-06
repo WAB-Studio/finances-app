@@ -50,6 +50,9 @@ export default async function WelcomePage(
       flexGrow="1"
       gap="4"
       p="6"
+      width="100%"
+      maxWidth={{ initial: "100%", md: "35rem" }}
+      mx={{ md: "auto" }}
     >
       <main>
         <Flex
@@ -84,7 +87,7 @@ export default async function WelcomePage(
           {group.name}
         </Badge>
 
-        <Button asChild size="3">
+        <Button asChild size={{ initial: "3", md: "4" }}>
           <LocaleLink href="/">{t("enter")}</LocaleLink>
         </Button>
       </main>

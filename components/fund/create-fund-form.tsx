@@ -46,7 +46,7 @@ export function CreateFundForm() {
   return (
     <form onSubmit={form.handleSubmit(onSubmit)} noValidate>
       <Flex direction="column" gap="4">
-        <Card size="2">
+        <Card size={{ initial: "2", md: "3" }}>
           <FieldGroup>
             <Controller
               name="name"
@@ -132,7 +132,11 @@ export function CreateFundForm() {
         </Callout.Root>
 
         <Field>
-          <Button type="submit" size="3" disabled={isPending}>
+          <Button
+            type="submit"
+            size={{ initial: "3", md: "4" }}
+            disabled={isPending}
+          >
             {isPending && <Spinner />}
             {isPending ? t("submitting") : t("continue")}
           </Button>

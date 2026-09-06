@@ -32,10 +32,10 @@ export function OnboardingAccountsStep({
   const [open, setOpen] = useState(false);
 
   return (
-    <Flex direction="column" gap="4">
+    <Flex direction="column" gap={{ initial: "4", md: "5" }}>
       <Button
         type="button"
-        size="3"
+        size={{ initial: "3", md: "4" }}
         variant="soft"
         onClick={() => setOpen(true)}
       >
@@ -56,7 +56,7 @@ export function OnboardingAccountsStep({
         </Flex>
       )}
 
-      <Button asChild size="3">
+      <Button asChild size={{ initial: "3", md: "4" }}>
         <LocaleLink href="/onboarding/invite">{t("continue")}</LocaleLink>
       </Button>
 
