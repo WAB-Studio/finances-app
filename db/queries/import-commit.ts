@@ -553,9 +553,42 @@ async function commitRecurringRules(
   }
 }
 
-// Transactions carry a child split, so they land one at a time through the same path the
-// ledger ships: an insert writes the row then its single split; an update overwrites the
-// row and replaces the split wholesale (delete + insert), mirroring `updateTransaction`.
+// A new row's write, resolved once: the real account and category ids a placeholder
+// stood for, the cents its amount and splits parse to. Shared by the batch attempt
+// and the serial fallback so the two write the exact same values.
+type ResolvedNewTransaction = {
+  row: CommitRow<CreateTransactionInput>;
+  fromAccountId: string | null;
+  toAccountId: string | null;
+  amountCents: number;
+  splits: { categoryId: string; amountCents: number }[];
+};
+
+function resolveNewTransaction(
+  row: CommitRow<CreateTransactionInput>,
+  accountMap: Map<string, string>,
+  categoryMap: Map<string, string>,
+  placeholders: Set<string>,
+): ResolvedNewTransaction {
+  const object = row.object;
+  const fromAccountId = link(object.fromAccountId, accountMap);
+  const toAccountId = link(object.toAccountId, accountMap);
+  assertLinked(fromAccountId, placeholders);
+  assertLinked(toAccountId, placeholders);
+
+  const splits = object.splits.map((split) => {
+    const categoryId = link(split.categoryId, categoryMap)!;
+    assertLinked(categoryId, placeholders);
+    return { categoryId, amountCents: toCents(split.amount) };
+  });
+
+  return { row, fromAccountId, toAccountId, amountCents: toCents(object.amount), splits };
+}
+
+// Transactions carry a child split, so a new row writes the movement then its splits,
+// and an update overwrites the row and replaces the split wholesale (delete + insert),
+// mirroring `updateTransaction`. New rows batch (RNF-15); an update stays serial, same
+// as every other entity's update path here.
 async function commitTransactions(
   tx: Transaction,
   rows: CommitRow<CreateTransactionInput>[],
@@ -563,7 +596,12 @@ async function commitTransactions(
   categoryMap: Map<string, string>,
   placeholders: Set<string>,
 ): Promise<void> {
-  for (const row of rows) {
+  const newRows = rows.filter((row) => row.status === "new");
+  const updateRows = rows.filter((row) => row.status === "update");
+
+  await commitNewTransactions(tx, newRows, accountMap, categoryMap, placeholders);
+
+  for (const row of updateRows) {
     try {
       const object = row.object;
       const fromAccountId = link(object.fromAccountId, accountMap);
@@ -577,18 +615,6 @@ async function commitTransactions(
         return { categoryId, amountCents: toCents(split.amount) };
       });
       const amountCents = toCents(object.amount);
-
-      if (row.status === "new") {
-        const [inserted] = (await tx.execute(
-          sql`insert into ${transactions}
-            (from_account_id, to_account_id, amount_cents, occurred_at, description, external_ref)
-            values (${fromAccountId}, ${toAccountId}, ${amountCents}, ${object.occurredAt},
-              ${object.description}, ${row.externalRef})
-            returning id`,
-        )) as unknown as { id: string }[];
-        await writeSplits(tx, inserted.id, splits);
-        continue;
-      }
 
       const [updated] = await tx
         .update(transactions)
@@ -615,6 +641,101 @@ async function commitTransactions(
       // all-or-nothing the preview promised, minus the three minutes of guessing
       // which row it was.
       throw rowFailure("transactions", row.sheetRow, transactionReasonKey(error), error);
+    }
+  }
+}
+
+// New rows land in chunked, multi-row inserts (RNF-15): the movements first, then their
+// splits, keyed back to each movement's real id in RETURNING order — the same trick
+// `insertChunked` plays for every other entity. The whole batch runs inside ONE savepoint
+// (RF-51's row naming, not RNF-15, decides the chunk size here): a constraint any single
+// row trips aborts only this block, so the outer transaction is still open to redo the
+// batch's rows one at a time and name the exact one an ordinary commit would have refused.
+// A file with no bad row never pays for that fallback; only a bad file does.
+async function commitNewTransactions(
+  tx: Transaction,
+  rows: CommitRow<CreateTransactionInput>[],
+  accountMap: Map<string, string>,
+  categoryMap: Map<string, string>,
+  placeholders: Set<string>,
+): Promise<void> {
+  if (rows.length === 0) return;
+
+  const resolved: ResolvedNewTransaction[] = [];
+  for (const row of rows) {
+    try {
+      resolved.push(resolveNewTransaction(row, accountMap, categoryMap, placeholders));
+    } catch (error) {
+      throw rowFailure("transactions", row.sheetRow, transactionReasonKey(error), error);
+    }
+  }
+
+  try {
+    await tx.transaction(async (sp) => {
+      for (let start = 0; start < resolved.length; start += CHUNK_SIZE) {
+        await insertNewTransactionsBatch(sp, resolved.slice(start, start + CHUNK_SIZE));
+      }
+    });
+  } catch {
+    await insertNewTransactionsSerially(tx, resolved);
+  }
+}
+
+// One multi-row insert for the movements, one for every split any of them carries —
+// two round trips per chunk instead of two per row. RETURNING rides in VALUES order,
+// same assumption `insertChunked` already leans on for every other entity.
+async function insertNewTransactionsBatch(
+  tx: Transaction,
+  chunk: ResolvedNewTransaction[],
+): Promise<void> {
+  const rowValues = sql.join(
+    chunk.map(
+      (item) =>
+        sql`(${item.fromAccountId}, ${item.toAccountId}, ${item.amountCents},
+          ${item.row.object.occurredAt}, ${item.row.object.description}, ${item.row.externalRef})`,
+    ),
+    sql`, `,
+  );
+  const inserted = (await tx.execute(
+    sql`insert into ${transactions}
+      (from_account_id, to_account_id, amount_cents, occurred_at, description, external_ref)
+      values ${rowValues}
+      returning id`,
+  )) as unknown as { id: string }[];
+
+  const splitValues: ReturnType<typeof sql>[] = [];
+  chunk.forEach((item, index) => {
+    const transactionId = inserted[index].id;
+    for (const split of item.splits) {
+      splitValues.push(sql`(${transactionId}, ${split.categoryId}, ${split.amountCents})`);
+    }
+  });
+  if (splitValues.length === 0) return;
+
+  await tx.execute(
+    sql`insert into ${transactionSplits} (transaction_id, category_id, amount_cents)
+      values ${sql.join(splitValues, sql`, `)}`,
+  );
+}
+
+// The batch's fallback, row by row: the exact write the pre-batching commit made, kept
+// here so the one row a chunk chokes on is the one the thrown `ActionError` names.
+async function insertNewTransactionsSerially(
+  tx: Transaction,
+  rows: ResolvedNewTransaction[],
+): Promise<void> {
+  for (const item of rows) {
+    try {
+      const [inserted] = (await tx.execute(
+        sql`insert into ${transactions}
+          (from_account_id, to_account_id, amount_cents, occurred_at, description, external_ref)
+          values (${item.fromAccountId}, ${item.toAccountId}, ${item.amountCents},
+            ${item.row.object.occurredAt}, ${item.row.object.description}, ${item.row.externalRef})
+          returning id`,
+      )) as unknown as { id: string }[];
+      await writeSplits(tx, inserted.id, item.splits);
+    } catch (error) {
+      throw rowFailure("transactions", item.row.sheetRow, transactionReasonKey(error), error);
     }
   }
 }
