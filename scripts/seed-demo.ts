@@ -1134,18 +1134,11 @@ async function seedRecurring(scaffold: Scaffold): Promise<void> {
     if (plan.paused) await setRecurringRuleActive({ id: recurringRuleId, isActive: false });
   }
 
-  const [foreign] = await fixtureSql<{ total: string }[]>`
-    select count(*)::text as total from recurring_rules r
-    where r.is_active and r.next_run_on <= ${today}::date
-      and r.owner_user_id is distinct from ${process.env.HARNESS_USER_ID!}::uuid`;
-
-  if (Number(foreign.total) > 0) {
-    console.log(
-      `SEED    warning: ${foreign.total} due rule(s) belong to someone else and the generator runs over all of them.`,
-    );
-  }
-
-  await fixtureSql`select private.run_due_recurring_rules()`;
+  // Scoped to the seed's own author: the sweep used to run over every due rule
+  // in the database, so a seed wrote movements into other people's ledgers. The
+  // daily cron still calls it with no argument, which is what the cron is for.
+  await fixtureSql`
+    select private.run_due_recurring_rules(${process.env.HARNESS_USER_ID!}::uuid)`;
 
   const unreviewed = await listTransactions({ unreviewed: true });
   for (const movement of unreviewed.slice(UNREVIEWED_KEPT)) {
