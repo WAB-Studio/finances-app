@@ -64,6 +64,28 @@ the database and in no snapshot. **A rebuild from the migrations will not equal 
 A migration applied from any branch is applied for everyone, immediately, including branches
 whose schema files know nothing about it. Never apply one to reach a proof.
 
+### An unscoped locator finds both bands at once
+
+The desktop layout is additive: a screen keeps its mobile subtree and gains a sibling, so **both live
+in the DOM at every width** and only one paints. Every `getByText` or `getByRole` written without a
+scope resolves two nodes and the assertion dies on strict mode. Six specs broke on this across the
+slice — `accounts`, `members`, `inbox`, `reports`, `settings`, `destructive`.
+
+**The cheap way out, found by module 39 on 2026-09-06 and better than the band trick that preceded
+it:** Chromium keeps a `display: none` subtree **out of the accessibility tree**, so a `getByRole`
+locator is already viewport-safe and needs no scoping at all. Reach for a role locator first; scope
+to a band only when no role names what you need.
+
+Two things a role locator still cannot see through, both measured the same day:
+
+- A `VisuallyHidden` count concatenates into a row's accessible name. The inbox sidebar row stops
+  matching by name the moment a delivery is queued. Locate it by `href`.
+- `VisuallyHidden` clips a `Dialog.Title` to a pixel rather than dropping it, so it counts as visible
+  and `.filter({ visible: true })` cannot tell it from the form's own heading.
+
+The precedent for scoping, when a role will not do: `5c2017c` and `de92b31` on `e2e/accounts.spec.ts`,
+`529d0e5` on `e2e/inbox.spec.ts`.
+
 ### The audit screen cancels itself once the trail is large
 
 `/es/settings/audit` runs a query linear in the rows the caller may read, and Postgres cancels it
