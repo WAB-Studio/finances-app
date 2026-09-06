@@ -1082,7 +1082,8 @@
       "reportProblem": "Problema",
       "importReady": "Todas las filas son válidas. Confirma para escribirlas.",
       "confirmImport": "Confirmar importación",
-      "importDone": "Importación aplicada."
+      "importDone": "Importación aplicada.",
+      "commitRowError": "Fila {row} de {sheet}: {reason}"
     },
     "sheets": {
       "accounts": "Cuentas",
@@ -1127,6 +1128,7 @@
         "invalidCell": "Esta celda tiene un valor no válido.",
         "unknownReference": "Ninguna cuenta o categoría de tu fondo coincide con este nombre.",
         "ambiguousReference": "Más de una cuenta o categoría comparte este nombre. Renombra una para que sea única.",
+        "categoryKindMismatch": "Elige una categoría del mismo tipo (ingreso o gasto) que este movimiento.",
         "hasErrors": "El archivo todavía tiene errores. Corrígelos e impórtalo de nuevo."
       }
     }

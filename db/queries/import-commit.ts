@@ -12,8 +12,10 @@ import {
 } from "@/db/schema";
 import type { Transaction } from "@/db/session";
 import { BASE_CURRENCY } from "@/lib/currency";
+import { pgErrorCode } from "@/lib/db-error";
 import { ActionError } from "@/lib/errors";
 import { parsePesos, pesosToCents } from "@/lib/money";
+import type { SheetEntity } from "@/lib/spreadsheet/schema";
 import type { CreateAccountInput } from "@/lib/validation/account";
 import type { CreateCategoryInput } from "@/lib/validation/category";
 import type { CreateMemberInput } from "@/lib/validation/member";
@@ -31,16 +33,53 @@ import type { CreateTransactionInput } from "@/lib/validation/transaction";
 // never trusted from the file: a personal row names the user, a group row the group.
 export type CommitScope = { userId: string; groupId: string | null };
 
-// One classified, validated row the commit writes. `externalRef` is the stable per-scope
-// key (RF-52): present on an update to locate the row, written on an insert unless blank.
-// `placeholderId` is set only for a NEW account or category, so a reference to it remaps
-// to its REAL inserted id (RF-51). `object` is the entity's `createXSchema` payload.
+// One classified, validated row the commit writes. `index` is its position on the
+// sheet, carried for no reason but naming the row if this very row is what a later
+// write refuses (RF-51). `externalRef` is the stable per-scope key (RF-52): present
+// on an update to locate the row, written on an insert unless blank. `placeholderId`
+// is set only for a NEW account or category, so a reference to it remaps to its REAL
+// inserted id. `object` is the entity's `createXSchema` payload.
 export type CommitRow<T> = {
+  index: number;
   status: "new" | "update";
   externalRef: string | null;
   placeholderId: string | null;
   object: T;
 };
+
+// What a row-level write failure reports back to the confirm screen (RF-51): the
+// sheet, its row and a reason the screen already knows how to translate — the very
+// keys `mapTransactionError` throws from the live create action. JSON-encoded into
+// the one string `ActionError` carries, since a rolled-back commit still owes the
+// row it choked on, not just that one did.
+export type CommitRowFailure = { entity: SheetEntity; index: number; reasonKey: string };
+
+// `cause` carries the original throw (a raw PostgresError included) so a caller
+// walking the chain with `pgErrorCode` — `scripts/check-rls.ts`'s own proof does —
+// still finds the sqlstate under this wrapper, same as before this named the row.
+function rowFailure(entity: SheetEntity, index: number, reasonKey: string, cause: unknown): ActionError {
+  const failure: CommitRowFailure = { entity, index, reasonKey };
+  const error = new ActionError(JSON.stringify(failure));
+  error.cause = cause;
+  return error;
+}
+
+// `assert_split_matches_transaction` and its neighbours raise these; the preview
+// already refuses a category/direction mismatch before a commit ever reaches here
+// (RF-27), so this is the net under a race the preview could not see — a category
+// or account edited or removed between preview and confirm. Mirrors
+// `mapTransactionError` in the live create action, minus the throw: this caller
+// still has a row index to attach to whichever reason wins.
+const CURRENCY_REFUSAL = "23901";
+
+function transactionReasonKey(error: unknown): string {
+  const code = pgErrorCode(error);
+  if (code === "42501") return "errors.notFound";
+  if (code === CURRENCY_REFUSAL) return "transactions.errors.currencyMismatch";
+  if (code === "23514") return "transactions.errors.splitsScopeViolation";
+  if (code === "23503") return "errors.referenceGone";
+  return "errors.unexpected";
+}
 
 // The whole file's passing rows, in the five entity buckets the pipeline produced. The
 // commit walks them in dependency order (RF-51): members and categories, then accounts,
@@ -511,50 +550,58 @@ async function commitTransactions(
   placeholders: Set<string>,
 ): Promise<void> {
   for (const row of rows) {
-    const object = row.object;
-    const fromAccountId = link(object.fromAccountId, accountMap);
-    const toAccountId = link(object.toAccountId, accountMap);
-    assertLinked(fromAccountId, placeholders);
-    assertLinked(toAccountId, placeholders);
+    try {
+      const object = row.object;
+      const fromAccountId = link(object.fromAccountId, accountMap);
+      const toAccountId = link(object.toAccountId, accountMap);
+      assertLinked(fromAccountId, placeholders);
+      assertLinked(toAccountId, placeholders);
 
-    const splits = object.splits.map((split) => {
-      const categoryId = link(split.categoryId, categoryMap)!;
-      assertLinked(categoryId, placeholders);
-      return { categoryId, amountCents: toCents(split.amount) };
-    });
-    const amountCents = toCents(object.amount);
+      const splits = object.splits.map((split) => {
+        const categoryId = link(split.categoryId, categoryMap)!;
+        assertLinked(categoryId, placeholders);
+        return { categoryId, amountCents: toCents(split.amount) };
+      });
+      const amountCents = toCents(object.amount);
 
-    if (row.status === "new") {
-      const [inserted] = (await tx.execute(
-        sql`insert into ${transactions}
-          (from_account_id, to_account_id, amount_cents, occurred_at, description, external_ref)
-          values (${fromAccountId}, ${toAccountId}, ${amountCents}, ${object.occurredAt},
-            ${object.description}, ${row.externalRef})
-          returning id`,
-      )) as unknown as { id: string }[];
-      await writeSplits(tx, inserted.id, splits);
-      continue;
+      if (row.status === "new") {
+        const [inserted] = (await tx.execute(
+          sql`insert into ${transactions}
+            (from_account_id, to_account_id, amount_cents, occurred_at, description, external_ref)
+            values (${fromAccountId}, ${toAccountId}, ${amountCents}, ${object.occurredAt},
+              ${object.description}, ${row.externalRef})
+            returning id`,
+        )) as unknown as { id: string }[];
+        await writeSplits(tx, inserted.id, splits);
+        continue;
+      }
+
+      const [updated] = await tx
+        .update(transactions)
+        .set({
+          fromAccountId,
+          toAccountId,
+          amountCents,
+          occurredAt: object.occurredAt,
+          description: object.description,
+          // Mirrors `updateTransaction`: correcting a generated, unreviewed movement also
+          // confirms it, while a manual or already-reviewed row's stamp stays put (RF-31).
+          reviewedAt: sql`case when ${transactions.recurringRuleId} is not null and ${transactions.reviewedAt} is null then now() else ${transactions.reviewedAt} end`,
+        })
+        .where(eq(transactions.externalRef, row.externalRef!))
+        .returning({ id: transactions.id });
+
+      if (!updated) continue;
+      await tx.delete(transactionSplits).where(eq(transactionSplits.transactionId, updated.id));
+      await tx.delete(transactionLabels).where(eq(transactionLabels.transactionId, updated.id));
+      await writeSplits(tx, updated.id, splits);
+    } catch (error) {
+      // Named here and nowhere upstream: `withUserDb` rolls the whole write back on
+      // this throw, and every row already inserted goes with it (RF-51) — the same
+      // all-or-nothing the preview promised, minus the three minutes of guessing
+      // which row it was.
+      throw rowFailure("transactions", row.index, transactionReasonKey(error), error);
     }
-
-    const [updated] = await tx
-      .update(transactions)
-      .set({
-        fromAccountId,
-        toAccountId,
-        amountCents,
-        occurredAt: object.occurredAt,
-        description: object.description,
-        // Mirrors `updateTransaction`: correcting a generated, unreviewed movement also
-        // confirms it, while a manual or already-reviewed row's stamp stays put (RF-31).
-        reviewedAt: sql`case when ${transactions.recurringRuleId} is not null and ${transactions.reviewedAt} is null then now() else ${transactions.reviewedAt} end`,
-      })
-      .where(eq(transactions.externalRef, row.externalRef!))
-      .returning({ id: transactions.id });
-
-    if (!updated) continue;
-    await tx.delete(transactionSplits).where(eq(transactionSplits.transactionId, updated.id));
-    await tx.delete(transactionLabels).where(eq(transactionLabels.transactionId, updated.id));
-    await writeSplits(tx, updated.id, splits);
   }
 }
 

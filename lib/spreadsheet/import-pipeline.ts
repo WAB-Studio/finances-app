@@ -7,6 +7,7 @@ import { z } from "zod";
 import {
   readImportScope,
   type ImportScope,
+  type ScopedCategory,
   type ScopedEntity,
 } from "@/db/queries/import-preview";
 import { BASE_CURRENCY } from "@/lib/currency";
@@ -31,6 +32,10 @@ export const TOO_MANY_ROWS = "data.import.errors.tooManyRows";
 const UNKNOWN_REFERENCE = "data.import.errors.unknownReference";
 const AMBIGUOUS_REFERENCE = "data.import.errors.ambiguousReference";
 const INVALID_CELL = "data.import.errors.invalidCell";
+// A category resolves fine and still refuses the row: its kind must match the
+// movement's own direction (RF-27), the same rule `assert_split_matches_transaction`
+// enforces at write time — checked here so a bad row never reaches that trigger.
+const CATEGORY_KIND_MISMATCH = "data.import.errors.categoryKindMismatch";
 // Shared with the webhook and the commit's own gate (RF-121), so it lives outside
 // this module's `data.import.errors` namespace: the same key names the same reason
 // wherever a pesos-only path meets an account outside BASE_CURRENCY.
@@ -113,6 +118,10 @@ type EffectiveRefs = {
   accounts: Map<string, string[]>;
   categories: Map<string, string[]>;
   accountCurrencies: Map<string, string>;
+  // A resolved category's kind, by its effective id, existing rows unioned with the
+  // file's own new categories — never trusted from the file's `kind` cell alone,
+  // since a stray typo there is caught by the category row's own schema, not here.
+  categoryKinds: Map<string, string>;
 };
 
 // The money column keys of each entity, so the light guard sees a peso string where
@@ -195,6 +204,31 @@ function buildEffectiveMap(
     map.set(entity.name, ids);
   }
   return map;
+}
+
+// The effective post-import id→kind map for categories, over the same ids
+// `buildEffectiveMap` mints for the name map above, so a resolved reference reads
+// the kind of the very entity it resolved to. An existing category never changes
+// kind on an update (the commit never writes one), so a matched file row keeps the
+// existing kind; a file-new category carries whatever kind its own cell names,
+// right or wrong — a wrong one fails that row's own schema, never this lookup.
+function buildCategoryKinds(existing: ScopedCategory[], fileRows: RawRow[]): Map<string, string> {
+  const kindById = new Map(existing.map((row) => [row.id, row.kind]));
+
+  const indexByRef = new Map<string, ScopedCategory>();
+  existing.forEach((row) => {
+    if (row.externalRef != null) indexByRef.set(row.externalRef, row);
+  });
+
+  fileRows.forEach((raw, rowIndex) => {
+    const ref = text(raw.externalRef);
+    const matched = ref.length > 0 ? indexByRef.get(ref) : undefined;
+    if (matched !== undefined) return;
+
+    kindById.set(placeholderFor("categories", ref, rowIndex), text(raw.kind));
+  });
+
+  return kindById;
 }
 
 // The raw record turned name-shaped for the descriptor's light guard: a money cell
@@ -437,6 +471,24 @@ function resolveAndShape(
       const categoryId = isTransfer
         ? null
         : resolveInto(data.category, refs.categories, "category");
+
+      // A category that resolves fine can still be the wrong kind for this movement's
+      // direction (RF-27): income when only a destination is named, expense when only
+      // a source is (mirrors the `kind` the transactions table itself generates).
+      // Skipped when both accounts are absent — `requireAnAccount` already refuses
+      // that row on its own terms.
+      if (!isTransfer && categoryId !== null && (data.fromAccount != null || data.toAccount != null)) {
+        const expectedKind = data.fromAccount == null ? "income" : "expense";
+        const actualKind = refs.categoryKinds.get(categoryId);
+        if (actualKind !== undefined && actualKind !== expectedKind) {
+          errors.push({
+            key: CATEGORY_KIND_MISMATCH,
+            column: "category",
+            value: rawCellValue(entity, raw, "category"),
+          });
+        }
+      }
+
       const splits = isTransfer ? [] : [{ categoryId, amount: data.amount }];
 
       return {
@@ -551,6 +603,7 @@ export async function runImportPipeline(input: { buffer: ArrayBuffer }): Promise
     accountCurrencies: new Map(
       scope.accounts.map((account) => [account.id, account.settlementCurrency]),
     ),
+    categoryKinds: buildCategoryKinds(scope.categories, (parsed.categories ?? []) as RawRow[]),
   };
 
   const totals = { new: 0, update: 0, error: 0 };

@@ -8,6 +8,7 @@ import { toast } from "sonner";
 
 import { commitImportAction, previewImportAction } from "@/app/actions/import";
 import { ImportErrorsTable } from "@/components/data/import-errors-table";
+import type { CommitRowFailure } from "@/db/queries/import-commit";
 import {
   Badge,
   Box,
@@ -27,6 +28,28 @@ import {
 } from "@/components/ui";
 import type { SheetEntity } from "@/lib/spreadsheet/schema";
 import { useActionErrorToast, type MessageKey } from "@/lib/use-action-toast";
+
+// The commit action JSON-encodes a row failure into its one error string
+// (`CommitRowFailure`); anything else is a plain catalogue key, `errors.unexpected`
+// included, so a decode failure here is not a bug — it is every other error path.
+function parseCommitRowFailure(serverError: string | undefined): CommitRowFailure | null {
+  if (!serverError) return null;
+  try {
+    const parsed: unknown = JSON.parse(serverError);
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      typeof (parsed as CommitRowFailure).entity === "string" &&
+      typeof (parsed as CommitRowFailure).index === "number" &&
+      typeof (parsed as CommitRowFailure).reasonKey === "string"
+    ) {
+      return parsed as CommitRowFailure;
+    }
+  } catch {
+    // Not JSON: a plain key, left to the generic toast below.
+  }
+  return null;
+}
 
 /**
  * The export half of the Data screen (RF-49, RF-50). The entity picks and the
@@ -84,7 +107,22 @@ export function DataScreen({
       toast.success(t("screen.importDone"));
       resetImport();
     },
-    onError: onImportError,
+    // A commit that dies mid-write names the row it choked on (RF-51): the whole
+    // write still rolled back, so this is the one place a person learns why.
+    onError: ({ error }) => {
+      const failure = parseCommitRowFailure(error.serverError);
+      if (!failure) {
+        onImportError({ error });
+        return;
+      }
+      toast.error(
+        t("screen.commitRowError", {
+          row: failure.index,
+          sheet: t(`sheets.${failure.entity}`),
+          reason: tKey(failure.reasonKey as MessageKey),
+        }),
+      );
+    },
   });
 
   function fileForm(chosen: File) {
