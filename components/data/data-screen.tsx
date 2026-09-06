@@ -24,7 +24,6 @@ import {
   TapTarget,
   Text,
   TextField,
-  VisuallyHidden,
 } from "@/components/ui";
 import type { SheetEntity } from "@/lib/spreadsheet/schema";
 import { useActionErrorToast, type MessageKey } from "@/lib/use-action-toast";
@@ -259,25 +258,32 @@ export function DataScreen({
               {t("screen.fileLabel")}
             </Text>
             <Flex align="center" gap="2">
-              {/* Radix has no file field, so a hidden native input carries the pick
-                  behind a Button primitive rather than a bare styled control. */}
-              <Button asChild variant="soft" color="gray">
-                <label>
-                  <Upload size={16} />
-                  {t("screen.chooseFile")}
-                  <VisuallyHidden>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept=".xlsx"
-                      disabled={commit.isPending}
-                      onChange={(event) =>
-                        onFileChange(event.target.files?.[0] ?? null)
-                      }
-                    />
-                  </VisuallyHidden>
-                </label>
+              {/* Radix has no file field, so a native input carries the pick behind
+                  the scenes: `display: none` drops it from the accessibility tree
+                  and the tab order both, and a real button — the thing a person
+                  sees and touches — is what opens it, by ref, on click or on Enter
+                  and Space, which a `<label>` wrapper never forwarded to a key. */}
+              <Button
+                type="button"
+                variant="soft"
+                color="gray"
+                disabled={commit.isPending}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <Upload size={16} />
+                {t("screen.chooseFile")}
               </Button>
+              <Box display="none">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".xlsx"
+                  disabled={commit.isPending}
+                  onChange={(event) =>
+                    onFileChange(event.target.files?.[0] ?? null)
+                  }
+                />
+              </Box>
               {file && (
                 <Text size="2" color="gray">
                   {file.name}
