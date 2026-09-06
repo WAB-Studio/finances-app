@@ -134,7 +134,7 @@ accounting exports, native apps. None of this gets built or left
 #### Audit
 
 - [x] **RF-43** — Every creation, change and deletion of fund data is logged with what was touched, by whom, when, and the before and after values.
-- [x] **RF-44** — No user can edit or delete the log. The only permitted removal is the automatic purge in RNF-14.
+- [x] **RF-44** — No user can edit or delete the log. The only permitted removal is the automatic purge in RNF-14, or a row proven to be the test harness's own: one naming a registered harness identity as its actor or its owner, or, when neither is named, one whose actor and owner are both null and whose action is `DELETE`. A null actor and a null owner together mean a connection that settled no session claims; only the harness's own connections and the recurring generator (RF-30) write without claims, and the generator only inserts, so a both-null `DELETE` row cannot be the generator's and is the harness's.
 - [x] **RF-45** — Capture is automatic and no write can bypass it, including those from the recurring process, which are marked as system writes.
 
 #### Language
@@ -164,7 +164,7 @@ accounting exports, native apps. None of this gets built or left
 - [x] **RF-92** — A message shape is remembered per user: a shape a person silenced arrives already rejected and never waits for review, and a shape never seen before always waits.
 - [x] **RF-93** — A merchant's category prefills a delivery's proposal only once that merchant is trusted; it never records a movement on its own.
 - [x] **RF-94** — A merchant becomes trusted after two consecutive approvals under the same category, and an approval under a different category marks it ambiguous, which no later consistency undoes.
-- [x] **RF-95** — Quick entry accepts bank amounts written with comma or dot thousands separators and an optional zero-decimal suffix in either locale, without accepting fractional pesos.
+- [ ] **RF-128** — Quick entry and webhook ingest read a bank amount the way the importer does: thousands separators as comma or dot, in either convention, an optional zero-decimal suffix, and up to the two decimals the column stores (RF-126). A finer amount is refused, never rounded; no path drops a cent a person or a bank wrote in silence.
 - [x] **RF-96** — Webhook ingest proposes income or expense only when the bank message carries a recognized direction verb; a caller-supplied direction overrides it, and an unknown verb leaves it empty.
 - [x] **RF-97** — An account may store its last four digits; webhook ingest proposes the uniquely matching account named by a bank message before falling back to the credential default, while an explicit account override still wins.
 - [x] **RF-98** — Webhook ingest proposes the date the bank message carries, written with a two- or four-digit year and interpreted in `America/Bogota`; a caller-supplied date still overrides it, and a message whose date is unreadable or later than the day of delivery falls back to that day.
@@ -219,6 +219,7 @@ Dead codes. The number stays burned and the tick stays as it was.
 - [ ] **RF-85** — A signed JSON webhook creates a movement from a payload: the request carries a bearer credential that resolves it to exactly one user; the quick-entry interpreter (RF-22) infers amount, category and description from the payload's text; the movement is written under that user's writable scope so the access policies and the audit apply as if the user had recorded it; and a stable external reference makes a re-delivery idempotent, updating nothing and duplicating nothing. _Retired 2026-08-31. Successor: RF-90 (a delivery is stored as a proposal a person accepts; the webhook never writes a movement)._
 - [ ] **RF-115** — A budget's spent and remaining derive for a chosen period, not only the current one; the period is browsable into the past and the derivation is unchanged. _Retired 2026-09-01. Successor: RF-72 (the browsable period was already built under RF-72; this code named it a second time, so nothing was dropped)._
 - [ ] **RF-116** — A category shows how many subcategories hang off it, and a label how many transactions and how many budgets use it; every count derives and is never stored. _Retired 2026-09-01. Successors: RF-63 and RF-70 (the category and label counts were already built under those codes; this code named them a second time, so nothing was dropped)._
+- [x] **RF-95** — Quick entry accepts bank amounts written with comma or dot thousands separators and an optional zero-decimal suffix in either locale, without accepting fractional pesos. _Retired 2026-09-06. Successor: RF-128 (the same reading as the importer, up to the two decimals the column stores)._
 
 ---
 
