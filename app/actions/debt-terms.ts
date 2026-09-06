@@ -1,25 +1,29 @@
 "use server";
 
 import { refresh } from "next/cache";
+import { z } from "zod";
 
 import { deleteDebtTerms, upsertDebtTerms } from "@/db/queries/debt-terms";
+import { getSettlementCurrencies } from "@/db/queries/transactions";
+import { BASE_CURRENCY, type CurrencyCode } from "@/lib/currency";
 import { pgErrorCode } from "@/lib/db-error";
 import { ActionError } from "@/lib/errors";
-import { parsePesos, pesosToCents } from "@/lib/money";
+import { parseAmount } from "@/lib/money";
 import { authActionClient } from "@/lib/safe-action";
 import {
   debtTermsSchema,
   deleteDebtTermsSchema,
   percentToFraction,
+  refineDebtTermsAmounts,
 } from "@/lib/validation/debt-terms";
 
-// A peso amount arrives as a Zod-validated string; turning it into integer cents
-// here can only fail if the schema let something through it should not have, so a
-// null parse is `errors.unexpected`, not a field message.
-function toCents(amount: string): number {
-  const pesos = parsePesos(amount);
-  if (pesos === null) throw new ActionError("errors.unexpected");
-  return pesosToCents(pesos);
+// An amount arrives as a Zod-validated string; turning it into the integer the
+// column keeps can only fail if the refinement above let something through it
+// should not have, so a null parse is `errors.unexpected`, not a field message.
+function toMinor(amount: string, currency: CurrencyCode): number {
+  const minor = parseAmount(amount, currency);
+  if (minor === null) throw new ActionError("errors.unexpected");
+  return minor;
 }
 
 // The `assert_debt_terms_liability` trigger raises 23514 when the account is not
@@ -38,6 +42,13 @@ function mapDebtTermsError(error: unknown): never {
  * Writes or rewrites the debt profile of a liability account (RF-78, RF-80). The
  * scope comes from the account through RLS, so no owner or group travels here;
  * the rate and the minimum percentage convert to their DB fractions.
+ *
+ * Every amount is read in the currency the account settles in, read off the
+ * account and never off the payload (RF-121): a limit and a minimum are
+ * denominated in what the card bills in. The rule that bounds them is the very
+ * refinement the form runs, against the currency read back here (RNF-10). An
+ * account the policies do not show answers no currency, and the upsert below is
+ * refused by the same policy.
  */
 export const saveDebtTermsAction = authActionClient
   .inputSchema(debtTermsSchema)
@@ -55,18 +66,32 @@ export const saveDebtTermsAction = authActionClient
         aval,
       },
     }) => {
+      const settlement = await getSettlementCurrencies({
+        fromAccountId: accountId,
+        toAccountId: null,
+      });
+      const currency = settlement.from ?? BASE_CURRENCY;
+
+      const amounts = { minimumPayment, creditLimit, aval };
+      const verdict = z
+        .custom<typeof amounts>()
+        .superRefine(refineDebtTermsAmounts(currency))
+        .safeParse(amounts);
+      if (!verdict.success) throw new ActionError(verdict.error.issues[0].message);
+
       let savedAccountId: string;
       try {
         ({ accountId: savedAccountId } = await upsertDebtTerms({
           accountId,
           debtKind,
           annualRate: percentToFraction(annualRate),
-          minimumPaymentCents: minimumPayment != null ? toCents(minimumPayment) : null,
+          minimumPaymentCents:
+            minimumPayment != null ? toMinor(minimumPayment, currency) : null,
           minimumPaymentPct: minimumPaymentPct != null ? percentToFraction(minimumPaymentPct) : null,
-          creditLimitCents: creditLimit != null ? toCents(creditLimit) : null,
+          creditLimitCents: creditLimit != null ? toMinor(creditLimit, currency) : null,
           statementCutOffDay: statementCutOffDay ?? null,
           paymentDueDay: paymentDueDay ?? null,
-          avalCents: aval != null ? toCents(aval) : null,
+          avalCents: aval != null ? toMinor(aval, currency) : null,
         }));
       } catch (error) {
         mapDebtTermsError(error);
