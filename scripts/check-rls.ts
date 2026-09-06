@@ -6306,12 +6306,13 @@ async function checkSelfTransferRefused() {
   );
 }
 
-// Assertions 210-214: RF-63's written clause, "a subcategory shares its parent's scope". The composite
-// foreign key on `(parent_id, group_id)` is MATCH SIMPLE, so it is not evaluated at all when `group_id`
-// is null — every personal category — and `assert_category_depth` checked self-reference, depth and
-// kind and never scope. A personal category naming a group category, and one naming a uuid held by no
-// row, each landed on the live database, and the picker then dropped them in silence. Both are executed
-// here, then the two subcategories the app actually writes. Fixtures live in one transaction forced to
+// Assertions 210-214 and 282: RF-63's two written clauses, "a subcategory shares its parent's scope"
+// and "one level of subcategories". The composite foreign key on `(parent_id, group_id)` is MATCH
+// SIMPLE, so it is not evaluated at all when `group_id` is null — every personal category — and
+// `assert_category_depth` checked self-reference, depth and kind and never scope. A personal category
+// naming a group category, and one naming a uuid held by no row, each landed on the live database, and
+// the picker then dropped them in silence. Both are executed here, then the two subcategories the app
+// actually writes, then the grandchild it must never write. Fixtures live in one transaction forced to
 // roll back; each barred statement runs in its own savepoint.
 async function checkCategoryParentScope() {
   console.log("");
@@ -6324,6 +6325,7 @@ async function checkCategoryParentScope() {
     "211. a category naming a parent held by no row is refused",
     "212. a personal subcategory of its owner's own parent lands",
     "213. a group subcategory of that group's parent lands",
+    "282. a subcategory of a subcategory is refused",
   ];
   const tailLabel = "214. the rolled-back category-scope transaction leaves no trace";
 
@@ -6407,6 +6409,21 @@ async function checkCategoryParentScope() {
           values (${groupId}, ${groupParent.id}, 'rls category scope group child', 'expense') returning id`,
       );
       assert(labels[3], groupChild.length === 1, `landed ${groupChild.length} row`);
+
+      // 282: RF-63's other written clause, "one level of subcategories". `assert_category_depth` has
+      // raised on a grandchild since 0000, and nothing ever drove it: 212 and 213 prove a child lands
+      // and say nothing about what stops the next one. The number is the next free one, not a gap.
+      const grandchildRefusal = await refusalOf((sp) =>
+        sp.execute(
+          dsql`insert into categories (owner_user_id, parent_id, name, kind)
+            values (${leaderUser}, ${ownChild[0].id}, 'rls category scope grandchild', 'expense')`,
+        ),
+      );
+      assert(
+        labels[4],
+        grandchildRefusal.includes("23514") && grandchildRefusal.includes("one level"),
+        grandchildRefusal,
+      );
 
       // Nothing this section wrote may survive; force the ROLLBACK.
       throw forcedRollback;
