@@ -58,55 +58,59 @@ function normalizeGroupMarks(raw: string): string {
   return withoutZeroFraction.replace(/[.,   ](?=\d{3}(?:\D|$))/g, "");
 }
 
-// Reads a written figure and hands back an integer scaled by `exponent`. The
-// two scales enter separately on purpose: `written` bounds the decimals the
-// text may carry, `exponent` decides what the integer counts.
-function parseWritten(
-  raw: string,
-  written: number,
-  exponent: number,
-): number | null {
+// Reads a written figure into the integer the stored scale counts. The ceiling
+// on the decimals a string may carry is the column's own scale, not a
+// currency's write convention (RF-126): the peso column has kept hundredths
+// since the first row, whatever `Intl` says the peso circulates a coin down
+// to, so a bank's interest, its 4x1000 or a settled foreign purchase reaches
+// the column exactly instead of being turned away for a digit it can hold.
+//
+// Never `parseFloat`, never `Number()` on the whole string, never `* 100`:
+// major and fraction are read as separate digit runs and combined with
+// integer arithmetic, so no amount ever passes through a binary fraction.
+function parseWritten(raw: string): number | null {
   const trimmed = raw.trim();
 
-  // A lone separator with exactly three digits behind it and nothing after is a
-  // group mark and a fraction at once, and the two readings are a thousand
-  // apart. A currency with decimals refuses it rather than pick one in silence.
-  // A second separator settles the reading whether or not the two are alike, and
-  // a currency without decimals has only the group reading, which is what
-  // "500.000" has always been.
-  const separators = trimmed.match(/[.,]/g)?.length ?? 0;
-  if (written > 0 && separators === 1 && /[.,]\d{3}$/.test(trimmed)) return null;
-
+  // A lone separator with exactly three digits behind it and nothing after
+  // reads as a thousands group and nothing else: a genuine fraction can never
+  // run three digits deep, since the column holds at most `STORAGE_EXPONENT`,
+  // so "1.500" is the same one thousand five hundred whichever currency asked.
   const match = /^(\d+)(?:[.,](\d+))?$/.exec(normalizeGroupMarks(trimmed));
   if (!match) return null;
 
   const [, major, fraction = ""] = match;
-  if (fraction.length > written) return null;
+  // A third decimal digit is rejected, not rounded: nothing a bank posts
+  // needs a thousandth of its own minor unit, so a third digit is a
+  // transcription slip, and guessing a rounding direction would silently
+  // move real money instead of asking for the figure again.
+  if (fraction.length > STORAGE_EXPONENT) return null;
 
-  // Integers throughout: no digit of a written amount ever sits in the
-  // fractional part of a `number` on its way to a column.
   const value =
-    Number(major) * 10 ** exponent + Number(fraction.padEnd(exponent, "0") || 0);
+    Number(major) * STORAGE_UNIT +
+    Number(fraction.padEnd(STORAGE_EXPONENT, "0") || 0);
 
   return Number.isSafeInteger(value) ? value : null;
 }
 
 /**
  * A typed amount as the integer the ledger stores, or `null` when it is not
- * one. Takes up to as many decimals as the currency is written with and not one
- * more, so "10,50" is a dollar amount and no peso amount at all, and refuses a
- * separator that could be read either way. No sign and no exponent: a negative
- * or fractional stored amount is not a value a form takes.
+ * one. Takes up to the two decimals the column keeps, for every currency
+ * alike (RF-126) — not the currency's own write convention, which is a fact
+ * about circulating coins and not about what a bank posts. No sign and no
+ * exponent: a negative or fractional stored amount is not a value a form
+ * takes.
  *
  * The result is in the stored scale, not in the currency's own minor unit:
  * "1000" pesos comes back as 100000, the same integer the column already holds
- * for a thousand pesos.
+ * for a thousand pesos. `currency` stays in the signature for every call site
+ * that carries one; `maxAmountMinor(currency)` is where a caller still bounds
+ * the result by it.
  */
 export function parseAmount(
   raw: string,
   currency: CurrencyCode,
 ): number | null {
-  return parseWritten(raw, amountScale(currency).written, STORAGE_EXPONENT);
+  return parseWritten(raw);
 }
 
 /**
@@ -117,14 +121,24 @@ export function parseAmount(
 export function amountToInput(minor: number, currency: CurrencyCode): string {
   const { stored, written } = amountScale(currency);
   const major = Math.trunc(minor / stored);
-  if (written === 0) return String(major);
+  const remainder = Math.abs(minor) % stored;
+
+  if (remainder === 0 && written === 0) return String(major);
 
   // How many stored units one written decimal is worth: one, wherever the two
-  // scales meet. Truncating, never rounding, for the reason `formatMoney` gives.
+  // scales meet. A remainder finer than that (RF-126: a peso's own centavos,
+  // real since a bank posts them) cannot be dropped here as it could be
+  // before — the column already holds it, and truncating it in a field that
+  // resubmits unchanged is how opening the amount would shrink it. Widen to
+  // the stored decimals only when the convention's own step does not divide
+  // the remainder evenly; a round figure still shows the currency's usual
+  // decimal count.
   const step = stored / 10 ** written;
-  const fraction = Math.trunc(Math.abs(minor) / step) % 10 ** written;
+  const evenlyWritten = remainder % step === 0;
+  const decimals = evenlyWritten ? written : STORAGE_EXPONENT;
+  const fraction = evenlyWritten ? remainder / step : remainder;
 
-  return `${major},${String(fraction).padStart(written, "0")}`;
+  return `${major},${String(fraction).padStart(decimals, "0")}`;
 }
 
 /**
@@ -182,13 +196,13 @@ export function formatMoney(
     FORMATTERS.set(key, formatter);
   }
 
-  // Truncates to the decimals the currency is written with, as `amountToInput`
-  // does, so opening a figure and saving it back writes the integer it already
-  // held. Rounding here would draw a peso row of 50 hundredths as one peso and
-  // the field would then store a hundred: a data change caused by looking at a
-  // screen. A peso amount with hundredths of its own is a defect in the data —
-  // none can exist today, every write goes through `parseAmount` — and drawing
-  // it as zero leaves it visible instead of dressing it up.
+  // Truncates to the decimals the currency is written with — RF-125 draws a
+  // peso figure without them, whatever a row's own hundredths hold, since
+  // COP's coins stop at the peso. A movement can carry peso centavos now
+  // (RF-126: a bank's interest, its 4x1000, a settled foreign purchase), and
+  // this read-only figure is not where that survives a save: unlike
+  // `amountToInput`, nothing here is resubmitted, so hiding the centavos
+  // changes no stored row, only what this one draw shows.
   const step = stored / 10 ** written;
   const value = Math.trunc(Math.abs(minor) / step) / 10 ** written;
 
@@ -209,9 +223,16 @@ export function normalizeAmountInput(raw: string): string {
   return normalizeGroupMarks(raw);
 }
 
-/** @deprecated Parse with `parseAmount(raw, currency)`, which stores the result. */
+/**
+ * @deprecated Parse with `parseAmount(raw, currency)`, which keeps the
+ * centavos this drops. Kept only for a caller still bound to whole pesos
+ * through `pesosToCents`'s own `* 100`; the peso's own centavos (RF-126)
+ * would not survive that multiplication as a float, so this truncates them
+ * away on purpose rather than pass a fractional peso count through it.
+ */
 export function parsePesos(raw: string): number | null {
-  return parseWritten(raw, amountScale(BASE_CURRENCY).written, 0);
+  const minor = parseAmount(raw, BASE_CURRENCY);
+  return minor === null ? null : Math.trunc(minor / STORAGE_UNIT);
 }
 
 /** @deprecated An amount is already stored in the scale a column keeps. */
