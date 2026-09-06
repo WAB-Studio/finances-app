@@ -247,3 +247,33 @@ all and simply stopped appending — six minutes and about a dozen tool calls mi
 git update-index --chmod=+x .claude/hooks/*.sh
 git ls-files -s .claude/hooks/    # 100755, not 100644
 ```
+
+### Supavisor overwrites `application_name`
+
+A pooled connection cannot name itself. Supabase fronts both endpoints with Supavisor, and it
+replaces whatever the client sends with `Supavisor` before the backend sees it — on the transaction
+pooler (`:6543`, `DATABASE_URL`) and on the session pooler (`:5432`, `MIGRATION_DATABASE_URL`) alike.
+The connection does not even read back its own value:
+
+```
+connection: { application_name: "harness:probe:9" }
+select current_setting('application_name')  →  Supavisor
+select application_name from pg_stat_activity where pid = pg_backend_pid()  →  Supavisor
+```
+
+Measured 2026-09-06 against both URLs in `.env.local`. Other services that connect directly keep
+their own names, which is what makes this look like a client bug when it is not.
+
+**So `pg_stat_activity` cannot answer "is another harness process on this database right now".** The
+plan for the harness registry had two commands interlock on exactly that, and neither could ever have
+fired. `harness.runs` answers it instead: `finished_at is null` and `heartbeat_at` inside 30 minutes,
+which is the predicate `harness_runs_live_idx` exists for. Set `application_name` anyway if a log
+somewhere wants it; never query it.
+
+### `void sql`...`` in postgres.js never runs the statement
+
+`postgres.js` builds a lazy `Query`. It dispatches on `.then`, `.catch` or `.execute`, so `void
+sql`update ...`` type-checks, lints clean, and sends nothing at all. Found on 2026-09-06 in the
+registry's 30-second heartbeat: `heartbeat_at` never advanced and the failure was silent in both
+directions — no error, no row change. `.catch(() => {})` is enough to dispatch it, and is what a
+fire-and-forget statement wants anyway.
