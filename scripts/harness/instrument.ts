@@ -13,6 +13,8 @@
  */
 import postgres from "postgres";
 
+import { applicationName } from "./registry";
+
 let statements = 0;
 
 const sql = postgres(process.env.DATABASE_URL!, {
@@ -20,6 +22,9 @@ const sql = postgres(process.env.DATABASE_URL!, {
   max: 8,
   idle_timeout: 20,
   connect_timeout: 10,
+  // Names this pool in `pg_stat_activity` as the suite that opened it, the only
+  // consumer today: `check-queries.ts` is the only importer of this module.
+  connection: { application_name: applicationName("queries") },
   // Fires once for every statement the driver puts on the wire — `begin`, the
   // session settle, the query and `commit` alike. That is the round-trip count
   // AGENTS.md asks for: measured at the driver, not counted off the source.
