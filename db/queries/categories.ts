@@ -52,12 +52,6 @@ function scopeWhere(scope: CategoryScope) {
     : eq(categories.groupId, scope.groupId);
 }
 
-// A subselect, not the caller's value: a subcategory always carries its parent's
-// colour. The read is policy-scoped, so the parent id alone pins the row.
-function subcategoryColor(parentId: string) {
-  return sql`(select ${categories.color} from ${categories} where ${eq(categories.id, parentId)})`;
-}
-
 /**
  * One query for the scope's categories of a kind, split in TypeScript into
  * parents and children — the trigger, not this function, keeps nesting at one
@@ -230,7 +224,7 @@ async function insertCategory(
       name,
       kind,
       parentId,
-      color: parentId ? subcategoryColor(parentId) : color,
+      color,
     },
     { returning: { id: categories.id } },
   );
@@ -250,7 +244,7 @@ export async function updateCategory({
       .set({
         name,
         parentId,
-        color: parentId ? subcategoryColor(parentId) : color,
+        color,
       })
       .where(eq(categories.id, categoryId))
       .returning({ id: categories.id });
