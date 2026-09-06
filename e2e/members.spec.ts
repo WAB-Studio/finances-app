@@ -47,11 +47,26 @@ function rowMenu(page: Page, name: string): Locator {
   });
 }
 
-// The line a member's name sits on, badges included: the innermost element of the
-// roster carrying that name. Scoped to `main` because the shell names the
-// signed-in person too, and a badge read outside it would be the sidebar's.
-function nameRow(page: Page, name: string): Locator {
-  return page.getByRole("main").locator("div").filter({ hasText: name }).last();
+// The band the width displays. The laptop's table and the phone's cards are both
+// in the DOM at every width, cut apart by CSS alone, so a locator that names no
+// band reaches a member twice and dies on strict mode.
+function band(page: Page): Locator {
+  return page.locator("main > div > .rt-Box").filter({ visible: true });
+}
+
+// The line a member's name sits on, badges included. The laptop's table splits
+// a member across cells — the role badge sits in its own column, apart from the
+// name — so only the whole `role="row"` carries both; the phone's card keeps
+// every badge in the one div the name sits in, and the table matches nothing
+// there for `getByRole` to find, so the card's own div takes over.
+async function nameRow(page: Page, name: string): Promise<Locator> {
+  const row = page
+    .getByRole("table", { name: members.title })
+    .getByRole("row")
+    .filter({ hasText: name });
+  if ((await row.count()) > 0) return row;
+
+  return band(page).locator("div").filter({ hasText: name }).last();
 }
 
 // The labels an open row menu offers, which is what says who may do what (RF-100,
@@ -111,7 +126,9 @@ test("moves the leader role to the member a leader picks, and steps the caller d
   expect(before[scope.memberUserId]).toBe("member");
 
   await page.goto("/es/settings/members");
-  await expect(nameRow(page, LEADER_MEMBER_NAME)).toContainText(members.ownerBadge);
+  await expect(await nameRow(page, LEADER_MEMBER_NAME)).toContainText(
+    members.ownerBadge,
+  );
 
   await rowMenu(page, PLAIN_MEMBER_NAME).click();
   await page
@@ -133,8 +150,10 @@ test("moves the leader role to the member a leader picks, and steps the caller d
     .poll(async () => await rolesByUser(groupId))
     .toEqual({ [scope.userId]: "member", [scope.memberUserId]: "leader" });
 
-  await expect(nameRow(page, PLAIN_MEMBER_NAME)).toContainText(members.ownerBadge);
-  await expect(nameRow(page, LEADER_MEMBER_NAME)).not.toContainText(
+  await expect(await nameRow(page, PLAIN_MEMBER_NAME)).toContainText(
+    members.ownerBadge,
+  );
+  await expect(await nameRow(page, LEADER_MEMBER_NAME)).not.toContainText(
     members.ownerBadge,
   );
 
@@ -174,7 +193,7 @@ test.describe("under a plain member", () => {
   test("offers the transfer on no row of the roster", async ({ page }) => {
     await page.goto("/es/settings/members");
     await expect(
-      page.getByRole("main").getByText(LEADER_MEMBER_NAME, { exact: true }),
+      band(page).getByText(LEADER_MEMBER_NAME, { exact: true }),
     ).toBeVisible();
 
     // Two rows, one menu: only their own, and only to rename it (RF-100).
@@ -231,7 +250,7 @@ test("refuses to delete a member whose person owns an account, and says so", asy
   // And the row is where it was, on screen and in Postgres, archived_at included:
   // a refusal that quietly archived instead would read the same on screen.
   await expect(
-    page.getByRole("main").getByText(PLAIN_MEMBER_NAME, { exact: true }),
+    band(page).getByText(PLAIN_MEMBER_NAME, { exact: true }),
   ).toBeVisible();
   const survivors = await fixtureSql<{ archived_at: string | null }[]>`
     select archived_at::text as archived_at from group_members where id = ${target.id}`;
