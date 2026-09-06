@@ -9,7 +9,7 @@ import {
   recordDebtPayment,
 } from "@/db/queries/installment-plans";
 import { getSettlementCurrencies } from "@/db/queries/transactions";
-import { BASE_CURRENCY, type CurrencyCode } from "@/lib/currency";
+import { BASE_CURRENCY } from "@/lib/currency";
 import { addCivilDays, addCivilMonths } from "@/lib/dates";
 import { pgErrorCode } from "@/lib/db-error";
 import { ActionError } from "@/lib/errors";
@@ -27,8 +27,8 @@ import {
 // An amount arrives as a Zod-validated string; turning it into the integer the
 // column keeps can only fail if the refinement above let something through it
 // should not have.
-function toMinor(amount: string, currency: CurrencyCode): number {
-  const minor = parseAmount(amount, currency);
+function toMinor(amount: string): number {
+  const minor = parseAmount(amount);
   if (minor === null) throw new ActionError("errors.unexpected");
   return minor;
 }
@@ -171,8 +171,8 @@ export const createInstallmentPlanAction = authActionClient
         refineInstallmentPlanAmounts(currency),
       );
 
-      const principalCents = toMinor(principal, currency);
-      const avalCents = aval != null ? toMinor(aval, currency) : null;
+      const principalCents = toMinor(principal);
+      const avalCents = aval != null ? toMinor(aval) : null;
       const scheduledTotal = principalCents + (avalCents ?? 0);
 
       const dueDates = scheduleDates(startDate, frequency, nInstallments);
@@ -192,7 +192,7 @@ export const createInstallmentPlanAction = authActionClient
           nInstallments,
           frequency,
           interestRate: interestRate != null ? percentToFraction(interestRate) : null,
-          downPaymentCents: downPayment != null ? toMinor(downPayment, currency) : null,
+          downPaymentCents: downPayment != null ? toMinor(downPayment) : null,
           avalCents,
           startDate,
           merchant: merchant ?? null,
@@ -228,7 +228,7 @@ export const recordDebtPaymentAction = authActionClient
 
     assertAmounts({ amount }, refineDebtPaymentAmount(currency));
 
-    const amountCents = toMinor(amount, currency);
+    const amountCents = toMinor(amount);
 
     let result: {
       transactionId: string;

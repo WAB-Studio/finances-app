@@ -106,7 +106,7 @@ function requireAmountInCurrency(
   // The field said so already; saying it twice puts two messages on one control.
   if (data.amount.trim().length === 0) return;
 
-  const minor = parseAmount(data.amount, data.settlementCurrency);
+  const minor = parseAmount(data.amount);
   if (minor === null) {
     ctx.addIssue({
       code: "custom",

@@ -41,7 +41,7 @@ export const recordBilledAmountSchema = z
     }
 
     // Zero is not a bill, and `transactions_counter_amount_positive` refuses it.
-    const billedCents = parseAmount(value, data.currency);
+    const billedCents = parseAmount(value);
     if (billedCents === null || billedCents === 0) {
       ctx.addIssue({
         code: "custom",

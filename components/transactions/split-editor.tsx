@@ -24,8 +24,8 @@ type Split = { categoryId: string; amount: string };
 
 // A row's typed string in minor units, or zero while it is empty or half-typed:
 // the remainder must read as the whole total until a figure lands, never as NaN.
-function toMinor(amount: string, currency: CurrencyCode): number {
-  return parseAmount(amount, currency) ?? 0;
+function toMinor(amount: string): number {
+  return parseAmount(amount) ?? 0;
 }
 
 /**
@@ -73,8 +73,7 @@ export function SplitEditor({
   );
 
   const remainderMinor =
-    toMinor(total, currency) -
-    value.reduce((sum, split) => sum + toMinor(split.amount, currency), 0);
+    toMinor(total) - value.reduce((sum, split) => sum + toMinor(split.amount), 0);
 
   function updateSplit(index: number, patch: Partial<Split>) {
     onChange(

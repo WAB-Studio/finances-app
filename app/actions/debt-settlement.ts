@@ -28,7 +28,7 @@ export const recordBilledAmountAction = authActionClient
       // The schema already parsed this string, and the parse lands in the scale
       // the column keeps; a null here means the schema let through something it
       // should not have, which is not a field message.
-      const billedCents = parseAmount(billedAmount, currency);
+      const billedCents = parseAmount(billedAmount);
       if (billedCents === null) throw new ActionError("errors.unexpected");
 
       let replaced: boolean;

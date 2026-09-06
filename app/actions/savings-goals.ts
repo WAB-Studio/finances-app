@@ -53,16 +53,16 @@ function toGoalMinor(
   if (!verdict.success) throw new ActionError(verdict.error.issues[0].message);
 
   return {
-    targetAmountCents: toMinor(amounts.targetAmount, currency),
+    targetAmountCents: toMinor(amounts.targetAmount),
     initialContributionCents:
       amounts.initialContribution != null
-        ? toMinor(amounts.initialContribution, currency)
+        ? toMinor(amounts.initialContribution)
         : null,
   };
 }
 
-function toMinor(amount: string, currency: CurrencyCode): number {
-  const minor = parseAmount(amount, currency);
+function toMinor(amount: string): number {
+  const minor = parseAmount(amount);
   if (minor === null) throw new ActionError("errors.unexpected");
   return minor;
 }
@@ -202,7 +202,7 @@ export const contributeGoalAction = authActionClient
 
     if (!verdict.success) throw new ActionError(verdict.error.issues[0].message);
 
-    const amountCents = toMinor(amount, currency);
+    const amountCents = toMinor(amount);
 
     let contributionId: string;
     try {

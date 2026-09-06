@@ -5,7 +5,7 @@ import { z } from "zod";
 
 import { deleteDebtTerms, upsertDebtTerms } from "@/db/queries/debt-terms";
 import { getSettlementCurrencies } from "@/db/queries/transactions";
-import { BASE_CURRENCY, type CurrencyCode } from "@/lib/currency";
+import { BASE_CURRENCY } from "@/lib/currency";
 import { pgErrorCode } from "@/lib/db-error";
 import { ActionError } from "@/lib/errors";
 import { parseAmount } from "@/lib/money";
@@ -20,8 +20,8 @@ import {
 // An amount arrives as a Zod-validated string; turning it into the integer the
 // column keeps can only fail if the refinement above let something through it
 // should not have, so a null parse is `errors.unexpected`, not a field message.
-function toMinor(amount: string, currency: CurrencyCode): number {
-  const minor = parseAmount(amount, currency);
+function toMinor(amount: string): number {
+  const minor = parseAmount(amount);
   if (minor === null) throw new ActionError("errors.unexpected");
   return minor;
 }
@@ -86,12 +86,12 @@ export const saveDebtTermsAction = authActionClient
           debtKind,
           annualRate: percentToFraction(annualRate),
           minimumPaymentCents:
-            minimumPayment != null ? toMinor(minimumPayment, currency) : null,
+            minimumPayment != null ? toMinor(minimumPayment) : null,
           minimumPaymentPct: minimumPaymentPct != null ? percentToFraction(minimumPaymentPct) : null,
-          creditLimitCents: creditLimit != null ? toMinor(creditLimit, currency) : null,
+          creditLimitCents: creditLimit != null ? toMinor(creditLimit) : null,
           statementCutOffDay: statementCutOffDay ?? null,
           paymentDueDay: paymentDueDay ?? null,
-          avalCents: aval != null ? toMinor(aval, currency) : null,
+          avalCents: aval != null ? toMinor(aval) : null,
         }));
       } catch (error) {
         mapDebtTermsError(error);
