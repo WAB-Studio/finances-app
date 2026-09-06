@@ -122,7 +122,7 @@ type Inserted = { id: string; external_ref: string | null };
 // own centavos — a bank's interest, its 4x1000, a settled foreign purchase —
 // reach the column exactly instead of being rounded away on the way in.
 function toCents(peso: string): number {
-  const cents = parseAmount(peso, BASE_CURRENCY);
+  const cents = parseAmount(peso);
   if (cents === null) throw new Error("import-commit: an amount reached the writer unparsed");
   return cents;
 }
