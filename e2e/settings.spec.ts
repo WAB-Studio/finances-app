@@ -48,6 +48,16 @@ function atCount(message: string, count: number): string {
   return branch.replace("#", String(count));
 }
 
+/**
+ * The band the width displays. On the members and webhooks screens the
+ * laptop's table and the phone's cards are both in the DOM at every width, cut
+ * apart by CSS alone, so a locator that names no band reaches a row twice and
+ * dies on strict mode.
+ */
+function band(page: Page): Locator {
+  return page.locator("main > div > .rt-Box").filter({ visible: true });
+}
+
 test("the categories screen renders the categories it read", async ({ page }) => {
   await page.goto("/es/settings/categories");
 
@@ -158,9 +168,9 @@ test("the webhooks screen renders a credential with its own rate limit", async (
 
   await page.goto("/es/settings/webhooks");
 
-  await expect(page.getByText(name, { exact: true })).toBeVisible();
+  await expect(band(page).getByText(name, { exact: true })).toBeVisible();
   await expect(
-    page.getByText(atCount(messages.webhooks.rateLimit, rateLimit), {
+    band(page).getByText(atCount(messages.webhooks.rateLimit, rateLimit), {
       exact: true,
     }),
   ).toBeVisible();
@@ -205,8 +215,9 @@ test.describe("the members screen", () => {
     await page.goto("/es/settings/members");
 
     // The sidebar names the signed-in person, so their name is on the screen
-    // twice by design; the roster is the one under test.
-    const roster = page.getByRole("main");
+    // twice by design; the roster is the one under test, in the band this
+    // width displays — the other band carries the same names, hidden.
+    const roster = band(page);
 
     await expect(roster.getByText(memberName, { exact: true })).toBeVisible();
     await expect(roster.getByText(leaderName, { exact: true })).toBeVisible();
@@ -226,9 +237,9 @@ function rowMenus(page: Page): Locator {
 }
 
 // Whichever of the two the browser signs in as is named by the sidebar as well,
-// so both rows are read from the screen's own landmark.
+// so both rows are read from the band this width displays, not the sidebar's.
 async function expectRosterRendered(page: Page): Promise<void> {
-  const roster = page.getByRole("main");
+  const roster = band(page);
 
   await expect(roster.getByText(LEADER_MEMBER_NAME, { exact: true })).toBeVisible();
   await expect(roster.getByText(PLAIN_MEMBER_NAME, { exact: true })).toBeVisible();

@@ -58,8 +58,15 @@ function band(page: Page): Locator {
 // a member across cells — the role badge sits in its own column, apart from the
 // name — so only the whole `role="row"` carries both; the phone's card keeps
 // every badge in the one div the name sits in, and the table matches nothing
-// there for `getByRole` to find, so the card's own div takes over.
+// there for `getByRole` to find, so the card's own div takes over. Waits for
+// the roster's own copy of the name first, scoped to the band, never to
+// `page`: the sidebar carries the caller's own name too, already visible
+// before the roster paints, and a page-wide wait would resolve on that one and
+// race the count below into the wrong branch — the mobile sidebar hides it
+// outright, so the same wait would just hang.
 async function nameRow(page: Page, name: string): Promise<Locator> {
+  await band(page).getByText(name).first().waitFor();
+
   const row = page
     .getByRole("table", { name: members.title })
     .getByRole("row")
