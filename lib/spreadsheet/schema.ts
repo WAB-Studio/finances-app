@@ -180,11 +180,7 @@ export type RecurringRuleRow = z.infer<typeof recurringRuleRowSchema>;
 // Multi-split transactions cannot round-trip through one cell: the export leaves
 // it blank and the later import module reconstructs splits from the ledger side.
 export const transactionRowSchema = z.object({
-  externalRef: z
-    .string()
-    .trim()
-    .max(200, { error: "transactions.errors.externalRefTooLong" })
-    .optional(),
+  externalRef: externalRefSchema,
   fromAccount: nullableReferenceNameSchema,
   toAccount: nullableReferenceNameSchema,
   amount: pesoAmountSchema({

@@ -136,6 +136,7 @@ import {
   memberRowSchema,
   recurringRuleRowSchema,
   SHEET_ENTITIES,
+  transactionRowSchema,
 } from "@/lib/spreadsheet/schema";
 import { createTransactionSchema } from "@/lib/validation/transaction";
 import en from "@/messages/en.json";
@@ -1920,7 +1921,7 @@ async function readSuite(
 
   // D7: the RF-49 template leaves external_ref blank for a brand-new row, and a
   // blank cell parses to null — not undefined — so `.optional()` refused every
-  // new row the template itself offers. No database round trip here: the four
+  // new row the template itself offers. No database round trip here: the five
   // row schemas that carry external_ref are pure zod, driven directly rather
   // than through a parsed workbook, to isolate the one column under test.
   await checkReadValue(
@@ -1962,6 +1963,17 @@ async function readSuite(
             dayOfMonth: null,
             nextRunOn: today,
             endsOn: null,
+          },
+        },
+        {
+          schema: transactionRowSchema,
+          row: {
+            fromAccount: "Harness cuenta",
+            toAccount: null,
+            amount: "1000",
+            category: "Harness categoría",
+            occurredAt: today,
+            description: null,
           },
         },
       ];
