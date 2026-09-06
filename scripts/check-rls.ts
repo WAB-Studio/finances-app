@@ -202,6 +202,7 @@ async function main() {
   await checkLeadershipTransfer();
   await checkAccountHandOver();
   await checkCurrencyPolicies();
+  await checkCounterAmountWriteScope();
 }
 
 // Assertions 9-26: the repivoted schema. A group holds accounts and categories a user XOR a group
@@ -8566,6 +8567,98 @@ async function checkCurrencyPolicies() {
     tailLabel,
     afterUser === "postgres" && probeCount === "0",
     `current_user = ${afterUser}, rows named 'rls currency%' = ${probeCount}`,
+  );
+}
+
+// Assertion 283: 0032's `GRANT UPDATE (currency, counter_amount_cents, counter_is_estimate)`
+// and `GRANT INSERT (currency, counter_amount_cents, counter_is_estimate)` widen what a
+// writer may SET on a transaction, never who counts as one. Driven as an outsider who
+// shares no account with the owner: her UPDATE of the counter amount matches no row —
+// caught twice over, first by `transactions_select_member` denying her the row at all,
+// then by `transactions_update_writable`'s own USING/WITH CHECK, each sufficient alone
+// (confirmed by widening one at a time: neither breach alone lets the write through, and
+// widening both together does) — and her INSERT naming the owner's account is refused
+// outright by `transactions_insert_writable`, before the currency triggers ever see the row.
+async function checkCounterAmountWriteScope() {
+  console.log("");
+  const owner = randomUUID();
+  const outsider = randomUUID();
+
+  const label =
+    "283. an outsider's write of counter_amount_cents reaches no transaction she cannot already write";
+  const tailLabel = "284. the rolled-back counter-amount-scope transaction leaves no trace";
+  const forcedRollback = Symbol("forced rollback");
+
+  await sql
+    .begin(async (tx) => {
+      await tx`insert into auth.users (id) values (${owner}), (${outsider})`;
+      await tx`insert into app_users (id) values (${owner}), (${outsider})`;
+      await enterUserContext(tx, owner);
+
+      const [{ id: dollars }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, settlement_currency, initial_balance_cents, initial_balance_on)
+        values (${owner}, 'rls counter scope dollars', 'asset', 'USD', 100000, (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: incomeCat }] = await tx<{ id: string }[]>`
+        insert into categories (owner_user_id, name, kind)
+        values (${owner}, 'rls counter scope income', 'income') returning id`;
+      const [abroad] = await tx<{ id: string; counter_amount_cents: string }[]>`
+        insert into transactions (to_account_id, amount_cents, occurred_at, currency, counter_amount_cents)
+        values (${dollars}, 5000, (now() at time zone 'America/Bogota')::date, 'COP', 20)
+        returning id, counter_amount_cents`;
+      await tx`insert into transaction_splits (transaction_id, category_id, amount_cents)
+        values (${abroad.id}, ${incomeCat}, 5000)`;
+
+      // The UPDATE: the outsider names the owner's row, but `can_write_transaction` fails
+      // her on the destination account, so the statement is admitted and touches nothing —
+      // the same silence a denied UPDATE leaves on any other column.
+      await enterUserContext(tx, outsider);
+      const outsiderUpdate = await tx<{ id: string }[]>`
+        update transactions set counter_amount_cents = 999999
+        where id = ${abroad.id} returning id`;
+
+      // The INSERT: naming the same account from scratch, in its own savepoint so a
+      // wrongly-accepted row does not linger for the read below.
+      const discard = Symbol("discard the savepoint");
+      let insertCode = "no refusal — the statement was accepted";
+      await tx
+        .savepoint(async (sp) => {
+          await sp`insert into transactions (to_account_id, amount_cents, occurred_at, currency, counter_amount_cents)
+            values (${dollars}, 3000, (now() at time zone 'America/Bogota')::date, 'COP', 15)`;
+          throw discard;
+        })
+        .catch((error: unknown) => {
+          if (error !== discard) insertCode = pgErrorCode(error) ?? "none";
+        });
+
+      // Read back as the owner: the assertion is about what the row STORES, never what the
+      // outsider was shown.
+      await enterUserContext(tx, owner);
+      const [{ counter_amount_cents: stillOriginal }] = await tx<
+        { counter_amount_cents: string }[]
+      >`select counter_amount_cents::text from transactions where id = ${abroad.id}`;
+
+      assert(
+        label,
+        outsiderUpdate.length === 0 &&
+          insertCode === "42501" &&
+          stillOriginal === abroad.counter_amount_cents,
+        `outsider update rows = ${outsiderUpdate.length}, outsider insert = ${insertCode} (expected 42501), counter after = ${stillOriginal} (expected ${abroad.counter_amount_cents})`,
+      );
+
+      // Nothing this section wrote may survive; force the ROLLBACK.
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`select current_user`;
+  const [{ count: probeCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from accounts where name like 'rls counter scope%'`;
+  assert(
+    tailLabel,
+    afterUser === "postgres" && probeCount === "0",
+    `current_user = ${afterUser}, rows named 'rls counter scope%' = ${probeCount}`,
   );
 }
 

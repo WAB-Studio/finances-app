@@ -37,6 +37,15 @@ const OPENING_SEPARATOR = accounts.openingBalanceRow
   .split("</amount>")[1]
   .split("{date}")[0];
 
+// The static tail of "<amount></amount> en {currency}" once the figure tag is
+// gone: a second currency's line ends in it, on the phone's card and in the
+// laptop's cell alike (RF-121, RF-124).
+const CURRENCY_LINE_SUFFIX = accounts.balanceInCurrency.split("</amount>")[1];
+
+function otherCurrencyLabel(currency: string): string {
+  return CURRENCY_LINE_SUFFIX.replace("{currency}", currency).trim();
+}
+
 // The menu names the row it belongs to, so a card is reached by its own name and
 // never by a position among whatever else the list is carrying.
 function rowMenu(page: Page, name: string): Locator {
@@ -314,6 +323,55 @@ test.describe("the phone's card", () => {
 
     await dropAccount(account.id);
   });
+
+  test("shows a second currency under the settlement figure, itself unmoved by the estimate", async ({
+    page,
+  }) => {
+    const openingCents = 300_000;
+    const account = await seedAccount({ openingCents });
+    // A dollar purchase against this peso account, still an estimate (RF-121,
+    // RF-123): it opens a pocket of its own and never touches the settlement one.
+    const usdCents = 8_000;
+    const copEstimateCents = 3_200_000;
+
+    await asHarnessUser(async (tx) => {
+      const [movement] = await tx<{ id: string }[]>`
+        insert into transactions (
+          from_account_id, amount_cents, occurred_at, description,
+          currency, counter_amount_cents, counter_is_estimate)
+        values (
+          ${account.id}, ${usdCents}, (now() at time zone ${TIME_ZONE})::date,
+          'Compra en dólares', 'USD', ${copEstimateCents}, true)
+        returning id`;
+      await tx`
+        insert into transaction_splits (transaction_id, category_id, amount_cents)
+        values (${movement.id}, ${scope.categoryId}, ${usdCents})`;
+    });
+
+    await page.goto("/es/settings/accounts");
+
+    const [foreignPocket] = await fixtureSql<{ balance_cents: string }[]>`
+      select balance_cents::text as balance_cents
+      from account_balances where id = ${account.id} and currency = 'USD'`;
+    expect(Number(foreignPocket.balance_cents)).toBe(-usdCents);
+
+    const subject = card(page, account.name);
+    const settlementShown = pesosOf(
+      await line(subject, accounts.balanceLabel).innerText(),
+    );
+    expect(settlementShown).toBe(openingCents / 100);
+
+    // USD is written with two decimals, the same scale the column already
+    // stores every currency in (RNF-05), so its digits are the stored cents
+    // directly — no division by 100 as `pesosOf` does for a peso figure.
+    const otherLine = subject.getByText(otherCurrencyLabel("USD"), { exact: false });
+    await expect(otherLine).toBeVisible();
+    const otherText = await otherLine.innerText();
+    expect(otherText).toContain(MINUS);
+    expect(Number(otherText.replace(/\D/g, ""))).toBe(usdCents);
+
+    await dropAccount(account.id);
+  });
 });
 
 test.describe("the laptop row", () => {
@@ -382,6 +440,53 @@ test.describe("the laptop row", () => {
     const shown = await cell.innerText();
     expect(shown).toContain(MINUS);
     expect(pesosOf(shown)).toBe(Math.abs(Number(derived.balance_cents)) / 100);
+
+    await dropAccount(account.id);
+  });
+
+  test("draws a second currency in the same cell, apart from the settlement figure", async ({
+    page,
+  }) => {
+    const openingCents = 300_000;
+    const account = await seedAccount({ openingCents });
+    const usdCents = 8_000;
+    const copEstimateCents = 3_200_000;
+
+    await asHarnessUser(async (tx) => {
+      const [movement] = await tx<{ id: string }[]>`
+        insert into transactions (
+          from_account_id, amount_cents, occurred_at, description,
+          currency, counter_amount_cents, counter_is_estimate)
+        values (
+          ${account.id}, ${usdCents}, (now() at time zone ${TIME_ZONE})::date,
+          'Compra en dólares', 'USD', ${copEstimateCents}, true)
+        returning id`;
+      await tx`
+        insert into transaction_splits (transaction_id, category_id, amount_cents)
+        values (${movement.id}, ${scope.categoryId}, ${usdCents})`;
+    });
+
+    await page.goto("/es/settings/accounts");
+
+    const cell = page
+      .getByRole("table", { name: accounts.title })
+      .getByRole("row")
+      .filter({ hasText: account.name })
+      .getByRole("cell")
+      .nth(4);
+    await expect(cell).toBeVisible();
+
+    // The cell's own second line, read in isolation first: the column stores no
+    // per-row label to scope by here, so the settlement figure below is read as
+    // whatever the cell states beyond this substring, not by DOM position.
+    const otherLine = cell.getByText(otherCurrencyLabel("USD"), { exact: false });
+    await expect(otherLine).toBeVisible();
+    const otherText = await otherLine.innerText();
+    expect(otherText).toContain(MINUS);
+    expect(Number(otherText.replace(/\D/g, ""))).toBe(usdCents);
+
+    const settlementOnly = (await cell.innerText()).replace(otherText, "").trim();
+    expect(pesosOf(settlementOnly)).toBe(openingCents / 100);
 
     await dropAccount(account.id);
   });

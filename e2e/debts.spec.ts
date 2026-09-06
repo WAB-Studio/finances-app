@@ -37,6 +37,7 @@ import {
 const debts = messages.debts;
 const installments = messages.installments;
 const common = messages.common;
+const settlement = messages.debts.settlement;
 
 // The em dash a cell with nothing to name reads as, which is what a debt with no
 // credit limit shows instead of a cupo of zero (RF-117).
@@ -1095,5 +1096,107 @@ test.describe("under a plain member", () => {
       page.getByRole("button", { name: debts.rowNewPlan, exact: true }),
     ).toHaveCount(0);
     await expect(rowMenu(page, readerPlanTitle)).toHaveCount(0);
+  });
+});
+
+const FOREIGN_DEBT_OWED_CENTS = 20_000_000;
+// $80.00, stored in dollars' own scale — hundredths of the major unit, the
+// same as every currency (RNF-05).
+const FOREIGN_USD_CENTS = 8_000;
+const FOREIGN_COP_ESTIMATE_CENTS = 3_200_000;
+const FOREIGN_COP_BILLED_CENTS = 3_180_000;
+
+test.describe("a debt with a foreign purchase", () => {
+  const foreignDebtId = randomUUID();
+  const foreignDebtName = `Tarjeta con compra foránea ${stamp}`;
+  const foreignCategoryId = randomUUID();
+  const purchaseDescription = `Compra en dólares ${stamp}`;
+
+  test.beforeEach(async () => {
+    await seedDebt({
+      id: foreignDebtId,
+      name: foreignDebtName,
+      owedCents: FOREIGN_DEBT_OWED_CENTS,
+      terms: { debtKind: "revolving", annualRate: 0.2 },
+    });
+
+    await asHarnessUser(async (tx) => {
+      await tx`
+        insert into categories (id, owner_user_id, name, kind, color)
+        values (${foreignCategoryId}, ${scope.userId}, ${`Compra foránea ${stamp}`}, 'expense', '#4C8C4A')`;
+
+      const [movement] = await tx<{ id: string }[]>`
+        insert into transactions (
+          from_account_id, amount_cents, occurred_at, description,
+          currency, counter_amount_cents, counter_is_estimate)
+        values (
+          ${foreignDebtId}, ${FOREIGN_USD_CENTS}, ${todayInBogota()},
+          ${purchaseDescription}, 'USD', ${FOREIGN_COP_ESTIMATE_CENTS}, true)
+        returning id`;
+      await tx`
+        insert into transaction_splits (transaction_id, category_id, amount_cents)
+        values (${movement.id}, ${foreignCategoryId}, ${FOREIGN_USD_CENTS})`;
+    });
+  });
+
+  test.afterEach(async () => {
+    await dropAccounts([foreignDebtId]);
+    await fixtureSql`delete from categories where id = ${foreignCategoryId}`;
+  });
+
+  test("lists the still-estimated purchase, and billing it clears the mark and moves the balance to pesos", async ({
+    page,
+  }) => {
+    await page.goto(`/es/planning/debts/${foreignDebtId}`);
+
+    await expect(page.getByText(settlement.title, { exact: true })).toBeVisible();
+    await expect(page.getByText(purchaseDescription, { exact: true })).toBeVisible();
+
+    // What was spent, in dollars — never the peso estimate standing in for it.
+    const spentRow = page.getByText(settlement.spent, { exact: true }).locator("..");
+    // Dollars are written with two decimals, the same as the stored scale
+    // (RNF-05), so the digits shown are the stored cents directly.
+    expect(await digitsOf(spentRow)).toBe(FOREIGN_USD_CENTS);
+
+    const estimateRow = page
+      .getByText(settlement.estimate, { exact: true })
+      .locator("..");
+    await expect(estimateRow).toContainText("≈");
+    expect(await digitsOf(estimateRow)).toBe(pesos(FOREIGN_COP_ESTIMATE_CENTS));
+
+    // Before a statement replaces it, the estimate sits in its own foreign
+    // pocket and the settlement one holds only what the account opened owing
+    // (RF-121, RF-123) — read against `account_balances`, never asserted from
+    // the screen alone.
+    const beforeBill = await fixtureSql<{ currency: string; balance_cents: string }[]>`
+      select currency, balance_cents::text as balance_cents
+      from account_balances where id = ${foreignDebtId} order by currency`;
+    expect(beforeBill).toEqual([
+      { currency: "COP", balance_cents: String(-FOREIGN_DEBT_OWED_CENTS) },
+      { currency: "USD", balance_cents: String(-FOREIGN_USD_CENTS) },
+    ]);
+
+    await page
+      .getByLabel(settlement.billedLabel)
+      .fill(String(pesos(FOREIGN_COP_BILLED_CENTS)));
+    await page.getByRole("button", { name: settlement.save, exact: true }).click();
+
+    await expect(page.getByText(settlement.saved, { exact: true })).toBeVisible();
+    // The mark is what moves the row, not a second list kept alongside it.
+    await expect(page.getByText(purchaseDescription, { exact: true })).toHaveCount(0);
+    await expect(page.getByText(settlement.empty, { exact: true })).toBeVisible();
+
+    // Billed, the dollar pocket nets to zero and drops out (it carries no
+    // opening balance of its own to keep it), and the peso one carries what
+    // the issuer billed, never the estimate (RF-123, RF-124).
+    const afterBill = await fixtureSql<{ currency: string; balance_cents: string }[]>`
+      select currency, balance_cents::text as balance_cents
+      from account_balances where id = ${foreignDebtId} order by currency`;
+    expect(afterBill).toEqual([
+      {
+        currency: "COP",
+        balance_cents: String(-(FOREIGN_DEBT_OWED_CENTS + FOREIGN_COP_BILLED_CENTS)),
+      },
+    ]);
   });
 });
