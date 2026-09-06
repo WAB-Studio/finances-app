@@ -3,17 +3,29 @@ import "server-only";
 import { and, asc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 
 import { insertRow } from "@/db/insert-row";
-import { recurringRules, transactions } from "@/db/schema";
+import { accounts, recurringRules, transactions } from "@/db/schema";
 import type { RecurringRule } from "@/db/schema";
 import { withUserDb } from "@/db/session";
+import { BASE_CURRENCY } from "@/lib/currency";
 
 type Frequency = RecurringRule["frequency"];
+
+// A rule names exactly one account, so one of the two joins answers and the
+// other is null — the same `coalesce` `set_transaction_currency` runs on the
+// movement the rule generates. An account the caller cannot read answers null,
+// so the base currency closes it.
+const settledIn = sql<string>`coalesce(
+  from_account.settlement_currency, to_account.settlement_currency, ${BASE_CURRENCY}
+)`;
 
 export type RecurringRuleRow = {
   id: string;
   fromAccountId: string | null;
   toAccountId: string | null;
   amountCents: number;
+  // What the amount is written and read in (RF-121): the settlement currency of
+  // the one account the rule names.
+  currency: string;
   categoryId: string;
   description: string | null;
   frequency: Frequency;
@@ -25,7 +37,8 @@ export type RecurringRuleRow = {
 };
 
 // Every readable rule, soonest next run first, in ONE round trip (RF-29); scope is
-// the policy's job.
+// the policy's job. The account joins ride along so no row costs a lookup of its
+// own currency.
 export async function listRecurringRules(): Promise<RecurringRuleRow[]> {
   return withUserDb(async (tx) =>
     tx
@@ -34,6 +47,7 @@ export async function listRecurringRules(): Promise<RecurringRuleRow[]> {
         fromAccountId: recurringRules.fromAccountId,
         toAccountId: recurringRules.toAccountId,
         amountCents: recurringRules.amountCents,
+        currency: settledIn,
         categoryId: recurringRules.categoryId,
         description: recurringRules.description,
         frequency: recurringRules.frequency,
@@ -44,6 +58,14 @@ export async function listRecurringRules(): Promise<RecurringRuleRow[]> {
         isActive: recurringRules.isActive,
       })
       .from(recurringRules)
+      .leftJoin(
+        sql`${accounts} from_account`,
+        sql`from_account.id = ${recurringRules.fromAccountId}`,
+      )
+      .leftJoin(
+        sql`${accounts} to_account`,
+        sql`to_account.id = ${recurringRules.toAccountId}`,
+      )
       .orderBy(asc(recurringRules.nextRunOn)),
   );
 }

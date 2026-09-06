@@ -25,10 +25,13 @@ import {
 } from "@/components/ui";
 import type { GoalProgress } from "@/db/queries/savings-goals";
 import type { TransactionFormOptions } from "@/db/queries/transaction-form";
-import { centsToPesos } from "@/lib/money";
+// The field takes the decimals the row's currency is written with, so
+// reopening a figure and saving it back stores the integer it already held.
+import { amountToInput } from "@/lib/money";
 import { useActionErrorToast } from "@/lib/use-action-toast";
 import {
   createGoalSchema,
+  refineGoalAmounts,
   updateGoalSchema,
   type CreateGoalInput,
   type UpdateGoalInput,
@@ -54,11 +57,16 @@ export function GoalFormDialog({
   open,
   onOpenChange,
   options,
+  scopeCurrency,
   goal,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   options: TransactionFormOptions;
+  // What a goal naming no account derives: the fund's currency, or the person's
+  // own when they hold no fund (RF-121). Read by the server, since a form cannot
+  // see either row.
+  scopeCurrency: string;
   goal?: GoalProgress;
 }) {
   const t = useTranslations("goals");
@@ -72,6 +80,7 @@ export function GoalFormDialog({
         <GoalForm
           key={goal?.id ?? "create"}
           options={options}
+          scopeCurrency={scopeCurrency}
           goal={goal}
           onOpenChange={onOpenChange}
         />
@@ -82,10 +91,12 @@ export function GoalFormDialog({
 
 function GoalForm({
   options,
+  scopeCurrency,
   goal,
   onOpenChange,
 }: {
   options: TransactionFormOptions;
+  scopeCurrency: string;
   goal?: GoalProgress;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -95,15 +106,32 @@ function GoalForm({
 
   const isEdit = !!goal;
 
+  // The meta and the opening aporte are read in the currency the goal derives:
+  // the account's when it names one, the scope's otherwise — the same chain
+  // `resolveGoalCurrency` walks for the action (RF-121, RNF-10).
+  const resolver: Resolver<GoalFormValues> = (values, context, options_) => {
+    const schema = (isEdit ? updateGoalSchema : createGoalSchema).superRefine(
+      refineGoalAmounts(
+        (values.accountId
+          ? options.accountCurrencies[values.accountId]
+          : undefined) ?? scopeCurrency,
+      ),
+    );
+
+    return (zodResolver(schema) as unknown as Resolver<GoalFormValues>)(
+      values,
+      context,
+      options_,
+    );
+  };
+
   const form = useForm<GoalFormValues>({
-    resolver: (isEdit
-      ? zodResolver(updateGoalSchema)
-      : zodResolver(createGoalSchema)) as unknown as Resolver<GoalFormValues>,
+    resolver,
     defaultValues: goal
       ? {
           goalId: goal.id,
           name: goal.name,
-          targetAmount: String(centsToPesos(goal.targetAmountCents)),
+          targetAmount: amountToInput(goal.targetAmountCents, goal.currency),
           targetDate: goal.targetDate,
           accountId: goal.accountId,
         }

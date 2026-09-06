@@ -31,10 +31,13 @@ import {
 import type { RecurringRuleRow } from "@/db/queries/recurring-rules";
 import type { TransactionFormOptions } from "@/db/queries/transaction-form";
 import { isCivilDate } from "@/lib/dates";
-import { centsToPesos } from "@/lib/money";
+// The field takes the decimals the row's currency is written with, so
+// reopening a figure and saving it back stores the integer it already held.
+import { amountToInput } from "@/lib/money";
 import { useActionErrorToast } from "@/lib/use-action-toast";
 import {
   createRecurringRuleSchema,
+  refineRuleAmount,
   updateRecurringRuleSchema,
   type CreateRecurringRuleInput,
   type UpdateRecurringRuleInput,
@@ -114,19 +117,40 @@ function RecurringForm({
 
   const isEdit = !!rule;
 
+  // A rule names exactly one account, and the values under validation name it:
+  // the resolver reads what it settles in off the map the options already carry
+  // and refines the mode's own schema with it, so the form refuses exactly what
+  // the action refuses against the currency it reads back (RF-121, RNF-10).
+  const resolver: Resolver<RuleFormValues> = (values, context, options_) => {
+    const schema = (
+      isEdit ? updateRecurringRuleSchema : createRecurringRuleSchema
+    ).superRefine(
+      refineRuleAmount({
+        from: values.fromAccountId
+          ? options.accountCurrencies[values.fromAccountId] ?? null
+          : null,
+        to: values.toAccountId
+          ? options.accountCurrencies[values.toAccountId] ?? null
+          : null,
+      }),
+    );
+
+    return (zodResolver(schema) as unknown as Resolver<RuleFormValues>)(
+      values,
+      context,
+      options_,
+    );
+  };
+
   const form = useForm<RuleFormValues>({
-    resolver: (isEdit
-      ? zodResolver(updateRecurringRuleSchema)
-      : zodResolver(
-          createRecurringRuleSchema,
-        )) as unknown as Resolver<RuleFormValues>,
+    resolver,
     defaultValues: rule
       ? {
           id: rule.id,
           direction: rule.toAccountId !== null ? "income" : "expense",
           fromAccountId: rule.fromAccountId,
           toAccountId: rule.toAccountId,
-          amount: String(centsToPesos(rule.amountCents)),
+          amount: amountToInput(rule.amountCents, rule.currency),
           categoryId: rule.categoryId,
           description: rule.description,
           frequency: rule.frequency,

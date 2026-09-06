@@ -2,6 +2,8 @@
 
 import { refresh } from "next/cache";
 
+import { z } from "zod";
+
 import { getUserGroup } from "@/db/queries/groups";
 import {
   addGoalContribution,
@@ -10,13 +12,15 @@ import {
   deleteGoal,
   listGoalContributions,
   removeGoalContribution,
+  resolveGoalCurrency,
   restoreGoal,
   updateGoal,
   type GoalContributionRow,
 } from "@/db/queries/savings-goals";
+import type { CurrencyCode } from "@/lib/currency";
 import { pgErrorCode } from "@/lib/db-error";
 import { ActionError } from "@/lib/errors";
-import { parsePesos, pesosToCents } from "@/lib/money";
+import { parseAmount } from "@/lib/money";
 import { authActionClient } from "@/lib/safe-action";
 import {
   archiveGoalSchema,
@@ -24,17 +28,43 @@ import {
   createGoalSchema,
   deleteGoalSchema,
   goalContributionsSchema,
+  refineContributionAmount,
+  refineGoalAmounts,
   removeGoalContributionSchema,
   restoreGoalSchema,
   updateGoalSchema,
 } from "@/lib/validation/savings-goal";
 
-// The amount arrives as a Zod-validated peso string; parsing it into cents here
-// can only fail if the schema let something through it should not have.
-function toCents(amount: string): number {
-  const pesos = parsePesos(amount);
-  if (pesos === null) throw new ActionError("errors.unexpected");
-  return pesosToCents(pesos);
+/**
+ * The meta and the opening aporte read in the currency the goal derives, never
+ * in the one the payload implies (RF-121). The refinement is the very one the
+ * form runs (RNF-10); past it, a null parse can only be a schema that let
+ * something through, so it is `errors.unexpected` and not a field message.
+ */
+function toGoalMinor(
+  amounts: { targetAmount: string; initialContribution?: string | null },
+  currency: CurrencyCode,
+): { targetAmountCents: number; initialContributionCents: number | null } {
+  const verdict = z
+    .custom<typeof amounts>()
+    .superRefine(refineGoalAmounts(currency))
+    .safeParse(amounts);
+
+  if (!verdict.success) throw new ActionError(verdict.error.issues[0].message);
+
+  return {
+    targetAmountCents: toMinor(amounts.targetAmount, currency),
+    initialContributionCents:
+      amounts.initialContribution != null
+        ? toMinor(amounts.initialContribution, currency)
+        : null,
+  };
+}
+
+function toMinor(amount: string, currency: CurrencyCode): number {
+  const minor = parseAmount(amount, currency);
+  if (minor === null) throw new ActionError("errors.unexpected");
+  return minor;
 }
 
 // A scope mismatch on the goal's account, or on a contributed movement, raises
@@ -60,11 +90,16 @@ export const createGoalAction = authActionClient
       parsedInput: { targetAmount, targetDate, accountId, initialContribution, ...goal },
       ctx,
     }) => {
-      const targetAmountCents = toCents(targetAmount);
-      const initialContributionCents =
-        initialContribution != null ? toCents(initialContribution) : null;
+      // The currency and the scope ride one fan-out: neither read waits on the other.
+      const [currency, group] = await Promise.all([
+        resolveGoalCurrency({ accountId: accountId ?? null }),
+        getUserGroup(),
+      ]);
+      const { targetAmountCents, initialContributionCents } = toGoalMinor(
+        { targetAmount, initialContribution },
+        currency,
+      );
 
-      const group = await getUserGroup();
       const scope = group
         ? { ownerUserId: null, groupId: group.id }
         : { ownerUserId: ctx.user.id, groupId: null };
@@ -95,7 +130,11 @@ export const createGoalAction = authActionClient
 export const updateGoalAction = authActionClient
   .inputSchema(updateGoalSchema)
   .action(async ({ parsedInput: { targetAmount, targetDate, accountId, ...goal } }) => {
-    const targetAmountCents = toCents(targetAmount);
+    const currency = await resolveGoalCurrency({
+      goalId: goal.goalId,
+      accountId: accountId ?? null,
+    });
+    const { targetAmountCents } = toGoalMinor({ targetAmount }, currency);
 
     let updated: boolean;
     try {
@@ -149,12 +188,21 @@ export const deleteGoalAction = authActionClient
 
 /**
  * Adds a typed virtual aporte toward a goal (RF-87). The entry earmarks no
- * movement, so only the amount crosses, as a peso string.
+ * movement, so only the amount crosses, as a string read in the goal's currency.
  */
 export const contributeGoalAction = authActionClient
   .inputSchema(contributeGoalSchema)
   .action(async ({ parsedInput: { goalId, amount } }) => {
-    const amountCents = toCents(amount);
+    // An aporte is set aside in the goal's own currency, whatever it earmarks.
+    const currency = await resolveGoalCurrency({ goalId });
+    const verdict = z
+      .custom<{ amount: string }>()
+      .superRefine(refineContributionAmount(currency))
+      .safeParse({ amount });
+
+    if (!verdict.success) throw new ActionError(verdict.error.issues[0].message);
+
+    const amountCents = toMinor(amount, currency);
 
     let contributionId: string;
     try {

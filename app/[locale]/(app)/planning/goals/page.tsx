@@ -44,6 +44,7 @@ export default async function GoalsPage(
       <GoalsScreen
         goals={goals}
         options={options}
+        scopeCurrency={options.scopeCurrency}
         hasGroup={group !== null}
         archived={archived}
       />

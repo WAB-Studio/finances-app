@@ -1,7 +1,7 @@
 "use client";
 
-import type { ReactNode } from "react";
-import { useFormatter, useTranslations } from "next-intl";
+import { Fragment, type ReactNode } from "react";
+import { useLocale, useTranslations } from "next-intl";
 
 import {
   Badge,
@@ -14,7 +14,7 @@ import {
   Text,
   type DataColumn,
 } from "@/components/ui";
-import { centsToPesos } from "@/lib/money";
+import { formatMoney } from "@/lib/money";
 
 // The minus U+2212 money.tsx reserves for a signed figure — this column signs
 // its own, since `quedan` runs negative on an overspent budget and Money only
@@ -40,6 +40,9 @@ export type BudgetTableRow = {
   id: string;
   title: string;
   color: string | null;
+  // What this row's three figures are counted in, derived by the server from
+  // the budget's account, fund or owner (RF-121).
+  currency: string;
   spentCents: number;
   limitCents: number;
   remainingCents: number;
@@ -75,10 +78,10 @@ export function BudgetsTable({
 }) {
   const t = useTranslations("budgets");
   const tKey = useTranslations();
-  const format = useFormatter();
+  const locale = useLocale();
 
-  function pesos(cents: number): string {
-    return format.number(centsToPesos(cents), "currency");
+  function figure(cents: number, currency: string): string {
+    return formatMoney(cents, currency, locale);
   }
 
   // The percentage a bar and its aria-label read, clamped so an overspend never
@@ -99,19 +102,34 @@ export function BudgetsTable({
   // `quedan` runs negative once a budget is overspent; it reads with the
   // ledger's own minus and in red rather than through Money's fixed tones,
   // which sign by kind and never by the figure they are handed.
-  function remainingCell(cents: number) {
+  function remainingCell(cents: number, currency: string) {
     const negative = cents < 0;
     return (
       <Text color={negative ? "red" : undefined} weight={negative ? "bold" : undefined}>
         {negative && MINUS}
-        <Money cents={Math.abs(cents)} tone="plain" signed={false} />
+        <Money
+          minor={Math.abs(cents)}
+          currency={currency}
+          tone="plain"
+          signed={false}
+        />
       </Text>
     );
   }
 
-  const spentTotalCents = rows.reduce((sum, row) => sum + row.spentCents, 0);
-  const limitTotalCents = rows.reduce((sum, row) => sum + row.limitCents, 0);
-  const remainingTotalCents = limitTotalCents - spentTotalCents;
+  // One running pair per currency on screen, in the order the rows introduce
+  // them: no total ever adds two currencies together (RF-124). With a single
+  // currency — every list until an account settles elsewhere — each total cell
+  // draws the one figure it always did.
+  const totals = new Map<string, { spentCents: number; limitCents: number }>();
+  for (const row of rows) {
+    const running = totals.get(row.currency) ?? { spentCents: 0, limitCents: 0 };
+    running.spentCents += row.spentCents;
+    running.limitCents += row.limitCents;
+    totals.set(row.currency, running);
+  }
+  const totalRows = [...totals.entries()];
+  const single = totalRows.length === 1 ? totalRows[0] : null;
 
   const columns: DataColumn<BudgetTableRow>[] = [
     {
@@ -123,6 +141,11 @@ export function BudgetsTable({
           <CategoryTile color={row.color} size={9} />
           <Text size="2" weight="medium" truncate>
             {row.title}
+          </Text>
+          {/* Which spend the limit counts: the movements booked in this one
+              currency and no other (RF-124). */}
+          <Text size="1" color="gray" style={{ whiteSpace: "nowrap" }}>
+            {tKey("planning.inCurrency", { currency: row.currency })}
           </Text>
         </Flex>
       ),
@@ -137,8 +160,8 @@ export function BudgetsTable({
           color={toneOf(row)}
           aria-label={t("tableProgressLabel", {
             name: row.title,
-            amount: pesos(row.spentCents),
-            limit: pesos(row.limitCents),
+            amount: figure(row.spentCents, row.currency),
+            limit: figure(row.limitCents, row.currency),
             pct: pctOf(row),
           })}
         />
@@ -167,7 +190,9 @@ export function BudgetsTable({
       width: WIDTHS.spent,
       align: "end",
       numeric: true,
-      cell: (row) => <Money cents={row.spentCents} signed={false} />,
+      cell: (row) => (
+        <Money minor={row.spentCents} currency={row.currency} signed={false} />
+      ),
     },
     {
       key: "limit",
@@ -177,7 +202,7 @@ export function BudgetsTable({
       numeric: true,
       cell: (row) => (
         <Text color="gray">
-          <Money cents={row.limitCents} signed={false} />
+          <Money minor={row.limitCents} currency={row.currency} signed={false} />
         </Text>
       ),
     },
@@ -187,7 +212,7 @@ export function BudgetsTable({
       width: WIDTHS.remaining,
       align: "end",
       numeric: true,
-      cell: (row) => remainingCell(row.remainingCents),
+      cell: (row) => remainingCell(row.remainingCents, row.currency),
     },
     {
       key: "menu",
@@ -249,27 +274,48 @@ export function BudgetsTable({
               <Text key="label" size="1" weight="bold" color="gray">
                 {t("tableTotal").toUpperCase()}
               </Text>,
-              <Progress
-                key="progress"
-                value={pctOf({
-                  spentCents: spentTotalCents,
-                  limitCents: limitTotalCents,
-                })}
-                aria-label={t("tableTotalProgressLabel", {
-                  amount: pesos(spentTotalCents),
-                  limit: pesos(limitTotalCents),
-                  pct: pctOf({
-                    spentCents: spentTotalCents,
-                    limitCents: limitTotalCents,
-                  }),
-                })}
-              />,
+              // A bar over two currencies is a percentage of nothing, so it is
+              // drawn only while the list counts one.
+              single ? (
+                <Progress
+                  key="progress"
+                  value={pctOf(single[1])}
+                  aria-label={t("tableTotalProgressLabel", {
+                    amount: figure(single[1].spentCents, single[0]),
+                    limit: figure(single[1].limitCents, single[0]),
+                    pct: pctOf(single[1]),
+                  })}
+                />
+              ) : null,
               null,
-              <Money key="spent" cents={spentTotalCents} signed={false} />,
-              <Text key="limit" color="gray">
-                <Money cents={limitTotalCents} signed={false} />
-              </Text>,
-              remainingCell(remainingTotalCents),
+              <Flex key="spent" direction="column" align="end">
+                {totalRows.map(([currency, sums]) => (
+                  <Money
+                    key={currency}
+                    minor={sums.spentCents}
+                    currency={currency}
+                    signed={false}
+                  />
+                ))}
+              </Flex>,
+              <Flex key="limit" direction="column" align="end">
+                {totalRows.map(([currency, sums]) => (
+                  <Text key={currency} color="gray">
+                    <Money
+                      minor={sums.limitCents}
+                      currency={currency}
+                      signed={false}
+                    />
+                  </Text>
+                ))}
+              </Flex>,
+              <Flex key="remaining" direction="column" align="end">
+                {totalRows.map(([currency, sums]) => (
+                  <Fragment key={currency}>
+                    {remainingCell(sums.limitCents - sums.spentCents, currency)}
+                  </Fragment>
+                ))}
+              </Flex>,
             ]
           : undefined
       }
