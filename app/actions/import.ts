@@ -28,6 +28,9 @@ const FILE_HAS_ERRORS = "data.import.errors.hasErrors";
 
 type PreviewRow = {
   index: number;
+  // The spreadsheet's own row number (RF-51) — what a person sees opening the file
+  // in Excel, never `index`: a blank row skipped upstream pulls the two apart.
+  sheetRow: number;
   status: "new" | "update";
   errors: RowFieldError[];
 };
@@ -65,6 +68,7 @@ export const previewImportAction = authActionClient
         entity: entity.entity,
         rows: entity.rows.map((row) => ({
           index: row.index,
+          sheetRow: row.sheetRow,
           status: row.status,
           errors: row.errors,
         })),
@@ -79,6 +83,7 @@ function rowsFor<T>(result: ImportResult, entity: SheetEntity): CommitRow<T>[] {
   const bucket = result.perEntity.find((set) => set.entity === entity);
   return (bucket?.rows ?? []).map((row) => ({
     index: row.index,
+    sheetRow: row.sheetRow,
     status: row.status,
     externalRef: row.externalRef,
     placeholderId: row.placeholderId,
