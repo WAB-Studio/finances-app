@@ -153,6 +153,20 @@ The helper in `e2e/accounts.spec.ts` strips `\D`, which takes the U+2212 minus a
 currency symbol. A sign asserted through it passes with the sign and without it. **Assert a sign
 against the raw `innerText`.**
 
+### Dropping a worktree burns the report inside it
+
+`private/` is in `.gitignore`, and an ignored path is **not shared between worktrees**: every lane
+has its own. A worker writes its long account to `private/reportes/<branch>.md` in its own lane, so
+`git worktree remove ../finances-app-l<n> --force` deletes it with the directory. Nothing in git
+holds a copy, and the branch merging changes nothing — the file was never tracked.
+
+On 2026-09-05 three reports died that way, minutes after their branches merged: the accounts of
+multicurrency modules 23, 24 and 28, each carrying the measurements behind a PASS.
+
+Copy it out before dropping the lane:
+
+    cp ../finances-app-l<n>/private/reportes/*.md private/reportes/
+
 ### A hook committed 644 dies on the next checkout
 
 Git tracks the execute bit. A hook that works locally because the shell that wrote it left `+x` on

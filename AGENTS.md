@@ -39,6 +39,7 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
 - Cut a lane's branch from the branch it serves, never from `integracion` by inertia.
 - Run at most three suites at once. Nine GB of RAM holds three dev servers and three Chromiums.
 - Run the RNF-09 timing alone: it lives in `check:http` and `check:queries`, and a second lane inflates it.
+- Copy the lane's report out before you drop it: `cp ../finances-app-l<n>/private/reportes/*.md private/reportes/`.
 - Drop the worktree when its branch lands: `git worktree remove ../finances-app-l<n> --force`.
 
 ## Harness lanes
