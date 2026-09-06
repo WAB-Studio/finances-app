@@ -7,7 +7,10 @@
   background-color: var(--color-panel-solid);
   border: 1px solid var(--gray-a4);
   border-radius: 14px;
-  overflow: hidden;
+  /* A row narrower than its tracks scrolls to reach them; the axis that never
+     needs to (the vertical one, against the rounded corners) stays clipped. */
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
 /* One template for the header and every row under it, so the columns line up

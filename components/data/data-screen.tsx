@@ -7,8 +7,10 @@ import { useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { commitImportAction, previewImportAction } from "@/app/actions/import";
+import { ImportErrorsTable } from "@/components/data/import-errors-table";
 import {
   Badge,
+  Box,
   Button,
   Callout,
   Card,
@@ -107,6 +109,29 @@ export function DataScreen({
   const importPreview = preview.result.data;
   // The gate: confirm writes only once every row across every sheet passed.
   const canConfirm = !!importPreview && importPreview.totals.error === 0;
+
+  // Every sheet's errored rows in one flat run, each error its own line: the
+  // desktop table names the sheet a row belongs to instead of grouping by it.
+  // The column and the raw value ride straight from the pipeline (RF-51); only
+  // the column's own header and the message key still need translating here.
+  const errorRows = importPreview
+    ? importPreview.perEntity.flatMap((entity) =>
+        entity.rows
+          .filter((row) => row.errors.length > 0)
+          .flatMap((row) =>
+            row.errors.map((error, position) => ({
+              key: `${entity.entity}-${row.index}-${position}`,
+              sheet: t(`sheets.${entity.entity}`),
+              rowIndex: row.index,
+              column: error.column
+                ? tKey(`data.columns.${error.column}` as MessageKey)
+                : null,
+              value: error.value,
+              problem: tKey(error.key as MessageKey),
+            })),
+          ),
+      )
+    : [];
 
   return (
     <Flex direction="column" gap="4">
@@ -254,49 +279,64 @@ export function DataScreen({
               </Flex>
 
               {importPreview.totals.error > 0 ? (
-                importPreview.perEntity
-                  .filter((entity) =>
-                    entity.rows.some((row) => row.errors.length > 0),
-                  )
-                  .map((entity) => (
-                    <Flex key={entity.entity} direction="column" gap="1">
-                      <Text size="2" weight="medium">
-                        {t(`sheets.${entity.entity}`)}
-                      </Text>
-                      <Table.Root size="1" variant="surface">
-                        <Table.Header>
-                          <Table.Row>
-                            <Table.ColumnHeaderCell>
-                              {t("screen.reportRow")}
-                            </Table.ColumnHeaderCell>
-                            <Table.ColumnHeaderCell>
-                              {t("screen.reportProblem")}
-                            </Table.ColumnHeaderCell>
-                          </Table.Row>
-                        </Table.Header>
-                        <Table.Body>
-                          {entity.rows
-                            .filter((row) => row.errors.length > 0)
-                            .map((row) => (
-                              <Table.Row key={row.index}>
-                                <Table.RowHeaderCell>
-                                  {row.index}
-                                </Table.RowHeaderCell>
-                                <Table.Cell>
-                                  <Flex direction="column" gap="1">
-                                    {row.errors.map((error, position) => (
-                                      <Text key={`${error}-${position}`} size="2">
-                                        {tKey(error as MessageKey)}
-                                      </Text>
-                                    ))}
-                                  </Flex>
-                                </Table.Cell>
-                              </Table.Row>
-                            ))}
-                        </Table.Body>
-                      </Table.Root>
+                <>
+                  {/* The phone keeps the per-sheet tables it already had; the
+                      laptop gets one flat table naming the sheet per row. */}
+                  <Box display={{ initial: "block", lg: "none" }}>
+                    <Flex direction="column" gap="4">
+                      {importPreview.perEntity
+                        .filter((entity) =>
+                          entity.rows.some((row) => row.errors.length > 0),
+                        )
+                        .map((entity) => (
+                          <Flex key={entity.entity} direction="column" gap="1">
+                            <Text size="2" weight="medium">
+                              {t(`sheets.${entity.entity}`)}
+                            </Text>
+                            <Table.Root size="1" variant="surface">
+                              <Table.Header>
+                                <Table.Row>
+                                  <Table.ColumnHeaderCell>
+                                    {t("screen.reportRow")}
+                                  </Table.ColumnHeaderCell>
+                                  <Table.ColumnHeaderCell>
+                                    {t("screen.reportProblem")}
+                                  </Table.ColumnHeaderCell>
+                                </Table.Row>
+                              </Table.Header>
+                              <Table.Body>
+                                {entity.rows
+                                  .filter((row) => row.errors.length > 0)
+                                  .map((row) => (
+                                    <Table.Row key={row.index}>
+                                      <Table.RowHeaderCell>
+                                        {row.index}
+                                      </Table.RowHeaderCell>
+                                      <Table.Cell>
+                                        <Flex direction="column" gap="1">
+                                          {row.errors.map((error, position) => (
+                                            <Text
+                                              key={`${error.key}-${position}`}
+                                              size="2"
+                                            >
+                                              {tKey(error.key as MessageKey)}
+                                            </Text>
+                                          ))}
+                                        </Flex>
+                                      </Table.Cell>
+                                    </Table.Row>
+                                  ))}
+                              </Table.Body>
+                            </Table.Root>
+                          </Flex>
+                        ))}
                     </Flex>
-                  ))
+                  </Box>
+
+                  <Box display={{ initial: "none", lg: "block" }}>
+                    <ImportErrorsTable rows={errorRows} />
+                  </Box>
+                </>
               ) : (
                 <Callout.Root color="green" variant="soft">
                   <Callout.Icon>
