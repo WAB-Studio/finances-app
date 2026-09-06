@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import type { PgTable } from "drizzle-orm/pg-core";
 
 import {
@@ -11,6 +11,8 @@ import {
   transactions,
 } from "@/db/schema";
 import type { Transaction } from "@/db/session";
+import { BASE_CURRENCY } from "@/lib/currency";
+import { ActionError } from "@/lib/errors";
 import { parsePesos, pesosToCents } from "@/lib/money";
 import type { CreateAccountInput } from "@/lib/validation/account";
 import type { CreateCategoryInput } from "@/lib/validation/category";
@@ -138,6 +140,18 @@ export async function commitImport(
 
   // Then accounts, so a movement or rule that names one can link to its real id.
   const accountMap = await commitAccounts(tx, input.accounts, scope);
+
+  // Reject before a single recurring rule or transaction lands (RF-121):
+  // `toCents` below still reads every amount as pesos, which only an account
+  // settling in BASE_CURRENCY makes correct.
+  await assertBaseCurrencyAccounts(
+    tx,
+    [
+      ...input.recurringRules.map((row) => row.object),
+      ...input.transactions.map((row) => row.object),
+    ],
+    accountMap,
+  );
 
   // The placeholders any reference could still be carrying: the union of every file-new
   // account and category. After remap, no written reference may be one of these.
@@ -364,6 +378,47 @@ async function commitAccounts(
 function link(value: string | null, map: Map<string, string>): string | null {
   if (value === null) return null;
   return map.get(value) ?? value;
+}
+
+// The settlement currency of every account a recurring rule or transaction row names,
+// read back in one round trip now that a file-new account has a real row (RF-121). A
+// file-new account is never foreign here — `commitAccounts` writes none of them a
+// settlement currency of their own, so the column default (BASE_CURRENCY) holds — but
+// the check still walks it like any other, per row, and stops at the first mismatch.
+async function assertBaseCurrencyAccounts(
+  tx: Transaction,
+  rows: { fromAccountId: string | null; toAccountId: string | null }[],
+  accountMap: Map<string, string>,
+): Promise<void> {
+  const linkedIds = rows.map((row) => ({
+    fromAccountId: link(row.fromAccountId, accountMap),
+    toAccountId: link(row.toAccountId, accountMap),
+  }));
+
+  const ids = new Set<string>();
+  for (const row of linkedIds) {
+    if (row.fromAccountId !== null) ids.add(row.fromAccountId);
+    if (row.toAccountId !== null) ids.add(row.toAccountId);
+  }
+  if (ids.size === 0) return;
+
+  const currencyById = new Map(
+    (
+      await tx
+        .select({ id: accounts.id, settlementCurrency: accounts.settlementCurrency })
+        .from(accounts)
+        .where(inArray(accounts.id, [...ids]))
+    ).map((account) => [account.id, account.settlementCurrency]),
+  );
+
+  const isForeign = (id: string | null) =>
+    id !== null && currencyById.get(id) !== undefined && currencyById.get(id) !== BASE_CURRENCY;
+
+  for (const row of linkedIds) {
+    if (isForeign(row.fromAccountId) || isForeign(row.toAccountId)) {
+      throw new ActionError("errors.foreignCurrencyUnsupported");
+    }
+  }
 }
 
 async function commitRecurringRules(

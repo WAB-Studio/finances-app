@@ -9,6 +9,7 @@ import {
   type ImportScope,
   type ScopedEntity,
 } from "@/db/queries/import-preview";
+import { BASE_CURRENCY } from "@/lib/currency";
 import { ActionError } from "@/lib/errors";
 import { centsToPesos } from "@/lib/money";
 import { SHEET_ENTITIES, sheetDescriptors, type SheetEntity } from "@/lib/spreadsheet/schema";
@@ -30,6 +31,10 @@ export const TOO_MANY_ROWS = "data.import.errors.tooManyRows";
 const UNKNOWN_REFERENCE = "data.import.errors.unknownReference";
 const AMBIGUOUS_REFERENCE = "data.import.errors.ambiguousReference";
 const INVALID_CELL = "data.import.errors.invalidCell";
+// Shared with the webhook and the commit's own gate (RF-121), so it lives outside
+// this module's `data.import.errors` namespace: the same key names the same reason
+// wherever a pesos-only path meets an account outside BASE_CURRENCY.
+const FOREIGN_CURRENCY_UNSUPPORTED = "errors.foreignCurrencyUnsupported";
 
 // A catalogue key is a dotted identifier with no spaces; a raw Zod default is an
 // English sentence. The light guard's number/enum/date fields carry no custom key,
@@ -89,9 +94,14 @@ export type ImportResult = {
 // The effective post-import set a reference resolves against: existing rows unioned
 // with the file's own account/category sheet rows. Two maps, name → the ids of the
 // distinct effective entities carrying that name.
+// `accountCurrencies` rides alongside the name maps: an existing account's settlement
+// currency (RF-121), keyed by its real id so a resolved reference checks it straight
+// off. A file-new account (a placeholder) is never in it — `commitAccounts` writes it
+// none, so the column default (BASE_CURRENCY) already holds — so an absent id passes.
 type EffectiveRefs = {
   accounts: Map<string, string[]>;
   categories: Map<string, string[]>;
+  accountCurrencies: Map<string, string>;
 };
 
 // The money column keys of each entity, so the light guard sees a peso string where
@@ -227,6 +237,22 @@ function resolveOne(name: string, map: Map<string, string[]>): { id?: string; er
   return { id: ids[0] };
 }
 
+// A resolved account reference read against its settlement currency (RF-121): the
+// row's `amount` still reaches `parsePesos` downstream, true only of an account
+// settling in BASE_CURRENCY. Silent on a null id (no reference named) and on one the
+// map does not carry (unresolved, or a file-new account, always base by default) —
+// this only ever raises the ONE reason resolution itself does not already cover.
+function checkBaseCurrency(
+  accountId: string | null,
+  currencies: Map<string, string>,
+  errors: string[],
+): void {
+  const currency = accountId !== null ? currencies.get(accountId) : undefined;
+  if (currency !== undefined && currency !== BASE_CURRENCY) {
+    errors.push(FOREIGN_CURRENCY_UNSUPPORTED);
+  }
+}
+
 // The guard's output (names, all references still names) turned id-shaped for the
 // authoritative schema, gathering a per-row error for every reference that does not
 // resolve to exactly one entity in the effective set. The object is only meaningful
@@ -266,6 +292,8 @@ function resolveAndShape(
       const fromAccountId = resolveInto(data.fromAccount, refs.accounts);
       const toAccountId = resolveInto(data.toAccount, refs.accounts);
       const categoryId = resolveInto(data.category, refs.categories);
+      checkBaseCurrency(fromAccountId, refs.accountCurrencies, errors);
+      checkBaseCurrency(toAccountId, refs.accountCurrencies, errors);
       return {
         object: {
           fromAccountId,
@@ -286,6 +314,8 @@ function resolveAndShape(
     case "transactions": {
       const fromAccountId = resolveInto(data.fromAccount, refs.accounts);
       const toAccountId = resolveInto(data.toAccount, refs.accounts);
+      checkBaseCurrency(fromAccountId, refs.accountCurrencies, errors);
+      checkBaseCurrency(toAccountId, refs.accountCurrencies, errors);
 
       // The kind follows the account pair: both names present is a transfer, which
       // carries no category and no splits (RF-20/RF-69). An income or expense builds
@@ -394,6 +424,9 @@ export async function runImportPipeline(input: { buffer: ArrayBuffer }): Promise
       scope.categories,
       (parsed.categories ?? []) as RawRow[],
       "categories",
+    ),
+    accountCurrencies: new Map(
+      scope.accounts.map((account) => [account.id, account.settlementCurrency]),
     ),
   };
 

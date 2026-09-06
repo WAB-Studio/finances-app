@@ -1072,6 +1072,7 @@
       "placement": "Ámbito",
       "institution": "Entidad",
       "amount": "Monto",
+      "currency": "Moneda",
       "balanceOn": "Fecha inicial",
       "email": "Correo",
       "parent": "Categoría principal",

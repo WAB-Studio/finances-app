@@ -1072,6 +1072,7 @@
       "placement": "Placement",
       "institution": "Institution",
       "amount": "Amount",
+      "currency": "Currency",
       "balanceOn": "Opening date",
       "email": "Email",
       "parent": "Parent category",
