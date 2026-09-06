@@ -19,6 +19,7 @@ import { asHarnessUser, clearLedger, readScope, test } from "./global-setup";
 
 const transactions = messages.transactions;
 const common = messages.common;
+const recurringRules = messages.recurringRules;
 const scope = readScope();
 
 // A row is titled by its first split's category, so the income row needs a
@@ -248,4 +249,122 @@ test("the edit dialog titles itself for editing, not for a new movement (D12)", 
   await expect(
     page.getByRole("heading", { name: transactions.formTitle, exact: true }),
   ).toHaveCount(0);
+});
+
+test.describe("a rule's row opens what it generated, not the whole account (RF-127)", () => {
+  // Two categories, not one: the rule's pair and the manual movement need a
+  // text of their own, since a phone card is titled by its category (never its
+  // description) and the laptop's category cell repeats across rows sharing one.
+  const generatedCategoryId = randomUUID();
+  const generatedCategoryName = `Auto ${randomUUID().slice(0, 8)}`;
+  const manualCategoryId = randomUUID();
+  const manualCategoryName = `Manual ${randomUUID().slice(0, 8)}`;
+  const ruleDescription = `Harness suscripción ${randomUUID().slice(0, 8)}`;
+  const RULE_CENTS = 900000;
+  const MANUAL_CENTS = 500000;
+  let ruleId = "";
+  let manualId = "";
+
+  // The outer `beforeEach` above already clears the ledger for every test in
+  // this file, so this fixture runs after that reset, same as the dollars
+  // describe above.
+  test.beforeEach(async () => {
+    await asHarnessUser(async (tx) => {
+      await tx`
+        insert into categories (id, owner_user_id, name, kind, color)
+        values
+          (${generatedCategoryId}, ${scope.userId}, ${generatedCategoryName}, 'expense', '#4C8C4A'),
+          (${manualCategoryId}, ${scope.userId}, ${manualCategoryName}, 'expense', '#4C8C4A')`;
+
+      const [rule] = await tx<{ id: string }[]>`
+        insert into recurring_rules (
+          from_account_id, amount_cents, category_id, description,
+          frequency, interval_n, day_of_month, next_run_on)
+        values (
+          ${scope.accountId}, ${RULE_CENTS}, ${generatedCategoryId}, ${ruleDescription},
+          'monthly', 1, 1, (now() at time zone ${TIME_ZONE})::date)
+        returning id`;
+      ruleId = rule.id;
+
+      // The two the rule generated, carrying its id.
+      for (const suffix of ["1", "2"]) {
+        const [generated] = await tx<{ id: string }[]>`
+          insert into transactions (
+            from_account_id, amount_cents, occurred_at, description, recurring_rule_id)
+          values (
+            ${scope.accountId}, ${RULE_CENTS},
+            (now() at time zone ${TIME_ZONE})::date, ${"Harness generado " + suffix},
+            ${ruleId})
+          returning id`;
+        await tx`
+          insert into transaction_splits (transaction_id, category_id, amount_cents)
+          values (${generated.id}, ${generatedCategoryId}, ${RULE_CENTS})`;
+      }
+
+      // The third, manual, movement of this same account: what an `?account=`
+      // filter would still show and an `?rule=` filter must not.
+      const [manual] = await tx<{ id: string }[]>`
+        insert into transactions (from_account_id, amount_cents, occurred_at, description)
+        values (
+          ${scope.accountId}, ${MANUAL_CENTS},
+          (now() at time zone ${TIME_ZONE})::date, 'Harness manual de la misma cuenta')
+        returning id`;
+      manualId = manual.id;
+      await tx`
+        insert into transaction_splits (transaction_id, category_id, amount_cents)
+        values (${manualId}, ${manualCategoryId}, ${MANUAL_CENTS})`;
+    });
+  });
+
+  test.afterEach(async () => {
+    await fixtureSql`delete from transactions where recurring_rule_id = ${ruleId} or id = ${manualId}`;
+    await fixtureSql`delete from recurring_rules where id = ${ruleId}`;
+    await fixtureSql`delete from categories where id in (${generatedCategoryId}, ${manualCategoryId})`;
+  });
+
+  test("the row menu's \"view generated\" opens the rule's two movements and none of the account's others", async ({
+    page,
+  }, testInfo) => {
+    const desktop = testInfo.project.name === "desktop";
+
+    await page.goto("/es/planning/recurring");
+
+    // The trigger's accessible name is built from the row it belongs to
+    // (`RowMenu`), so it is safe to locate page-wide: Chromium drops the
+    // `display: none` shape's subtree from the accessibility tree, so only the
+    // width this project draws ever answers a `getByRole` query.
+    await page
+      .getByRole("button", {
+        name: common.actionsFor.replace("{name}", ruleDescription),
+        exact: true,
+      })
+      .click();
+    await page
+      .getByRole("menuitem", { name: recurringRules.rowViewGenerated, exact: true })
+      .click();
+
+    await expect(page).toHaveURL(`/es/movements?rule=${ruleId}`);
+
+    const ledger = page.getByRole("table", { name: transactions.listTitle });
+    // On the laptop a row is named by its category cell; on the phone the
+    // whole card is one link, and the category is its title.
+    const rowsFor = (category: string) =>
+      desktop
+        ? ledger.getByText(category, { exact: true })
+        : page.getByRole("link", { name: category });
+
+    await expect(rowsFor(generatedCategoryName)).toHaveCount(2);
+    await expect(rowsFor(manualCategoryName)).toHaveCount(0);
+
+    // The chip is a laptop control (RF-127, RF-125); the phone's filter panel
+    // draws no chips at all, so this half of the assertion is the laptop's.
+    if (desktop) {
+      await expect(
+        page.getByRole("button", {
+          name: common.removeFilter.replace("{label}", ruleDescription),
+          exact: true,
+        }),
+      ).toBeVisible();
+    }
+  });
 });
