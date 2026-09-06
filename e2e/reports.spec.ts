@@ -52,6 +52,18 @@ function monthStat(page: Page, label: string): Locator {
   return page.getByText(label, { exact: true }).locator("..");
 }
 
+/**
+ * The band the width displays. Module 36 gave this screen a laptop sibling
+ * that repeats the same category-row markup rather than sharing it (the mobile
+ * stack stays untouched, per its own additive rule), so both bands are always
+ * in the DOM and a locator that names neither reaches a category row twice and
+ * dies on strict mode — the same shape `e2e/accounts.spec.ts`'s own `band`
+ * already carries.
+ */
+function band(page: Page): Locator {
+  return page.locator("main > .rt-Box").filter({ visible: true });
+}
+
 // One bar's drawn height against another's. Both are drawn against the same
 // axis, so what comes out is the ratio of the two figures.
 async function barRatio(bar: Locator, against: Locator): Promise<number> {
@@ -147,7 +159,7 @@ test("the breakdown reads the month's expense under its category", async ({
 }) => {
   await page.goto("/es/reports");
 
-  const row = page.getByText(scope.categoryName, { exact: true }).locator("..");
+  const row = band(page).getByText(scope.categoryName, { exact: true }).locator("..");
 
   await expect(row).toBeVisible();
   // This month's expense alone: last month's split is outside the window and the
