@@ -1879,16 +1879,16 @@ async function checkInstallmentPolicies() {
 // movement) leaves untouched. The same SQL the overview runs is replicated inline, and every fixture is
 // seeded through the app's own policies and rolled back.
 //
-// The fixture holds a card with a foreign purchase still on estimate, so a card really does carry two
-// pockets here (RF-121). A credit limit is denominated in the currency the card settles in, so available
-// credit reads that pocket and no other; and a sum across the two cards can only answer per currency,
-// because adding a dollar to a peso is the one thing RF-124 forbids.
+// Both cards hold a foreign purchase still on estimate, so every figure here is read off a card that
+// really carries two pockets (RF-121). A credit limit and an interest charge are denominated in the
+// currency the card settles in, so each reads that pocket and no other; and a sum across the two cards
+// can only answer per currency, because adding a dollar to a peso is the one thing RF-124 forbids.
 async function checkDebtDerivedFigures() {
   console.log("");
   const leaderUser = randomUUID();
 
   const labels = [
-    "78. the monthly interest is the effective rate, matching the hand figure and unlike the linear one",
+    "78. the monthly interest reads off one pocket only, the effective rate, matching the hand figure and unlike the linear one",
     "79. available credit nets the limit against the settlement pocket, and total owed answers one figure per currency that a plan never double-counts",
   ];
   const tailLabel = "80. the rolled-back debt figures transaction leaves no trace";
@@ -1930,20 +1930,35 @@ async function checkDebtDerivedFigures() {
       await tx`insert into transaction_splits (transaction_id, category_id, amount_cents)
         values (${abroad}, ${leaderExpenseCat}, 20000)`;
 
+      // Card A carries one too, so 78 reads a card that really holds two pockets. Without it the
+      // unbounded join returned one row whatever it named, and the assertion passed on a fixture
+      // that could not fail — the same shape 79 was fixed out of.
+      const [{ id: abroadA }] = await tx<{ id: string }[]>`
+        insert into transactions (from_account_id, amount_cents, occurred_at, currency, counter_amount_cents, counter_is_estimate)
+        values (${cardA}, 30000, (now() at time zone 'America/Bogota')::date, 'USD', 120000, true) returning id`;
+      await tx`insert into transaction_splits (transaction_id, category_id, amount_cents)
+        values (${abroadA}, ${leaderExpenseCat}, 30000)`;
+
       // 78: the SQL effective estimate matches the hand figure and diverges from the linear one.
-      const [figures] = await tx<{ effective: string; linear: string }[]>`
+      const rates = await tx<{ effective: string; linear: string }[]>`
         select
           round(abs(b.balance_cents) * (power(1 + dt.annual_rate, 1.0/12) - 1))::bigint as effective,
           round(abs(b.balance_cents) * dt.annual_rate / 12)::bigint as linear
         from account_balances b
+        join accounts a on a.id = b.id and a.settlement_currency = b.currency
         join debt_terms dt on dt.account_id = b.id
         where b.id = ${cardA}`;
+      // The row count is the point. Destructuring the first row passed with the join unbounded, because
+      // Postgres happened to hand back the settlement pocket first; asked for the count, the same fixture
+      // answers two and the assertion falls. A figure that reads true off an arbitrary row proves nothing.
+      const figures = rates[0];
       assert(
         labels[0],
-        Number(figures.effective) === expectedEffective &&
-          Number(figures.linear) === expectedLinear &&
-          figures.effective !== figures.linear,
-        `effective = ${figures.effective} (expected ${expectedEffective}), linear = ${figures.linear} (expected ${expectedLinear})`,
+        rates.length === 1 &&
+          Number(figures?.effective) === expectedEffective &&
+          Number(figures?.linear) === expectedLinear &&
+          figures?.effective !== figures?.linear,
+        `rows = ${rates.length} (expected 1), effective = ${figures?.effective} (expected ${expectedEffective}), linear = ${figures?.linear} (expected ${expectedLinear})`,
       );
 
       // 79: available credit = limit − the settlement pocket's owed, one row per card because the join
@@ -1966,7 +1981,7 @@ async function checkDebtDerivedFigures() {
       // A vector reads as one string so a missing pocket, an extra one and a wrong figure all fail alike.
       const owedVector = (rows: { currency: string; owed: string }[]) =>
         rows.map((row) => `${row.currency} ${row.owed}`).join(", ");
-      const expectedOwed = "COP -1500000, USD -20000";
+      const expectedOwed = "COP -1500000, USD -50000";
 
       const creditBefore = await availableCredit();
       const owedBefore = owedVector(await totalOwed());
