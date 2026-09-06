@@ -1,8 +1,4 @@
-import {
-  BASE_CURRENCY,
-  type CurrencyCode,
-  minorUnitExponent,
-} from "@/lib/currency";
+import { type CurrencyCode, minorUnitExponent } from "@/lib/currency";
 import { FORMAT_LOCALE, type Locale } from "@/lib/locales";
 
 // Two scales live here, and they are not the same one (RNF-05).
@@ -102,14 +98,11 @@ function parseWritten(raw: string): number | null {
  *
  * The result is in the stored scale, not in the currency's own minor unit:
  * "1000" pesos comes back as 100000, the same integer the column already holds
- * for a thousand pesos. `currency` stays in the signature for every call site
- * that carries one; `maxAmountMinor(currency)` is where a caller still bounds
- * the result by it.
+ * for a thousand pesos. The stored scale is fixed for every currency alike, so
+ * no currency travels here any more; `maxAmountMinor(currency)` is still where
+ * a caller bounds the result by one.
  */
-export function parseAmount(
-  raw: string,
-  currency: CurrencyCode,
-): number | null {
+export function parseAmount(raw: string): number | null {
   return parseWritten(raw);
 }
 
@@ -224,14 +217,14 @@ export function normalizeAmountInput(raw: string): string {
 }
 
 /**
- * @deprecated Parse with `parseAmount(raw, currency)`, which keeps the
- * centavos this drops. Kept only for a caller still bound to whole pesos
- * through `pesosToCents`'s own `* 100`; the peso's own centavos (RF-126)
- * would not survive that multiplication as a float, so this truncates them
- * away on purpose rather than pass a fractional peso count through it.
+ * @deprecated Parse with `parseAmount(raw)`, which keeps the centavos this
+ * drops. Kept only for a caller still bound to whole pesos through
+ * `pesosToCents`'s own `* 100`; the peso's own centavos (RF-126) would not
+ * survive that multiplication as a float, so this truncates them away on
+ * purpose rather than pass a fractional peso count through it.
  */
 export function parsePesos(raw: string): number | null {
-  const minor = parseAmount(raw, BASE_CURRENCY);
+  const minor = parseAmount(raw);
   return minor === null ? null : Math.trunc(minor / STORAGE_UNIT);
 }
 

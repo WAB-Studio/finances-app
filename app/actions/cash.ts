@@ -4,8 +4,6 @@ import { refresh } from "next/cache";
 import { getLocale } from "next-intl/server";
 
 import { withdrawCash } from "@/db/queries/cash";
-import { getSettlementCurrencies } from "@/db/queries/transactions";
-import { BASE_CURRENCY } from "@/lib/currency";
 import { pgErrorCode } from "@/lib/db-error";
 import { ActionError } from "@/lib/errors";
 import { PERSONAL_CASH_ACCOUNT_NAME } from "@/lib/fund/seed";
@@ -18,30 +16,20 @@ import { withdrawCashSchema } from "@/lib/validation/cash";
  * Withdraws cash (RF-68, RF-40). The move is a transfer from a source asset
  * account into the caller's cash, routed by `cash_mode`; a per-member or personal
  * caller with no cash yet has it created in the same transaction. The amount
- * arrives as a Zod-validated string and is read in the minor unit of what the
- * source settles in — read off the account, never off the payload (RF-121) — so
- * an amount that reads in no offered currency is a schema that let something
+ * arrives as a Zod-validated string, read in the stored scale every currency
+ * shares (RF-126) — so a null parse here is a schema that let something
  * through: `errors.unexpected`, not a field message. The scope, kind, currency
  * and `created_by` are the DB's to set.
  */
 export const withdrawCashAction = authActionClient
   .inputSchema(withdrawCashSchema)
   .action(async ({ parsedInput: { sourceAccountId, amount } }) => {
-    // The withdrawal is booked in the source's own currency, so the trigger
-    // derives the movement's from the same account this read names.
-    const [settlement, locale] = await Promise.all([
-      getSettlementCurrencies({
-        fromAccountId: sourceAccountId,
-        toAccountId: null,
-      }),
-      // The create-on-demand account is named in the caller's active language
-      // (RF-64); it is read only when no cash exists yet.
-      getLocale(),
-    ]);
-
-    const amountCents = parseAmount(amount, settlement.from ?? BASE_CURRENCY);
+    const amountCents = parseAmount(amount);
     if (amountCents === null) throw new ActionError("cash.errors.amountInvalid");
 
+    // The create-on-demand account is named in the caller's active language
+    // (RF-64); it is read only when no cash exists yet.
+    const locale = await getLocale();
     const cashAccountName =
       PERSONAL_CASH_ACCOUNT_NAME[isLocale(locale) ? locale : DEFAULT_LOCALE];
 

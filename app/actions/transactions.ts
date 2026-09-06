@@ -26,23 +26,20 @@ import {
 
 type SplitInput = { categoryId: string; amount: string };
 
-// The amount and each split arrive as Zod-validated strings in the movement's
-// own currency; turning them into integers of its minor unit here can only fail
-// if the schema let something through it should not have, so a null parse is
-// `errors.unexpected`, not a field message.
-function toMinor(amount: string, currency: CurrencyCode): number {
-  const minor = parseAmount(amount, currency);
+// The amount and each split arrive as Zod-validated strings, already bound to
+// the stored scale by the schema; turning them into integers here can only
+// fail if the schema let something through it should not have, so a null
+// parse is `errors.unexpected`, not a field message.
+function toMinor(amount: string): number {
+  const minor = parseAmount(amount);
   if (minor === null) throw new ActionError("errors.unexpected");
   return minor;
 }
 
-function toSplitMinor(
-  splits: SplitInput[],
-  currency: CurrencyCode,
-): TransactionSplitInput[] {
+function toSplitMinor(splits: SplitInput[]): TransactionSplitInput[] {
   return splits.map((split) => ({
     categoryId: split.categoryId,
-    amountCents: toMinor(split.amount, currency),
+    amountCents: toMinor(split.amount),
   }));
 }
 
@@ -87,7 +84,7 @@ async function resolveCounterAmount(movement: {
   if (foreign === null) throw new ActionError("errors.unexpected");
 
   return {
-    counterAmountCents: toMinor(counter, foreign),
+    counterAmountCents: toMinor(counter),
     counterIsEstimate: movement.counterIsEstimate ?? false,
   };
 }
@@ -123,10 +120,6 @@ function mapTransactionError(error: unknown): never {
 export const createTransactionAction = authActionClient
   .inputSchema(createTransactionSchema)
   .action(async ({ parsedInput }) => {
-    // Absent is how a writer hands the choice to the accounts, as the column
-    // does; the strings it sent are then the base currency's, which is what
-    // every such path has always meant.
-    const currency = parsedInput.currency ?? BASE_CURRENCY;
     const counter = await resolveCounterAmount(parsedInput);
 
     let transactionId: string;
@@ -134,13 +127,13 @@ export const createTransactionAction = authActionClient
       ({ transactionId } = await createTransaction({
         fromAccountId: parsedInput.fromAccountId,
         toAccountId: parsedInput.toAccountId,
-        amountCents: toMinor(parsedInput.amount, currency),
+        amountCents: toMinor(parsedInput.amount),
         currency: parsedInput.currency ?? null,
         ...counter,
         occurredAt: parsedInput.occurredAt,
         description: parsedInput.description,
         externalRef: parsedInput.externalRef ?? null,
-        splits: toSplitMinor(parsedInput.splits, currency),
+        splits: toSplitMinor(parsedInput.splits),
         labelIds: parsedInput.labelIds,
       }));
     } catch (error) {
@@ -159,7 +152,6 @@ export const createTransactionAction = authActionClient
 export const updateTransactionAction = authActionClient
   .inputSchema(updateTransactionSchema)
   .action(async ({ parsedInput }) => {
-    const currency = parsedInput.currency ?? BASE_CURRENCY;
     const counter = await resolveCounterAmount(parsedInput);
 
     let updated: boolean;
@@ -168,12 +160,12 @@ export const updateTransactionAction = authActionClient
         transactionId: parsedInput.transactionId,
         fromAccountId: parsedInput.fromAccountId,
         toAccountId: parsedInput.toAccountId,
-        amountCents: toMinor(parsedInput.amount, currency),
+        amountCents: toMinor(parsedInput.amount),
         currency: parsedInput.currency ?? null,
         ...counter,
         occurredAt: parsedInput.occurredAt,
         description: parsedInput.description,
-        splits: toSplitMinor(parsedInput.splits, currency),
+        splits: toSplitMinor(parsedInput.splits),
         labelIds: parsedInput.labelIds,
       });
     } catch (error) {

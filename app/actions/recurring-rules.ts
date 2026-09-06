@@ -22,7 +22,6 @@ import {
   deleteRecurringRuleSchema,
   markMovementReviewedSchema,
   pauseRecurringRuleSchema,
-  recurringRuleCurrency,
   refineRuleAmount,
   resumeRecurringRuleSchema,
   setRecurringRuleEndDateSchema,
@@ -48,7 +47,7 @@ async function toMinor(
 
   if (!verdict.success) throw new ActionError(verdict.error.issues[0].message);
 
-  const minor = parseAmount(amount, recurringRuleCurrency(settlement));
+  const minor = parseAmount(amount);
   if (minor === null) throw new ActionError("errors.unexpected");
   return minor;
 }

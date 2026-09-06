@@ -438,11 +438,9 @@ export function MovementForm({
   const kindColor =
     kind === "income" ? "grass" : kind === "expense" ? "red" : "gray";
   const sign = kind === "income" ? "+" : kind === "expense" ? "−" : "";
-  const amountMinor = parseAmount(amount, currency);
+  const amountMinor = parseAmount(amount);
   const counterMinor =
-    foreign === null || counterAmount === null
-      ? null
-      : parseAmount(counterAmount, foreign);
+    foreign === null || counterAmount === null ? null : parseAmount(counterAmount);
 
   // The quotient of the two figures, and nothing else: it is read, never typed
   // and never stored (RF-122). A stored rate would be money in floating point.

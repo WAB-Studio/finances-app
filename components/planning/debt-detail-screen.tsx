@@ -803,8 +803,7 @@ function SettlementRow({
   // Both integers are in the scale the columns keep, which is what `deriveRate`
   // divides: the rate is their quotient and lands in no column of its own.
   const spentCents = movement.amountCents;
-  const billedCents =
-    parseAmount(typed, currency) ?? movement.counterAmountCents;
+  const billedCents = parseAmount(typed) ?? movement.counterAmountCents;
   const rate = deriveRate(spentCents, movement.currency, billedCents, currency);
 
   const occurred = format.dateTime(civilDateToDate(movement.occurredAt), {

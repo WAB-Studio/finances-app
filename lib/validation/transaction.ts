@@ -58,7 +58,7 @@ export function anyCurrencyAmountSchema(keys: {
 
     const readings = OFFERED_CURRENCIES.map((currency) => ({
       currency,
-      minor: parseAmount(value, currency),
+      minor: parseAmount(value),
     })).filter((reading) => reading.minor !== null);
 
     if (readings.length === 0) {
@@ -94,7 +94,7 @@ export function minorAmountSchema(keys: {
       return null;
     }
 
-    const minor = parseAmount(value, currency);
+    const minor = parseAmount(value);
     if (minor === null) {
       ctx.addIssue({ code: "custom", message: keys.invalid, path });
       return null;

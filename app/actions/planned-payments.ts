@@ -22,7 +22,6 @@ import {
   cancelPlannedPaymentSchema,
   createPlannedPaymentSchema,
   deletePlannedPaymentSchema,
-  plannedPaymentCurrency,
   refinePaymentAmount,
   settlePlannedPaymentSchema,
   updatePlannedPaymentSchema,
@@ -47,7 +46,7 @@ async function toMinor(
 
   if (!verdict.success) throw new ActionError(verdict.error.issues[0].message);
 
-  const minor = parseAmount(amount, plannedPaymentCurrency(settlement));
+  const minor = parseAmount(amount);
   if (minor === null) throw new ActionError("errors.unexpected");
   return minor;
 }

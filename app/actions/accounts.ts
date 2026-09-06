@@ -34,7 +34,7 @@ import {
 export const createAccountAction = authActionClient
   .inputSchema(createAccountSchema)
   .action(async ({ parsedInput: { amount, placement, ...account }, ctx }) => {
-    const amountMinor = parseAmount(amount, account.settlementCurrency);
+    const amountMinor = parseAmount(amount);
     if (amountMinor === null) throw new ActionError("errors.unexpected");
 
     // The owner/group XOR is resolved from the session, never trusted from the
@@ -75,7 +75,7 @@ export const createAccountAction = authActionClient
 export const updateAccountAction = authActionClient
   .inputSchema(updateAccountSchema)
   .action(async ({ parsedInput: { amount, ...account } }) => {
-    const amountMinor = parseAmount(amount, account.settlementCurrency);
+    const amountMinor = parseAmount(amount);
     if (amountMinor === null) throw new ActionError("errors.unexpected");
 
     let updated: boolean;
