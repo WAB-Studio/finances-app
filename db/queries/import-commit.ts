@@ -14,7 +14,7 @@ import type { Transaction } from "@/db/session";
 import { BASE_CURRENCY } from "@/lib/currency";
 import { pgErrorCode } from "@/lib/db-error";
 import { ActionError } from "@/lib/errors";
-import { parsePesos, pesosToCents } from "@/lib/money";
+import { parseAmount } from "@/lib/money";
 import type { SheetEntity } from "@/lib/spreadsheet/schema";
 import type { CreateAccountInput } from "@/lib/validation/account";
 import type { CreateCategoryInput } from "@/lib/validation/category";
@@ -105,12 +105,15 @@ type Cell = string | number | boolean | null;
 // the same insert wrote or the trigger backfilled.
 type Inserted = { id: string; external_ref: string | null };
 
-// A validated peso string turned into the integer cents the model stores (RNF-05); the
-// schema already proved it parses, so a null here would be a schema that let one through.
+// A validated peso string turned into the integer cents the model stores (RNF-05,
+// RF-126); the schema already proved it parses, so a null here would be a schema
+// that let one through. Reads through `parseAmount`, not `parsePesos`, so a row's
+// own centavos — a bank's interest, its 4x1000, a settled foreign purchase —
+// reach the column exactly instead of being rounded away on the way in.
 function toCents(peso: string): number {
-  const pesos = parsePesos(peso);
-  if (pesos === null) throw new Error("import-commit: an amount reached the writer unparsed");
-  return pesosToCents(pesos);
+  const cents = parseAmount(peso, BASE_CURRENCY);
+  if (cents === null) throw new Error("import-commit: an amount reached the writer unparsed");
+  return cents;
 }
 
 // A reference that still holds a placeholder after remapping never reaches a column: a

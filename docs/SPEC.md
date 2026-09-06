@@ -60,6 +60,7 @@ accounting exports, native apps. None of this gets built or left
 - [x] **RF-122** — A movement between two currencies carries both amounts, each an integer in the one stored scale, hundredths of its own currency's major unit, and a person confirms the second one before it is booked. The rate is their quotient: derived to be read, never stored and never multiplied back out. The app proposes an amount and never imposes one.
 - [x] **RF-123** — A card purchase in a foreign currency settles later. The movement books what was spent in the currency it was spent in, and carries the amount a person confirmed it is expected to cost in the account's settlement currency, marked as an estimate. What the issuer actually billed arrives with the statement (RF-84) and replaces the estimate; from then on the two amounts are both settled and the estimate is gone.
 - [x] **RF-124** — No surface sums two currencies. A balance, a total and a chart derive per currency and state which one they count.
+- [ ] **RF-126** — Reading a written amount into the integer a column stores accepts up to two decimals for every currency alike, never capped at fewer because the currency's own convention shows none: a bank posts a savings account's interest, a 4x1000 debit or a settled foreign purchase in centavos whether or not the peso circulates a coin that small. The cap on a typed or imported amount is the column's own stored scale, not what a currency is usually written with; display keeps each currency's own convention (RF-121, RF-125).
 
 #### Debts
 
