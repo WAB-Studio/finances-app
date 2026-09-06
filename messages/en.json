@@ -415,6 +415,7 @@
     "quickSave": "Save",
     "quickTypeLink": "Income or transfer?",
     "formTitle": "New movement",
+    "editTitle": "Edit movement",
     "fromLabel": "From (source)",
     "toLabel": "To (destination)",
     "kindIncome": "Income",

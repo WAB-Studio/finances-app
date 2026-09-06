@@ -617,7 +617,7 @@ export function MovementsScreen({
         <Dialog.Content maxWidth={movementFormDialogWidth}>
           {/* The form carries its own heading; the title stays for the a11y tree. */}
           <VisuallyHidden>
-            <Dialog.Title>{t("formTitle")}</Dialog.Title>
+            <Dialog.Title>{t("editTitle")}</Dialog.Title>
           </VisuallyHidden>
           {/* Closing unmounts the content, so the form reseeds on each open. */}
           {editing && (

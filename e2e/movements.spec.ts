@@ -28,6 +28,7 @@ const incomeCategoryName = `Ingreso ${randomUUID().slice(0, 8)}`;
 
 const EXPENSE_CENTS = 3200000;
 const INCOME_CENTS = 7100000;
+const EXPENSE_DESCRIPTION = "Harness gasto";
 
 test.beforeEach(async () => {
   await clearLedger();
@@ -41,7 +42,7 @@ test.beforeEach(async () => {
       insert into transactions (from_account_id, amount_cents, occurred_at, description)
       values (
         ${scope.accountId}, ${EXPENSE_CENTS},
-        (now() at time zone ${TIME_ZONE})::date, 'Harness gasto')
+        (now() at time zone ${TIME_ZONE})::date, ${EXPENSE_DESCRIPTION})
       returning id`;
     await tx`
       insert into transaction_splits (transaction_id, category_id, amount_cents)
@@ -217,4 +218,38 @@ test.describe("a movement between two currencies", () => {
       String(COP_ESTIMATE_CENTS / 100 / (USD_CENTS / 100)),
     );
   });
+});
+
+test("the edit dialog titles itself for editing, not for a new movement (D12)", async ({
+  page,
+}, testInfo) => {
+  // The phone's only edit entry is the row's own detail page, and
+  // `app/[locale]/(app)/loading.tsx` throws on every render of that route (a
+  // pre-existing defect, unrelated to D12, reported alongside this fix). The
+  // laptop's row menu reaches the same edit dialog without that page.
+  test.skip(
+    testInfo.project.name !== "desktop",
+    "movements/[id] crashes on every render; see private/reportes/defecto-d12.md",
+  );
+
+  await page.goto("/es/movements");
+  await page
+    .getByRole("button", {
+      name: common.actionsFor.replace("{name}", EXPENSE_DESCRIPTION),
+      exact: true,
+    })
+    .click();
+  await page.getByRole("menuitem", { name: transactions.edit, exact: true }).click();
+
+  // The dialog's own `Dialog.Title` repeats the same string for the a11y tree:
+  // `VisuallyHidden` clips it to a pixel rather than dropping it, so it still
+  // counts as visible and `.filter({ visible: true })` cannot tell the two
+  // apart. The form's own heading is the only one inside the `<form>`.
+  const formHeading = page
+    .locator("form")
+    .getByRole("heading", { name: transactions.editTitle, exact: true });
+  await expect(formHeading).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: transactions.formTitle, exact: true }),
+  ).toHaveCount(0);
 });
