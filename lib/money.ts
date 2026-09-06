@@ -218,14 +218,19 @@ export function normalizeAmountInput(raw: string): string {
 
 /**
  * @deprecated Parse with `parseAmount(raw)`, which keeps the centavos this
- * drops. Kept only for a caller still bound to whole pesos through
- * `pesosToCents`'s own `* 100`; the peso's own centavos (RF-126) would not
- * survive that multiplication as a float, so this truncates them away on
- * purpose rather than pass a fractional peso count through it.
+ * refuses. Kept only for a caller still bound to whole pesos through
+ * `pesosToCents`'s own `* 100`, which a fractional peso count would not
+ * survive as a float.
+ *
+ * A remainder finer than one peso is refused, not truncated: RF-95 says these
+ * callers take no fractional peso, and dropping the centavos instead wrote
+ * "12,45" to the ledger as 12,00 and read "0,45" as an amount that was never
+ * there. Refusing says so; truncating loses a person's money in silence.
  */
 export function parsePesos(raw: string): number | null {
   const minor = parseAmount(raw);
-  return minor === null ? null : Math.trunc(minor / STORAGE_UNIT);
+  if (minor === null || minor % STORAGE_UNIT !== 0) return null;
+  return minor / STORAGE_UNIT;
 }
 
 /** @deprecated An amount is already stored in the scale a column keeps. */
