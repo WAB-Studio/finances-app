@@ -1,12 +1,15 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { Plus } from "lucide-react";
-import { useFormatter, useTranslations } from "next-intl";
+import { useFormatter, useLocale, useTranslations } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
-import { useState } from "react";
+import { Fragment, useState } from "react";
+import { Controller, useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 
+import { recordBilledAmountAction } from "@/app/actions/debt-settlement";
 import { deleteInstallmentPlanAction } from "@/app/actions/installment-plans";
 import { DebtPaymentDialog } from "@/components/planning/debt-payment-dialog";
 import { InstallmentPlanDialog } from "@/components/planning/installment-plan-dialog";
@@ -16,6 +19,10 @@ import {
   ConfirmDialog,
   DataTable,
   EmptyState,
+  Field,
+  FieldControl,
+  FieldLabel,
+  FieldMessage,
   Flex,
   Heading,
   Link,
@@ -24,20 +31,28 @@ import {
   RowMenu,
   ScreenHeader,
   Separator,
+  Spinner,
   StatTiles,
   Text,
+  TextField,
   type DataColumn,
 } from "@/components/ui";
 import type { DebtDetailData } from "@/db/queries/debt-detail";
+import type { PendingSettlement } from "@/db/queries/debt-statements";
 import type {
   InstallmentPlanLine,
   InstallmentPlanRow,
 } from "@/db/queries/installment-plans";
 import type { DebtStatement } from "@/db/schema";
 import { Link as LocaleLink } from "@/i18n/navigation";
+import { minorUnitExponent, type CurrencyCode } from "@/lib/currency";
 import { civilDateToDate } from "@/lib/dates";
-import { centsToPesos } from "@/lib/money";
+import { deriveRate, formatMoney, parseAmount } from "@/lib/money";
 import { useActionErrorToast } from "@/lib/use-action-toast";
+import {
+  recordBilledAmountSchema,
+  type RecordBilledAmountInput,
+} from "@/lib/validation/debt-settlement";
 
 // The em dash a cell or a tile with nothing to name reads as (SPEC-A3), not a
 // word a translator would ever change.
@@ -51,6 +66,11 @@ const LINE_WIDTHS = {
   status: "120px",
   movement: "minmax(0, 1fr)",
 } as const;
+
+// A currency with decimals needs the keypad that types one (RF-121).
+function amountInputMode(currency: CurrencyCode): "decimal" | "numeric" {
+  return minorUnitExponent(currency) > 0 ? "decimal" : "numeric";
+}
 
 const STATEMENT_WIDTHS = {
   period: "minmax(0, 1fr)",
@@ -75,10 +95,23 @@ export function DebtDetailScreen({ data }: { data: DebtDetailData }) {
   const tDebts = useTranslations("debts");
   const tKey = useTranslations();
   const format = useFormatter();
+  const locale = useLocale();
   const onActionError = useActionErrorToast();
 
-  const { account, terms, plans, statements, currentStatement, canWrite, payFrom } =
-    data;
+  const {
+    account,
+    terms,
+    plans,
+    statements,
+    currentStatement,
+    pendingSettlements,
+    canWrite,
+    payFrom,
+  } = data;
+
+  // The currency the card bills in: the cupo, the minimum and the interest are
+  // all read in it, and it is the one a statement is cut in (RF-121).
+  const currency = account.settlementCurrency;
 
   const [dialog, setDialog] = useState<"pay" | "plan" | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<InstallmentPlanRow | null>(
@@ -93,8 +126,8 @@ export function DebtDetailScreen({ data }: { data: DebtDetailData }) {
     onError: onActionError,
   });
 
-  // The magnitude the liability owes, off the balance the view derives from
-  // movements; a debt reads without a sign.
+  // The magnitude the liability owes in the currency it bills in, off the balance
+  // the view derives from movements; a debt reads without a sign.
   const owedCents = Math.abs(account.balanceCents);
 
   // What the plans still owe: the unpaid lines the server summed, never a
@@ -117,7 +150,21 @@ export function DebtDetailScreen({ data }: { data: DebtDetailData }) {
     {
       key: "balance",
       label: tDebts("tableBalance"),
-      value: <Money cents={owedCents} signed={false} size="inherit" />,
+      // One figure per currency the card holds, never their sum (RF-124): what
+      // was spent in dollars sits beside what the issuer has already billed.
+      value: (
+        <Flex direction="column">
+          {account.balances.map((pocket) => (
+            <Money
+              key={pocket.currency}
+              minor={Math.abs(pocket.balanceCents)}
+              currency={pocket.currency}
+              signed={false}
+              size="inherit"
+            />
+          ))}
+        </Flex>
+      ),
     },
     {
       key: "pending",
@@ -126,7 +173,12 @@ export function DebtDetailScreen({ data }: { data: DebtDetailData }) {
         plans.length === 0 ? (
           NO_VALUE
         ) : (
-          <Money cents={pendingCents} signed={false} size="inherit" />
+          <Money
+            minor={pendingCents}
+            currency={currency}
+            signed={false}
+            size="inherit"
+          />
         ),
     },
     {
@@ -139,7 +191,8 @@ export function DebtDetailScreen({ data }: { data: DebtDetailData }) {
           NO_VALUE
         ) : (
           <Money
-            cents={currentStatement.minimumPaymentCents}
+            minor={currentStatement.minimumPaymentCents}
+            currency={currency}
             signed={false}
             size="inherit"
           />
@@ -156,16 +209,20 @@ export function DebtDetailScreen({ data }: { data: DebtDetailData }) {
         availableCreditCents === null ? (
           NO_VALUE
         ) : (
-          <Money cents={availableCreditCents} signed={false} size="inherit" />
+          <Money
+            minor={availableCreditCents}
+            currency={currency}
+            signed={false}
+            size="inherit"
+          />
         ),
       note:
         terms?.creditLimitCents == null
           ? undefined
           : tDebts("tileAvailableCreditNote", {
-              amount: format.number(
-                centsToPesos(terms.creditLimitCents),
-                "currency",
-              ),
+              // JSX cannot travel through `t()`, so the one path from a stored
+              // integer to a figure is called straight (RF-121).
+              amount: formatMoney(terms.creditLimitCents, currency, locale),
             }),
     },
   ];
@@ -186,7 +243,14 @@ export function DebtDetailScreen({ data }: { data: DebtDetailData }) {
     <Flex direction="column" gap="4">
       <ScreenHeader
         title={account.name}
-        meta={<Money cents={owedCents} signed={false} size="inherit" />}
+        meta={
+          <Money
+            minor={owedCents}
+            currency={currency}
+            signed={false}
+            size="inherit"
+          />
+        }
         back={{ href: "/planning/debts", label: tDebts("title") }}
         actions={
           // Exactly what the policies would admit: a reader is offered neither
@@ -226,11 +290,19 @@ export function DebtDetailScreen({ data }: { data: DebtDetailData }) {
           <PlanTable
             key={plan.id}
             plan={plan}
+            currency={currency}
             canWrite={canWrite}
             onDelete={() => setDeleteTarget(plan)}
           />
         ))
       )}
+
+      <SettlementSection
+        accountId={account.id}
+        currency={currency}
+        pending={pendingSettlements}
+        canWrite={canWrite}
+      />
 
       <Flex direction="column" px={{ initial: "0", md: "6" }}>
         <Heading as="h2" size="3">
@@ -253,7 +325,8 @@ export function DebtDetailScreen({ data }: { data: DebtDetailData }) {
                 label={t("statementBalance")}
                 value={
                   <Money
-                    cents={currentStatement.balanceCents}
+                    minor={Math.abs(currentStatement.balanceCents)}
+                    currency={currency}
                     signed={false}
                     size="inherit"
                   />
@@ -264,7 +337,8 @@ export function DebtDetailScreen({ data }: { data: DebtDetailData }) {
                 label={t("statementMinimum")}
                 value={
                   <Money
-                    cents={currentStatement.minimumPaymentCents}
+                    minor={currentStatement.minimumPaymentCents}
+                    currency={currency}
                     signed={false}
                     size="inherit"
                   />
@@ -295,6 +369,7 @@ export function DebtDetailScreen({ data }: { data: DebtDetailData }) {
 
       <StatementsTable
         statements={statements}
+        currency={currency}
         hasCutOffDay={terms?.statementCutOffDay != null}
       />
 
@@ -309,6 +384,7 @@ export function DebtDetailScreen({ data }: { data: DebtDetailData }) {
             name: account.name,
             owedCents,
           }}
+          currency={currency}
           payFrom={payFrom}
         />
       )}
@@ -320,6 +396,7 @@ export function DebtDetailScreen({ data }: { data: DebtDetailData }) {
             if (!open) setDialog(null);
           }}
           account={{ id: account.id, name: account.name }}
+          currency={currency}
         />
       )}
 
@@ -365,10 +442,14 @@ function Fact({ label, value }: { label: string; value: ReactNode }) {
  */
 function PlanTable({
   plan,
+  currency,
   canWrite,
   onDelete,
 }: {
   plan: InstallmentPlanRow;
+  // A plan schedules the balance the card bills, so its lines read in that
+  // currency and never in the one a purchase happened in.
+  currency: CurrencyCode;
   canWrite: boolean;
   onDelete: () => void;
 }) {
@@ -411,7 +492,13 @@ function PlanTable({
       width: LINE_WIDTHS.amount,
       align: "end",
       numeric: true,
-      cell: (line) => <Money cents={line.amountCents} signed={false} />,
+      cell: (line) => (
+        <Money
+          minor={line.amountCents}
+          currency={currency}
+          signed={false}
+        />
+      ),
     },
     {
       key: "status",
@@ -483,7 +570,12 @@ function PlanTable({
           {t("tablePending")}
         </Text>,
         null,
-        <Money key="pending" cents={plan.pendingCents} signed={false} />,
+        <Money
+          key="pending"
+          minor={plan.pendingCents}
+          currency={currency}
+          signed={false}
+        />,
       ]}
     />
   );
@@ -495,9 +587,12 @@ function PlanTable({
  */
 function StatementsTable({
   statements,
+  currency,
   hasCutOffDay,
 }: {
   statements: DebtStatement[];
+  // A statement is cut in the currency the card bills in (RF-84, RF-121).
+  currency: CurrencyCode;
   hasCutOffDay: boolean;
 }) {
   const t = useTranslations("installments");
@@ -550,7 +645,11 @@ function StatementsTable({
       align: "end",
       numeric: true,
       cell: (statement) => (
-        <Money cents={statement.statementBalanceCents} signed={false} />
+        <Money
+          minor={Math.abs(statement.statementBalanceCents)}
+          currency={currency}
+          signed={false}
+        />
       ),
     },
     {
@@ -561,7 +660,11 @@ function StatementsTable({
       numeric: true,
       cell: (statement) => (
         <Text color="gray">
-          <Money cents={statement.minimumPaymentCents} signed={false} />
+          <Money
+            minor={statement.minimumPaymentCents}
+            currency={currency}
+            signed={false}
+          />
         </Text>
       ),
     },
@@ -573,7 +676,11 @@ function StatementsTable({
       numeric: true,
       cell: (statement) => (
         <Text color="gray">
-          <Money cents={statement.interestEstimateCents} signed={false} />
+          <Money
+            minor={statement.interestEstimateCents}
+            currency={currency}
+            signed={false}
+          />
         </Text>
       ),
     },
@@ -595,5 +702,202 @@ function StatementsTable({
         />
       }
     />
+  );
+}
+
+/**
+ * The purchases the issuer has not billed yet (RF-123): what was spent, in the
+ * currency it was spent in, beside what a person expects it to cost, marked an
+ * estimate. A row leaves the list the moment the billed amount lands — the mark
+ * is what moves the amount from the foreign pocket to the settlement one, and the
+ * derived balance does the moving, never this screen.
+ */
+function SettlementSection({
+  accountId,
+  currency,
+  pending,
+  canWrite,
+}: {
+  accountId: string;
+  currency: CurrencyCode;
+  pending: PendingSettlement[];
+  canWrite: boolean;
+}) {
+  const t = useTranslations("debts.settlement");
+
+  return (
+    <>
+      <Flex direction="column" px={{ initial: "0", md: "6" }}>
+        <Heading as="h2" size="3">
+          {t("title")}
+        </Heading>
+      </Flex>
+
+      {pending.length === 0 ? (
+        <EmptyState variant="filtered" title={t("empty")} />
+      ) : (
+        <Flex direction="column" px={{ initial: "0", md: "6" }}>
+          <Panel title={t("pending")}>
+            <Flex direction="column" px="4" py="1">
+              {pending.map((movement, index) => (
+                <Fragment key={movement.id}>
+                  {index > 0 && <Separator size="4" />}
+                  <SettlementRow
+                    movement={movement}
+                    accountId={accountId}
+                    currency={currency}
+                    canWrite={canWrite}
+                  />
+                </Fragment>
+              ))}
+            </Flex>
+          </Panel>
+        </Flex>
+      )}
+    </>
+  );
+}
+
+/**
+ * One purchase waiting for its statement. The rate is the quotient of the two
+ * amounts on the row and is stored nowhere (RF-122); it follows the figure being
+ * typed as soon as that reads as an amount, so the tasa on screen always divides
+ * the two cifras beside it.
+ */
+function SettlementRow({
+  movement,
+  accountId,
+  currency,
+  canWrite,
+}: {
+  movement: PendingSettlement;
+  accountId: string;
+  currency: CurrencyCode;
+  canWrite: boolean;
+}) {
+  const t = useTranslations("debts.settlement");
+  const format = useFormatter();
+  const onActionError = useActionErrorToast();
+
+  const form = useForm<RecordBilledAmountInput>({
+    resolver: zodResolver(recordBilledAmountSchema),
+    defaultValues: {
+      transactionId: movement.id,
+      accountId,
+      // What the typed string is read in, and what the write refuses to differ
+      // from: the same schema validates both ends (RNF-10).
+      currency,
+      billedAmount: "",
+    },
+  });
+
+  const save = useAction(recordBilledAmountAction, {
+    onSuccess() {
+      toast.success(t("saved"), { description: t("replacedEstimate") });
+    },
+    onError: onActionError,
+  });
+
+  const typed = useWatch({ control: form.control, name: "billedAmount" });
+
+  // Both integers are in the scale the columns keep, which is what `deriveRate`
+  // divides: the rate is their quotient and lands in no column of its own.
+  const spentCents = movement.amountCents;
+  const billedCents = parseAmount(typed) ?? movement.counterAmountCents;
+  const rate = deriveRate(spentCents, movement.currency, billedCents, currency);
+
+  const occurred = format.dateTime(civilDateToDate(movement.occurredAt), {
+    day: "numeric",
+    month: "short",
+  });
+
+  return (
+    <Flex direction="column" gap="2" py="3">
+      <Flex align="center" justify="between" gap="4">
+        <Text size="2" weight="medium" truncate>
+          {movement.description ?? occurred}
+        </Text>
+        {movement.description !== null && (
+          <Text size="2" color="gray">
+            {occurred}
+          </Text>
+        )}
+      </Flex>
+
+      <Flex align="center" justify="between" gap="4">
+        <Text size="2" color="gray">
+          {t("spent")}
+        </Text>
+        <Text size="2" weight="medium">
+          <Money
+            minor={spentCents}
+            currency={movement.currency}
+            signed={false}
+            size="inherit"
+          />
+        </Text>
+      </Flex>
+
+      <Flex align="center" justify="between" gap="4">
+        <Text size="2" color="gray">
+          {t("estimate")}
+        </Text>
+        <Text size="2" weight="medium">
+          <Money
+            minor={movement.counterAmountCents}
+            currency={currency}
+            estimate
+            signed={false}
+            size="inherit"
+          />
+        </Text>
+      </Flex>
+
+      <Flex align="center" justify="between" gap="4">
+        <Text size="2" color="gray">
+          {t("rate")}
+        </Text>
+        <Text size="2" weight="medium">
+          {format.number(rate, { maximumFractionDigits: 2 })}
+        </Text>
+      </Flex>
+
+      {/* Exactly what the policies would admit: a reader sees the two figures and
+          is offered no field to replace one with. */}
+      {canWrite && (
+        <form
+          onSubmit={form.handleSubmit((values) => save.execute(values))}
+          noValidate
+        >
+          <Controller
+            name="billedAmount"
+            control={form.control}
+            render={({ field, fieldState }) => (
+              <Field invalid={fieldState.invalid}>
+                <FieldLabel htmlFor={`billed-${movement.id}`}>
+                  {t("billedLabel")}
+                </FieldLabel>
+                <FieldControl>
+                  <TextField.Root
+                    {...field}
+                    id={`billed-${movement.id}`}
+                    size="3"
+                    inputMode={amountInputMode(currency)}
+                    disabled={save.isPending}
+                  />
+                </FieldControl>
+                <FieldMessage error={fieldState.error} />
+              </Field>
+            )}
+          />
+          <Flex justify="end" pt="2">
+            <Button type="submit" disabled={save.isPending}>
+              {save.isPending && <Spinner />}
+              {t("save")}
+            </Button>
+          </Flex>
+        </form>
+      )}
+    </Flex>
   );
 }

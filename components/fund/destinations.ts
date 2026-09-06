@@ -72,6 +72,17 @@ export const PRIMARY_KEYS = [
   "inbox",
 ] as const;
 
+// Planeación's own five, in the order the sidebar and `PlanningSubNav`'s chips
+// both keep. The hub reads this list only for each area's `href` and `icon`;
+// it orders its own cards separately.
+export const PLANNING_KEYS = [
+  "budgets",
+  "goals",
+  "payments",
+  "recurring",
+  "debts",
+] as const;
+
 // What the sidebar keeps below its separator, beside the settings panel's trigger.
 // Auditoría and Webhooks stay out of it: both are rare and stay in the panel.
 export const SIDEBAR_SECONDARY_KEYS = [

@@ -5,7 +5,7 @@ import { SquarePenIcon, XIcon } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Controller, useForm, useWatch } from "react-hook-form";
+import { Controller, useForm, useWatch, type Resolver } from "react-hook-form";
 import { toast } from "sonner";
 
 import {
@@ -31,7 +31,11 @@ import {
   Text,
   TextField,
 } from "@/components/ui";
-import type { TransactionFormOptions } from "@/db/queries/transaction-form";
+import type {
+  OfferedCurrency,
+  TransactionFormOptions,
+} from "@/db/queries/transaction-form";
+import { BASE_CURRENCY } from "@/lib/currency";
 import { todayInBogota } from "@/lib/dates";
 import { interpretQuickEntry } from "@/lib/transactions/interpret";
 import { useActionErrorToast } from "@/lib/use-action-toast";
@@ -39,6 +43,15 @@ import {
   createTransactionSchema,
   type CreateTransactionInput,
 } from "@/lib/validation/transaction";
+
+// What an account settles in, or the base currency while none is chosen (RF-121).
+function accountCurrencyOf(
+  options: TransactionFormOptions,
+  accountId: string | null,
+): OfferedCurrency {
+  if (accountId === null) return BASE_CURRENCY;
+  return options.accountCurrencies[accountId] ?? BASE_CURRENCY;
+}
 
 /**
  * The make-or-break quick sheet: one text field the interpreter reads into an
@@ -95,6 +108,15 @@ export function QuickEntrySheet({
   );
 }
 
+// The sheet's own value shape: the create payload with the three fields a
+// writer may leave to the accounts already decided, since the sheet always
+// names them.
+type QuickEntryValues = CreateTransactionInput & {
+  currency: OfferedCurrency;
+  counterAmount: string | null;
+  counterIsEstimate: boolean;
+};
+
 function QuickEntryForm({
   options,
   onOpenChange,
@@ -109,14 +131,22 @@ function QuickEntryForm({
 
   const [text, setText] = useState("");
 
-  const form = useForm<CreateTransactionInput>({
-    resolver: zodResolver(createTransactionSchema),
+  const form = useForm<QuickEntryValues>({
+    resolver: zodResolver(
+      createTransactionSchema,
+    ) as unknown as Resolver<QuickEntryValues>,
     mode: "onChange",
     defaultValues: {
       // Fixed to an expense: a source only, the destination always null (RF-18).
       fromAccountId: options.lastUsedAccountId,
       toAccountId: null,
       amount: "",
+      // The account's own currency, and no control to change it: the quick
+      // sheet records what the account already holds, and a movement in another
+      // one carries a second amount the full form asks for (RF-121, RF-122).
+      currency: accountCurrencyOf(options, options.lastUsedAccountId),
+      counterAmount: null,
+      counterIsEstimate: false,
       occurredAt: todayInBogota(),
       description: null,
       splits: [],
@@ -126,7 +156,12 @@ function QuickEntryForm({
 
   const fromAccountId = useWatch({ control: form.control, name: "fromAccountId" });
   const amount = useWatch({ control: form.control, name: "amount" });
+  const currency = useWatch({ control: form.control, name: "currency" });
   const splits = useWatch({ control: form.control, name: "splits" });
+
+  // The figure is read in whatever the chosen account settles in, so switching
+  // account switches the reading with it.
+  const accountCurrency = accountCurrencyOf(options, fromAccountId);
 
   // The account's scope decides which categories are on offer (RF-62): a
   // personal account names its owner, a group account its group.
@@ -194,6 +229,10 @@ function QuickEntryForm({
   // A lone split always carries the whole amount, so editing the total keeps it
   // in step; two or more are the editor's to balance.
   useEffect(() => {
+    if (currency !== accountCurrency) {
+      form.setValue("currency", accountCurrency, { shouldValidate: true });
+    }
+
     if (splits.length === 1 && splits[0].amount !== amount) {
       form.setValue("splits", [{ ...splits[0], amount }], { shouldValidate: true });
     }
@@ -204,7 +243,7 @@ function QuickEntryForm({
       lastScope.current = scope;
       form.setValue("labelIds", [], { shouldValidate: true });
     }
-  }, [amount, splits, scope, form]);
+  }, [amount, splits, scope, currency, accountCurrency, form]);
 
   const create = useAction(createTransactionAction, {
     onSuccess: ({ data }) => {
@@ -234,7 +273,7 @@ function QuickEntryForm({
       ? t("quickInterpreted")
       : t("quickUnrecognized");
 
-  function onSubmit(values: CreateTransactionInput) {
+  function onSubmit(values: QuickEntryValues) {
     create.execute(values);
   }
 
@@ -290,7 +329,8 @@ function QuickEntryForm({
             <Field invalid={fieldState.invalid}>
               <FieldLabel>{t("categoryLabel")}</FieldLabel>
               <SplitEditor
-                totalPesos={amount}
+                total={amount}
+                currency={currency}
                 scope={scope}
                 kind="expense"
                 categories={options.categories}

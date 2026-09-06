@@ -2,6 +2,8 @@
 
 import { refresh } from "next/cache";
 
+import { z } from "zod";
+
 import {
   cancelPlannedPayment,
   createPlannedPayment,
@@ -11,24 +13,42 @@ import {
   updatePlannedPayment,
 } from "@/db/queries/planned-payments";
 import type { SettlePlannedPaymentResult } from "@/db/queries/planned-payments";
+import { getSettlementCurrencies } from "@/db/queries/transactions";
 import { pgErrorCode } from "@/lib/db-error";
 import { ActionError } from "@/lib/errors";
-import { parsePesos, pesosToCents } from "@/lib/money";
+import { parseAmount } from "@/lib/money";
 import { authActionClient } from "@/lib/safe-action";
 import {
   cancelPlannedPaymentSchema,
   createPlannedPaymentSchema,
   deletePlannedPaymentSchema,
+  refinePaymentAmount,
   settlePlannedPaymentSchema,
   updatePlannedPaymentSchema,
 } from "@/lib/validation/planned-payment";
 
-// The amount arrives as a Zod-validated peso string; parsing it into cents here
-// can only fail if the schema let something through it should not have.
-function toCents(amount: string): number {
-  const pesos = parsePesos(amount);
-  if (pesos === null) throw new ActionError("errors.unexpected");
-  return pesosToCents(pesos);
+/**
+ * The amount read in the currency the named accounts settle in, never in the
+ * one the payload implies (RF-121): the currencies come from the accounts, in
+ * one round trip, and the refinement that reads the string against them is the
+ * very one the form runs (RNF-10). Past it, a null parse can only be a schema
+ * that let something through, so it is `errors.unexpected`.
+ */
+async function toMinor(
+  amount: string,
+  accounts: { fromAccountId: string | null; toAccountId: string | null },
+): Promise<number> {
+  const settlement = await getSettlementCurrencies(accounts);
+  const verdict = z
+    .custom<{ amount: string }>()
+    .superRefine(refinePaymentAmount(settlement))
+    .safeParse({ amount });
+
+  if (!verdict.success) throw new ActionError(verdict.error.issues[0].message);
+
+  const minor = parseAmount(amount);
+  if (minor === null) throw new ActionError("errors.unexpected");
+  return minor;
 }
 
 // The scope trigger raises 23514 when the accounts disagree on scope; a denied
@@ -51,7 +71,7 @@ function mapPlannedPaymentError(error: unknown): never {
 export const createPlannedPaymentAction = authActionClient
   .inputSchema(createPlannedPaymentSchema)
   .action(async ({ parsedInput: { amount, categoryId, remindOn, description, ...payment } }) => {
-    const amountCents = toCents(amount);
+    const amountCents = await toMinor(amount, payment);
 
     let plannedPaymentId: string;
     try {
@@ -78,7 +98,7 @@ export const createPlannedPaymentAction = authActionClient
 export const updatePlannedPaymentAction = authActionClient
   .inputSchema(updatePlannedPaymentSchema)
   .action(async ({ parsedInput: { amount, categoryId, remindOn, description, ...payment } }) => {
-    const amountCents = toCents(amount);
+    const amountCents = await toMinor(amount, payment);
 
     let updated: boolean;
     try {

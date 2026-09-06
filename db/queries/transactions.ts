@@ -1,12 +1,25 @@
 import "server-only";
 
-import { and, desc, eq, gte, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  gte,
+  inArray,
+  isNotNull,
+  isNull,
+  lte,
+  or,
+  sql,
+} from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 
 import { insertRow } from "@/db/insert-row";
-import { transactionLabels, transactionSplits, transactions } from "@/db/schema";
+import { accounts, transactionLabels, transactionSplits, transactions } from "@/db/schema";
 import type { Transaction } from "@/db/session";
 import { withUserDb } from "@/db/session";
+import type { CurrencyCode } from "@/lib/currency";
+import type { SettlementCurrencies } from "@/lib/validation/transaction";
 
 export type TransactionSplitInput = { categoryId: string; amountCents: number };
 
@@ -17,6 +30,14 @@ export type CreateTransactionArgs = {
   fromAccountId: string | null;
   toAccountId: string | null;
   amountCents: number;
+  // The currency the amount is in (RF-121). Null hands the choice to
+  // `set_transaction_currency`, which takes it from the accounts — what every
+  // insert path that names no currency has always meant.
+  currency?: CurrencyCode | null;
+  // The same movement in the other side's settlement currency, and whether it
+  // is still what a person expects rather than what was billed (RF-122, RF-123).
+  counterAmountCents?: number | null;
+  counterIsEstimate?: boolean;
   occurredAt: string;
   description: string | null;
   externalRef: string | null;
@@ -30,6 +51,9 @@ export type UpdateTransactionArgs = {
   fromAccountId: string | null;
   toAccountId: string | null;
   amountCents: number;
+  currency?: CurrencyCode | null;
+  counterAmountCents?: number | null;
+  counterIsEstimate?: boolean;
   occurredAt: string;
   description: string | null;
   splits: TransactionSplitInput[];
@@ -55,6 +79,12 @@ export type TransactionListRow = {
   id: string;
   kind: string;
   amountCents: number;
+  // The currency the amount is in, and the same movement in the settlement
+  // currency of the side that settles elsewhere (RF-121, RF-122). The rate is
+  // their quotient, derived to be read and never stored.
+  currency: CurrencyCode;
+  counterAmountCents: number | null;
+  counterIsEstimate: boolean;
   occurredAt: string;
   description: string | null;
   fromAccountId: string | null;
@@ -64,6 +94,10 @@ export type TransactionListRow = {
   // stamp is null until it is confirmed or its amount corrected (RF-31).
   recurringRuleId: string | null;
   reviewedAt: Date | null;
+  // What each named account settles in, so a screen reads the second amount's
+  // currency off the row it already has (RF-121).
+  fromSettlementCurrency: CurrencyCode | null;
+  toSettlementCurrency: CurrencyCode | null;
   splits: { categoryId: string; amountCents: number }[];
   labels: { id: string; name: string; color: string | null }[];
 };
@@ -88,6 +122,9 @@ export async function insertTransaction(
     fromAccountId,
     toAccountId,
     amountCents,
+    currency = null,
+    counterAmountCents = null,
+    counterIsEstimate = false,
     occurredAt,
     description,
     externalRef,
@@ -100,6 +137,9 @@ export async function insertTransaction(
       from_account_id,
       to_account_id,
       amount_cents,
+      currency,
+      counter_amount_cents,
+      counter_is_estimate,
       occurred_at,
       description,
       external_ref
@@ -107,6 +147,9 @@ export async function insertTransaction(
       ${fromAccountId},
       ${toAccountId},
       ${amountCents},
+      ${currency},
+      ${counterAmountCents},
+      ${counterIsEstimate},
       ${occurredAt},
       ${description},
       ${externalRef}
@@ -151,6 +194,9 @@ export async function updateTransaction({
   fromAccountId,
   toAccountId,
   amountCents,
+  currency,
+  counterAmountCents = null,
+  counterIsEstimate = false,
   occurredAt,
   description,
   splits,
@@ -166,6 +212,11 @@ export async function updateTransaction({
         fromAccountId,
         toAccountId,
         amountCents,
+        // An edit that names no currency leaves the stored one alone: only the
+        // INSERT trigger derives one, and the column is not nullable.
+        ...(currency ? { currency } : {}),
+        counterAmountCents,
+        counterIsEstimate,
         occurredAt,
         description,
         reviewedAt: sql`case when ${transactions.recurringRuleId} is not null and ${transactions.reviewedAt} is null then now() else ${transactions.reviewedAt} end`,
@@ -294,6 +345,9 @@ export async function listTransactions(
         // The generated column never yields null, but its type is nullable; assert it.
         kind: sql<string>`${transactions.kind}`,
         amountCents: transactions.amountCents,
+        currency: transactions.currency,
+        counterAmountCents: transactions.counterAmountCents,
+        counterIsEstimate: transactions.counterIsEstimate,
         occurredAt: transactions.occurredAt,
         description: transactions.description,
         fromAccountId: transactions.fromAccountId,
@@ -301,15 +355,69 @@ export async function listTransactions(
         createdBy: transactions.createdBy,
         recurringRuleId: transactions.recurringRuleId,
         reviewedAt: transactions.reviewedAt,
+        // Written with the joined alias, never a Drizzle column reference: a
+        // reference inside a projection fragment renders bare and binds inward.
+        fromSettlementCurrency: sql<
+          string | null
+        >`from_account.settlement_currency`,
+        toSettlementCurrency: sql<string | null>`to_account.settlement_currency`,
         splits: splitsJson,
         labels: labelsJson,
       })
       .from(transactions)
+      // What each named side settles in, alongside the movement's own currency
+      // and in the same statement: a screen reads the second amount's currency
+      // off the row, and the list still costs the one round trip it did (RF-121).
+      // A join, not a correlated lookup: the policy on `accounts` is then
+      // evaluated once per account and not once per movement.
+      .leftJoin(
+        sql`${accounts} from_account`,
+        sql`from_account.id = ${transactions.fromAccountId}`,
+      )
+      .leftJoin(
+        sql`${accounts} to_account`,
+        sql`to_account.id = ${transactions.toAccountId}`,
+      )
       .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(desc(transactions.occurredAt), desc(transactions.createdAt));
 
     return options?.limit === undefined ? query : query.limit(options.limit);
   });
+}
+
+/**
+ * What the two named accounts settle in (RF-121), in one round trip. The write
+ * path reads the currencies here and never off the payload: the second amount a
+ * movement carries is expressed in one of them, and what minor unit it is in
+ * decides the integer that gets stored. RLS scopes the read, so an account the
+ * caller cannot see answers null, exactly as one that was never there — which
+ * the INSERT policy refuses on its own.
+ */
+export async function getSettlementCurrencies({
+  fromAccountId,
+  toAccountId,
+}: {
+  fromAccountId: string | null;
+  toAccountId: string | null;
+}): Promise<SettlementCurrencies> {
+  const ids = [fromAccountId, toAccountId].filter(
+    (id): id is string => id !== null,
+  );
+  if (ids.length === 0) return { from: null, to: null };
+
+  const rows = await withUserDb((tx) =>
+    tx
+      .select({ id: accounts.id, currency: accounts.settlementCurrency })
+      .from(accounts)
+      .where(inArray(accounts.id, ids)),
+  );
+
+  const currencies = new Map(rows.map((row) => [row.id, row.currency]));
+
+  return {
+    from: (fromAccountId && currencies.get(fromAccountId)) ?? null,
+    to: (toAccountId && currencies.get(toAccountId)) ?? null,
+  };
 }
 
 // One movement in one round trip, its splits and labels along (RF-24). RLS scopes

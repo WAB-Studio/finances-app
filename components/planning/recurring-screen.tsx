@@ -1,21 +1,27 @@
 "use client";
 
 import { Info, Pencil, Plus, Repeat, TriangleAlert } from "lucide-react";
-import { useFormatter, useTranslations } from "next-intl";
+import { useFormatter, useLocale, useTranslations } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
 import { useState } from "react";
 import { toast } from "sonner";
 
 import {
+  deleteRecurringRuleAction,
   pauseRecurringRuleAction,
   resumeRecurringRuleAction,
 } from "@/app/actions/recurring-rules";
+import { PlanningSubNav } from "@/components/planning/planning-sub-nav";
 import { RecurringFormDialog } from "@/components/planning/recurring-form-dialog";
+import { RecurringTable } from "@/components/planning/recurring-table";
+import type { RecurringTableRow } from "@/components/planning/recurring-table";
 import {
   Badge,
+  Box,
   Button,
   Callout,
   Card,
+  ConfirmDialog,
   EmptyState,
   Flex,
   FundChip,
@@ -26,9 +32,9 @@ import {
 } from "@/components/ui";
 import type { RecurringRuleRow } from "@/db/queries/recurring-rules";
 import type { TransactionFormOptions } from "@/db/queries/transaction-form";
-import { Link as LocaleLink } from "@/i18n/navigation";
+import { Link as LocaleLink, useRouter } from "@/i18n/navigation";
 import { civilDateToDate } from "@/lib/dates";
-import { centsToPesos } from "@/lib/money";
+import { formatMoney } from "@/lib/money";
 import { useActionErrorToast } from "@/lib/use-action-toast";
 
 /**
@@ -36,7 +42,8 @@ import { useActionErrorToast } from "@/lib/use-action-toast";
  * next run first (RF-29), each carrying a frequency + next-run subtitle. A rule's
  * switch pauses or resumes it in place (RF-32); a paused rule reads muted. The
  * amber banner counts the generated movements still awaiting review (RF-31) and
- * hides when none are. Money stays integer cents; the peso figure is display only.
+ * hides when none are. Money stays integer cents and every figure is drawn in
+ * the settlement currency of the account the rule names (RF-121).
  */
 export function RecurringScreen({
   rules,
@@ -51,11 +58,66 @@ export function RecurringScreen({
 }) {
   const t = useTranslations("recurringRules");
   const tKey = useTranslations();
+  const router = useRouter();
+  const onActionError = useActionErrorToast();
 
   // "new" and a row share one dialog instance; its own key resets the form.
   const [formTarget, setFormTarget] = useState<RecurringRuleRow | "new" | null>(
     null,
   );
+  const [deleteTarget, setDeleteTarget] = useState<RecurringRuleRow | null>(
+    null,
+  );
+
+  const deleteState = useAction(deleteRecurringRuleAction, {
+    onSuccess() {
+      toast.success(t("deleted"));
+      setDeleteTarget(null);
+    },
+    onError: onActionError,
+  });
+
+  // A name and colour per category id — children included — and a name per
+  // account id, so the dense table's cells cost no lookup of their own.
+  const categoryNames = new Map<string, string>();
+  const categoryColors = new Map<string, string | null>();
+  for (const category of options.categories) {
+    categoryNames.set(category.id, category.name);
+    categoryColors.set(category.id, category.color);
+    for (const child of category.children) {
+      categoryNames.set(child.id, child.name);
+      categoryColors.set(child.id, child.color);
+    }
+  }
+  const accountNames = new Map(options.accounts.map((a) => [a.id, a.name]));
+
+  const byId = new Map(rules.map((rule) => [rule.id, rule]));
+  const tableRows: RecurringTableRow[] = rules.map((rule) => {
+    // A destination-only rule is income, a source-only rule an expense (RF-29).
+    const accountId = rule.toAccountId ?? rule.fromAccountId;
+    return {
+      id: rule.id,
+      concept: rule.description ?? t("noConcept"),
+      frequency: rule.frequency,
+      intervalN: rule.intervalN,
+      nextRunOn: rule.nextRunOn,
+      category: {
+        name: categoryNames.get(rule.categoryId) ?? "",
+        color: categoryColors.get(rule.categoryId) ?? null,
+      },
+      account: (accountId && accountNames.get(accountId)) ?? "",
+      isActive: rule.isActive,
+      amountCents: rule.amountCents,
+      currency: rule.currency,
+      isIncome: rule.toAccountId !== null,
+    };
+  });
+
+  function fromRow(row: RecurringTableRow): RecurringRuleRow {
+    const rule = byId.get(row.id);
+    if (!rule) throw new Error("Row named a rule the screen never listed.");
+    return rule;
+  }
 
   const addButton = (
     <Button type="button" onClick={() => setFormTarget("new")}>
@@ -74,6 +136,10 @@ export function RecurringScreen({
         {addButton}
       </Flex>
 
+      <Box display={{ initial: "none", md: "block" }}>
+        <PlanningSubNav />
+      </Box>
+
       {/* Generated movements land marked automatic until confirmed (RF-31); the
           banner leads to the ledger to review them, and stays hidden at zero. */}
       {unreviewedCount > 0 && (
@@ -89,23 +155,49 @@ export function RecurringScreen({
         </LocaleLink>
       )}
 
-      {rules.length === 0 ? (
-        <EmptyState
-          title={t("emptyTitle")}
-          description={t("emptyDescription")}
-          action={addButton}
-        />
-      ) : (
-        <Flex direction="column" gap="3">
-          {rules.map((rule) => (
-            <RuleCard
-              key={rule.id}
-              rule={rule}
-              onEdit={() => setFormTarget(rule)}
+      <Box display={{ initial: "block", lg: "none" }}>
+        {rules.length === 0 ? (
+          <EmptyState
+            title={t("emptyTitle")}
+            description={t("emptyDescription")}
+            action={addButton}
+          />
+        ) : (
+          <Flex direction="column" gap="3">
+            {rules.map((rule) => (
+              <RuleCard
+                key={rule.id}
+                rule={rule}
+                onEdit={() => setFormTarget(rule)}
+              />
+            ))}
+          </Flex>
+        )}
+      </Box>
+
+      <Box display={{ initial: "none", lg: "block" }}>
+        <RecurringTable
+          rows={tableRows}
+          empty={
+            <EmptyState
+              variant="filtered"
+              title={t("emptyTitle")}
+              description={t("emptyDescription")}
+              action={addButton}
             />
-          ))}
-        </Flex>
-      )}
+          }
+          onEdit={(row) => setFormTarget(fromRow(row))}
+          // The rule names one account; the ledger, filtered to it, is the
+          // closest door onto what this rule generated without a filter of
+          // its own (RF-29).
+          onViewGenerated={(row) => {
+            const rule = fromRow(row);
+            const accountId = rule.toAccountId ?? rule.fromAccountId;
+            if (accountId) router.push(`/movements?account=${accountId}`);
+          }}
+          onDelete={(row) => setDeleteTarget(fromRow(row))}
+        />
+      </Box>
 
       <Callout.Root color="jade" variant="soft">
         <Callout.Icon>
@@ -122,6 +214,19 @@ export function RecurringScreen({
         options={options}
         rule={formTarget === "new" ? undefined : (formTarget ?? undefined)}
       />
+
+      {deleteTarget && (
+        <ConfirmDialog
+          open
+          onOpenChange={(open) => !open && setDeleteTarget(null)}
+          title={t("deleteTitle")}
+          description={t("deleteDescription")}
+          confirmLabel={tKey("common.delete")}
+          cancelLabel={tKey("common.cancel")}
+          pending={deleteState.isPending}
+          onConfirm={() => deleteState.execute({ id: deleteTarget.id })}
+        />
+      )}
     </Flex>
   );
 }
@@ -136,6 +241,7 @@ function RuleCard({
   const t = useTranslations("recurringRules");
   const tKey = useTranslations();
   const format = useFormatter();
+  const locale = useLocale();
   const onActionError = useActionErrorToast();
 
   // Two hooks, not one behind a ternary: rules of hooks forbid picking which one
@@ -215,7 +321,7 @@ function RuleCard({
           color={isIncome ? "grass" : undefined}
           style={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}
         >
-          {format.number(centsToPesos(rule.amountCents), "currency")}
+          {formatMoney(rule.amountCents, rule.currency, locale)}
         </Text>
       </Flex>
       <Flex align="center" justify="end" gap="3" mt="3">

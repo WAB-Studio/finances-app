@@ -5,6 +5,7 @@ import { desc, eq, sql } from "drizzle-orm";
 import { insertRow } from "@/db/insert-row";
 import { goalContributions, savingsGoals, transactions } from "@/db/schema";
 import { withUserDb } from "@/db/session";
+import { BASE_CURRENCY } from "@/lib/currency";
 import { todayInBogota } from "@/lib/dates";
 import { TIME_ZONE } from "@/lib/locales";
 
@@ -14,6 +15,10 @@ export type GoalProgress = {
   targetAmountCents: number;
   targetDate: string | null;
   accountId: string | null;
+  // What the meta and the apartado are counted in, derived and never stored
+  // (RF-121, RF-124): the settlement currency of the account the goal names,
+  // the fund's when it is the fund's, else its owner's own.
+  currency: string;
   savedCents: number;
   remainingCents: number;
   reachedTarget: boolean;
@@ -28,9 +33,13 @@ export type GoalProgress = {
 
 /**
  * Every non-archived goal with its progress in ONE round trip (RF-87, RNF-09):
- * `saved_cents` is read from the `goal_progress` view, which sums the goal's
- * contributions — this never re-sums them itself. Remaining floors at
- * zero so an overshot goal reads as reached, not negative. `archived` swaps the
+ * `saved_cents` sums the goal's own aportes, and only the ones set aside in the
+ * goal's currency, so no meta is measured against two currencies added together
+ * (RF-124) — which is what the `goal_progress` view, blind to the currency,
+ * cannot do. An aporte earmarking a movement is in that movement's currency; a
+ * virtual one is in the goal's, and so is one whose movement the caller cannot
+ * read, which joins as null rather than dropping out of the sum. Remaining
+ * floors at zero so an overshot goal reads as reached, not negative. `archived` swaps the
  * listing onto the archived side (RF-120); the view knows nothing of the flag,
  * so an archived goal's progress keeps deriving from its aportes. Scope is the
  * policy's job: `withUserDb` shows only the caller's readable goals.
@@ -39,7 +48,10 @@ export type GoalProgress = {
  * as integer cents: the monthly figure spreads what remains over the whole months
  * still ahead — at least one, so a goal due this month asks for all of it — and a
  * goal counts as behind when what it has set aside sits under the straight line
- * from the day it opened to the day it is due. Neither is stored (RNF-07).
+ * from the day it opened to the day it is due, or that day has already come and
+ * gone (D5): a goal opened today has spent none of its own line, but a target
+ * date at or before today leaves no line left to spend, so it reads behind from
+ * its first day rather than waiting for one to pass. Neither is stored (RNF-07).
  *
  * The rows come back in the reading order of the artboard — atrasada, al día,
  * cumplida, sin fecha, and by name inside each band — so the desktop table and
@@ -63,6 +75,7 @@ export async function listGoalsWithProgress(options?: {
       target_amount_cents: string;
       target_date: string | null;
       account_id: string | null;
+      currency: string;
       saved_cents: string;
       progress_pct: number;
       required_monthly_cents: string | null;
@@ -75,6 +88,7 @@ export async function listGoalsWithProgress(options?: {
           g.target_amount_cents,
           g.target_date,
           g.account_id,
+          cur.code as currency,
           gp.saved_cents,
           least(round(gp.saved_cents * 100.0 / g.target_amount_cents), 100)::int
             as progress_pct,
@@ -89,15 +103,32 @@ export async function listGoalsWithProgress(options?: {
           case
             when g.target_date is null or gp.saved_cents >= g.target_amount_cents
               then false
+            -- D5: a target date already due or past leaves no straight line to
+            -- ride — the goal owes its whole meta today, opened today or not.
+            when g.target_date <= ${today}::date
+              then true
             -- Cross-multiplied so the comparison stays in exact integers: saved
             -- over the whole span against the meta over the days already spent.
-            -- A goal opened today has spent no days, so nothing it is due
-            -- tomorrow can put it behind until the day after it opens.
             else gp.saved_cents * greatest(g.target_date - ${openedOn}, 0)
               < g.target_amount_cents * greatest(${today}::date - ${openedOn}, 0)
           end as behind_pace
         from savings_goals g
-        join goal_progress gp on gp.goal_id = g.id
+        left join accounts a on a.id = g.account_id
+        left join groups gr on gr.id = g.group_id
+        left join app_users u on u.id = g.owner_user_id
+        -- The scope is an XOR, so at most one of the fund's and the owner's ever
+        -- answers. The last leg is the one case none of them can: another member's
+        -- personal goal naming no account, whose owner's row app_users_select_self
+        -- keeps out of reach — it reads in the base currency rather than in none.
+        cross join lateral (select coalesce(
+          a.settlement_currency, gr.currency, u.settlement_currency, ${BASE_CURRENCY}
+        ) as code) cur
+        cross join lateral (
+          select coalesce(sum(gc.amount_cents), 0)::bigint as saved_cents
+          from goal_contributions gc
+          left join transactions t on t.id = gc.transaction_id
+          where gc.goal_id = g.id and coalesce(t.currency, cur.code) = cur.code
+        ) gp
         where ${archivedFilter}
       )
       select *
@@ -125,6 +156,7 @@ export async function listGoalsWithProgress(options?: {
         targetAmountCents,
         targetDate: row.target_date,
         accountId: row.account_id,
+        currency: row.currency,
         savedCents,
         remainingCents: Math.max(targetAmountCents - savedCents, 0),
         reachedTarget: savedCents >= targetAmountCents,
@@ -136,6 +168,42 @@ export async function listGoalsWithProgress(options?: {
         behindPace: row.behind_pace,
       };
     });
+  });
+}
+
+/**
+ * The currency a goal's meta and aportes are written and read in, in ONE round
+ * trip (RF-121). The same chain the listing derives, asked of one goal: the
+ * account it names, then the scope it belongs to, and the base currency when
+ * the caller may read none of them. A write that names no goal yet falls
+ * through to the caller's own fund and row.
+ *
+ * RLS does the scoping: `groups` shows the caller their one fund and
+ * `app_users` shows them only their own row.
+ */
+export async function resolveGoalCurrency({
+  goalId = null,
+  accountId = null,
+}: {
+  goalId?: string | null;
+  accountId?: string | null;
+}): Promise<string> {
+  return withUserDb(async (tx) => {
+    const [row] = await tx.execute<{ code: string }>(sql`
+      select coalesce(
+        (select a.settlement_currency from accounts a where a.id = ${accountId}::uuid),
+        (select coalesce(gr.currency, u.settlement_currency)
+           from savings_goals g
+           left join groups gr on gr.id = g.group_id
+           left join app_users u on u.id = g.owner_user_id
+          where g.id = ${goalId}::uuid),
+        (select gr.currency from groups gr limit 1),
+        (select u.settlement_currency from app_users u limit 1),
+        ${BASE_CURRENCY}
+      ) as code
+    `);
+
+    return row.code;
   });
 }
 
@@ -292,6 +360,9 @@ export async function addGoalContribution({
 export type GoalContributionRow = {
   id: string;
   amountCents: number;
+  // The currency of the movement the aporte earmarks; null for a virtual one,
+  // which is set aside in the goal's own currency (RF-121).
+  currency: string | null;
   transactionId: string | null;
   occurredAt: string;
   description: string | null;
@@ -299,9 +370,9 @@ export type GoalContributionRow = {
 
 /**
  * One goal's aportes, newest first, in ONE round trip (RF-119, RNF-09). The sum
- * of what comes back is the goal's saved amount: `goal_progress` sums these very
- * rows under the same policy, so progress keeps deriving and nothing is stored
- * (RF-87, RNF-07). Scope is the policy's job — `goal_contributions_select_member`
+ * of the ones in the goal's own currency is its saved amount:
+ * `listGoalsWithProgress` sums these very rows under the same policy, so
+ * progress keeps deriving and nothing is stored (RF-87, RNF-07). Scope is the policy's job — `goal_contributions_select_member`
  * admits a row only when its goal is readable, so the goal id narrows the set and
  * never widens it. A movement outside the caller's scope joins as null rather
  * than dropping its aporte, which would break that sum.
@@ -321,6 +392,7 @@ export async function listGoalContributions(
       .select({
         id: goalContributions.id,
         amountCents: goalContributions.amountCents,
+        currency: transactions.currency,
         transactionId: goalContributions.transactionId,
         occurredAt,
         description: transactions.description,

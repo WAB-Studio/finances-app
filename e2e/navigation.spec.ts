@@ -131,10 +131,16 @@ test.describe("the dashboard's pending badge", () => {
     await page.goto("/es");
 
     const below = page.getByText(messages.dashboard.monthIncome, { exact: true });
+    // Painted before it is measured: `boundingBox` waits for the element to be
+    // attached and answers null for anything the layout has not placed yet.
+    await expect(below).toBeVisible();
     const withBadge = await below.boundingBox();
 
     await clearQueue();
     await page.reload();
+    // The gate goes first here too, so the count below is read off the dashboard
+    // this reload drew and not off a document still on its way.
+    await expect(below).toBeVisible();
     await expect(
       page.getByRole("link", { name: PENDING_BADGE, exact: true }),
     ).toHaveCount(0);

@@ -1,30 +1,47 @@
 "use server";
 
 import { refresh } from "next/cache";
+import { z } from "zod";
 
 import {
   createInstallmentPlan,
   deleteInstallmentPlan,
   recordDebtPayment,
 } from "@/db/queries/installment-plans";
+import { getSettlementCurrencies } from "@/db/queries/transactions";
+import { BASE_CURRENCY } from "@/lib/currency";
 import { addCivilDays, addCivilMonths } from "@/lib/dates";
 import { pgErrorCode } from "@/lib/db-error";
 import { ActionError } from "@/lib/errors";
-import { parsePesos, pesosToCents } from "@/lib/money";
+import { parseAmount } from "@/lib/money";
 import { authActionClient } from "@/lib/safe-action";
 import { percentToFraction } from "@/lib/validation/debt-terms";
 import {
   createInstallmentPlanSchema,
   deleteInstallmentPlanSchema,
   recordDebtPaymentSchema,
+  refineDebtPaymentAmount,
+  refineInstallmentPlanAmounts,
 } from "@/lib/validation/installment-plan";
 
-// A peso amount arrives as a Zod-validated string; turning it into integer cents
-// here can only fail if the schema let something through it should not have.
-function toCents(amount: string): number {
-  const pesos = parsePesos(amount);
-  if (pesos === null) throw new ActionError("errors.unexpected");
-  return pesosToCents(pesos);
+// An amount arrives as a Zod-validated string; turning it into the integer the
+// column keeps can only fail if the refinement above let something through it
+// should not have.
+function toMinor(amount: string): number {
+  const minor = parseAmount(amount);
+  if (minor === null) throw new ActionError("errors.unexpected");
+  return minor;
+}
+
+// The refinement the form runs, run again here against the currency read off the
+// account rather than the one the payload claims (RNF-10). The first issue is
+// what the caller is told, as every other refusal in this file reports one.
+function assertAmounts<T>(
+  data: T,
+  refine: (data: T, ctx: z.RefinementCtx) => void,
+): void {
+  const verdict = z.custom<T>().superRefine(refine).safeParse(data);
+  if (!verdict.success) throw new ActionError(verdict.error.issues[0].message);
 }
 
 // Line `i` (1..n) falls `(i - 1)` steps after the start, a step being a whole
@@ -99,6 +116,9 @@ function refusalMentions(error: unknown, fragment: string): boolean {
 function mapPaymentError(error: unknown): never {
   const code = pgErrorCode(error);
   if (code === "42501") throw new ActionError("errors.notFound");
+  // A source and a debt that settle in different currencies: the movement would
+  // carry a rate, and this path names no second amount for it (migration `0032`).
+  if (code === "23901") throw new ActionError("transactions.errors.currencyMismatch");
   if (code === "23514") {
     if (refusalMentions(error, ASSET_SOURCE_REFUSAL)) {
       throw new ActionError("installments.errors.notFromAsset");
@@ -118,6 +138,10 @@ function mapPaymentError(error: unknown): never {
  * remainder cents on the earliest lines, so the lines total `principal + aval`
  * exactly; the down payment is stored as given and never subtracted. The scope
  * comes from the account through RLS, so no owner or group travels here.
+ *
+ * Every amount is read in the currency the debt settles in, read off the account
+ * and never off the payload (RF-121): a plan schedules the balance that account
+ * carries, so it is denominated in the currency that balance is.
  */
 export const createInstallmentPlanAction = authActionClient
   .inputSchema(createInstallmentPlanSchema)
@@ -136,8 +160,19 @@ export const createInstallmentPlanAction = authActionClient
         merchant,
       },
     }) => {
-      const principalCents = toCents(principal);
-      const avalCents = aval != null ? toCents(aval) : null;
+      const settlement = await getSettlementCurrencies({
+        fromAccountId: accountId,
+        toAccountId: null,
+      });
+      const currency = settlement.from ?? BASE_CURRENCY;
+
+      assertAmounts(
+        { principal, downPayment, aval },
+        refineInstallmentPlanAmounts(currency),
+      );
+
+      const principalCents = toMinor(principal);
+      const avalCents = aval != null ? toMinor(aval) : null;
       const scheduledTotal = principalCents + (avalCents ?? 0);
 
       const dueDates = scheduleDates(startDate, frequency, nInstallments);
@@ -157,7 +192,7 @@ export const createInstallmentPlanAction = authActionClient
           nInstallments,
           frequency,
           interestRate: interestRate != null ? percentToFraction(interestRate) : null,
-          downPaymentCents: downPayment != null ? toCents(downPayment) : null,
+          downPaymentCents: downPayment != null ? toMinor(downPayment) : null,
           avalCents,
           startDate,
           merchant: merchant ?? null,
@@ -178,11 +213,22 @@ export const createInstallmentPlanAction = authActionClient
  * and kind fall to triggers; deleting the movement later unwinds the allocation
  * on its own, so there is no explicit unlink path. The lines it closed and the
  * remainder it left over travel back, so the caller can name both.
+ *
+ * The amount is read in the currency the SOURCE settles in, which is the one
+ * `set_transaction_currency` books the movement in (RF-121). A source and a debt
+ * that settle in different currencies make a movement that carries a rate, which
+ * this path names no second amount for: `transactions_verify_currency` refuses
+ * it, and the refusal maps below.
  */
 export const recordDebtPaymentAction = authActionClient
   .inputSchema(recordDebtPaymentSchema)
   .action(async ({ parsedInput: { fromAccountId, toAccountId, amount, occurredAt } }) => {
-    const amountCents = toCents(amount);
+    const settlement = await getSettlementCurrencies({ fromAccountId, toAccountId });
+    const currency = settlement.from ?? BASE_CURRENCY;
+
+    assertAmounts({ amount }, refineDebtPaymentAmount(currency));
+
+    const amountCents = toMinor(amount);
 
     let result: {
       transactionId: string;

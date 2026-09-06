@@ -22,29 +22,33 @@ import {
   Text,
   TextField,
 } from "@/components/ui";
+import { OFFERED_CURRENCIES } from "@/lib/currency";
 import { useActionErrorToast } from "@/lib/use-action-toast";
 import { updateGroupSchema, type UpdateGroupInput } from "@/lib/validation/group";
 
 /**
- * The group's own settings (RF-56, RF-57). Name and cash mode leave together:
- * the write is one statement over both columns, so the screen offers one save.
- * A plain member gets the two values as text — RF-57 makes the configuration the
- * leader's, and the action's refusal is the second lock, never the only one.
+ * The group's own settings (RF-56, RF-57, RF-121). Name, cash mode and
+ * currency leave together: the write is one statement over all three columns,
+ * so the screen offers one save. A plain member gets the three values as
+ * text — RF-57 makes the configuration the leader's, and the action's refusal
+ * is the second lock, never the only one.
  */
 export function GroupSettingsScreen({
   groupName,
   cashMode,
+  currency,
   isLeader,
 }: {
   groupName: string;
   cashMode: UpdateGroupInput["cashMode"];
+  currency: UpdateGroupInput["currency"];
   isLeader: boolean;
 }) {
   const t = useTranslations("group");
 
   const form = useForm({
     resolver: zodResolver(updateGroupSchema),
-    defaultValues: { name: groupName, cashMode },
+    defaultValues: { name: groupName, cashMode, currency },
   });
 
   const { execute, isPending } = useAction(updateGroupAction, {
@@ -115,6 +119,32 @@ export function GroupSettingsScreen({
                     </Field>
                   )}
                 />
+                <Controller
+                  name="currency"
+                  control={form.control}
+                  render={({ field, fieldState }) => (
+                    <Field invalid={fieldState.invalid}>
+                      <FieldLabel id="group-currency-label">
+                        {t("currencyLabel")}
+                      </FieldLabel>
+                      <FieldControl>
+                        <SegmentedControl.Root
+                          size="3"
+                          value={field.value}
+                          onValueChange={field.onChange}
+                          aria-labelledby="group-currency-label"
+                        >
+                          {OFFERED_CURRENCIES.map((code) => (
+                            <SegmentedControl.Item key={code} value={code}>
+                              {code}
+                            </SegmentedControl.Item>
+                          ))}
+                        </SegmentedControl.Root>
+                      </FieldControl>
+                      <FieldMessage error={fieldState.error} />
+                    </Field>
+                  )}
+                />
               </FieldGroup>
             </Card>
 
@@ -140,6 +170,10 @@ export function GroupSettingsScreen({
                   ? t("cashModeShared")
                   : t("cashModePerMember")}
               </Text>
+            </Field>
+            <Field>
+              <FieldLabel>{t("currencyLabel")}</FieldLabel>
+              <Text>{currency}</Text>
             </Field>
           </FieldGroup>
         </Card>

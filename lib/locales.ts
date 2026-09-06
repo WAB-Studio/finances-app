@@ -19,4 +19,10 @@ export function isLocale(value: string): value is Locale {
 
 export const TIME_ZONE = "America/Bogota";
 
-export const CURRENCY = "COP";
+// The region a language resolves its figures in. Plain `es` writes "1050 COP";
+// the fund books in Bogota, and `es-CO` writes "$ 1.050". Only a formatter
+// reads this: the URL segment, the messages and every link stay the language.
+export const FORMAT_LOCALE = {
+  es: "es-CO",
+  en: "en",
+} as const satisfies Record<Locale, string>;

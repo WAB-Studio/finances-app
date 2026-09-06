@@ -218,6 +218,62 @@
       "when": 1788406665111,
       "tag": "0030_a_statement_is_never_erased",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1788640038865,
+      "tag": "0031_declare_where_it_settles",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1788640242362,
+      "tag": "0032_one_balance_per_currency",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1788645352838,
+      "tag": "0033_a_fund_is_born_in_its_currency",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1788650529865,
+      "tag": "0034_a_person_declares_their_currency",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1788713370681,
+      "tag": "0035_scope_the_recurring_generator",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1788716234370,
+      "tag": "0036_acoustic_nekra",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1788716462550,
+      "tag": "0037_faithful_solo",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1788716582590,
+      "tag": "0038_early_saracen",
+      "breakpoints": true
     }
   ]
 }

@@ -2,9 +2,9 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ChevronLeftIcon, InfoIcon } from "lucide-react";
-import { useFormatter, useTranslations } from "next-intl";
+import { useFormatter, useLocale, useTranslations } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Controller,
   useForm,
@@ -17,6 +17,7 @@ import {
   updateTransactionAction,
 } from "@/app/actions/transactions";
 import { acceptDeliveryAction } from "@/app/actions/ingest";
+import { proposeRateAction } from "@/app/actions/rates";
 import { SplitEditor } from "@/components/transactions/split-editor";
 import {
   Badge,
@@ -42,8 +43,13 @@ import {
 } from "@/components/ui";
 import type { TransactionFormOptions } from "@/db/queries/transaction-form";
 import type { TransactionListRow } from "@/db/queries/transactions";
+import {
+  BASE_CURRENCY,
+  type CurrencyCode,
+  OFFERED_CURRENCIES,
+} from "@/lib/currency";
 import { todayInBogota } from "@/lib/dates";
-import { centsToPesos, parsePesos } from "@/lib/money";
+import { amountToInput, deriveRate, formatMoney, parseAmount } from "@/lib/money";
 import { useActionErrorToast } from "@/lib/use-action-toast";
 import {
   acceptDeliverySchema,
@@ -51,8 +57,11 @@ import {
 } from "@/lib/validation/ingest";
 import {
   createTransactionSchema,
+  foreignSettlementCurrency,
+  refineSettlement,
   updateTransactionSchema,
   type CreateTransactionInput,
+  type SettlementCurrencies,
   type UpdateTransactionInput,
 } from "@/lib/validation/transaction";
 
@@ -65,6 +74,9 @@ type MovementFormValues = {
   fromAccountId: string | null;
   toAccountId: string | null;
   amount: string;
+  currency: CurrencyCode;
+  counterAmount: string | null;
+  counterIsEstimate: boolean;
   occurredAt: string;
   description: string | null;
   externalRef?: string;
@@ -100,9 +112,31 @@ export const movementFormDialogWidth: Responsive<string> = {
 // fixed track, the splits and the labels on what is left.
 const BODY_COLUMNS = "400px 1fr";
 
+// Enough for a three-letter code and the chevron beside it, and no more: the
+// amount keeps the rest of the line.
+const CURRENCY_FIELD = "116px";
+
+// A rate is read, not counted with: enough figures to recognise it, whichever
+// way round the two currencies are.
+const RATE_FORMAT = { maximumSignificantDigits: 6 } as const;
+
 // A sentinel the account selects use for "no account", since a Radix item may
 // not carry an empty value; it maps back to null the moment it is picked.
 const NO_ACCOUNT = "none";
+
+// What the two named accounts settle in, off the map the options already carry
+// (RF-121): no read of its own, and the same pair the action reads back from the
+// accounts before it writes.
+function settlementOf(
+  accounts: Record<string, CurrencyCode>,
+  fromAccountId: string | null,
+  toAccountId: string | null,
+): SettlementCurrencies {
+  return {
+    from: fromAccountId === null ? null : accounts[fromAccountId] ?? null,
+    to: toAccountId === null ? null : accounts[toAccountId] ?? null,
+  };
+}
 
 /**
  * The full movement form: income, expense and transfer through one screen where
@@ -138,29 +172,71 @@ export function MovementForm({
   const tIngest = useTranslations("ingest");
   const tKey = useTranslations();
   const format = useFormatter();
+  const locale = useLocale();
   const onActionError = useActionErrorToast();
 
   const isEdit = mode === "edit";
   const isAccept = !movement && deliveryId !== undefined;
 
+  // The currency the empty form opens in: what the account it opens on settles
+  // in, so the common movement is already in the right one (RF-121).
+  const openingAccountId =
+    defaults?.fromAccountId ?? defaults?.toAccountId ?? options.lastUsedAccountId;
+
+  // The settlement rules need what each named account settles in, and the values
+  // under validation name the accounts: the resolver reads the pair off them and
+  // refines the mode's own schema with it, so the form refuses exactly what the
+  // action refuses against the currencies it reads back (RNF-10).
+  const resolver: Resolver<MovementFormValues> = (values, context, options_) => {
+    const schema = (
+      isEdit
+        ? updateTransactionSchema
+        : isAccept
+          ? acceptDeliverySchema
+          : createTransactionSchema
+    ).superRefine(
+      refineSettlement(
+        settlementOf(
+          options.accountCurrencies,
+          values.fromAccountId,
+          values.toAccountId,
+        ),
+      ),
+    );
+
+    return (zodResolver(schema) as unknown as Resolver<MovementFormValues>)(
+      values,
+      context,
+      options_,
+    );
+  };
+
   const form = useForm<MovementFormValues>({
-    resolver: (isEdit
-      ? zodResolver(updateTransactionSchema)
-      : isAccept
-        ? zodResolver(acceptDeliverySchema)
-        : zodResolver(createTransactionSchema)) as unknown as Resolver<MovementFormValues>,
+    resolver,
     mode: "onChange",
     defaultValues: movement
       ? {
           transactionId: movement.id,
           fromAccountId: movement.fromAccountId,
           toAccountId: movement.toAccountId,
-          amount: String(centsToPesos(movement.amountCents)),
+          amount: amountToInput(movement.amountCents, movement.currency),
+          currency: movement.currency,
+          counterAmount:
+            movement.counterAmountCents === null
+              ? null
+              : amountToInput(
+                  movement.counterAmountCents,
+                  foreignSettlementCurrency(movement.currency, {
+                    from: movement.fromSettlementCurrency,
+                    to: movement.toSettlementCurrency,
+                  }) ?? movement.currency,
+                ),
+          counterIsEstimate: movement.counterIsEstimate,
           occurredAt: movement.occurredAt,
           description: movement.description,
           splits: movement.splits.map((split) => ({
             categoryId: split.categoryId,
-            amount: String(centsToPesos(split.amountCents)),
+            amount: amountToInput(split.amountCents, movement.currency),
           })),
           labelIds: movement.labels.map((label) => label.id),
         }
@@ -177,6 +253,11 @@ export function MovementForm({
               ? defaults.toAccountId
               : options.lastUsedAccountId,
           amount: defaults?.amount ?? "",
+          currency:
+            (openingAccountId && options.accountCurrencies[openingAccountId]) ??
+            BASE_CURRENCY,
+          counterAmount: null,
+          counterIsEstimate: false,
           occurredAt: defaults?.occurredAt ?? todayInBogota(),
           description:
             defaults?.description !== undefined ? defaults.description : null,
@@ -188,9 +269,69 @@ export function MovementForm({
   const fromAccountId = useWatch({ control: form.control, name: "fromAccountId" });
   const toAccountId = useWatch({ control: form.control, name: "toAccountId" });
   const amount = useWatch({ control: form.control, name: "amount" });
+  const currency = useWatch({ control: form.control, name: "currency" });
+  const counterAmount = useWatch({ control: form.control, name: "counterAmount" });
+  const counterIsEstimate = useWatch({
+    control: form.control,
+    name: "counterIsEstimate",
+  });
   const splits = useWatch({ control: form.control, name: "splits" });
 
   const kind = deriveKind(fromAccountId, toAccountId);
+
+  const settlement = useMemo(
+    () => settlementOf(options.accountCurrencies, fromAccountId, toAccountId),
+    [options.accountCurrencies, fromAccountId, toAccountId],
+  );
+
+  // The side that settles somewhere else, and what it settles in: while it is
+  // null the screen shows nothing beyond the amount, which is every movement a
+  // person records in the currency their account already holds (RF-122).
+  const foreign = foreignSettlementCurrency(currency, settlement);
+
+  // The currency the accounts point at, which the selector opens on and follows
+  // while nobody has picked another one.
+  const accountCurrency = settlement.from ?? settlement.to;
+  // No account chosen yet reads as BASE_CURRENCY, the same fallback `currency`
+  // itself opens on (above): the two must start in step, or the guard below reads
+  // the field's own default as an already-chosen override and refuses to follow
+  // the very first account a person picks.
+  const lastAccountCurrency = useRef(accountCurrency ?? BASE_CURRENCY);
+  useEffect(() => {
+    if (accountCurrency === null || accountCurrency === lastAccountCurrency.current) {
+      return;
+    }
+
+    // Only what this effect itself put there moves: a currency a person chose
+    // survives a change of account.
+    const wasFollowing = currency === lastAccountCurrency.current;
+    lastAccountCurrency.current = accountCurrency;
+    if (wasFollowing) {
+      form.setValue("currency", accountCurrency, { shouldValidate: true });
+    }
+  }, [accountCurrency, currency, form]);
+
+  // The second amount belongs to a movement whose account settles elsewhere and
+  // to no other, and only a one-sided one is still waiting for a statement: a
+  // transfer is confirmed whole the moment it is recorded (RF-122, RF-123).
+  useEffect(() => {
+    if (foreign === null) {
+      if (counterAmount !== null) {
+        form.setValue("counterAmount", null, { shouldValidate: true });
+      }
+      if (counterIsEstimate) form.setValue("counterIsEstimate", false);
+      return;
+    }
+
+    if (kind === "transfer") {
+      if (counterIsEstimate) form.setValue("counterIsEstimate", false);
+      return;
+    }
+
+    // What a person expects to be billed until the statement replaces it. An
+    // edit keeps the mark the movement already carries.
+    if (!isEdit && !counterIsEstimate) form.setValue("counterIsEstimate", true);
+  }, [foreign, kind, counterAmount, counterIsEstimate, isEdit, form]);
 
   // Both accounts share one writable scope (RF-62): whichever slot is set names
   // it, and that scope decides which categories the split editor offers.
@@ -297,7 +438,51 @@ export function MovementForm({
   const kindColor =
     kind === "income" ? "grass" : kind === "expense" ? "red" : "gray";
   const sign = kind === "income" ? "+" : kind === "expense" ? "−" : "";
-  const amountPesos = parsePesos(amount);
+  const amountMinor = parseAmount(amount);
+  const counterMinor =
+    foreign === null || counterAmount === null ? null : parseAmount(counterAmount);
+
+  // The quotient of the two figures, and nothing else: it is read, never typed
+  // and never stored (RF-122). A stored rate would be money in floating point.
+  const rate =
+    foreign !== null && amountMinor !== null && counterMinor !== null && amountMinor > 0
+      ? deriveRate(amountMinor, currency, counterMinor, foreign)
+      : null;
+
+  // The proposal a person may take or ignore (RF-122): a source down, too slow
+  // or missing one of the two currencies leaves this on, and the field waits
+  // for a figure typed by hand instead of one this screen invented.
+  const [rateUnavailable, setRateUnavailable] = useState(false);
+  const lastForeign = useRef(foreign);
+  useEffect(() => {
+    if (foreign !== lastForeign.current) {
+      lastForeign.current = foreign;
+      setRateUnavailable(false);
+    }
+  }, [foreign]);
+
+  const proposeRate = useAction(proposeRateAction, {
+    onSuccess: ({ data }) => {
+      if (!data || amountMinor === null || foreign === null) {
+        setRateUnavailable(true);
+        return;
+      }
+      // The stored scale is the same 100 for every currency (RF-121), so the
+      // quotient converts minor to minor with no exponent of its own to read.
+      setRateUnavailable(false);
+      form.setValue(
+        "counterAmount",
+        amountToInput(Math.round(amountMinor * data.rate), foreign),
+        { shouldValidate: true },
+      );
+    },
+    onError: () => setRateUnavailable(true),
+  });
+
+  function handleSuggestRate() {
+    if (foreign === null || amountMinor === null || amountMinor <= 0) return;
+    proposeRate.execute({ from: currency, to: foreign });
+  }
 
   return (
     <form onSubmit={form.handleSubmit(onSubmit)} noValidate>
@@ -313,7 +498,7 @@ export function MovementForm({
           <ChevronLeftIcon size={18} />
         </IconButton>
         <Heading size="5" style={{ flex: 1 }}>
-          {t("formTitle")}
+          {t(isEdit ? "editTitle" : "formTitle")}
         </Heading>
         {isGroupScoped && <FundChip label={tKey("fund.label")} />}
       </Flex>
@@ -326,7 +511,7 @@ export function MovementForm({
           color={kindColor}
           style={{ fontVariantNumeric: "tabular-nums" }}
         >
-          {`${sign}${format.number(amountPesos ?? 0, "currency")}`}
+          {`${sign}${formatMoney(amountMinor ?? 0, currency, locale)}`}
         </Heading>
         {kindLabel && (
           <Flex align="center" gap="2">
@@ -413,25 +598,162 @@ export function MovementForm({
             )}
           />
 
-          <Controller
-            name="amount"
-            control={form.control}
-            render={({ field, fieldState }) => (
-              <Field invalid={fieldState.invalid}>
-                <FieldLabel htmlFor="movement-amount">{t("amountLabel")}</FieldLabel>
-                <FieldControl>
-                  <TextField.Root
-                    {...field}
-                    id="movement-amount"
-                    size="3"
-                    inputMode="numeric"
-                    disabled={isPending}
-                  />
-                </FieldControl>
-                <FieldMessage error={fieldState.error} />
-              </Field>
-            )}
-          />
+          {/* The figure and the currency it is in, on one line: while the
+              currency is the account's own — every movement most days — this is
+              the amount field it has always been (RF-121). */}
+          <Flex align="start" gap="3" width="100%">
+            <Box flexGrow="1" minWidth="0">
+              <Controller
+                name="amount"
+                control={form.control}
+                render={({ field, fieldState }) => (
+                  <Field invalid={fieldState.invalid}>
+                    <FieldLabel htmlFor="movement-amount">
+                      {t("amountLabel")}
+                    </FieldLabel>
+                    <FieldControl>
+                      <TextField.Root
+                        {...field}
+                        id="movement-amount"
+                        size="3"
+                        inputMode="numeric"
+                        disabled={isPending}
+                      />
+                    </FieldControl>
+                    <FieldMessage error={fieldState.error} />
+                  </Field>
+                )}
+              />
+            </Box>
+
+            <Box width={CURRENCY_FIELD}>
+              <Controller
+                name="currency"
+                control={form.control}
+                render={({ field, fieldState }) => (
+                  <Field invalid={fieldState.invalid}>
+                    <FieldLabel htmlFor="movement-currency">
+                      {t("currencyLabel")}
+                    </FieldLabel>
+                    <Select.Root
+                      size="3"
+                      value={field.value}
+                      onValueChange={field.onChange}
+                      disabled={isPending}
+                    >
+                      <FieldControl>
+                        <Select.Trigger id="movement-currency" />
+                      </FieldControl>
+                      <Select.Content position="popper">
+                        {OFFERED_CURRENCIES.map((code) => (
+                          <Select.Item key={code} value={code}>
+                            {code}
+                          </Select.Item>
+                        ))}
+                      </Select.Content>
+                    </Select.Root>
+                    <FieldMessage error={fieldState.error} />
+                  </Field>
+                )}
+              />
+            </Box>
+          </Flex>
+
+          {/* The other side of a movement whose account settles elsewhere: what
+              it is expected to cost there while a statement is still to come
+              (RF-123), or what actually landed when both accounts are the
+              caller's own. Without it the movement is not written. */}
+          {foreign !== null && (
+            <Controller
+              name="counterAmount"
+              control={form.control}
+              render={({ field, fieldState }) => (
+                <Field invalid={fieldState.invalid}>
+                  <FieldLabel htmlFor="movement-counter-amount">
+                    <Flex as="span" align="center" gap="2">
+                      {t("counterAmountLabel")}
+                      <Text size="2" weight="regular" color="gray">
+                        {foreign}
+                      </Text>
+                      {counterIsEstimate && (
+                        <Badge color="amber" variant="soft" radius="full">
+                          {t("estimated")}
+                        </Badge>
+                      )}
+                    </Flex>
+                  </FieldLabel>
+                  <Flex align="start" gap="3" width="100%">
+                    <Box flexGrow="1" minWidth="0">
+                      <FieldControl>
+                        <TextField.Root
+                          id="movement-counter-amount"
+                          size="3"
+                          inputMode="numeric"
+                          disabled={isPending}
+                          value={field.value ?? ""}
+                          onChange={(event) =>
+                            field.onChange(event.target.value || null)
+                          }
+                          onBlur={field.onBlur}
+                          name={field.name}
+                          ref={field.ref}
+                        />
+                      </FieldControl>
+                    </Box>
+                    {/* Proposes a figure, never one this screen writes on its
+                        own (RF-122): the field above still saves whatever a
+                        person leaves or types in it. */}
+                    <Button
+                      type="button"
+                      size="3"
+                      variant="soft"
+                      disabled={
+                        isPending ||
+                        proposeRate.isPending ||
+                        amountMinor === null ||
+                        amountMinor <= 0
+                      }
+                      onClick={handleSuggestRate}
+                    >
+                      {proposeRate.isPending && <Spinner />}
+                      {t("suggestRate")}
+                    </Button>
+                  </Flex>
+                  {rateUnavailable && (
+                    <Text size="1" color="amber">
+                      {t("rateUnavailable")}
+                    </Text>
+                  )}
+                  <Text size="1" color="gray">
+                    {t("counterAmountHint")}
+                  </Text>
+                  <FieldMessage error={fieldState.error} />
+                </Field>
+              )}
+            />
+          )}
+
+          {/* Derived, and said to be: the quotient of the two figures above,
+              which nobody types and nothing stores (RF-122). */}
+          {rate !== null && (
+            <Flex direction="column" gap="1">
+              <Flex align="center" justify="between" gap="3">
+                <Text size="2" color="gray">
+                  {t("rateLabel")}
+                </Text>
+                <Text
+                  size="2"
+                  weight="medium"
+                  style={{ fontVariantNumeric: "tabular-nums" }}
+                >
+                  {`1 ${currency} = ${format.number(rate, RATE_FORMAT)} ${foreign}`}
+                </Text>
+              </Flex>
+              <Text size="1" color="gray">
+                {t("rateDerived")}
+              </Text>
+            </Flex>
+          )}
         </FieldGroup>
 
         {/* Two rows tall, because the splits grow with the categories while the
@@ -448,7 +770,8 @@ export function MovementForm({
                   <Field invalid={fieldState.invalid}>
                     <FieldLabel>{t("categoryLabel")}</FieldLabel>
                     <SplitEditor
-                      totalPesos={amount}
+                      total={amount}
+                      currency={currency}
                       scope={scope}
                       kind={kind}
                       categories={options.categories}

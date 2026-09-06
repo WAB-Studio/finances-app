@@ -1,7 +1,8 @@
 import { z } from "zod";
 
+import { currencySchema, type CurrencyCode } from "@/lib/currency";
 import { isCivilDate, todayInBogota } from "@/lib/dates";
-import { MAX_AMOUNT_PESOS, parsePesos } from "@/lib/money";
+import { maxAmountMinor, parseAmount } from "@/lib/money";
 
 // The list the screens and both sides of validation read for an account's kind (RF-09).
 export const ACCOUNT_KINDS = ["asset", "liability"] as const;
@@ -43,22 +44,21 @@ const accountLastFourSchema = z
     error: "accounts.errors.lastFourInvalid",
   });
 
-// The opening amount stays a peso string through validation: no sign is
-// applied here, since the sign is a property of the account's kind (RF-10).
+// The codes the picker offers, carrying the message the field shows for one
+// that is not among them. Read off `currencySchema` so the list stays in one place.
+// Exported required, without a default: a form has someone to choose, so it asks.
+// A surface with no chooser — the RF-51 sheet — defaults it where it reads.
+export const accountCurrencySchema = z.enum(currencySchema.options, {
+  error: "accounts.errors.currencyInvalid",
+});
+
+// Whether the field was filled is the one amount check no currency changes; how
+// many decimals it may carry and how large it may be belong to the object
+// refinement below, which is where the currency is known. No sign is applied
+// here either: the sign is a property of the account's kind (RF-10).
 const accountAmountSchema = z.string().superRefine((value, ctx) => {
   if (value.trim().length === 0) {
     ctx.addIssue("accounts.errors.amountRequired");
-    return;
-  }
-
-  const pesos = parsePesos(value);
-  if (pesos === null) {
-    ctx.addIssue("accounts.errors.amountInvalid");
-    return;
-  }
-
-  if (pesos > MAX_AMOUNT_PESOS) {
-    ctx.addIssue("accounts.errors.amountTooLarge");
   }
 });
 
@@ -95,6 +95,36 @@ function requireSubtypeUnderKind(
   }
 }
 
+// The opening amount, read in the currency the account settles in (RF-121): a
+// field alone cannot do this, since "10,50" is a dollar amount and no peso
+// amount at all. Zod skips an object refinement whose shape failed, so both
+// values below are already the ones their own schema admitted.
+function requireAmountInCurrency(
+  data: { amount: string; settlementCurrency: CurrencyCode },
+  ctx: z.RefinementCtx,
+) {
+  // The field said so already; saying it twice puts two messages on one control.
+  if (data.amount.trim().length === 0) return;
+
+  const minor = parseAmount(data.amount);
+  if (minor === null) {
+    ctx.addIssue({
+      code: "custom",
+      message: "accounts.errors.amountInvalid",
+      path: ["amount"],
+    });
+    return;
+  }
+
+  if (minor > maxAmountMinor(data.settlementCurrency)) {
+    ctx.addIssue({
+      code: "custom",
+      message: "accounts.errors.amountTooLarge",
+      path: ["amount"],
+    });
+  }
+}
+
 export const createAccountSchema = z
   .object({
     name: accountNameSchema,
@@ -104,10 +134,12 @@ export const createAccountSchema = z
     placement: z.enum(ACCOUNT_PLACEMENTS, { error: "accounts.errors.placementInvalid" }),
     institution: accountInstitutionSchema,
     lastFour: accountLastFourSchema.optional(),
+    settlementCurrency: accountCurrencySchema,
     amount: accountAmountSchema,
     balanceOn: accountBalanceOnSchema,
   })
-  .superRefine(requireSubtypeUnderKind);
+  .superRefine(requireSubtypeUnderKind)
+  .superRefine(requireAmountInCurrency);
 
 export type CreateAccountInput = z.infer<typeof createAccountSchema>;
 
@@ -124,10 +156,12 @@ export const updateAccountSchema = z
     isShared: z.boolean(),
     institution: accountInstitutionSchema,
     lastFour: accountLastFourSchema.optional(),
+    settlementCurrency: accountCurrencySchema,
     amount: accountAmountSchema,
     balanceOn: accountBalanceOnSchema,
   })
-  .superRefine(requireSubtypeUnderKind);
+  .superRefine(requireSubtypeUnderKind)
+  .superRefine(requireAmountInCurrency);
 
 export type UpdateAccountInput = z.infer<typeof updateAccountSchema>;
 

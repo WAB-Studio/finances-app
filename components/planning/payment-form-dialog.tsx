@@ -28,10 +28,13 @@ import {
 } from "@/components/ui";
 import type { PlannedPaymentRow } from "@/db/queries/planned-payments";
 import type { TransactionFormOptions } from "@/db/queries/transaction-form";
-import { centsToPesos } from "@/lib/money";
+// The field takes the decimals the row's currency is written with, so
+// reopening a figure and saving it back stores the integer it already held.
+import { amountToInput } from "@/lib/money";
 import { useActionErrorToast } from "@/lib/use-action-toast";
 import {
   createPlannedPaymentSchema,
+  refinePaymentAmount,
   updatePlannedPaymentSchema,
   type CreatePlannedPaymentInput,
   type UpdatePlannedPaymentInput,
@@ -101,18 +104,40 @@ function PaymentForm({
 
   const isEdit = !!payment;
 
+  // The amount is read in the currency the named accounts settle in, and the
+  // values under validation name them: the resolver reads the pair off the map
+  // the options already carry and refines the mode's own schema with it, so the
+  // form refuses exactly what the action refuses against the currencies it reads
+  // back (RF-121, RNF-10).
+  const resolver: Resolver<PaymentFormValues> = (values, context, options_) => {
+    const schema = (
+      isEdit ? updatePlannedPaymentSchema : createPlannedPaymentSchema
+    ).superRefine(
+      refinePaymentAmount({
+        from: values.fromAccountId
+          ? options.accountCurrencies[values.fromAccountId] ?? null
+          : null,
+        to: values.toAccountId
+          ? options.accountCurrencies[values.toAccountId] ?? null
+          : null,
+      }),
+    );
+
+    return (zodResolver(schema) as unknown as Resolver<PaymentFormValues>)(
+      values,
+      context,
+      options_,
+    );
+  };
+
   const form = useForm<PaymentFormValues>({
-    resolver: (isEdit
-      ? zodResolver(updatePlannedPaymentSchema)
-      : zodResolver(
-          createPlannedPaymentSchema,
-        )) as unknown as Resolver<PaymentFormValues>,
+    resolver,
     defaultValues: payment
       ? {
           plannedPaymentId: payment.id,
           fromAccountId: payment.fromAccountId,
           toAccountId: payment.toAccountId,
-          amount: String(centsToPesos(payment.amountCents)),
+          amount: amountToInput(payment.amountCents, payment.currency),
           categoryId: payment.categoryId,
           dueDate: payment.dueDate,
           remindOn: payment.remindOn,

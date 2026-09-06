@@ -201,6 +201,9 @@ async function main() {
   await checkGroupCategoryLeaderOnly();
   await checkLeadershipTransfer();
   await checkAccountHandOver();
+  await checkCurrencyPolicies();
+  await checkCounterAmountWriteScope();
+  await checkRecurringRuleGeneratorScope();
 }
 
 // Assertions 9-26: the repivoted schema. A group holds accounts and categories a user XOR a group
@@ -501,7 +504,7 @@ async function checkLedgerPolicies() {
     "33. a split whose category sits in another scope is refused",
     "34. a split whose category is of the wrong kind is refused",
     "35. a member reads a group movement and another member's personal movement",
-    "36. account_balances returns the initial balance plus the net of movements",
+    "36. account_balances returns the initial balance plus the net of movements, in the account's settlement currency",
   ];
   const tailLabel = "37. the rolled-back ledger transaction leaves no trace";
 
@@ -695,16 +698,30 @@ async function checkLedgerPolicies() {
       );
 
       // 36: the derived balance is the opening figure plus what flowed in, less what flowed out.
+      // The view keys on `(id, currency)`, so the row is named by its currency and never by `[0]`:
+      // one account holds one pocket per currency it has touched, and only the settlement one answers
+      // for the figure a person calls "the balance" (RF-121, RF-124).
       await tx`insert into transactions (from_account_id, to_account_id, amount_cents, occurred_at)
         values (${balAccountB}, ${balAccountA}, 3000, (now() at time zone 'America/Bogota')::date)`;
       await tx`insert into transactions (from_account_id, to_account_id, amount_cents, occurred_at)
         values (${balAccountA}, ${balAccountB}, 1000, (now() at time zone 'America/Bogota')::date)`;
-      const [{ balance_cents: balance }] = await tx<{ balance_cents: string }[]>`
-        select balance_cents from account_balances where id = ${balAccountA}`;
+      // A dollar spend still on estimate opens a second pocket on the same account, so the row the
+      // assertion reads can only be found by naming a currency and never by taking the first one.
+      const [{ id: balAbroad }] = await tx<{ id: string }[]>`
+        insert into transactions (from_account_id, amount_cents, occurred_at, currency, counter_amount_cents, counter_is_estimate)
+        values (${balAccountA}, 500, (now() at time zone 'America/Bogota')::date, 'USD', 2000, true) returning id`;
+      await tx`insert into transaction_splits (transaction_id, category_id, amount_cents)
+        values (${balAbroad}, ${memberExpenseCat}, 500)`;
+      const settlementBalance = await tx<{ balance_cents: string }[]>`
+        select b.balance_cents
+        from account_balances b
+        join accounts a on a.id = b.id and a.settlement_currency = b.currency
+        where b.id = ${balAccountA}`;
+      const balance = settlementBalance[0]?.balance_cents;
       assert(
         labels[9],
-        balance === "102000",
-        `balance_cents = ${balance}, expected 102000 (100000 + 3000 − 1000)`,
+        settlementBalance.length === 1 && balance === "102000",
+        `settlement rows = ${settlementBalance.length}, balance_cents = ${balance}, expected 102000 (100000 + 3000 − 1000)`,
       );
 
       // Forces `sql.begin` to issue ROLLBACK: nothing this function wrote may survive it.
@@ -1859,17 +1876,22 @@ async function checkInstallmentPolicies() {
 
 // Assertions 78-79: the derived debt figures. No new policy ships — what is proved is that the overview's
 // arithmetic reads true. The monthly interest is the effective twelfth-root step of the annual rate, not
-// the linear annual/12; available credit nets the limit against the owed; and total owed is the sum of the
-// balances, which an installment plan (a schedule, never a movement) leaves untouched. The same SQL the
-// overview runs is replicated inline, and every fixture is seeded through the app's own policies and rolled
-// back.
+// the linear annual/12; available credit nets the limit against the pocket the card settles in; and what a
+// person calls "total owed" is one figure per currency, which an installment plan (a schedule, never a
+// movement) leaves untouched. The same SQL the overview runs is replicated inline, and every fixture is
+// seeded through the app's own policies and rolled back.
+//
+// Both cards hold a foreign purchase still on estimate, so every figure here is read off a card that
+// really carries two pockets (RF-121). A credit limit and an interest charge are denominated in the
+// currency the card settles in, so each reads that pocket and no other; and a sum across the two cards
+// can only answer per currency, because adding a dollar to a peso is the one thing RF-124 forbids.
 async function checkDebtDerivedFigures() {
   console.log("");
   const leaderUser = randomUUID();
 
   const labels = [
-    "78. the monthly interest is the effective rate, matching the hand figure and unlike the linear one",
-    "79. available credit nets the limit against the owed, and a plan never double-counts the total owed",
+    "78. the monthly interest reads off one pocket only, the effective rate, matching the hand figure and unlike the linear one",
+    "79. available credit nets the limit against the settlement pocket, and total owed answers one figure per currency that a plan never double-counts",
   ];
   const tailLabel = "80. the rolled-back debt figures transaction leaves no trace";
 
@@ -1895,32 +1917,76 @@ async function checkDebtDerivedFigures() {
         values (${leaderUser}, 'rls debt figures card B', 'liability', -500000, (now() at time zone 'America/Bogota')::date) returning id`;
       await tx`insert into debt_terms (account_id, debt_kind, annual_rate, minimum_payment_pct, credit_limit_cents)
         values (${cardA}, 'revolving', ${rate}, 0.05, 1500000)`;
+      await tx`insert into debt_terms (account_id, debt_kind, annual_rate, minimum_payment_pct, credit_limit_cents)
+        values (${cardB}, 'revolving', 0.24, 0.05, 800000)`;
+
+      // A purchase abroad on card B, in dollars and still on estimate: RF-123 keeps it in the currency
+      // it was spent in until a statement says what the issuer billed, so the card holds a USD pocket of
+      // −20000 beside its COP pocket of −500000. One-sided, so it carries the split RF-69 demands.
+      const [{ id: leaderExpenseCat }] = await tx<{ id: string }[]>`
+        insert into categories (owner_user_id, name, kind)
+        values (${leaderUser}, 'rls debt figures abroad', 'expense') returning id`;
+      const [{ id: abroad }] = await tx<{ id: string }[]>`
+        insert into transactions (from_account_id, amount_cents, occurred_at, currency, counter_amount_cents, counter_is_estimate)
+        values (${cardB}, 20000, (now() at time zone 'America/Bogota')::date, 'USD', 80000, true) returning id`;
+      await tx`insert into transaction_splits (transaction_id, category_id, amount_cents)
+        values (${abroad}, ${leaderExpenseCat}, 20000)`;
+
+      // Card A carries one too, so 78 reads a card that really holds two pockets. Without it the
+      // unbounded join returned one row whatever it named, and the assertion passed on a fixture
+      // that could not fail — the same shape 79 was fixed out of.
+      const [{ id: abroadA }] = await tx<{ id: string }[]>`
+        insert into transactions (from_account_id, amount_cents, occurred_at, currency, counter_amount_cents, counter_is_estimate)
+        values (${cardA}, 30000, (now() at time zone 'America/Bogota')::date, 'USD', 120000, true) returning id`;
+      await tx`insert into transaction_splits (transaction_id, category_id, amount_cents)
+        values (${abroadA}, ${leaderExpenseCat}, 30000)`;
 
       // 78: the SQL effective estimate matches the hand figure and diverges from the linear one.
-      const [figures] = await tx<{ effective: string; linear: string }[]>`
+      const rates = await tx<{ effective: string; linear: string }[]>`
         select
           round(abs(b.balance_cents) * (power(1 + dt.annual_rate, 1.0/12) - 1))::bigint as effective,
           round(abs(b.balance_cents) * dt.annual_rate / 12)::bigint as linear
         from account_balances b
+        join accounts a on a.id = b.id and a.settlement_currency = b.currency
         join debt_terms dt on dt.account_id = b.id
         where b.id = ${cardA}`;
+      // The row count is the point. Destructuring the first row passed with the join unbounded, because
+      // Postgres happened to hand back the settlement pocket first; asked for the count, the same fixture
+      // answers two and the assertion falls. A figure that reads true off an arbitrary row proves nothing.
+      const figures = rates[0];
       assert(
         labels[0],
-        Number(figures.effective) === expectedEffective &&
-          Number(figures.linear) === expectedLinear &&
-          figures.effective !== figures.linear,
-        `effective = ${figures.effective} (expected ${expectedEffective}), linear = ${figures.linear} (expected ${expectedLinear})`,
+        rates.length === 1 &&
+          Number(figures?.effective) === expectedEffective &&
+          Number(figures?.linear) === expectedLinear &&
+          figures?.effective !== figures?.linear,
+        `rows = ${rates.length} (expected 1), effective = ${figures?.effective} (expected ${expectedEffective}), linear = ${figures?.linear} (expected ${expectedLinear})`,
       );
 
-      // 79: available credit = limit − owed; total owed is the sum of the two balances. Materialising an
-      // installment plan over one card adds a schedule, no movement, so the total owed does not budge.
-      const [before] = await tx<{ available: string; total_owed: string }[]>`
-        select
-          (dt.credit_limit_cents - abs(b.balance_cents))::text as available,
-          (select sum(balance_cents) from account_balances where id in (${cardA}, ${cardB}))::text as total_owed
-        from account_balances b
-        join debt_terms dt on dt.account_id = b.id
-        where b.id = ${cardA}`;
+      // 79: available credit = limit − the settlement pocket's owed, one row per card because the join
+      // names the currency; total owed is a vector, one entry per currency the two cards hold. Materialising
+      // an installment plan over one card adds a schedule, no movement, so neither figure budges.
+      const availableCredit = () =>
+        tx<{ id: string; available: string }[]>`
+          select b.id, (dt.credit_limit_cents - abs(b.balance_cents))::text as available
+          from account_balances b
+          join accounts a on a.id = b.id and a.settlement_currency = b.currency
+          join debt_terms dt on dt.account_id = b.id
+          where b.id in (${cardA}, ${cardB})`;
+      const totalOwed = () =>
+        tx<{ currency: string; owed: string }[]>`
+          select currency, sum(balance_cents)::text as owed
+          from account_balances
+          where id in (${cardA}, ${cardB})
+          group by currency
+          order by currency`;
+      // A vector reads as one string so a missing pocket, an extra one and a wrong figure all fail alike.
+      const owedVector = (rows: { currency: string; owed: string }[]) =>
+        rows.map((row) => `${row.currency} ${row.owed}`).join(", ");
+      const expectedOwed = "COP -1500000, USD -50000";
+
+      const creditBefore = await availableCredit();
+      const owedBefore = owedVector(await totalOwed());
       const [{ id: plan }] = await tx<{ id: string }[]>`
         insert into installment_plans (account_id, principal_cents, n_installments, frequency, start_date)
         values (${cardA}, 900000, 3, 'monthly', (now() at time zone 'America/Bogota')::date) returning id`;
@@ -1928,14 +1994,18 @@ async function checkDebtDerivedFigures() {
         (${plan}, 1, '2026-01-15', 300000),
         (${plan}, 2, '2026-02-15', 300000),
         (${plan}, 3, '2026-03-15', 300000)`;
-      const [{ total_owed: totalAfter }] = await tx<{ total_owed: string }[]>`
-        select (select sum(balance_cents) from account_balances where id in (${cardA}, ${cardB}))::text as total_owed`;
+      const owedAfter = owedVector(await totalOwed());
+
+      const availableOf = (id: string) =>
+        creditBefore.find((row) => row.id === id)?.available ?? "no row";
       assert(
         labels[1],
-        before.available === "500000" &&
-          before.total_owed === "-1500000" &&
-          totalAfter === "-1500000",
-        `available = ${before.available} (expected 500000), total owed before = ${before.total_owed}, after plan = ${totalAfter} (expected -1500000)`,
+        creditBefore.length === 2 &&
+          availableOf(cardA) === "500000" &&
+          availableOf(cardB) === "300000" &&
+          owedBefore === expectedOwed &&
+          owedAfter === expectedOwed,
+        `credit rows = ${creditBefore.length} (expected 2), available A = ${availableOf(cardA)} (expected 500000), available B = ${availableOf(cardB)} (expected 300000), owed before = ${owedBefore}, after plan = ${owedAfter} (expected ${expectedOwed})`,
       );
 
       throw forcedRollback;
@@ -1965,7 +2035,7 @@ async function checkDebtStatementPolicies() {
   const otherUser = randomUUID();
 
   const labels = [
-    "81. the statement balance counts only the movements on or before the cut-off",
+    "81. the statement balance counts only what settled in the card's own currency on or before the cut-off",
     "82. re-running the same insert under the unique key inserts nothing",
     "83. an update of a statement by authenticated is refused",
     "84. an unrelated member can neither read nor write a statement on the subject's liability",
@@ -2016,10 +2086,33 @@ async function checkDebtStatementPolicies() {
       await tx`insert into transactions (from_account_id, to_account_id, amount_cents, occurred_at)
         values (${card}, ${cash}, 50000, ${dates.after_cut})`;
 
+      // Two purchases abroad before the cut-off, both in dollars on a card that settles in pesos. The
+      // first is confirmed, so it settled at its counter amount of 80000; the second is still an estimate,
+      // so nothing has settled yet and the statement owes nothing for it (RF-123). Both are one-sided and
+      // carry the split RF-69 demands.
+      const [{ id: abroadCat }] = await tx<{ id: string }[]>`
+        insert into categories (owner_user_id, name, kind)
+        values (${subject}, 'rls debt statement abroad', 'expense') returning id`;
+      const [{ id: settled }] = await tx<{ id: string }[]>`
+        insert into transactions (from_account_id, amount_cents, occurred_at, currency, counter_amount_cents, counter_is_estimate)
+        values (${card}, 20000, ${dates.before_cut}, 'USD', 80000, false) returning id`;
+      const [{ id: pending }] = await tx<{ id: string }[]>`
+        insert into transactions (from_account_id, amount_cents, occurred_at, currency, counter_amount_cents, counter_is_estimate)
+        values (${card}, 10000, ${dates.before_cut}, 'USD', 40000, true) returning id`;
+      await tx`insert into transaction_splits (transaction_id, category_id, amount_cents) values
+        (${settled}, ${abroadCat}, 20000),
+        (${pending}, ${abroadCat}, 10000)`;
+
       // The statement generator, replicated inline: the balance is the opening figure plus the signed
-      // movement sum windowed to the cut-off (the same signed sum account_balances uses), the minimum a
-      // percentage of it, the interest the effective estimate. Guarded by the unique key so a re-run
-      // inserts nothing (RF-84).
+      // movement sum windowed to the cut-off, the minimum a percentage of it, the interest the effective
+      // estimate. Guarded by the unique key so a re-run inserts nothing (RF-84).
+      //
+      // `debt_statements.statement_balance_cents` is one integer with no currency beside it, so a statement
+      // can only be what the issuer bills: the card's settlement pocket, and never a sum across pockets
+      // (RF-124). That is the settlement branch of `account_balances`, replicated here — a movement in the
+      // card's own currency counts its amount; one in another currency counts its counter amount once
+      // confirmed; and one still on estimate counts nothing, because it is the statement that settles it
+      // (RF-123). Summing `amount_cents` alone would add dollars to pesos.
       const generate = () =>
         tx<{ statement_balance_cents: string }[]>`
           insert into debt_statements
@@ -2032,20 +2125,31 @@ async function checkDebtStatementPolicies() {
           join accounts a on a.id = dt.account_id
           cross join lateral (
             select a.initial_balance_cents
-              + coalesce((select sum(t.amount_cents) from transactions t where t.to_account_id = ${card} and t.occurred_at <= ${dates.cut_off}), 0)
-              - coalesce((select sum(t.amount_cents) from transactions t where t.from_account_id = ${card} and t.occurred_at <= ${dates.cut_off}), 0)
+              + coalesce((select sum(case
+                    when t.currency = a.settlement_currency then t.amount_cents
+                    when t.counter_amount_cents is not null and not t.counter_is_estimate then t.counter_amount_cents
+                    else 0 end)
+                  from transactions t
+                  where t.to_account_id = ${card} and t.occurred_at <= ${dates.cut_off}), 0)
+              - coalesce((select sum(case
+                    when t.currency = a.settlement_currency then t.amount_cents
+                    when t.counter_amount_cents is not null and not t.counter_is_estimate then t.counter_amount_cents
+                    else 0 end)
+                  from transactions t
+                  where t.from_account_id = ${card} and t.occurred_at <= ${dates.cut_off}), 0)
               as statement_balance
           ) bal
           where dt.account_id = ${card}
           on conflict (account_id, cut_off_date) do nothing
           returning statement_balance_cents`;
 
-      // 81: the windowed balance is −200000 + 30000 = −170000; the post-cut −50000 purchase is excluded.
+      // 81: the windowed balance is −200000 + 30000 − 80000 = −250000. The post-cut −50000 purchase is
+      // excluded by the window; the estimated USD 100 purchase by not having settled.
       const first = await generate();
       assert(
         labels[0],
-        first.length === 1 && first[0].statement_balance_cents === "-170000",
-        `inserted rows = ${first.length}, statement balance = ${first[0]?.statement_balance_cents} (expected -170000)`,
+        first.length === 1 && first[0].statement_balance_cents === "-250000",
+        `inserted rows = ${first.length}, statement balance = ${first[0]?.statement_balance_cents} (expected -250000)`,
       );
 
       // 82: the second run collides on (account_id, cut_off_date) and inserts nothing.
@@ -3670,6 +3774,8 @@ async function checkImportCommit() {
     categories: [
       {
         status: "new",
+        index: 0,
+        sheetRow: 2,
         externalRef: "imp-cat-1",
         placeholderId: phCategory,
         object: { name: "Imp Cat", kind: "expense", parentId: null, color },
@@ -3678,21 +3784,27 @@ async function checkImportCommit() {
     accounts: [
       {
         status: "new",
+        index: 0,
+        sheetRow: 2,
         externalRef: "imp-acct-A",
         placeholderId: phAccountA,
-        object: { name: "Imp A", kind: "asset", subtype: "efectivo", placement: "personal", institution: null, amount: "100", balanceOn: today },
+        object: { name: "Imp A", kind: "asset", subtype: "efectivo", placement: "personal", institution: null, settlementCurrency: "COP", amount: "100", balanceOn: today },
       },
       {
         status: "new",
+        index: 0,
+        sheetRow: 2,
         externalRef: "imp-acct-C",
         placeholderId: phAccountC,
-        object: { name: "Imp C", kind: "asset", subtype: "efectivo", placement: "personal", institution: null, amount: "200", balanceOn: today },
+        object: { name: "Imp C", kind: "asset", subtype: "efectivo", placement: "personal", institution: null, settlementCurrency: "COP", amount: "200", balanceOn: today },
       },
     ],
     recurringRules: [],
     transactions: [
       {
         status: "new",
+        index: 0,
+        sheetRow: 2,
         externalRef: "imp-txn-1",
         placeholderId: null,
         object: {
@@ -3751,15 +3863,19 @@ async function checkImportCommit() {
         accounts: [
           {
             status: "update",
+            index: 0,
+            sheetRow: 2,
             externalRef: "imp-acct-A",
             placeholderId: null,
-            object: { name: "Imp A2", kind: "asset", subtype: "bancaria", placement: "personal", institution: null, amount: "150", balanceOn: today },
+            object: { name: "Imp A2", kind: "asset", subtype: "bancaria", placement: "personal", institution: null, settlementCurrency: "COP", amount: "150", balanceOn: today },
           },
           {
             status: "new",
+            index: 0,
+            sheetRow: 2,
             externalRef: "imp-acct-B",
             placeholderId: randomUUID(),
-            object: { name: "Imp B", kind: "asset", subtype: "efectivo", placement: "personal", institution: null, amount: "10", balanceOn: today },
+            object: { name: "Imp B", kind: "asset", subtype: "efectivo", placement: "personal", institution: null, settlementCurrency: "COP", amount: "10", balanceOn: today },
           },
         ],
         recurringRules: [],
@@ -3806,6 +3922,8 @@ async function checkImportCommit() {
         categories: [
           {
             status: "update",
+            index: 0,
+            sheetRow: 2,
             externalRef: "imp-cat-1",
             placeholderId: null,
             object: { name: "Imp Cat", kind: "expense", parentId: null, color },
@@ -3814,21 +3932,27 @@ async function checkImportCommit() {
         accounts: [
           {
             status: "update",
+            index: 0,
+            sheetRow: 2,
             externalRef: "imp-acct-A",
             placeholderId: null,
-            object: { name: "Imp A", kind: "asset", subtype: "efectivo", placement: "personal", institution: null, amount: "100", balanceOn: today },
+            object: { name: "Imp A", kind: "asset", subtype: "efectivo", placement: "personal", institution: null, settlementCurrency: "COP", amount: "100", balanceOn: today },
           },
           {
             status: "update",
+            index: 0,
+            sheetRow: 2,
             externalRef: "imp-acct-C",
             placeholderId: null,
-            object: { name: "Imp C", kind: "asset", subtype: "efectivo", placement: "personal", institution: null, amount: "200", balanceOn: today },
+            object: { name: "Imp C", kind: "asset", subtype: "efectivo", placement: "personal", institution: null, settlementCurrency: "COP", amount: "200", balanceOn: today },
           },
         ],
         recurringRules: [],
         transactions: [
           {
             status: "update",
+            index: 0,
+            sheetRow: 2,
             externalRef: "imp-txn-1",
             placeholderId: null,
             object: {
@@ -3884,6 +4008,8 @@ async function checkImportCommit() {
     categories: [
       {
         status: "new",
+        index: 0,
+        sheetRow: 2,
         externalRef: "imp-fail-cat",
         placeholderId: randomUUID(),
         object: { name: "Imp Fail Cat", kind: "income", parentId: null, color },
@@ -3892,9 +4018,11 @@ async function checkImportCommit() {
     accounts: [
       {
         status: "new",
+        index: 0,
+        sheetRow: 2,
         externalRef: "imp-fail-acct",
         placeholderId: randomUUID(),
-        object: { name: "Imp Fail Acct", kind: "asset", subtype: "efectivo", placement: "personal", institution: null, amount: "100", balanceOn: today },
+        object: { name: "Imp Fail Acct", kind: "asset", subtype: "efectivo", placement: "personal", institution: null, settlementCurrency: "COP", amount: "100", balanceOn: today },
       },
     ],
     recurringRules: [],
@@ -3905,6 +4033,8 @@ async function checkImportCommit() {
   failFile.transactions = [
     {
       status: "new",
+      index: 0,
+      sheetRow: 2,
       externalRef: "imp-fail-txn",
       placeholderId: null,
       object: {
@@ -4810,7 +4940,7 @@ const INSERT_GRANT_GAPS: Record<string, string[]> = {
   debt_terms: ["created_at", "updated_at"],
   goal_contributions: ["created_at", "id"],
   group_members: ["archived_at", "created_at", "id", "updated_at"],
-  groups: ["created_at", "currency", "updated_at"],
+  groups: ["created_at", "updated_at"],
   ingest_deliveries: [
     "created_at",
     "id",
@@ -4925,7 +5055,7 @@ const UPDATE_GRANT_GAPS: Record<string, string[]> = {
     "updated_at",
     "user_id",
   ],
-  groups: ["created_at", "currency", "id", "updated_at"],
+  groups: ["created_at", "id", "updated_at"],
   ingest_deliveries: [
     "category_source",
     "created_at",
@@ -5906,9 +6036,10 @@ async function checkSlippedGrants() {
   );
 }
 
-// Assertions 198-201: `GRANT UPDATE (name, cash_mode)` has stood on `groups` since the first
-// migration with no UPDATE policy behind it, so a leader's rename answered UPDATE 0 and the name
-// chosen at creation was the only one the group would ever have. The rename is executed here as
+// Assertions 198-201: `GRANT UPDATE (name, cash_mode)` stood on `groups` since the first migration
+// with no UPDATE policy behind it, so a leader's rename answered UPDATE 0 and the name chosen at
+// creation was the only one the group would ever have. RF-121 added `currency` to that grant, so
+// where the fund settles is now the leader's to change. Rename and re-currency are executed here as
 // the leader and as a plain member. Fixtures live in one transaction forced to roll back; each
 // barred statement runs in its own savepoint.
 async function checkGroupUpdatePolicy() {
@@ -5921,7 +6052,7 @@ async function checkGroupUpdatePolicy() {
   const labels = [
     "198. the leader renames her own group",
     "199. a plain member's rename of the group touches nothing",
-    "200. the leader cannot rewrite the group's currency",
+    "200. the leader rewrites the group's currency and a plain member's identical statement touches no row",
   ];
   const tailLabel = "201. the rolled-back group rename transaction leaves no trace";
 
@@ -5975,20 +6106,9 @@ async function checkGroupUpdatePolicy() {
         `renamed ${renamed.length} row to '${renamed[0]?.name}'`,
       );
 
-      // 200: `currency` sits outside the grant, so the refusal is the grant and not the policy —
-      // which is why the message is read as well as the sqlstate.
-      const currencyRefusal = await refusalOf((sp) =>
-        sp.execute(dsql`update groups set currency = 'USD' where id = ${groupId}`),
-      );
-      const [{ currency }] = await tx.execute<{ currency: string }>(
-        dsql`select currency from groups where id = ${groupId}`,
-      );
-      assert(
-        labels[2],
-        currencyRefusal.includes("42501") &&
-          currencyRefusal.includes("permission denied for table groups") &&
-          currency === "COP",
-        `${currencyRefusal}, currency = ${currency}`,
+      // 200, first half: the leader's re-currency, written as `updateGroupSettings` would write it.
+      const reCurrencied = await tx.execute<{ currency: string }>(
+        dsql`update groups set currency = 'USD' where id = ${groupId} returning currency`,
       );
 
       // 199: the USING is what keeps the rename the leader's — the member holds the same grant.
@@ -6009,6 +6129,31 @@ async function checkGroupUpdatePolicy() {
         (memberRows === 0 || memberRefusal.includes("42501")) &&
           nameNow === "rls group rename taken",
         `rows = ${memberRows === -1 ? "none issued" : memberRows}, ${memberRefusal}, name = '${nameNow}'`,
+      );
+
+      // 200, second half: the member holds the very same column grant, so the statement is admitted
+      // and `groups_update_leader`'s USING matches no row. What she gets back is silence — zero rows
+      // and no sqlstate — which is the whole of the authorisation here.
+      let memberCurrencyRows = -1;
+      const memberCurrencyRefusal = await refusalOf(async (sp) => {
+        const rows = await sp.execute<{ id: string }>(
+          dsql`update groups set currency = 'EUR' where id = ${groupId} returning id`,
+        );
+        memberCurrencyRows = rows.length;
+      });
+      // Read as the owner: the assertion is about what the row STORES, not what the member is shown.
+      await tx.execute(dsql`reset role`);
+      const [{ currency }] = await tx.execute<{ currency: string }>(
+        dsql`select currency from groups where id = ${groupId}`,
+      );
+      assert(
+        labels[2],
+        reCurrencied.length === 1 &&
+          reCurrencied[0].currency === "USD" &&
+          memberCurrencyRows === 0 &&
+          memberCurrencyRefusal.startsWith("no refusal") &&
+          currency === "USD",
+        `leader wrote ${reCurrencied.length} row to ${reCurrencied[0]?.currency}, member wrote ${memberCurrencyRows === -1 ? "none issued" : memberCurrencyRows} (${memberCurrencyRefusal}), currency = ${currency}`,
       );
 
       // Nothing this section wrote may survive; force the ROLLBACK.
@@ -6204,12 +6349,13 @@ async function checkSelfTransferRefused() {
   );
 }
 
-// Assertions 210-214: RF-63's written clause, "a subcategory shares its parent's scope". The composite
-// foreign key on `(parent_id, group_id)` is MATCH SIMPLE, so it is not evaluated at all when `group_id`
-// is null — every personal category — and `assert_category_depth` checked self-reference, depth and
-// kind and never scope. A personal category naming a group category, and one naming a uuid held by no
-// row, each landed on the live database, and the picker then dropped them in silence. Both are executed
-// here, then the two subcategories the app actually writes. Fixtures live in one transaction forced to
+// Assertions 210-214 and 282: RF-63's two written clauses, "a subcategory shares its parent's scope"
+// and "one level of subcategories". The composite foreign key on `(parent_id, group_id)` is MATCH
+// SIMPLE, so it is not evaluated at all when `group_id` is null — every personal category — and
+// `assert_category_depth` checked self-reference, depth and kind and never scope. A personal category
+// naming a group category, and one naming a uuid held by no row, each landed on the live database, and
+// the picker then dropped them in silence. Both are executed here, then the two subcategories the app
+// actually writes, then the grandchild it must never write. Fixtures live in one transaction forced to
 // roll back; each barred statement runs in its own savepoint.
 async function checkCategoryParentScope() {
   console.log("");
@@ -6222,6 +6368,7 @@ async function checkCategoryParentScope() {
     "211. a category naming a parent held by no row is refused",
     "212. a personal subcategory of its owner's own parent lands",
     "213. a group subcategory of that group's parent lands",
+    "282. a subcategory of a subcategory is refused",
   ];
   const tailLabel = "214. the rolled-back category-scope transaction leaves no trace";
 
@@ -6305,6 +6452,21 @@ async function checkCategoryParentScope() {
           values (${groupId}, ${groupParent.id}, 'rls category scope group child', 'expense') returning id`,
       );
       assert(labels[3], groupChild.length === 1, `landed ${groupChild.length} row`);
+
+      // 282: RF-63's other written clause, "one level of subcategories". `assert_category_depth` has
+      // raised on a grandchild since 0000, and nothing ever drove it: 212 and 213 prove a child lands
+      // and say nothing about what stops the next one. The number is the next free one, not a gap.
+      const grandchildRefusal = await refusalOf((sp) =>
+        sp.execute(
+          dsql`insert into categories (owner_user_id, parent_id, name, kind)
+            values (${leaderUser}, ${ownChild[0].id}, 'rls category scope grandchild', 'expense')`,
+        ),
+      );
+      assert(
+        labels[4],
+        grandchildRefusal.includes("23514") && grandchildRefusal.includes("one level"),
+        grandchildRefusal,
+      );
 
       // Nothing this section wrote may survive; force the ROLLBACK.
       throw forcedRollback;
@@ -7110,9 +7272,9 @@ async function checkReportFunctionsExcludeTransfers() {
 }
 
 // Assertions 236-240: the group's settings, written the way `updateGroupSettings` writes them — one
-// statement carrying both `name` and `cash_mode`, because `GRANT UPDATE (name, cash_mode)` names
-// exactly that pair. Assertion 198 proved the rename alone; the mode rode in on the same grant and
-// was never issued here. The two CHECKs are what stands between the form's Zod schema and a stored
+// statement carrying both `name` and `cash_mode`, the two of the group's three updatable columns the
+// form owns. Assertion 198 proved the rename alone; the mode rode in on the same grant and was
+// never issued here. The two CHECKs are what stands between the form's Zod schema and a stored
 // value nothing reads back. Fixtures live in one transaction forced to roll back.
 async function checkGroupSettingsWrite() {
   console.log("");
@@ -8273,6 +8435,350 @@ async function checkAccountHandOver() {
     tailLabel,
     afterUser === "postgres" && probeCount === "0",
     `current_user = ${afterUser}, rows named 'rls hand over%' = ${probeCount}`,
+  );
+}
+
+// Assertions 277-280: the currency layer 0031 and 0032 shipped. `account_balances` was dropped and
+// recreated, and Supabase hands the client roles a grant at creation, so the view's own privileges are
+// read back from the catalogue alongside `security_invoker` — without that flag the view would read
+// with its owner's rights and walk past the policies of whoever queries it. The two triggers are then
+// driven as a real user, never asserted from the migration: one derives the currency a writer does not
+// name, which is what keeps the ten existing insert paths alive; the other refuses with `23901` a
+// movement whose second amount is missing, surplus, or attached to a shape that cannot carry it.
+async function checkCurrencyPolicies() {
+  console.log("");
+  const subject = randomUUID();
+
+  const labels = [
+    "277. authenticated holds SELECT and nothing else on account_balances, and the view reads as its caller",
+    "278. a writer that names no currency gets the account's, from the source or from the destination",
+    "279. a movement in another currency is refused without its counter amount, accepted with it, and refused for carrying one it does not need",
+    "280. a cross-currency transfer booked in a third currency and an estimate on a two-sided movement are both refused",
+  ];
+  const tailLabel = "281. the rolled-back currency transaction leaves no trace";
+
+  const forcedRollback = Symbol("forced rollback");
+
+  const viewGrants = await sql<{ role: string; priv: string }[]>`
+    select a.grantee::regrole::text as role, a.privilege_type as priv
+    from pg_class c
+    cross join lateral aclexplode(c.relacl) a
+    where c.oid = 'public.account_balances'::regclass
+      and a.grantee::regrole::text in ('anon', 'authenticated', 'service_role')
+    order by a.grantee::regrole::text, a.privilege_type`;
+  const [{ invoker }] = await sql<{ invoker: boolean }[]>`
+    select coalesce('security_invoker=on' = any(c.reloptions), false) as invoker
+    from pg_class c where c.oid = 'public.account_balances'::regclass`;
+
+  const handed = viewGrants.map((row) => `${row.role}:${row.priv}`).join(", ");
+  assert(
+    labels[0],
+    handed === "authenticated:SELECT" && invoker === true,
+    `the client roles hold [${handed || "nothing"}], security_invoker = ${invoker}`,
+  );
+
+  await sql
+    .begin(async (tx) => {
+      await tx`insert into auth.users (id) values (${subject})`;
+      await tx`insert into app_users (id) values (${subject})`;
+      await enterUserContext(tx, subject);
+
+      const [{ id: pesos }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_cents, initial_balance_on)
+        values (${subject}, 'rls currency pesos', 'asset', 1000000, (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: dollars }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, settlement_currency, initial_balance_cents, initial_balance_on)
+        values (${subject}, 'rls currency dollars', 'asset', 'USD', 100000, (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: expenseCat }] = await tx<{ id: string }[]>`
+        insert into categories (owner_user_id, name, kind)
+        values (${subject}, 'rls currency expense', 'expense') returning id`;
+      const [{ id: incomeCat }] = await tx<{ id: string }[]>`
+        insert into categories (owner_user_id, name, kind)
+        values (${subject}, 'rls currency income', 'income') returning id`;
+
+      // 278: neither insert names a currency, which is how every path written before 0031 writes. The
+      // expense takes the source account's, the income the destination's, and the derived value is what
+      // decides the pocket the view files the movement under.
+      const [spent] = await tx<{ id: string; currency: string }[]>`
+        insert into transactions (from_account_id, amount_cents, occurred_at)
+        values (${pesos}, 20000, (now() at time zone 'America/Bogota')::date) returning id, currency`;
+      const [earned] = await tx<{ id: string; currency: string }[]>`
+        insert into transactions (to_account_id, amount_cents, occurred_at)
+        values (${dollars}, 5000, (now() at time zone 'America/Bogota')::date) returning id, currency`;
+      await tx`insert into transaction_splits (transaction_id, category_id, amount_cents) values
+        (${spent.id}, ${expenseCat}, 20000),
+        (${earned.id}, ${incomeCat}, 5000)`;
+      const pockets = await tx<{ currency: string; balance_cents: string }[]>`
+        select currency, balance_cents::text from account_balances where id = ${dollars} order by currency`;
+      assert(
+        labels[1],
+        spent.currency === "COP" &&
+          earned.currency === "USD" &&
+          pockets.length === 1 &&
+          pockets[0].currency === "USD" &&
+          pockets[0].balance_cents === "105000",
+        `the expense out of the peso account = ${spent.currency} (expected COP), the income into the dollar account = ${earned.currency} (expected USD), pockets = ${pockets.map((row) => `${row.currency} ${row.balance_cents}`).join(", ")} (expected USD 105000)`,
+      );
+
+      // Each refusal runs in its own savepoint, so a statement that is wrongly accepted leaves no row
+      // behind for the next one to trip over.
+      const refusalCode = async (
+        run: (sp: postgres.TransactionSql) => Promise<unknown>,
+      ): Promise<string> => {
+        const discard = Symbol("discard the savepoint");
+        let code = "no refusal — the statement was accepted";
+        await tx
+          .savepoint(async (sp) => {
+            await run(sp);
+            throw discard;
+          })
+          .catch((error: unknown) => {
+            if (error !== discard) code = pgErrorCode(error) ?? "none";
+          });
+        return code;
+      };
+
+      // 279: spending pesos out of a dollar account needs the amount in dollars beside it, and spending
+      // pesos out of a peso account may not carry a second amount at all. The accepted one in between is
+      // the negative control: the trigger admits the shape it asks for.
+      const missingCounter = await refusalCode(
+        (sp) => sp`insert into transactions (from_account_id, amount_cents, occurred_at, currency)
+          values (${dollars}, 80000, (now() at time zone 'America/Bogota')::date, 'COP')`,
+      );
+      const surplusCounter = await refusalCode(
+        (sp) => sp`insert into transactions (from_account_id, amount_cents, occurred_at, currency, counter_amount_cents)
+          values (${pesos}, 20000, (now() at time zone 'America/Bogota')::date, 'COP', 5000)`,
+      );
+      const [abroad] = await tx<{ id: string; currency: string; counter_amount_cents: string }[]>`
+        insert into transactions (from_account_id, amount_cents, occurred_at, currency, counter_amount_cents)
+        values (${dollars}, 80000, (now() at time zone 'America/Bogota')::date, 'COP', 20)
+        returning id, currency, counter_amount_cents`;
+      await tx`insert into transaction_splits (transaction_id, category_id, amount_cents)
+        values (${abroad.id}, ${expenseCat}, 80000)`;
+      assert(
+        labels[2],
+        missingCounter === "23901" &&
+          surplusCounter === "23901" &&
+          abroad.currency === "COP" &&
+          abroad.counter_amount_cents === "20",
+        `no counter = ${missingCounter}, surplus counter = ${surplusCounter} (both expected 23901); the movement that carried one landed as ${abroad.currency} with counter ${abroad.counter_amount_cents}`,
+      );
+
+      // 280: a transfer between two currencies is booked in one of them and never in a third, and an
+      // estimate waits for a statement, which only a one-sided movement ever gets.
+      const thirdCurrency = await refusalCode(
+        (sp) => sp`insert into transactions (from_account_id, to_account_id, amount_cents, occurred_at, currency, counter_amount_cents)
+          values (${pesos}, ${dollars}, 40000, (now() at time zone 'America/Bogota')::date, 'EUR', 10)`,
+      );
+      const estimateOnTransfer = await refusalCode(
+        (sp) => sp`insert into transactions (from_account_id, to_account_id, amount_cents, occurred_at, currency, counter_amount_cents, counter_is_estimate)
+          values (${pesos}, ${dollars}, 40000, (now() at time zone 'America/Bogota')::date, 'COP', 10, true)`,
+      );
+      assert(
+        labels[3],
+        thirdCurrency === "23901" && estimateOnTransfer === "23901",
+        `a transfer booked in a third currency = ${thirdCurrency}, an estimate on a transfer = ${estimateOnTransfer} (both expected 23901)`,
+      );
+
+      // Nothing this section wrote may survive; force the ROLLBACK.
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`select current_user`;
+  const [{ count: probeCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from accounts where name like 'rls currency%'`;
+  assert(
+    tailLabel,
+    afterUser === "postgres" && probeCount === "0",
+    `current_user = ${afterUser}, rows named 'rls currency%' = ${probeCount}`,
+  );
+}
+
+// Assertion 283: 0032's `GRANT UPDATE (currency, counter_amount_cents, counter_is_estimate)`
+// and `GRANT INSERT (currency, counter_amount_cents, counter_is_estimate)` widen what a
+// writer may SET on a transaction, never who counts as one. Driven as an outsider who
+// shares no account with the owner: her UPDATE of the counter amount matches no row —
+// caught twice over, first by `transactions_select_member` denying her the row at all,
+// then by `transactions_update_writable`'s own USING/WITH CHECK, each sufficient alone
+// (confirmed by widening one at a time: neither breach alone lets the write through, and
+// widening both together does) — and her INSERT naming the owner's account is refused
+// outright by `transactions_insert_writable`, before the currency triggers ever see the row.
+async function checkCounterAmountWriteScope() {
+  console.log("");
+  const owner = randomUUID();
+  const outsider = randomUUID();
+
+  const label =
+    "283. an outsider's write of counter_amount_cents reaches no transaction she cannot already write";
+  const tailLabel = "284. the rolled-back counter-amount-scope transaction leaves no trace";
+  const forcedRollback = Symbol("forced rollback");
+
+  await sql
+    .begin(async (tx) => {
+      await tx`insert into auth.users (id) values (${owner}), (${outsider})`;
+      await tx`insert into app_users (id) values (${owner}), (${outsider})`;
+      await enterUserContext(tx, owner);
+
+      const [{ id: dollars }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, settlement_currency, initial_balance_cents, initial_balance_on)
+        values (${owner}, 'rls counter scope dollars', 'asset', 'USD', 100000, (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: incomeCat }] = await tx<{ id: string }[]>`
+        insert into categories (owner_user_id, name, kind)
+        values (${owner}, 'rls counter scope income', 'income') returning id`;
+      const [abroad] = await tx<{ id: string; counter_amount_cents: string }[]>`
+        insert into transactions (to_account_id, amount_cents, occurred_at, currency, counter_amount_cents)
+        values (${dollars}, 5000, (now() at time zone 'America/Bogota')::date, 'COP', 20)
+        returning id, counter_amount_cents`;
+      await tx`insert into transaction_splits (transaction_id, category_id, amount_cents)
+        values (${abroad.id}, ${incomeCat}, 5000)`;
+
+      // The UPDATE: the outsider names the owner's row, but `can_write_transaction` fails
+      // her on the destination account, so the statement is admitted and touches nothing —
+      // the same silence a denied UPDATE leaves on any other column.
+      await enterUserContext(tx, outsider);
+      const outsiderUpdate = await tx<{ id: string }[]>`
+        update transactions set counter_amount_cents = 999999
+        where id = ${abroad.id} returning id`;
+
+      // The INSERT: naming the same account from scratch, in its own savepoint so a
+      // wrongly-accepted row does not linger for the read below.
+      const discard = Symbol("discard the savepoint");
+      let insertCode = "no refusal — the statement was accepted";
+      await tx
+        .savepoint(async (sp) => {
+          await sp`insert into transactions (to_account_id, amount_cents, occurred_at, currency, counter_amount_cents)
+            values (${dollars}, 3000, (now() at time zone 'America/Bogota')::date, 'COP', 15)`;
+          throw discard;
+        })
+        .catch((error: unknown) => {
+          if (error !== discard) insertCode = pgErrorCode(error) ?? "none";
+        });
+
+      // Read back as the owner: the assertion is about what the row STORES, never what the
+      // outsider was shown.
+      await enterUserContext(tx, owner);
+      const [{ counter_amount_cents: stillOriginal }] = await tx<
+        { counter_amount_cents: string }[]
+      >`select counter_amount_cents::text from transactions where id = ${abroad.id}`;
+
+      assert(
+        label,
+        outsiderUpdate.length === 0 &&
+          insertCode === "42501" &&
+          stillOriginal === abroad.counter_amount_cents,
+        `outsider update rows = ${outsiderUpdate.length}, outsider insert = ${insertCode} (expected 42501), counter after = ${stillOriginal} (expected ${abroad.counter_amount_cents})`,
+      );
+
+      // Nothing this section wrote may survive; force the ROLLBACK.
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`select current_user`;
+  const [{ count: probeCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from accounts where name like 'rls counter scope%'`;
+  assert(
+    tailLabel,
+    afterUser === "postgres" && probeCount === "0",
+    `current_user = ${afterUser}, rows named 'rls counter scope%' = ${probeCount}`,
+  );
+}
+
+// Assertions 285-286: `private.run_due_recurring_rules(uuid)` (D10) scopes the generator by
+// `created_by` when named one, and sweeps every due rule when called with no argument — the exact
+// text pg_cron still runs. Driven with the JWT cleared, the way both the cron and a seed call it.
+async function checkRecurringRuleGeneratorScope() {
+  console.log("");
+  const userA = randomUUID();
+  const userB = randomUUID();
+
+  const labels = [
+    "285. a call scoped to one user runs that user's due rule and leaves the other user's untouched",
+    "286. the same rules, then called with no argument, run the one the scoped call had left alone",
+  ];
+  const tailLabel = "287. the rolled-back recurring-rule-scope transaction leaves no trace";
+
+  const forcedRollback = Symbol("forced rollback");
+
+  await sql
+    .begin(async (tx) => {
+      await tx`insert into auth.users (id) values (${userA}), (${userB})`;
+      await tx`insert into app_users (id) values (${userA}), (${userB})`;
+
+      // Each user with their own personal account, expense category and a rule due today, so one
+      // generation lands exactly one transaction and clears the due window.
+      await enterUserContext(tx, userA);
+      const [{ id: accountA }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_on)
+        values (${userA}, 'rls recurring scope a cash', 'asset', (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: catA }] = await tx<{ id: string }[]>`
+        insert into categories (owner_user_id, name, kind)
+        values (${userA}, 'rls recurring scope a expense', 'expense') returning id`;
+      const [{ id: ruleA }] = await tx<{ id: string }[]>`
+        insert into recurring_rules (from_account_id, amount_cents, category_id, frequency, interval_n, next_run_on)
+        values (${accountA}, 3000, ${catA}, 'weekly', 1, (now() at time zone 'America/Bogota')::date) returning id`;
+
+      await tx`reset role`;
+      await enterUserContext(tx, userB);
+      const [{ id: accountB }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_on)
+        values (${userB}, 'rls recurring scope b cash', 'asset', (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: catB }] = await tx<{ id: string }[]>`
+        insert into categories (owner_user_id, name, kind)
+        values (${userB}, 'rls recurring scope b expense', 'expense') returning id`;
+      const [{ id: ruleB }] = await tx<{ id: string }[]>`
+        insert into recurring_rules (from_account_id, amount_cents, category_id, frequency, interval_n, next_run_on)
+        values (${accountB}, 4500, ${catB}, 'weekly', 1, (now() at time zone 'America/Bogota')::date) returning id`;
+
+      // Scoped to A, with no JWT — the shape a fixture or a seed calls it in, not the cron's own.
+      await tx`reset role`;
+      await tx`select set_config('request.jwt.claims', '', true)`;
+      await tx`select private.run_due_recurring_rules(${userA}::uuid)`;
+
+      const [{ count: aRanScoped }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from transactions where recurring_rule_id = ${ruleA}`;
+      const [{ count: bRanScoped }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from transactions where recurring_rule_id = ${ruleB}`;
+      assert(
+        labels[0],
+        aRanScoped === "1" && bRanScoped === "0",
+        `scoped to A: A's transactions = ${aRanScoped} (expected 1), B's transactions = ${bRanScoped} (expected 0)`,
+      );
+
+      // The unscoped call — pg_cron's own stored text — reaches the rule the scoped call left alone.
+      await tx`select private.run_due_recurring_rules()`;
+
+      const [{ count: aRanUnscoped }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from transactions where recurring_rule_id = ${ruleA}`;
+      const [{ count: bRanUnscoped }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from transactions where recurring_rule_id = ${ruleB}`;
+      assert(
+        labels[1],
+        aRanUnscoped === "1" && bRanUnscoped === "1",
+        `unscoped: A's transactions = ${aRanUnscoped} (expected 1, unchanged), B's transactions = ${bRanUnscoped} (expected 1)`,
+      );
+
+      // Forces the deferred split-sum trigger now, proving both generated movements balance their split.
+      await tx`set constraints all immediate`;
+
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`select current_user`;
+  const [{ count: probeCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from accounts where name like 'rls recurring scope%'`;
+  assert(
+    tailLabel,
+    afterUser === "postgres" && probeCount === "0",
+    `current_user = ${afterUser}, rows named 'rls recurring scope%' = ${probeCount}`,
   );
 }
 

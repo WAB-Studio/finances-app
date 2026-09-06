@@ -11,6 +11,8 @@ import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+import type { z } from "zod";
+
 // FIRST, and it has to stay first: it plants the counted pool `@/db/client` picks
 // up, and a client already built is a client that cannot be instrumented.
 import { roundTrips } from "./harness/instrument";
@@ -119,15 +121,24 @@ import {
   listWebhookCredentials,
 } from "@/db/queries/webhook-credentials";
 import { withUserDb } from "@/db/session";
+import { BASE_CURRENCY } from "@/lib/currency";
 import {
   addCivilMonths,
   currentMonthRange,
+  lastSixMonthStarts,
   priorCutOffDates,
   todayInBogota,
 } from "@/lib/dates";
 import { pgErrorCode } from "@/lib/db-error";
 import { SEED_CATEGORIES } from "@/lib/fund/seed";
-import { SHEET_ENTITIES } from "@/lib/spreadsheet/schema";
+import {
+  accountRowSchema,
+  categoryRowSchema,
+  memberRowSchema,
+  recurringRuleRowSchema,
+  SHEET_ENTITIES,
+  transactionRowSchema,
+} from "@/lib/spreadsheet/schema";
 import { createTransactionSchema } from "@/lib/validation/transaction";
 import en from "@/messages/en.json";
 import es from "@/messages/es.json";
@@ -248,6 +259,15 @@ async function readColumn<T>(
     where ${fixtureSql(idColumn)} = ${id}`;
 
   return row?.value;
+}
+
+// A civil date shifted by whole days, in the UTC-midday scheme `lib/dates.ts`
+// reads every date through, so a day either side of a DST-observing zone never
+// slips.
+function shiftDate(base: string, days: number): string {
+  const date = new Date(`${base}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "UTC" }).format(date);
 }
 
 type SilencedFixture = {
@@ -411,6 +431,35 @@ const PLAN_REMAINDER_CENTS = 5000;
 // The day of the month the fixture debt cuts its statements on.
 const CUT_OFF_DAY = 15;
 
+// RF-124: a second currency in the same run, so a report that folds it beside
+// the peso ones never adds the two into one figure. Spent out of a dollar
+// account that carries no other movement, so this is the whole of its pocket.
+const USD_EXPENSE_CENTS = 250000;
+
+// RF-123: a card purchase abroad the issuer has not billed yet. Booked on the
+// no-limit debt so Q64-Q72's credit-total assertions, keyed to the OTHER debt,
+// stay untouched, and `getAccountBalances` narrowed to that other debt keeps
+// its one row (`getAccountBalances narrows to the ids it is given`).
+const CARD_FOREIGN_CENTS = 15000;
+const CARD_FOREIGN_COUNTER_CENTS = 60000000;
+
+// The two pockets a card purchase and a plain expense leave in the same
+// currency and the same owner: net worth and monthly flow fold every account
+// of one owner into one bucket per currency, so the two sum here too.
+const USD_OWED_AND_SPENT_CENTS = USD_EXPENSE_CENTS + CARD_FOREIGN_CENTS;
+
+// RF-122: the confirmed second leg of a contribution into the group's own
+// dollar account — what the pot received, never the sender's peso amount.
+const CONTRIBUTION_COP_CENTS = 12000000;
+const CONTRIBUTION_USD_CENTS = 500000;
+
+// The fund's whole dollar figure, by hand, from what this run itself put in
+// dollars: the leader's own spending, negative, plus the group's own account,
+// which holds nothing but the contribution above. Never read off
+// `dashboard.netWorth` — a row duplicated there would double this the same
+// way and the check would pass on a defect it exists to catch.
+const FUND_USD_NET_WORTH_CENTS = CONTRIBUTION_USD_CENTS - USD_OWED_AND_SPENT_CENTS;
+
 type DebtFixture = {
   // A liability whose terms name NO credit limit, opened six months back so its
   // past statement periods are there to be cut.
@@ -504,6 +553,15 @@ type WriteResults = {
   accountId: string | null;
   transactionId: string | null;
   withdrawalId: string | null;
+  // RF-124 fixtures: a personal account settling in a second currency, and the
+  // group's own account in that same one, so the read suite can prove the
+  // reports never fold one into the other.
+  usdAccountId: string | null;
+  groupUsdAccountId: string | null;
+  // The dollar expense's own category, distinct from `scope.categoryId`: the
+  // foreign card purchase spends the latter, so the two dollar amounts land in
+  // different category rows and neither assertion can pass by adding them.
+  usdCategoryId: string | null;
 };
 
 /**
@@ -534,7 +592,8 @@ async function writeSuite(
         isShared: false,
         institution: "Bancolombia",
         lastFour: "4321",
-        pesos: 1500,
+        settlementCurrency: BASE_CURRENCY,
+        amountMinor: 1500,
         balanceOn: today,
       }),
     ({ accountId }) => {
@@ -557,7 +616,8 @@ async function writeSuite(
         isShared: false,
         institution: "Davivienda",
         lastFour: "9876",
-        pesos: 1800,
+        settlementCurrency: BASE_CURRENCY,
+        amountMinor: 1800,
         balanceOn: today,
       }),
     async (updated) => ({
@@ -615,6 +675,108 @@ async function writeSuite(
       ok: updated,
       detail: `updated = ${updated}, name = ${await readColumn("categories", "id", categoryId, "name")}`,
     }),
+  );
+
+  // RF-121, RF-124: a personal account that settles in a currency other than
+  // the base one, so `netWorthByOwner`, the dashboard, the monthly flow and the
+  // per-category totals each have a second currency to keep apart from pesos.
+  const usdAccount = await checkWrite(
+    "createAccount opens an account in a second currency",
+    () =>
+      createAccount({
+        name: "Harness dólares",
+        kind: "asset",
+        subtype: "bancaria",
+        ownerUserId: userId,
+        groupId: null,
+        isShared: false,
+        institution: null,
+        lastFour: null,
+        settlementCurrency: "USD",
+        amountMinor: 0,
+        balanceOn: today,
+      }),
+    ({ accountId }) => {
+      keep("accounts", accountId);
+      return { ok: true, detail: `account ${accountId}` };
+    },
+  );
+
+  const usdAccountId = usdAccount?.accountId ?? scope.assetAccountId;
+
+  await checkWrite(
+    "createTransaction books a dollar expense beside the peso ones",
+    () =>
+      createTransaction({
+        fromAccountId: usdAccountId,
+        toAccountId: null,
+        amountCents: USD_EXPENSE_CENTS,
+        occurredAt: today,
+        description: "Harness gasto en dólares",
+        externalRef: null,
+        splits: [{ categoryId, amountCents: USD_EXPENSE_CENTS }],
+        labelIds: [],
+      }),
+    async ({ transactionId }) => {
+      keep("transactions", transactionId);
+      return {
+        ok: true,
+        detail: `movement ${transactionId}, currency = ${await readColumn("transactions", "id", transactionId, "currency")}`,
+      };
+    },
+  );
+
+  // RF-121: the group's own account in that second currency, so a contribution
+  // into it (RF-66, RF-122) gives `getMemberContributions` a second currency of
+  // its own — never folded into what the same member put into the group's peso
+  // accounts.
+  const groupUsdAccount = await checkWrite(
+    "createAccount opens the group's own account in a second currency",
+    () =>
+      createAccount({
+        name: "Harness fondo dólares",
+        kind: "asset",
+        subtype: "bancaria",
+        ownerUserId: null,
+        groupId: scope.groupId,
+        isShared: true,
+        institution: null,
+        lastFour: null,
+        settlementCurrency: "USD",
+        amountMinor: 0,
+        balanceOn: today,
+      }),
+    ({ accountId }) => {
+      keep("accounts", accountId);
+      return { ok: true, detail: `account ${accountId}` };
+    },
+  );
+
+  const groupUsdAccountId = groupUsdAccount?.accountId ?? null;
+
+  await checkWrite(
+    "createTransaction confirms a contribution's dollar leg (RF-122)",
+    () =>
+      createTransaction({
+        fromAccountId: scope.assetAccountId,
+        toAccountId: groupUsdAccountId,
+        amountCents: CONTRIBUTION_COP_CENTS,
+        currency: BASE_CURRENCY,
+        counterAmountCents: CONTRIBUTION_USD_CENTS,
+        counterIsEstimate: false,
+        occurredAt: today,
+        description: "Harness aporte en dólares",
+        externalRef: null,
+        splits: [],
+        labelIds: [],
+      }),
+    async ({ transactionId }) => {
+      keep("transactions", transactionId);
+      return {
+        ok: true,
+        detail: `movement ${transactionId}, counter_amount_cents = ${await readColumn("transactions", "id", transactionId, "counter_amount_cents")}`,
+      };
+    },
   );
 
   // Driven by the membership-free user, never the run's own: `seedHarnessScope`
@@ -989,6 +1151,90 @@ async function writeSuite(
     },
   );
 
+  // D5: the straight line runs from the day a goal opened, and a goal opened
+  // today has spent none of it — so the naive comparison never flagged one whose
+  // due date had already gone. Two edges the fix must land on both sides of, both
+  // opened today: a target date two months gone with 38% saved (the figure
+  // measured live) reads behind from its first day, and a target date with 90
+  // days of runway left does not read behind just because the goal is new.
+  await checkWrite(
+    "listGoalsWithProgress reads a goal opened today as behind once its target date has passed",
+    async () => {
+      const targetAmountCents = 100000000;
+      const savedCents = 38000000; // 38%, the figure measured live
+
+      const [overdue, reachable] = await Promise.all([
+        createGoal({
+          ownerUserId: userId,
+          groupId: null,
+          name: "Harness meta vencida",
+          targetAmountCents,
+          targetDate: shiftDate(today, -60),
+          accountId: null,
+          initialContributionCents: savedCents,
+        }),
+        createGoal({
+          ownerUserId: userId,
+          groupId: null,
+          name: "Harness meta con plazo",
+          targetAmountCents,
+          targetDate: shiftDate(today, 90),
+          accountId: null,
+          initialContributionCents: savedCents,
+        }),
+      ]);
+      keep("savings_goals", overdue.goalId);
+      keep("savings_goals", reachable.goalId);
+
+      const rows = await listGoalsWithProgress();
+
+      return {
+        overdue: rows.find((goal) => goal.id === overdue.goalId),
+        reachable: rows.find((goal) => goal.id === reachable.goalId),
+      };
+    },
+    ({ overdue, reachable }) => ({
+      ok: overdue?.behindPace === true && reachable?.behindPace === false,
+      detail: `opened today, target date two months gone, 38% saved — behindPace = ${overdue?.behindPace}; opened today with 90 days of runway — behindPace = ${reachable?.behindPace}`,
+    }),
+  );
+
+  // Not new, but must not move: an old goal already behind the straight line
+  // keeps reading that way — the branch above only answers when the goal opened
+  // on the very day its ritmo is read, and must never shadow this one.
+  await checkWrite(
+    "listGoalsWithProgress leaves an old, already-overdue goal reading behind",
+    async () => {
+      const targetAmountCents = 100000000;
+      const savedCents = 38000000;
+
+      const [{ id: oldGoalId }] = await fixtureSql<{ id: string }[]>`
+        insert into savings_goals (owner_user_id, name, target_amount_cents, target_date, created_at)
+        values (
+          ${userId},
+          'Harness meta vieja atrasada',
+          ${targetAmountCents},
+          ${shiftDate(today, -30)},
+          now() - interval '90 days')
+        returning id`;
+      keep("savings_goals", oldGoalId);
+
+      const [{ id: contributionId }] = await fixtureSql<{ id: string }[]>`
+        insert into goal_contributions (goal_id, amount_cents)
+        values (${oldGoalId}, ${savedCents})
+        returning id`;
+      keep("goal_contributions", contributionId);
+
+      const rows = await listGoalsWithProgress();
+
+      return rows.find((goal) => goal.id === oldGoalId);
+    },
+    (goal) => ({
+      ok: goal?.behindPace === true,
+      detail: `opened 90 days ago, target date a month gone, 38% saved — behindPace = ${goal?.behindPace}`,
+    }),
+  );
+
   const planned = await checkWrite(
     "createPlannedPayment",
     () =>
@@ -1279,6 +1525,36 @@ async function writeSuite(
     }),
   );
 
+  // RF-121, RF-123, RF-124: a card purchase abroad, spent in dollars and not
+  // yet billed. Booked on the no-limit debt — never `accountId`, which
+  // `getAccountBalances narrows to the ids it is given` already reads as a
+  // single-currency account — so its dollar pocket rides beside its peso debt
+  // and Q64-Q72 read the two apart.
+  await checkWrite(
+    "createTransaction books a foreign-currency card purchase as an estimate",
+    () =>
+      createTransaction({
+        fromAccountId: debt.unlimitedAccountId,
+        toAccountId: null,
+        amountCents: CARD_FOREIGN_CENTS,
+        currency: "USD",
+        counterAmountCents: CARD_FOREIGN_COUNTER_CENTS,
+        counterIsEstimate: true,
+        occurredAt: today,
+        description: "Harness compra en dólares",
+        externalRef: null,
+        splits: [{ categoryId: scope.categoryId, amountCents: CARD_FOREIGN_CENTS }],
+        labelIds: [],
+      }),
+    async ({ transactionId }) => {
+      keep("transactions", transactionId);
+      return {
+        ok: true,
+        detail: `movement ${transactionId}, counter_is_estimate = ${await readColumn("transactions", "id", transactionId, "counter_is_estimate")}`,
+      };
+    },
+  );
+
   await checkWrite(
     "issueWebhookCredential",
     () =>
@@ -1445,6 +1721,9 @@ async function writeSuite(
     accountId: account?.accountId ?? null,
     transactionId: movement?.transactionId ?? null,
     withdrawalId: withdrawal?.transactionId ?? null,
+    usdAccountId: usdAccount?.accountId ?? null,
+    groupUsdAccountId: groupUsdAccount?.accountId ?? null,
+    usdCategoryId: categoryId,
   };
 }
 
@@ -1466,19 +1745,126 @@ async function readSuite(
   const personal = { ownerUserId: userId } as const;
   const debtAccountId = writes.accountId ?? scope.liabilityAccountId;
 
-  await checkRead("getDashboardData", () => getDashboardData());
-  await checkRead("getReportsData", () => getReportsData());
-  await checkRead("getMonthlyFlow", () => getMonthlyFlow(currentMonthRange()));
-  await checkRead("getSixMonthFlow", () => getSixMonthFlow());
-  await checkRead("getExpensesByCategory", () =>
-    getExpensesByCategory(currentMonthRange()),
+  // RF-124: net worth per owner, folded again by currency alone — the fund's
+  // own total (RF-88) never adds the run's dollar pocket to its peso one, and
+  // this month's flow keeps the same split.
+  await checkReadValue(
+    "getDashboardData splits net worth and this month's flow by currency",
+    () => getDashboardData(),
+    (dashboard) => {
+      const memberUsd = dashboard.netWorth.find(
+        (bucket) =>
+          bucket.bucket === "member" &&
+          bucket.ownerUserId === userId &&
+          bucket.currency === "USD",
+      );
+      const totalUsd = dashboard.totalNetWorth.find((total) => total.currency === "USD");
+      const totalCop = dashboard.totalNetWorth.find(
+        (total) => total.currency === BASE_CURRENCY,
+      );
+      const usdFlow = dashboard.monthFlow.find((flow) => flow.currency === "USD");
+
+      return {
+        ok:
+          memberUsd?.netWorthCents === -USD_OWED_AND_SPENT_CENTS &&
+          totalUsd?.netWorthCents === FUND_USD_NET_WORTH_CENTS &&
+          totalCop !== undefined &&
+          usdFlow?.expenseCents === USD_OWED_AND_SPENT_CENTS &&
+          usdFlow.incomeCents === 0,
+        detail: `the leader's dollar bucket reads ${memberUsd?.netWorthCents ?? "no"} cents against the expected ${-USD_OWED_AND_SPENT_CENTS}; the fund's dollar total ${totalUsd?.netWorthCents ?? "no"} against the expected ${FUND_USD_NET_WORTH_CENTS}; the peso total reads ${totalCop?.netWorthCents ?? "no"} cents; this month's dollar flow spent ${usdFlow?.expenseCents ?? "no"} of the expected ${USD_OWED_AND_SPENT_CENTS}`,
+      };
+    },
   );
-  await checkRead("getMemberContributions", () =>
-    getMemberContributions(currentMonthRange()),
+  await checkRead("getReportsData", () => getReportsData());
+  await checkReadValue(
+    "getMonthlyFlow keeps this month's dollars out of the peso row",
+    () => getMonthlyFlow(currentMonthRange()),
+    (rows) => {
+      const usd = rows.find((row) => row.currency === "USD");
+      const cop = rows.find((row) => row.currency === BASE_CURRENCY);
+
+      return {
+        ok:
+          usd?.expenseCents === USD_OWED_AND_SPENT_CENTS &&
+          usd.incomeCents === 0 &&
+          usd.netCents === -USD_OWED_AND_SPENT_CENTS &&
+          cop !== undefined &&
+          cop.expenseCents !== usd.expenseCents,
+        detail: `dollars this month: income ${usd?.incomeCents ?? "no"}, expense ${usd?.expenseCents ?? "no"} against the expected ${USD_OWED_AND_SPENT_CENTS}; pesos this month spent ${cop?.expenseCents ?? "no"} of their own`,
+      };
+    },
+  );
+  await checkReadValue(
+    "getSixMonthFlow never mixes a currency's series with another's",
+    () => getSixMonthFlow(),
+    (rows) => {
+      const monthStarts = lastSixMonthStarts();
+      const currentMonth = monthStarts[monthStarts.length - 1];
+      const usdRows = rows.filter((row) => row.currency === "USD");
+      const copRows = rows.filter((row) => row.currency === BASE_CURRENCY);
+      const currentUsd = usdRows.find((row) => row.monthStart === currentMonth);
+      const priorMonthsFlat = usdRows
+        .filter((row) => row.monthStart !== currentMonth)
+        .every((row) => row.incomeCents === 0 && row.expenseCents === 0);
+
+      return {
+        ok:
+          usdRows.length === 6 &&
+          copRows.length === 6 &&
+          currentUsd?.expenseCents === USD_OWED_AND_SPENT_CENTS &&
+          priorMonthsFlat,
+        detail: `${usdRows.length} dollar months of 6, the current one spent ${currentUsd?.expenseCents ?? "no"} of the expected ${USD_OWED_AND_SPENT_CENTS}, the other five flat = ${priorMonthsFlat}; ${copRows.length} peso months of 6`,
+      };
+    },
+  );
+  await checkReadValue(
+    "getExpensesByCategory answers one row per category and currency",
+    () => getExpensesByCategory(currentMonthRange()),
+    (rows) => {
+      const dollarExpense = rows.find(
+        (row) => row.currency === "USD" && row.categoryId === writes.usdCategoryId,
+      );
+      const dollarPurchase = rows.find(
+        (row) => row.currency === "USD" && row.categoryId === scope.categoryId,
+      );
+
+      return {
+        ok:
+          dollarExpense?.totalCents === USD_EXPENSE_CENTS &&
+          dollarPurchase?.totalCents === CARD_FOREIGN_CENTS,
+        detail: `"${dollarExpense?.name ?? "no category"}" in dollars totals ${dollarExpense?.totalCents ?? "no"} against ${USD_EXPENSE_CENTS}; the card's own category in dollars totals ${dollarPurchase?.totalCents ?? "no"} against ${CARD_FOREIGN_CENTS}, so the two never fold into one row`,
+      };
+    },
+  );
+  await checkReadValue(
+    "getMemberContributions counts what the pot received in its own currency",
+    () => getMemberContributions(currentMonthRange()),
+    (rows) => {
+      const mine = rows.find((row) => row.userId === userId && row.currency === "USD");
+
+      return {
+        ok: mine?.contributionCents === CONTRIBUTION_USD_CENTS,
+        detail: `the leader's dollar contribution reads ${mine?.contributionCents ?? "no"} cents against the confirmed ${CONTRIBUTION_USD_CENTS}`,
+      };
+    },
   );
   // A pure reducer over two reads, not a round trip of its own.
-  await checkRead("netWorthByOwner", async () =>
-    netWorthByOwner(await listAccounts({ archived: false }), await getAccountBalances()),
+  await checkReadValue(
+    "netWorthByOwner answers one bucket per owner and currency",
+    async () =>
+      netWorthByOwner(await listAccounts({ archived: false }), await getAccountBalances()),
+    (buckets) => {
+      const mine = buckets.filter(
+        (bucket) => bucket.bucket === "member" && bucket.ownerUserId === userId,
+      );
+      const usd = mine.find((bucket) => bucket.currency === "USD");
+      const cop = mine.find((bucket) => bucket.currency === BASE_CURRENCY);
+
+      return {
+        ok: mine.length === 2 && usd?.netWorthCents === -USD_OWED_AND_SPENT_CENTS && cop !== undefined,
+        detail: `${mine.length} bucket(s) for this owner; dollars read ${usd?.netWorthCents ?? "no"} against ${-USD_OWED_AND_SPENT_CENTS}, pesos read ${cop?.netWorthCents ?? "no"}`,
+      };
+    },
   );
   await checkRead("getAccountBalances", () => getAccountBalances());
   await checkRead("listTransactions", () => listTransactions({}, { limit: 20 }));
@@ -1594,6 +1980,56 @@ async function readSuite(
           row.monthlyRatePct !== annual / 12 &&
           row.monthlyInterestCents === Math.round(row.owedCents * row.monthlyRatePct),
         detail: `rate ${row.monthlyRatePct} compounds to ${compounded} against the stored ${annual}, the linear twelfth being ${annual / 12}; ${row.monthlyInterestCents} cents of interest against ${Math.round(row.owedCents * row.monthlyRatePct)} on ${row.owedCents} owed`,
+      };
+    },
+  );
+
+  // RF-121, RF-124: the debt now holds a dollar pocket beside its peso one
+  // (`0032_one_balance_per_currency.sql`'s `account_balances` answers one row
+  // per account AND currency). `pockets` in `debt-overview.ts` folds that
+  // 1:N back to one row per account before the join to `debt_terms` — this is
+  // what the length check catches if it ever regresses to the naive join the
+  // comment there warns against, which answered the debt once per currency
+  // and would have doubled its owed, its limit and its interest with every
+  // other liability that ever holds two.
+  await checkReadValue(
+    "getDebtOverview answers one row per account even when it holds two currencies",
+    () => getDebtOverview(),
+    (overview) => {
+      const rows = overview.filter(
+        (candidate) => candidate.accountId === debt.unlimitedAccountId,
+      );
+      const [row] = rows;
+      const foreign = row?.otherOwed.find((pocket) => pocket.currency === "USD");
+
+      return {
+        ok:
+          rows.length === 1 &&
+          row?.currency === BASE_CURRENCY &&
+          foreign?.owedCents === CARD_FOREIGN_CENTS &&
+          row.otherOwed.length === 1,
+        detail: `${rows.length} row(s) for the debt against the 1 a 1:1 join would answer; its own pocket is in ${row?.currency ?? "no currency"}, its dollar pocket owes ${foreign?.owedCents ?? "no"} cents against the expected ${CARD_FOREIGN_CENTS}, of ${row?.otherOwed.length ?? 0} foreign pocket(s)`,
+      };
+    },
+  );
+
+  // RF-124: the screen's consolidated totals carry the dollar pocket in its
+  // own set, never folded into the peso figures the flat `totals` above read.
+  await checkReadValue(
+    "getDebtsScreenData totals the dollar pocket the card holds beside its peso debt",
+    () => getDebtsScreenData(),
+    (screen) => {
+      const usd = screen.totals.byCurrency.find((set) => set.currency === "USD");
+      const cop = screen.totals.byCurrency.find((set) => set.currency === BASE_CURRENCY);
+
+      return {
+        ok:
+          usd?.owedCents === CARD_FOREIGN_CENTS &&
+          usd.debtCount === 1 &&
+          usd.monthlyInterestCents === 0 &&
+          cop !== undefined &&
+          screen.totals.currency === BASE_CURRENCY,
+        detail: `dollar set owes ${usd?.owedCents ?? "no"} cents across ${usd?.debtCount ?? 0} debt(s) against the expected ${CARD_FOREIGN_CENTS} on 1; peso set owes ${cop?.owedCents ?? "no"}; the flat totals read in ${screen.totals.currency}`,
       };
     },
   );
@@ -1874,6 +2310,32 @@ async function readSuite(
     },
   );
 
+  // RF-121, RF-124: `listAccounts` reads every balance through a correlated
+  // subquery, never a join to the view — a join would answer the account once
+  // per currency it holds, the same 1:N `getDebtOverview` folds back with its
+  // own `pockets` CTE.
+  await checkReadValue(
+    "listAccounts answers one row for a debt holding two currencies",
+    () => listAccounts({ archived: false }),
+    (accounts) => {
+      const rows = accounts.filter(
+        (account) => account.id === debt.unlimitedAccountId,
+      );
+      const [account] = rows;
+      const settlement = account?.balances[0];
+      const foreign = account?.balances.find((balance) => balance.currency === "USD");
+
+      return {
+        ok:
+          rows.length === 1 &&
+          account?.balances.length === 2 &&
+          settlement?.currency === BASE_CURRENCY &&
+          foreign?.balanceCents === -CARD_FOREIGN_CENTS,
+        detail: `${rows.length} row(s) for the debt, ${account?.balances.length ?? 0} pocket(s) on it, the first in ${settlement?.currency ?? "no currency"}, the dollar one reading ${foreign?.balanceCents ?? "no"} cents against ${-CARD_FOREIGN_CENTS}`,
+      };
+    },
+  );
+
   await checkRead("getDebtTerms", () => getDebtTerms(debtAccountId));
   await checkRead("listPlansForAccount", () => listPlansForAccount(debtAccountId));
   await checkRead("listStatements", () => listStatements(debtAccountId));
@@ -1906,6 +2368,127 @@ async function readSuite(
   await checkRead("readExport", () => readExport({ entityKeys: [...SHEET_ENTITIES] }));
   await checkRead("readImportScope", () => readImportScope());
   await checkRead("getUserLocale", () => getUserLocale());
+
+  // D7: the RF-49 template leaves external_ref blank for a brand-new row, and a
+  // blank cell parses to null — not undefined — so `.optional()` refused every
+  // new row the template itself offers. No database round trip here: the five
+  // row schemas that carry external_ref are pure zod, driven directly rather
+  // than through a parsed workbook, to isolate the one column under test.
+  await checkReadValue(
+    "sheet row schemas accept a blank external_ref cell",
+    async () => {
+      const today = todayInBogota();
+      const rows: { schema: z.ZodType; row: Record<string, unknown> }[] = [
+        {
+          schema: accountRowSchema,
+          row: {
+            name: "Harness fila",
+            kind: "asset",
+            subtype: "bancaria",
+            placement: "personal",
+            institution: null,
+            lastFour: "",
+            amount: "1000",
+            balanceOn: today,
+          },
+        },
+        {
+          schema: memberRowSchema,
+          row: { name: "Harness fila", email: undefined },
+        },
+        {
+          schema: categoryRowSchema,
+          row: { name: "Harness fila", kind: "expense", parent: null, color: "#E11D48" },
+        },
+        {
+          schema: recurringRuleRowSchema,
+          row: {
+            fromAccount: "Harness cuenta",
+            toAccount: null,
+            amount: "1000",
+            category: "Harness categoría",
+            description: null,
+            frequency: "monthly",
+            intervalN: 1,
+            dayOfMonth: null,
+            nextRunOn: today,
+            endsOn: null,
+          },
+        },
+        {
+          schema: transactionRowSchema,
+          row: {
+            fromAccount: "Harness cuenta",
+            toAccount: null,
+            amount: "1000",
+            category: "Harness categoría",
+            occurredAt: today,
+            description: null,
+          },
+        },
+      ];
+      const overlong = "x".repeat(201);
+
+      return rows.map(({ schema, row }) => ({
+        blank: schema.safeParse({ ...row, externalRef: null }).success,
+        absent: schema.safeParse(row).success,
+        overlong: schema.safeParse({ ...row, externalRef: overlong }).success,
+      }));
+    },
+    (results) => {
+      const blank = results.filter((row) => row.blank).length;
+      const absent = results.filter((row) => row.absent).length;
+      const overlongRejected = results.filter((row) => !row.overlong).length;
+
+      return {
+        ok: blank === results.length && absent === results.length && overlongRejected === results.length,
+        detail: `blank external_ref accepted on ${blank} of ${results.length} row schemas, absent cell accepted on ${absent}, a 201-char external_ref rejected on ${overlongRejected}`,
+      };
+    },
+  );
+
+  // D7 follow-up: the assertion above drives only the light guard, in isolation,
+  // as its own comment says. A blank cell also has to clear the authoritative
+  // schema — `createTransactionSchema`, the THIRD gate `processRow` runs and the
+  // one the movement form itself submits through — which declared its own
+  // `externalRef` and kept it `.optional()` after the light guard's went
+  // `.nullish()`. That gap left the RF-49 template's blank-reference row failing
+  // in the app with a generic invalidCell while this file read 100/0.
+  await checkReadValue(
+    "a blank external_ref clears the authoritative transaction schema too",
+    async () => {
+      const guarded = transactionRowSchema.safeParse({
+        externalRef: null,
+        fromAccount: "Harness cuenta",
+        toAccount: null,
+        amount: "1000",
+        category: "Harness categoría",
+        occurredAt: todayInBogota(),
+        description: null,
+      });
+      if (!guarded.success) return { guardedOk: false, authoritativeOk: false };
+
+      // The shape `resolveAndShape` hands the authoritative schema once names
+      // resolve to ids (RF-51's second gate) — an expense, one split, the light
+      // guard's own `externalRef` riding through unchanged.
+      const authoritative = createTransactionSchema.safeParse({
+        fromAccountId: randomUUID(),
+        toAccountId: null,
+        amount: guarded.data.amount,
+        occurredAt: guarded.data.occurredAt,
+        description: guarded.data.description,
+        externalRef: guarded.data.externalRef,
+        splits: [{ categoryId: randomUUID(), amount: guarded.data.amount }],
+        labelIds: [],
+      });
+
+      return { guardedOk: guarded.success, authoritativeOk: authoritative.success };
+    },
+    ({ guardedOk, authoritativeOk }) => ({
+      ok: guardedOk && authoritativeOk,
+      detail: `light guard ${guardedOk ? "accepted" : "refused"} the blank cell, authoritative schema ${authoritativeOk ? "accepted" : "refused"} it`,
+    }),
+  );
 }
 
 // The two modules that name a message key for an installment plan or a debt
@@ -2114,6 +2697,112 @@ async function invariantSuite(
       !humanQueued,
     `the shape is ${shapes.some((shape) => shape.id === restored.shapeId) ? "still silenced" : "no longer silenced"}, ${queued.length} of 2 discarded deliveries are pending again, the person's rejection is ${humanQueued ? "back in the queue" : "still out of it"}`,
   );
+
+  // D8: a fresh fund's categories, madre and hija alike, each draw their own
+  // colour from `nextCategoryColor` — `create-group.ts` no longer copies a
+  // child's colour from its parent.
+  const fundPalette = next("a seeded fund's categories carry no repeated colour");
+  const paletteLeader = await createMembershipFreeUser();
+  const { groupId: paletteGroupId } = await asUser(paletteLeader, () =>
+    createGroup({
+      name: "Harness fondo paleta",
+      leaderName: "Harness leader",
+      cashMode: "shared",
+      locale: "es",
+    }),
+  );
+  track("groups", paletteGroupId);
+  const [paletteSeeded] = await fixtureSql<
+    { member_id: string | null; account_id: string | null }[]
+  >`
+    select
+      (select id from group_members
+         where group_id = ${paletteGroupId} and user_id = ${paletteLeader.id}
+           and role = 'leader') as member_id,
+      (select id from accounts
+         where group_id = ${paletteGroupId} and subtype = 'efectivo') as account_id`;
+  if (paletteSeeded.member_id !== null) track("group_members", paletteSeeded.member_id);
+  if (paletteSeeded.account_id !== null) track("accounts", paletteSeeded.account_id);
+  const fundCategoryRows = await fixtureSql<{ id: string; color: string | null }[]>`
+    select id, color from categories where group_id = ${paletteGroupId}`;
+  for (const row of fundCategoryRows) track("categories", row.id);
+  const fundColours = fundCategoryRows.map((row) => row.color);
+  assert(
+    fundPalette,
+    fundCategoryRows.length > 0 && new Set(fundColours).size === fundColours.length,
+    `${new Set(fundColours).size} unique colour(s) of ${fundCategoryRows.length} categories`,
+  );
+
+  // The personal-space half of the same fix (`personal-space.ts`).
+  const personalPalette = next(
+    "a seeded personal space's categories carry no repeated colour",
+  );
+  const paletteSolo = await createMembershipFreeUser();
+  await asUser(paletteSolo, () =>
+    withUserDb((tx) =>
+      seedPersonalCategories(tx, { userId: paletteSolo.id, locale: "es" }),
+    ),
+  );
+  const personalCategoryRows = await fixtureSql<{ id: string; color: string | null }[]>`
+    select id, color from categories where owner_user_id = ${paletteSolo.id}`;
+  for (const row of personalCategoryRows) track("categories", row.id);
+  const personalColours = personalCategoryRows.map((row) => row.color);
+  assert(
+    personalPalette,
+    personalCategoryRows.length > 0 &&
+      new Set(personalColours).size === personalColours.length,
+    `${new Set(personalColours).size} unique colour(s) of ${personalCategoryRows.length} categories`,
+  );
+
+  // The part that used to revert itself: `categories.ts` forced a subcategory's
+  // colour back to its parent's on every insert AND every update. Create a
+  // parent and a child in distinct colours, edit the child through the real
+  // `updateCategory` path, and read its colour back — it must still be the
+  // child's own, never the parent's.
+  const childKeepsOwnColour = next(
+    "an edited subcategory keeps the colour it was given, not its parent's",
+  );
+  const paletteEditor = await createMembershipFreeUser();
+  const editorScope = { ownerUserId: paletteEditor.id } as const;
+  const { categoryId: paletteParentId } = await asUser(paletteEditor, () =>
+    createCategory({
+      scope: editorScope,
+      name: "Harness paleta madre",
+      kind: "expense",
+      parentId: null,
+      color: "#111111",
+    }),
+  );
+  track("categories", paletteParentId);
+  const { categoryId: paletteChildId } = await asUser(paletteEditor, () =>
+    createCategory({
+      scope: editorScope,
+      name: "Harness paleta hija",
+      kind: "expense",
+      parentId: paletteParentId,
+      color: "#222222",
+    }),
+  );
+  track("categories", paletteChildId);
+  await asUser(paletteEditor, () =>
+    updateCategory({
+      categoryId: paletteChildId,
+      name: "Harness paleta hija editada",
+      parentId: paletteParentId,
+      color: "#333333",
+    }),
+  );
+  const childColourAfterEdit = await readColumn<string>(
+    "categories",
+    "id",
+    paletteChildId,
+    "color",
+  );
+  assert(
+    childKeepsOwnColour,
+    childColourAfterEdit === "#333333",
+    `parent #111111, child created #222222, child after edit ${childColourAfterEdit}`,
+  );
 }
 
 /**
@@ -2190,6 +2879,9 @@ async function timingSuite(): Promise<void> {
       listTransactions({}),
     );
     await timed("getReportsData (what /reports loads)", () => getReportsData());
+    await timed("getDebtOverview (what /planning/debts folds into totals)", () =>
+      getDebtOverview(),
+    );
   });
 }
 

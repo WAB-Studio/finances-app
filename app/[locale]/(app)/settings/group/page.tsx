@@ -8,6 +8,7 @@ import { Page } from "@/components/ui";
 import { getUserGroup, getUserGroupRole } from "@/db/queries/groups";
 import { requireUser } from "@/db/session";
 import { routing } from "@/i18n/routing";
+import type { UpdateGroupInput } from "@/lib/validation/group";
 
 export async function generateMetadata(
   props: PageProps<"/[locale]/settings/group">,
@@ -42,6 +43,9 @@ export default async function GroupSettingsPage(
       <GroupSettingsScreen
         groupName={group.name}
         cashMode={group.cashMode}
+        // The column is a bare ISO code (RF-121); this form is its only writer
+        // and only ever writes one of the offered codes.
+        currency={group.currency as UpdateGroupInput["currency"]}
         isLeader={role === "leader"}
       />
     </Page>

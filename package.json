@@ -20,6 +20,8 @@
     "harness:token": "TSX_TSCONFIG_PATH=scripts/harness/tsconfig.json node --import tsx --env-file=.env.local scripts/harness/mint-harness-token.ts",
     "seed:year": "TSX_TSCONFIG_PATH=scripts/harness/tsconfig.json node --import tsx --env-file=.env.local scripts/seed-year.ts",
     "seed:year:drop": "npm run seed:year -- drop",
+    "seed:demo": "TSX_TSCONFIG_PATH=scripts/harness/tsconfig.json node --import tsx --env-file=.env.local scripts/seed-demo.ts",
+    "seed:demo:drop": "npm run seed:demo -- drop",
     "check": "npm run db:check-rls && npm run check:queries && npm run check:http"
   },
   "dependencies": {

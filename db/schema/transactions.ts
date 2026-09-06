@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
   bigint,
+  boolean,
   check,
   date,
   index,
@@ -30,6 +31,17 @@ export const transactions = pgTable(
     fromAccountId: uuid().references(() => accounts.id, { onDelete: "restrict" }),
     toAccountId: uuid().references(() => accounts.id, { onDelete: "restrict" }),
     amountCents: bigint({ mode: "number" }).notNull(),
+    // The ISO 4217 code the movement happened in, in whose minor unit `amount_cents` is expressed
+    // (RF-121). Left unset it is derived from the accounts by `set_transaction_currency`, so an
+    // account holds several currencies at once and every insert path that names none keeps working.
+    currency: text().notNull(),
+    // The same movement in the other side's settlement currency (RF-122), an integer in its own
+    // minor unit. The rate is the quotient of the two: derived to be read, never stored — a stored
+    // rate would be money in floating point.
+    counterAmountCents: bigint({ mode: "number" }),
+    // True while the counter amount is what a person expects, not what the issuer billed (RF-123).
+    // The statement replaces the estimate and clears this, and the balance moves currency with it.
+    counterIsEstimate: boolean().notNull().default(false),
     // The type is derived, never chosen (RF-18): a stored generated column no INSERT can target.
     kind: text().generatedAlwaysAs(
       sql`case when from_account_id is null then 'income' when to_account_id is null then 'expense' else 'transfer' end`,
@@ -66,6 +78,18 @@ export const transactions = pgTable(
     check(
       "transactions_accounts_distinct",
       sql`${table.fromAccountId} is distinct from ${table.toAccountId}`,
+    ),
+    // The shape of ISO 4217, not a list of codes: which ones a person may pick is an interface question.
+    check("transactions_currency_iso", sql`${table.currency} ~ '^[A-Z]{3}$'`),
+    // The counter amount is an amount like any other: absent, or positive with the direction carrying the sign.
+    check(
+      "transactions_counter_amount_positive",
+      sql`${table.counterAmountCents} is null or ${table.counterAmountCents} > 0`,
+    ),
+    // Nothing is an estimate of an amount nobody named.
+    check(
+      "transactions_estimate_needs_counter",
+      sql`${table.counterIsEstimate} = false or ${table.counterAmountCents} is not null`,
     ),
     check("transactions_description_length", sql`length(${table.description}) <= 200`),
     check("transactions_external_ref_length", sql`length(${table.externalRef}) <= 200`),

@@ -8,9 +8,9 @@ import {
   useTable,
 } from "@tanstack/react-table";
 import { EllipsisVertical, Plus } from "lucide-react";
-import { useFormatter, useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { toast } from "sonner";
 
 import {
@@ -22,6 +22,7 @@ import { GoalContributeDialog } from "@/components/planning/goal-contribute-dial
 import { GoalContributionsDialog } from "@/components/planning/goal-contributions-dialog";
 import { GoalFormDialog } from "@/components/planning/goal-form-dialog";
 import { GoalsTable } from "@/components/planning/goals-table";
+import { PlanningSubNav } from "@/components/planning/planning-sub-nav";
 import {
   Badge,
   Box,
@@ -43,7 +44,7 @@ import {
 import type { GoalProgress } from "@/db/queries/savings-goals";
 import type { TransactionFormOptions } from "@/db/queries/transaction-form";
 import { usePathname, useRouter } from "@/i18n/navigation";
-import { centsToPesos } from "@/lib/money";
+import { formatMoney } from "@/lib/money";
 import { useActionErrorToast } from "@/lib/use-action-toast";
 
 const PAGE_SIZE = 10;
@@ -71,16 +72,21 @@ type RowAction =
  * never stored (RF-76, RF-87, RNF-07). A goal is created, edited, contributed to,
  * archived, restored or deleted through the dialogs and the confirms below
  * (RF-120), and an aporte is undone from the list its row menu opens (RF-119).
- * Money stays integer cents; the peso figure is display only.
+ * Money stays integer cents and every figure is drawn in the goal's own
+ * currency, which is what says which aportes it counts (RF-121, RF-124).
  */
 export function GoalsScreen({
   goals,
   options,
+  scopeCurrency,
   hasGroup,
   archived,
 }: {
   goals: GoalProgress[];
   options: TransactionFormOptions;
+  // What a goal naming no account derives, read by the server (RF-121): the form
+  // validates a new meta against it before the action reads it back.
+  scopeCurrency: string;
   hasGroup: boolean;
   archived: boolean;
 }) {
@@ -149,12 +155,18 @@ export function GoalsScreen({
     </Button>
   );
 
-  // The band's datum spans every goal on this side of the tabs, not the page's.
-  const savedTotalCents = goals.reduce((sum, goal) => sum + goal.savedCents, 0);
-  const targetTotalCents = goals.reduce(
-    (sum, goal) => sum + goal.targetAmountCents,
-    0,
-  );
+  // The band's datum spans every goal on this side of the tabs, not the page's,
+  // and one pair per currency, so it never adds two of them together (RF-124).
+  const bandTotals = new Map<string, { savedCents: number; targetCents: number }>();
+  for (const goal of goals) {
+    const running = bandTotals.get(goal.currency) ?? {
+      savedCents: 0,
+      targetCents: 0,
+    };
+    running.savedCents += goal.savedCents;
+    running.targetCents += goal.targetAmountCents;
+    bandTotals.set(goal.currency, running);
+  }
 
   // `framed` is the table's slot: the stack keeps its own height there, and only
   // the pane's own copy grows to fill it.
@@ -202,10 +214,25 @@ export function GoalsScreen({
           title={t("title")}
           meta={
             <>
-              {t("listMeta", { count: goals.length })} ·{" "}
-              <Money cents={savedTotalCents} size="inherit" signed={false} />{" "}
-              {t("savedOf")}{" "}
-              <Money cents={targetTotalCents} size="inherit" signed={false} />
+              {t("listMeta", { count: goals.length })}
+              {[...bandTotals.entries()].map(([currency, sums]) => (
+                <Fragment key={currency}>
+                  {" · "}
+                  <Money
+                    minor={sums.savedCents}
+                    currency={currency}
+                    size="inherit"
+                    signed={false}
+                  />{" "}
+                  {t("savedOf")}{" "}
+                  <Money
+                    minor={sums.targetCents}
+                    currency={currency}
+                    size="inherit"
+                    signed={false}
+                  />
+                </Fragment>
+              ))}
             </>
           }
           actions={
@@ -233,6 +260,10 @@ export function GoalsScreen({
           {/* Add would create an active goal, so the archived tab offers none. */}
           {!archived && addButton}
         </Flex>
+      </Box>
+
+      <Box display={{ initial: "none", md: "block" }}>
+        <PlanningSubNav />
       </Box>
 
       {/* The band the header and the table carry from `lg` up, where the page
@@ -293,6 +324,7 @@ export function GoalsScreen({
           if (!open) setFormTarget(null);
         }}
         options={options}
+        scopeCurrency={scopeCurrency}
         goal={formTarget === "new" ? undefined : (formTarget ?? undefined)}
       />
 
@@ -377,7 +409,7 @@ function GoalCard({
 }) {
   const t = useTranslations("goals");
   const tKey = useTranslations();
-  const format = useFormatter();
+  const locale = useLocale();
 
   return (
     <Card>
@@ -387,13 +419,16 @@ function GoalCard({
             <Text weight="medium" truncate>
               {goal.name}
             </Text>
+            {/* Which aportes the meta counts: the ones set aside in this one
+                currency and no other (RF-124). */}
             <Text size="1" color="gray">
-              {t("meta", {
-                amount: format.number(
-                  centsToPesos(goal.targetAmountCents),
-                  "currency",
+              {`${t("meta", {
+                amount: formatMoney(
+                  goal.targetAmountCents,
+                  goal.currency,
+                  locale,
                 ),
-              })}
+              })} · ${tKey("planning.inCurrency", { currency: goal.currency })}`}
             </Text>
           </Flex>
           <Badge
@@ -452,7 +487,7 @@ function GoalCard({
           color={goal.behindPace ? "amber" : undefined}
           aria-label={t("progressLabel", {
             name: goal.name,
-            amount: format.number(centsToPesos(goal.savedCents), "currency"),
+            amount: formatMoney(goal.savedCents, goal.currency, locale),
             pct: goal.progressPct,
           })}
         />
@@ -465,7 +500,7 @@ function GoalCard({
               weight="medium"
               style={{ fontVariantNumeric: "tabular-nums" }}
             >
-              {format.number(centsToPesos(goal.savedCents), "currency")}
+              {formatMoney(goal.savedCents, goal.currency, locale)}
             </Text>
           </Text>
           {/* Archiving is what stops money reaching the goal, so it stops here too. */}

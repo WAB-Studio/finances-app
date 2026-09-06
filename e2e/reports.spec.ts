@@ -52,6 +52,18 @@ function monthStat(page: Page, label: string): Locator {
   return page.getByText(label, { exact: true }).locator("..");
 }
 
+/**
+ * The band the width displays. Module 36 gave this screen a laptop sibling
+ * that repeats the same category-row markup rather than sharing it (the mobile
+ * stack stays untouched, per its own additive rule), so both bands are always
+ * in the DOM and a locator that names neither reaches a category row twice and
+ * dies on strict mode — the same shape `e2e/accounts.spec.ts`'s own `band`
+ * already carries.
+ */
+function band(page: Page): Locator {
+  return page.locator("main > .rt-Box").filter({ visible: true });
+}
+
 // One bar's drawn height against another's. Both are drawn against the same
 // axis, so what comes out is the ratio of the two figures.
 async function barRatio(bar: Locator, against: Locator): Promise<number> {
@@ -147,7 +159,7 @@ test("the breakdown reads the month's expense under its category", async ({
 }) => {
   await page.goto("/es/reports");
 
-  const row = page.getByText(scope.categoryName, { exact: true }).locator("..");
+  const row = band(page).getByText(scope.categoryName, { exact: true }).locator("..");
 
   await expect(row).toBeVisible();
   // This month's expense alone: last month's split is outside the window and the
@@ -181,4 +193,85 @@ test("the six-month series draws each month's figures", async ({ page }) => {
   await expect
     .poll(() => barRatio(expenseBars.first(), expenseBars.last()))
     .toBeCloseTo(PRIOR_EXPENSE_CENTS / EXPENSE_CENTS, 2);
+});
+
+test.describe("a second currency on the dashboard", () => {
+  // Held for this describe alone: a USD account in the shared fixture above
+  // would draw a second "en USD" band under the two tests that read the COP
+  // figures by a bare label, and dying on strict mode is not what proves RF-124.
+  const usdAccountId = randomUUID();
+  const usdIncomeCategoryId = randomUUID();
+  const usdIncomeCategoryName = `Ingreso USD ${randomUUID().slice(0, 8)}`;
+
+  // The stored scale is hundredths of the major unit for every currency alike
+  // (RNF-05): $650.00 and $120.00 land as 65000 and 12000, no float involved.
+  const USD_OPENING_CENTS = 65_000;
+  const USD_INCOME_CENTS = 12_000;
+
+  test.beforeAll(async () => {
+    await asHarnessUser(async (tx) => {
+      await tx`
+        insert into categories (id, owner_user_id, name, kind, color)
+        values (${usdIncomeCategoryId}, ${scope.userId}, ${usdIncomeCategoryName}, 'income', '#4C8C4A')`;
+
+      await tx`
+        insert into accounts (
+          id, owner_user_id, name, kind, subtype, settlement_currency,
+          initial_balance_cents, initial_balance_on)
+        values (
+          ${usdAccountId}, ${scope.userId}, 'Cuenta reportes USD', 'asset', 'bancaria', 'USD',
+          ${USD_OPENING_CENTS}, (now() at time zone ${TIME_ZONE})::date)`;
+
+      const [income] = await tx<{ id: string }[]>`
+        insert into transactions (to_account_id, amount_cents, occurred_at, description)
+        values (
+          ${usdAccountId}, ${USD_INCOME_CENTS},
+          (now() at time zone ${TIME_ZONE})::date, 'Harness ingreso en dólares')
+        returning id`;
+      await tx`
+        insert into transaction_splits (transaction_id, category_id, amount_cents)
+        values (${income.id}, ${usdIncomeCategoryId}, ${USD_INCOME_CENTS})`;
+    });
+  });
+
+  test.afterAll(async () => {
+    await fixtureSql`delete from transactions where to_account_id = ${usdAccountId}`;
+    await fixtureSql`delete from accounts where id = ${usdAccountId}`;
+    await fixtureSql`delete from categories where id = ${usdIncomeCategoryId}`;
+  });
+
+  // The band a currency draws its own month figures in (RF-124): "Ingresos del
+  // mes" now repeats once per currency the fund holds, so a figure is read from
+  // the section that names its own currency, never bare off the page.
+  function currencyBlock(page: Page, currency: string): Locator {
+    return page
+      .getByText(reports.inCurrency.replace("{currency}", currency), { exact: true })
+      .locator("..");
+  }
+
+  test("draws a second net worth and a second month flow, and neither is the peso figure plus the dollar one", async ({
+    page,
+  }) => {
+    await page.goto("/es");
+
+    // The peso figures still read at what the shared fixture wrote — summed
+    // into the dollar income, this would be off by exactly USD_INCOME_CENTS.
+    const copIncome = currencyBlock(page, "COP")
+      .getByText(dashboard.monthIncome, { exact: true })
+      .locator("..");
+    expect(await digitsOf(copIncome)).toBe(pesos(INCOME_CENTS));
+
+    const usdIncome = currencyBlock(page, "USD")
+      .getByText(dashboard.monthIncome, { exact: true })
+      .locator("..");
+    expect(await digitsOf(usdIncome)).toBe(String(USD_INCOME_CENTS));
+
+    // Its own net-worth heading, named by the currency alone — no bare label to
+    // scope, since no other heading on the page reads "Patrimonio en USD".
+    await expect(
+      page.getByText(dashboard.netWorthIn.replace("{currency}", "USD"), {
+        exact: true,
+      }),
+    ).toBeVisible();
+  });
 });
