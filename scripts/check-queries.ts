@@ -443,6 +443,13 @@ const USD_OWED_AND_SPENT_CENTS = USD_EXPENSE_CENTS + CARD_FOREIGN_CENTS;
 const CONTRIBUTION_COP_CENTS = 12000000;
 const CONTRIBUTION_USD_CENTS = 500000;
 
+// The fund's whole dollar figure, by hand, from what this run itself put in
+// dollars: the leader's own spending, negative, plus the group's own account,
+// which holds nothing but the contribution above. Never read off
+// `dashboard.netWorth` — a row duplicated there would double this the same
+// way and the check would pass on a defect it exists to catch.
+const FUND_USD_NET_WORTH_CENTS = CONTRIBUTION_USD_CENTS - USD_OWED_AND_SPENT_CENTS;
+
 type DebtFixture = {
   // A liability whose terms name NO credit limit, opened six months back so its
   // past statement periods are there to be cut.
@@ -1661,20 +1668,16 @@ async function readSuite(
       const totalCop = dashboard.totalNetWorth.find(
         (total) => total.currency === BASE_CURRENCY,
       );
-      const summedUsd = dashboard.netWorth
-        .filter((bucket) => bucket.currency === "USD")
-        .reduce((sum, bucket) => sum + bucket.netWorthCents, 0);
       const usdFlow = dashboard.monthFlow.find((flow) => flow.currency === "USD");
 
       return {
         ok:
           memberUsd?.netWorthCents === -USD_OWED_AND_SPENT_CENTS &&
-          totalUsd !== undefined &&
-          totalUsd.netWorthCents === summedUsd &&
+          totalUsd?.netWorthCents === FUND_USD_NET_WORTH_CENTS &&
           totalCop !== undefined &&
           usdFlow?.expenseCents === USD_OWED_AND_SPENT_CENTS &&
           usdFlow.incomeCents === 0,
-        detail: `the leader's dollar bucket reads ${memberUsd?.netWorthCents ?? "no"} cents against the expected ${-USD_OWED_AND_SPENT_CENTS}; the fund's dollar total ${totalUsd?.netWorthCents ?? "no"} matches the summed buckets' ${summedUsd}; the peso total reads ${totalCop?.netWorthCents ?? "no"} cents; this month's dollar flow spent ${usdFlow?.expenseCents ?? "no"} of the expected ${USD_OWED_AND_SPENT_CENTS}`,
+        detail: `the leader's dollar bucket reads ${memberUsd?.netWorthCents ?? "no"} cents against the expected ${-USD_OWED_AND_SPENT_CENTS}; the fund's dollar total ${totalUsd?.netWorthCents ?? "no"} against the expected ${FUND_USD_NET_WORTH_CENTS}; the peso total reads ${totalCop?.netWorthCents ?? "no"} cents; this month's dollar flow spent ${usdFlow?.expenseCents ?? "no"} of the expected ${USD_OWED_AND_SPENT_CENTS}`,
       };
     },
   );

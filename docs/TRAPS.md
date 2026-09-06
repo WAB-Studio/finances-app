@@ -69,7 +69,9 @@ whose schema files know nothing about it. Never apply one to reach a proof.
 `/es/settings/audit` runs a query linear in the rows the caller may read, and Postgres cancels it
 at the 8 000 ms `statement_timeout` in `db/session.ts:68`. The render throws, `error.tsx` replaces
 the screen, and **the response is still 200 with no table** — so it reads as missing content, not
-as an error.
+as an error. `listAuditLog` and `getAuditFilterOptions` (`db/queries/audit-log.ts`) both walk the
+same scan, so `check:queries` cancels either one under the same load, intermittently — sqlstate
+`57014`, not a regression in whatever ran beside it.
 
 Measured 2026-09-05: Seq Scan → RLS filter → `WindowAgg` over every readable row. The three-branch
 `OR` of `audit_log_select_scope` is what forbids the index. Half the table carries a null actor
