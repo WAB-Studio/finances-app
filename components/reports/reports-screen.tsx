@@ -17,6 +17,7 @@ import type { ReportsData } from "@/db/queries/reports/reports-screen";
 import type { MemberContributionNamed } from "@/db/queries/reports/reports-screen";
 import type { CurrencyCode } from "@/lib/currency";
 import { civilDateToDate } from "@/lib/dates";
+import styles from "./reports-screen.module.css";
 
 // The two flow series carry the fund's colours: jade for what comes in, tomato
 // for what goes out.
@@ -42,79 +43,165 @@ export function ReportsScreen({ data }: { data: ReportsData }) {
   const { expensesByCategory, sixMonthFlow, contributions, hasGroup } = data;
 
   return (
-    <Flex direction="column" gap="6">
-      <Heading size="6">{t("title")}</Heading>
+    <>
+      {/* The phone's stack, unedited: category rows, chart, contributions, in
+          that reading order. Hidden from `md` up, where the desktop row
+          below takes over (RF-19). */}
+      <Box display={{ initial: "block", md: "none" }}>
+        <Flex direction="column" gap="6">
+          <Heading size="6">{t("title")}</Heading>
 
-      <Flex direction="column" gap="3" asChild>
-        <section>
-          <Heading as="h2" size="4">{t("byCategoryTitle")}</Heading>
-          {expensesByCategory.length === 0 ? (
-            <Text size="2" color="gray">
-              {t("byCategoryEmpty")}
-            </Text>
-          ) : (
-            byCurrency(expensesByCategory).map(([currency, rows]) => (
-              <Flex key={currency} direction="column" gap="3">
+          <Flex direction="column" gap="3" asChild>
+            <section>
+              <Heading as="h2" size="4">{t("byCategoryTitle")}</Heading>
+              {expensesByCategory.length === 0 ? (
                 <Text size="2" color="gray">
-                  {t("inCurrency", { currency })}
+                  {t("byCategoryEmpty")}
                 </Text>
-                {rows.map((row) => (
-                  <Flex key={row.categoryId} align="center" gap="3">
-                    <CategoryTile color={row.color} size={28} />
-                    <Text as="div" size="3" style={{ flex: 1, minWidth: 0 }} truncate>
-                      {row.name}
+              ) : (
+                byCurrency(expensesByCategory).map(([currency, rows]) => (
+                  <Flex key={currency} direction="column" gap="3">
+                    <Text size="2" color="gray">
+                      {t("inCurrency", { currency })}
                     </Text>
-                    <Text size="3" weight="medium">
-                      <Money
-                        minor={row.totalCents}
-                        currency={row.currency}
-                        signed={false}
-                        size="inherit"
-                      />
-                    </Text>
+                    {rows.map((row) => (
+                      <Flex key={row.categoryId} align="center" gap="3">
+                        <CategoryTile color={row.color} size={28} />
+                        <Text as="div" size="3" style={{ flex: 1, minWidth: 0 }} truncate>
+                          {row.name}
+                        </Text>
+                        <Text size="3" weight="medium">
+                          <Money
+                            minor={row.totalCents}
+                            currency={row.currency}
+                            signed={false}
+                            size="inherit"
+                          />
+                        </Text>
+                      </Flex>
+                    ))}
                   </Flex>
-                ))}
-              </Flex>
-            ))
-          )}
-        </section>
-      </Flex>
+                ))
+              )}
+            </section>
+          </Flex>
 
-      <Flex direction="column" gap="3" asChild>
-        <section>
-          <Heading as="h2" size="4">{t("comparisonTitle")}</Heading>
-          {byCurrency(sixMonthFlow).map(([currency, months]) => (
-            <CurrencyTrend key={currency} currency={currency} months={months} />
-          ))}
-        </section>
-      </Flex>
+          <Flex direction="column" gap="3" asChild>
+            <section>
+              <Heading as="h2" size="4">{t("comparisonTitle")}</Heading>
+              {byCurrency(sixMonthFlow).map(([currency, months]) => (
+                <CurrencyTrend key={currency} currency={currency} months={months} />
+              ))}
+            </section>
+          </Flex>
 
-      <Flex direction="column" gap="3" asChild>
-        <section>
-          <Heading as="h2" size="4">{t("contributionsTitle")}</Heading>
-          {!hasGroup ? (
-            <Text size="2" color="gray">
-              {t("noGroup")}
-            </Text>
-          ) : contributions.length === 0 ? (
-            <Text size="2" color="gray">
-              {t("contributionsEmpty")}
-            </Text>
-          ) : (
-            byCurrency(contributions).map(([currency, rows]) => (
-              <Flex key={currency} direction="column" gap="3">
+          <Flex direction="column" gap="3" asChild>
+            <section>
+              <Heading as="h2" size="4">{t("contributionsTitle")}</Heading>
+              {!hasGroup ? (
                 <Text size="2" color="gray">
-                  {t("inCurrency", { currency })}
+                  {t("noGroup")}
                 </Text>
-                {rows.map((row) => (
-                  <ContributionRow key={`${row.userId}|${row.currency}`} row={row} />
-                ))}
-              </Flex>
-            ))
-          )}
-        </section>
-      </Flex>
-    </Flex>
+              ) : contributions.length === 0 ? (
+                <Text size="2" color="gray">
+                  {t("contributionsEmpty")}
+                </Text>
+              ) : (
+                byCurrency(contributions).map(([currency, rows]) => (
+                  <Flex key={currency} direction="column" gap="3">
+                    <Text size="2" color="gray">
+                      {t("inCurrency", { currency })}
+                    </Text>
+                    {rows.map((row) => (
+                      <ContributionRow key={`${row.userId}|${row.currency}`} row={row} />
+                    ))}
+                  </Flex>
+                ))
+              )}
+            </section>
+          </Flex>
+        </Flex>
+      </Box>
+
+      {/* The laptop's three cards: the trend full width, then category and
+          contributions sharing a row. Same queries, same `CurrencyTrend` and
+          `ContributionRow` the phone draws from — no figure is fetched twice
+          and the chart keeps the props it always had (RF-34, RF-35, RF-66,
+          RF-67). */}
+      <Box display={{ initial: "none", md: "block" }}>
+        <Flex direction="column" gap="6">
+          <Heading size="6">{t("title")}</Heading>
+
+          <Flex direction="column" gap="4">
+            <div className={styles.card}>
+              <Heading as="h2" size="4">{t("comparisonTitle")}</Heading>
+              {byCurrency(sixMonthFlow).map(([currency, months]) => (
+                <CurrencyTrend key={currency} currency={currency} months={months} />
+              ))}
+            </div>
+
+            <div className={styles.lowerRow}>
+              <div className={styles.card}>
+                <Heading as="h2" size="4">{t("byCategoryTitle")}</Heading>
+                {expensesByCategory.length === 0 ? (
+                  <Text size="2" color="gray">
+                    {t("byCategoryEmpty")}
+                  </Text>
+                ) : (
+                  byCurrency(expensesByCategory).map(([currency, rows]) => (
+                    <Flex key={currency} direction="column" gap="3">
+                      <Text size="2" color="gray">
+                        {t("inCurrency", { currency })}
+                      </Text>
+                      {rows.map((row) => (
+                        <Flex key={row.categoryId} align="center" gap="3">
+                          <CategoryTile color={row.color} size={28} />
+                          <Text as="div" size="3" style={{ flex: 1, minWidth: 0 }} truncate>
+                            {row.name}
+                          </Text>
+                          <Text size="3" weight="medium">
+                            <Money
+                              minor={row.totalCents}
+                              currency={row.currency}
+                              signed={false}
+                              size="inherit"
+                            />
+                          </Text>
+                        </Flex>
+                      ))}
+                    </Flex>
+                  ))
+                )}
+              </div>
+
+              <div className={styles.card}>
+                <Heading as="h2" size="4">{t("contributionsTitle")}</Heading>
+                {!hasGroup ? (
+                  <Text size="2" color="gray">
+                    {t("noGroup")}
+                  </Text>
+                ) : contributions.length === 0 ? (
+                  <Text size="2" color="gray">
+                    {t("contributionsEmpty")}
+                  </Text>
+                ) : (
+                  byCurrency(contributions).map(([currency, rows]) => (
+                    <Flex key={currency} direction="column" gap="3">
+                      <Text size="2" color="gray">
+                        {t("inCurrency", { currency })}
+                      </Text>
+                      {rows.map((row) => (
+                        <ContributionRow key={`${row.userId}|${row.currency}`} row={row} />
+                      ))}
+                    </Flex>
+                  ))
+                )}
+              </div>
+            </div>
+          </Flex>
+        </Flex>
+      </Box>
+    </>
   );
 }
 
