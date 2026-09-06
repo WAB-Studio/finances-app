@@ -2,7 +2,10 @@
  * The year of movements RNF-09 is measured against, and its removal. 4 015
  * movements — eleven a day for 365 days — written for a named user THROUGH the
  * app's own insert path, so the ledger under measurement is the one the app
- * would have written rather than SQL invented here.
+ * would have written rather than SQL invented here. Two currencies, as
+ * `seed-demo.ts` seeds them: most days spend a card purchase in dollars, and
+ * one day a month exchanges pesos for dollars, so the dashboard RNF-09 measures
+ * is the one RF-121 to RF-124 actually shaped, not a peso-only stand-in.
  *
  * Repeatable: every movement carries an `external_ref` derived from its index,
  * so a second run tops the ledger up to 4 015 instead of doubling it, and an
@@ -23,8 +26,9 @@ import { createCategory } from "@/db/queries/categories";
 import { insertTransaction } from "@/db/queries/transactions";
 import type { CreateTransactionArgs } from "@/db/queries/transactions";
 import { withUserDb } from "@/db/session";
-import { BASE_CURRENCY } from "@/lib/currency";
+import { BASE_CURRENCY, type OfferedCurrency } from "@/lib/currency";
 import { addCivilDays, todayInBogota } from "@/lib/dates";
+import { pesosToCents } from "@/lib/money";
 
 import {
   findUserByEmail,
@@ -78,9 +82,18 @@ type Scaffold = {
   bankAccountId: string;
   cashAccountId: string;
   cardAccountId: string;
+  // Settles in dollars (RF-121), so the card's foreign purchases and the
+  // monthly exchange below have a second currency to land in.
+  usdAccountId: string;
   expenseCategoryIds: string[];
   incomeCategoryId: string;
 };
+
+// Pesos per dollar, an integer so every conversion below is exact — no float
+// crosses into a stored column. Both amounts already share one scale, hundredths
+// of their own currency's major unit, so a dollar-cents amount times this rate
+// is a peso-cents amount directly.
+const USD_TO_COP_RATE = 4000;
 
 const EXPENSE_CATEGORIES = [
   "Mercado",
@@ -109,7 +122,11 @@ function noise(index: number, salt: number): number {
  * The movement at `index`, as the quick-entry form would have submitted it.
  * Eleven a day: nine expenses, one income, and a transfer to cash once a week
  * where an expense would otherwise be. Every fifth expense splits in two, so the
- * split path is exercised at the shape the screens read it back at.
+ * split path is exercised at the shape the screens read it back at. Roughly
+ * every fourth day, one expense is a card purchase billed in dollars instead of
+ * pesos (RF-121, RF-123), and monthly, one more becomes an exchange into the
+ * dollar account (RF-122) — the ledger RNF-09 measures carries two currencies,
+ * not one grown large.
  */
 function movementAt(index: number, day: string, scaffold: Scaffold): CreateTransactionArgs {
   const slot = index % 11;
@@ -141,6 +158,48 @@ function movementAt(index: number, day: string, scaffold: Scaffold): CreateTrans
       description: "Retiro de efectivo",
       externalRef,
       splits: [],
+      labelIds: [],
+    };
+  }
+
+  // Monthly, an exchange into the dollar account (RF-122): booked in pesos, the
+  // side that pays, confirmed at the same moment — a transfer carries no
+  // estimate, RF-123's alone to wait on.
+  if (slot === 5 && dayIndex % 30 === 11) {
+    const copCents = pesosToCents(1000000);
+
+    return {
+      fromAccountId: scaffold.bankAccountId,
+      toAccountId: scaffold.usdAccountId,
+      amountCents: copCents,
+      currency: BASE_CURRENCY,
+      counterAmountCents: copCents / USD_TO_COP_RATE,
+      occurredAt: day,
+      description: "Compra de dólares",
+      externalRef,
+      splits: [],
+      labelIds: [],
+    };
+  }
+
+  // Roughly weekly, a card purchase billed in dollars while the card itself
+  // settles in pesos (RF-121, RF-123): the estimate a person typed stands until
+  // the statement replaces it, which this seed never runs, matching the movements
+  // that arrive through the recurring rules and the manual form alike.
+  if (slot === 6 && dayIndex % 4 === 0) {
+    const usdCents = 500 + (noise(index, 5) % 5000);
+
+    return {
+      fromAccountId: scaffold.cardAccountId,
+      toAccountId: null,
+      amountCents: usdCents,
+      currency: "USD",
+      counterAmountCents: usdCents * USD_TO_COP_RATE,
+      counterIsEstimate: true,
+      occurredAt: day,
+      description: "Compra en dólares",
+      externalRef,
+      splits: [{ categoryId: scaffold.expenseCategoryIds[5], amountCents: usdCents }],
       labelIds: [],
     };
   }
@@ -250,7 +309,8 @@ async function ensureScaffold(userId: string): Promise<Scaffold> {
     name: string,
     kind: "asset" | "liability",
     subtype: "bancaria" | "efectivo" | "tarjeta",
-    pesos: number,
+    amountMinor: number,
+    currency: OfferedCurrency = BASE_CURRENCY,
   ): Promise<string> => {
     const fullName = `${SCAFFOLD_PREFIX} ${name}`;
     const already = found.get(fullName);
@@ -265,8 +325,8 @@ async function ensureScaffold(userId: string): Promise<Scaffold> {
       isShared: false,
       institution: "Bancolombia",
       lastFour: null,
-      settlementCurrency: BASE_CURRENCY,
-      amountMinor: pesos,
+      settlementCurrency: currency,
+      amountMinor,
       // A year back, so the opening balance predates the oldest movement.
       balanceOn: addCivilDays(today, -366),
     });
@@ -299,6 +359,7 @@ async function ensureScaffold(userId: string): Promise<Scaffold> {
     bankAccountId: await account("banco", "asset", "bancaria", 12000000),
     cashAccountId: await account("efectivo", "asset", "efectivo", 200000),
     cardAccountId: await account("tarjeta", "liability", "tarjeta", 3000000),
+    usdAccountId: await account("dolares", "asset", "bancaria", 50000, "USD"),
     expenseCategoryIds,
     incomeCategoryId: await category("Salario", "income"),
   };
