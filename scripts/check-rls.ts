@@ -203,6 +203,7 @@ async function main() {
   await checkAccountHandOver();
   await checkCurrencyPolicies();
   await checkCounterAmountWriteScope();
+  await checkRecurringRuleGeneratorScope();
 }
 
 // Assertions 9-26: the repivoted schema. A group holds accounts and categories a user XOR a group
@@ -8659,6 +8660,99 @@ async function checkCounterAmountWriteScope() {
     tailLabel,
     afterUser === "postgres" && probeCount === "0",
     `current_user = ${afterUser}, rows named 'rls counter scope%' = ${probeCount}`,
+  );
+}
+
+// Assertions 285-286: `private.run_due_recurring_rules(uuid)` (D10) scopes the generator by
+// `created_by` when named one, and sweeps every due rule when called with no argument — the exact
+// text pg_cron still runs. Driven with the JWT cleared, the way both the cron and a seed call it.
+async function checkRecurringRuleGeneratorScope() {
+  console.log("");
+  const userA = randomUUID();
+  const userB = randomUUID();
+
+  const labels = [
+    "285. a call scoped to one user runs that user's due rule and leaves the other user's untouched",
+    "286. the same rules, then called with no argument, run the one the scoped call had left alone",
+  ];
+  const tailLabel = "287. the rolled-back recurring-rule-scope transaction leaves no trace";
+
+  const forcedRollback = Symbol("forced rollback");
+
+  await sql
+    .begin(async (tx) => {
+      await tx`insert into auth.users (id) values (${userA}), (${userB})`;
+      await tx`insert into app_users (id) values (${userA}), (${userB})`;
+
+      // Each user with their own personal account, expense category and a rule due today, so one
+      // generation lands exactly one transaction and clears the due window.
+      await enterUserContext(tx, userA);
+      const [{ id: accountA }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_on)
+        values (${userA}, 'rls recurring scope a cash', 'asset', (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: catA }] = await tx<{ id: string }[]>`
+        insert into categories (owner_user_id, name, kind)
+        values (${userA}, 'rls recurring scope a expense', 'expense') returning id`;
+      const [{ id: ruleA }] = await tx<{ id: string }[]>`
+        insert into recurring_rules (from_account_id, amount_cents, category_id, frequency, interval_n, next_run_on)
+        values (${accountA}, 3000, ${catA}, 'weekly', 1, (now() at time zone 'America/Bogota')::date) returning id`;
+
+      await tx`reset role`;
+      await enterUserContext(tx, userB);
+      const [{ id: accountB }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_on)
+        values (${userB}, 'rls recurring scope b cash', 'asset', (now() at time zone 'America/Bogota')::date) returning id`;
+      const [{ id: catB }] = await tx<{ id: string }[]>`
+        insert into categories (owner_user_id, name, kind)
+        values (${userB}, 'rls recurring scope b expense', 'expense') returning id`;
+      const [{ id: ruleB }] = await tx<{ id: string }[]>`
+        insert into recurring_rules (from_account_id, amount_cents, category_id, frequency, interval_n, next_run_on)
+        values (${accountB}, 4500, ${catB}, 'weekly', 1, (now() at time zone 'America/Bogota')::date) returning id`;
+
+      // Scoped to A, with no JWT — the shape a fixture or a seed calls it in, not the cron's own.
+      await tx`reset role`;
+      await tx`select set_config('request.jwt.claims', '', true)`;
+      await tx`select private.run_due_recurring_rules(${userA}::uuid)`;
+
+      const [{ count: aRanScoped }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from transactions where recurring_rule_id = ${ruleA}`;
+      const [{ count: bRanScoped }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from transactions where recurring_rule_id = ${ruleB}`;
+      assert(
+        labels[0],
+        aRanScoped === "1" && bRanScoped === "0",
+        `scoped to A: A's transactions = ${aRanScoped} (expected 1), B's transactions = ${bRanScoped} (expected 0)`,
+      );
+
+      // The unscoped call — pg_cron's own stored text — reaches the rule the scoped call left alone.
+      await tx`select private.run_due_recurring_rules()`;
+
+      const [{ count: aRanUnscoped }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from transactions where recurring_rule_id = ${ruleA}`;
+      const [{ count: bRanUnscoped }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from transactions where recurring_rule_id = ${ruleB}`;
+      assert(
+        labels[1],
+        aRanUnscoped === "1" && bRanUnscoped === "1",
+        `unscoped: A's transactions = ${aRanUnscoped} (expected 1, unchanged), B's transactions = ${bRanUnscoped} (expected 1)`,
+      );
+
+      // Forces the deferred split-sum trigger now, proving both generated movements balance their split.
+      await tx`set constraints all immediate`;
+
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`select current_user`;
+  const [{ count: probeCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from accounts where name like 'rls recurring scope%'`;
+  assert(
+    tailLabel,
+    afterUser === "postgres" && probeCount === "0",
+    `current_user = ${afterUser}, rows named 'rls recurring scope%' = ${probeCount}`,
   );
 }
 
