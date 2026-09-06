@@ -456,13 +456,15 @@ test("revokes a webhook credential and reads the revocation back", async ({
   });
 
   await page.goto("/es/settings/webhooks");
-  await expect(page.getByText(name, { exact: true })).toBeVisible();
+  await expect(band(page).getByText(name, { exact: true })).toBeVisible();
 
   await removeOnlyRow(page, webhooks.revoke, webhooks.revoke);
 
   // A revoked credential stays listed under its badge: the row is not deleted,
   // it is stamped, and the badge is what says the write landed.
-  await expect(page.getByText(webhooks.revokedBadge, { exact: true })).toBeVisible();
+  await expect(
+    band(page).getByText(webhooks.revokedBadge, { exact: true }),
+  ).toBeVisible();
 
   const [revoked] = await fixtureSql<{ revoked_at: string | null }[]>`
     select revoked_at::text as revoked_at from webhook_credentials
@@ -510,14 +512,16 @@ test.describe("the fund's roster", () => {
     page,
   }) => {
     await page.goto("/es/settings/members");
-    await expect(page.getByText(memberName, { exact: true })).toBeVisible();
+    await expect(band(page).getByText(memberName, { exact: true })).toBeVisible();
 
     // Two menus: the leader's own row carries one too, offering only the edit.
     const menus = rowMenus(page);
     await expect(menus).toHaveCount(2);
     await confirmThroughMenu(page, menus.nth(1), common.archive, common.archive);
 
-    await expect(page.getByText(memberName, { exact: true })).toHaveCount(0);
+    await expect(
+      band(page).getByText(memberName, { exact: true }),
+    ).toHaveCount(0);
     const [archived] = await fixtureSql<{ archived_at: string | null }[]>`
       select archived_at::text as archived_at from group_members
       where id = ${memberId}`;
@@ -525,9 +529,11 @@ test.describe("the fund's roster", () => {
 
     // The archived tab holds only this row, so its menu is the only one there.
     await page.goto("/es/settings/members?tab=archived");
-    await expect(page.getByText(memberName, { exact: true })).toBeVisible();
+    await expect(band(page).getByText(memberName, { exact: true })).toBeVisible();
     await removeOnlyRow(page, common.restore, common.restore);
-    await expect(page.getByText(memberName, { exact: true })).toHaveCount(0);
+    await expect(
+      band(page).getByText(memberName, { exact: true }),
+    ).toHaveCount(0);
 
     const [restored] = await fixtureSql<{ archived_at: string | null }[]>`
       select archived_at::text as archived_at from group_members
@@ -542,7 +548,9 @@ test.describe("the fund's roster", () => {
       common.delete,
     );
 
-    await expect(page.getByText(memberName, { exact: true })).toHaveCount(0);
+    await expect(
+      band(page).getByText(memberName, { exact: true }),
+    ).toHaveCount(0);
     const left = await fixtureSql`
       select id from group_members where id = ${memberId}`;
     expect(left).toHaveLength(0);
