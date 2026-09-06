@@ -6,16 +6,19 @@ import {
   OFFERED_CURRENCIES,
 } from "@/lib/currency";
 import { isCivilDate, todayInBogota } from "@/lib/dates";
-import {
-  MAX_AMOUNT_PESOS,
-  maxAmountMinor,
-  parseAmount,
-  parsePesos,
-} from "@/lib/money";
+import { maxAmountMinor, parseAmount } from "@/lib/money";
 
 // A peso string travels through validation unparsed: the amount stays a
 // string the form owns until the action turns it into integer cents. Exported
 // so every money field across the ledger, budgets and goals shares one parse.
+//
+// Reads through `parseAmount`, the same primitive the authoritative
+// `createTransactionSchema` uses (RF-126, RF-128): a light guard stricter than
+// the schema it precedes would reject a row the authority accepts and never
+// let the authority see it (this is the importer's own gate 1, ahead of
+// `createTransactionSchema`'s gate 3 in `import-pipeline.ts`), which is a
+// defect, not a stricter rule. Every caller — the webhook's structured amount
+// and both importer row schemas — takes the same up-to-two-decimals reading.
 export function pesoAmountSchema(keys: {
   required: string;
   invalid: string;
@@ -27,13 +30,13 @@ export function pesoAmountSchema(keys: {
       return;
     }
 
-    const pesos = parsePesos(value);
-    if (pesos === null) {
+    const minor = parseAmount(value);
+    if (minor === null) {
       ctx.addIssue(keys.invalid);
       return;
     }
 
-    if (pesos > MAX_AMOUNT_PESOS) {
+    if (minor > maxAmountMinor(BASE_CURRENCY)) {
       ctx.addIssue(keys.tooLarge);
     }
   });
