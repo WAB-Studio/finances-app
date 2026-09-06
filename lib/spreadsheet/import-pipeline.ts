@@ -377,8 +377,8 @@ function resolveOne(name: string, map: Map<string, string[]>): { id?: string; er
 }
 
 // A resolved account reference read against its settlement currency (RF-121): the
-// row's `amount` still reaches `parsePesos` downstream, true only of an account
-// settling in BASE_CURRENCY. Silent on a null id (no reference named) and on one the
+// row's `amount` is still booked as BASE_CURRENCY downstream, true only of an
+// account settling in it. Silent on a null id (no reference named) and on one the
 // map does not carry (unresolved, or a file-new account, always base by default) —
 // this only ever raises the ONE reason resolution itself does not already cover.
 function checkBaseCurrency(

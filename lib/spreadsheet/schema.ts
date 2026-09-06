@@ -265,8 +265,8 @@ export const recurringRuleSheetDescriptor = {
 //
 // `currency` names what the row's `amount` is written in (RF-121, RF-124): read-only
 // here, since the row schema below never declares it — an import still books every
-// row in pesos through `parsePesos`, correct only when the accounts it names settle
-// in BASE_CURRENCY, so a re-import drops the cell rather than acting on it.
+// row in BASE_CURRENCY, correct only when the accounts it names settle in it, so a
+// re-import drops the cell rather than acting on it.
 export const transactionSheetDescriptor = {
   entity: "transactions",
   refField: "externalRef",
