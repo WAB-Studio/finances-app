@@ -261,6 +261,15 @@ async function readColumn<T>(
   return row?.value;
 }
 
+// A civil date shifted by whole days, in the UTC-midday scheme `lib/dates.ts`
+// reads every date through, so a day either side of a DST-observing zone never
+// slips.
+function shiftDate(base: string, days: number): string {
+  const date = new Date(`${base}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "UTC" }).format(date);
+}
+
 type SilencedFixture = {
   shapeId: string;
   sampleText: string;
@@ -1140,6 +1149,90 @@ async function writeSuite(
         detail: `${liveIds.length} live and ${archivedIds.length} archived, ${overlap.length} named by both; the archived one reads ${savedCents} cents against ${contributed} summed from its aportes, the live one is on the live side = ${liveIds.includes(goalId)}`,
       };
     },
+  );
+
+  // D5: the straight line runs from the day a goal opened, and a goal opened
+  // today has spent none of it — so the naive comparison never flagged one whose
+  // due date had already gone. Two edges the fix must land on both sides of, both
+  // opened today: a target date two months gone with 38% saved (the figure
+  // measured live) reads behind from its first day, and a target date with 90
+  // days of runway left does not read behind just because the goal is new.
+  await checkWrite(
+    "listGoalsWithProgress reads a goal opened today as behind once its target date has passed",
+    async () => {
+      const targetAmountCents = 100000000;
+      const savedCents = 38000000; // 38%, the figure measured live
+
+      const [overdue, reachable] = await Promise.all([
+        createGoal({
+          ownerUserId: userId,
+          groupId: null,
+          name: "Harness meta vencida",
+          targetAmountCents,
+          targetDate: shiftDate(today, -60),
+          accountId: null,
+          initialContributionCents: savedCents,
+        }),
+        createGoal({
+          ownerUserId: userId,
+          groupId: null,
+          name: "Harness meta con plazo",
+          targetAmountCents,
+          targetDate: shiftDate(today, 90),
+          accountId: null,
+          initialContributionCents: savedCents,
+        }),
+      ]);
+      keep("savings_goals", overdue.goalId);
+      keep("savings_goals", reachable.goalId);
+
+      const rows = await listGoalsWithProgress();
+
+      return {
+        overdue: rows.find((goal) => goal.id === overdue.goalId),
+        reachable: rows.find((goal) => goal.id === reachable.goalId),
+      };
+    },
+    ({ overdue, reachable }) => ({
+      ok: overdue?.behindPace === true && reachable?.behindPace === false,
+      detail: `opened today, target date two months gone, 38% saved — behindPace = ${overdue?.behindPace}; opened today with 90 days of runway — behindPace = ${reachable?.behindPace}`,
+    }),
+  );
+
+  // Not new, but must not move: an old goal already behind the straight line
+  // keeps reading that way — the branch above only answers when the goal opened
+  // on the very day its ritmo is read, and must never shadow this one.
+  await checkWrite(
+    "listGoalsWithProgress leaves an old, already-overdue goal reading behind",
+    async () => {
+      const targetAmountCents = 100000000;
+      const savedCents = 38000000;
+
+      const [{ id: oldGoalId }] = await fixtureSql<{ id: string }[]>`
+        insert into savings_goals (owner_user_id, name, target_amount_cents, target_date, created_at)
+        values (
+          ${userId},
+          'Harness meta vieja atrasada',
+          ${targetAmountCents},
+          ${shiftDate(today, -30)},
+          now() - interval '90 days')
+        returning id`;
+      keep("savings_goals", oldGoalId);
+
+      const [{ id: contributionId }] = await fixtureSql<{ id: string }[]>`
+        insert into goal_contributions (goal_id, amount_cents)
+        values (${oldGoalId}, ${savedCents})
+        returning id`;
+      keep("goal_contributions", contributionId);
+
+      const rows = await listGoalsWithProgress();
+
+      return rows.find((goal) => goal.id === oldGoalId);
+    },
+    (goal) => ({
+      ok: goal?.behindPace === true,
+      detail: `opened 90 days ago, target date a month gone, 38% saved — behindPace = ${goal?.behindPace}`,
+    }),
   );
 
   const planned = await checkWrite(

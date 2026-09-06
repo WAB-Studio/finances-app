@@ -48,7 +48,10 @@ export type GoalProgress = {
  * as integer cents: the monthly figure spreads what remains over the whole months
  * still ahead — at least one, so a goal due this month asks for all of it — and a
  * goal counts as behind when what it has set aside sits under the straight line
- * from the day it opened to the day it is due. Neither is stored (RNF-07).
+ * from the day it opened to the day it is due, or that day has already come and
+ * gone (D5): a goal opened today has spent none of its own line, but a target
+ * date at or before today leaves no line left to spend, so it reads behind from
+ * its first day rather than waiting for one to pass. Neither is stored (RNF-07).
  *
  * The rows come back in the reading order of the artboard — atrasada, al día,
  * cumplida, sin fecha, and by name inside each band — so the desktop table and
@@ -100,10 +103,12 @@ export async function listGoalsWithProgress(options?: {
           case
             when g.target_date is null or gp.saved_cents >= g.target_amount_cents
               then false
+            -- D5: a target date already due or past leaves no straight line to
+            -- ride — the goal owes its whole meta today, opened today or not.
+            when g.target_date <= ${today}::date
+              then true
             -- Cross-multiplied so the comparison stays in exact integers: saved
             -- over the whole span against the meta over the days already spent.
-            -- A goal opened today has spent no days, so nothing it is due
-            -- tomorrow can put it behind until the day after it opens.
             else gp.saved_cents * greatest(g.target_date - ${openedOn}, 0)
               < g.target_amount_cents * greatest(${today}::date - ${openedOn}, 0)
           end as behind_pace
