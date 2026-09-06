@@ -266,6 +266,11 @@ export const recurringRuleSheetDescriptor = {
 
 // Splits and labels are nested, not flat cells: a later import module bridges
 // them, so they carry no column here and stay out of the flat row schema.
+//
+// `currency` names what the row's `amount` is written in (RF-121, RF-124): read-only
+// here, since the row schema below never declares it — an import still books every
+// row in pesos through `parsePesos`, correct only when the accounts it names settle
+// in BASE_CURRENCY, so a re-import drops the cell rather than acting on it.
 export const transactionSheetDescriptor = {
   entity: "transactions",
   refField: "externalRef",
@@ -274,6 +279,7 @@ export const transactionSheetDescriptor = {
     { key: "fromAccount", field: "fromAccountId", ref: { entity: "accounts" } },
     { key: "toAccount", field: "toAccountId", ref: { entity: "accounts" } },
     { key: "amount", field: "amountCents", money: moneyBoundary },
+    { key: "currency", field: "currency" },
     { key: "category", synthetic: true, ref: { entity: "categories" } },
     { key: "occurredAt", field: "occurredAt" },
     { key: "description", field: "description" },
