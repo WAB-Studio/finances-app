@@ -48,20 +48,13 @@ function atCount(message: string, count: number): string {
   return branch.replace("#", String(count));
 }
 
-/**
- * The band the width displays. Categorías and Etiquetas gained a laptop band of
- * their own (RF-63, RF-70, RF-116): the phone's cards and the table's rows are
- * both in the DOM at every width, cut apart by CSS alone, so a name looked for
- * on the screen reaches two nodes and dies on strict mode.
- */
-function band(page: Page): Locator {
-  return page.locator("main > div > .rt-Box").filter({ visible: true });
-}
-
 test("the categories screen renders the categories it read", async ({ page }) => {
   await page.goto("/es/settings/categories");
 
-  const shown = band(page);
+  // Categorías gained a laptop band of its own (RF-63, RF-116): the phone's
+  // card and the table's row both carry the bare name, so this scopes the read
+  // to whichever the width is showing, in line rather than a shared helper.
+  const shown = page.locator("main > div > .rt-Box").filter({ visible: true });
   await expect(shown.getByText(scope.categoryName, { exact: true })).toBeVisible();
 
   // The phone states the count as a phrase inside the category's own card; the
@@ -98,7 +91,9 @@ test("the labels screen renders a label with its usage counts", async ({
 
   await page.goto("/es/settings/labels");
 
-  const shown = band(page);
+  // Etiquetas gained the same laptop band (RF-70, RF-116); see the categories
+  // test above for why this reads in line rather than through a shared helper.
+  const shown = page.locator("main > div > .rt-Box").filter({ visible: true });
   await expect(shown.getByText(name, { exact: true })).toBeVisible();
 
   // The row this label's own two counts ride, in whichever band is shown —
