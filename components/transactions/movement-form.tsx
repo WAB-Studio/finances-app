@@ -292,7 +292,11 @@ export function MovementForm({
   // The currency the accounts point at, which the selector opens on and follows
   // while nobody has picked another one.
   const accountCurrency = settlement.from ?? settlement.to;
-  const lastAccountCurrency = useRef(accountCurrency);
+  // No account chosen yet reads as BASE_CURRENCY, the same fallback `currency`
+  // itself opens on (above): the two must start in step, or the guard below reads
+  // the field's own default as an already-chosen override and refuses to follow
+  // the very first account a person picks.
+  const lastAccountCurrency = useRef(accountCurrency ?? BASE_CURRENCY);
   useEffect(() => {
     if (accountCurrency === null || accountCurrency === lastAccountCurrency.current) {
       return;

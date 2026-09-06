@@ -203,7 +203,7 @@ export const transactionFields = {
     .string()
     .trim()
     .max(200, { error: "transactions.errors.externalRefTooLong" })
-    .optional(),
+    .nullish(),
   splits: z.array(splitSchema),
   labelIds: z.array(z.uuid({ error: "transactions.errors.labelInvalid" })),
 };
