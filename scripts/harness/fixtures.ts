@@ -5,12 +5,50 @@
 import { randomUUID } from "node:crypto";
 
 import postgres from "postgres";
+import type { TransactionSql } from "postgres";
 
 import { TIME_ZONE } from "@/lib/locales";
+
+import {
+  applicationName,
+  closeRun,
+  openRun,
+  registerEphemeralIdentity,
+  registeredIdentities,
+  type Suite,
+} from "./registry";
+
+// The suite this process runs as, read by `applicationName` and by the run this
+// process opens. `setSuite` is the entry point's job to call before the first
+// query; a process that never calls it still gets a name and a run, both under
+// this default, because `createUser` cannot wait for a caller that may not come.
+let currentSuite: Suite = "queries";
+
+export function setSuite(suite: Suite): void {
+  currentSuite = suite;
+}
+
+let statements = 0;
 
 export const fixtureSql = postgres(process.env.DATABASE_URL!, {
   prepare: false,
   max: 1,
+  connection: {
+    // A getter, not a value: `max: 1` connects lazily on the first query, so this
+    // reads `currentSuite` at that moment, after `setSuite` has had its chance —
+    // not at module load, when the suite is not yet known. It never reaches
+    // `pg_stat_activity` as anything but `Supavisor` (`docs/TRAPS.md`), so this is
+    // for a log, never for a query.
+    get application_name() {
+      return applicationName(currentSuite);
+    },
+  },
+  // Counts every statement the driver puts on the wire, the same way
+  // `scripts/harness/instrument.ts` counts the app pool's — `cleanup` reads the
+  // delta to report the round trips its own run spent.
+  debug: () => {
+    statements += 1;
+  },
 });
 
 // Child before parent: `cleanup` walks this order, so a tracked row never
@@ -18,6 +56,8 @@ export const fixtureSql = postgres(process.env.DATABASE_URL!, {
 // RESTRICT. `audit_log` is absent on purpose: the trail is append-only and the
 // RNF-14 purge is its only deleter, so a harness run never removes a row from it.
 const CLEANUP_ORDER = [
+  ["ingest_shapes", "id"],
+  ["ingest_merchants", "id"],
   ["goal_contributions", "id"],
   ["transaction_labels", "transaction_id"],
   ["transaction_splits", "transaction_id"],
@@ -85,7 +125,6 @@ export type HarnessScope = {
 export type HarnessUser = { id: string; email: string };
 
 const tracked = new Map<FixtureTable, string[]>();
-const harnessUsers: HarnessUser[] = [];
 
 export function track(table: FixtureTable, id: string): void {
   const ids = tracked.get(table);
@@ -122,10 +161,10 @@ async function createUser(): Promise<HarnessUser> {
   const id = randomUUID();
   const email = `harness-${id}@example.invalid`;
 
-  await fixtureSql`insert into auth.users (id, email) values (${id}, ${email})`;
-  await fixtureSql`insert into app_users (id) values (${id})`;
-
-  harnessUsers.push({ id, email });
+  // Opens this process's run on first use; every later call finds one already
+  // open and spends no round trip on it.
+  await openRun(currentSuite, fixtureSql);
+  await registerEphemeralIdentity(fixtureSql, { id, email });
 
   return { id, email };
 }
@@ -157,6 +196,102 @@ export async function asUser<T>(
     if (previous.email === undefined) delete process.env.HARNESS_USER_EMAIL;
     else process.env.HARNESS_USER_EMAIL = previous.email;
   }
+}
+
+// The claims the stamping triggers read: a delete runs as the owner role but
+// settles these first, so `auth.uid()` resolves inside every trigger it fires —
+// the audit row it causes then names an actor `purgeAuditTrail` can find again.
+function claimsFor(userId: string): string {
+  return JSON.stringify({
+    sub: userId,
+    role: "authenticated",
+    aud: "authenticated",
+  });
+}
+
+/**
+ * Settles the claims of `userId` in one statement, then runs `fn` in the same
+ * transaction. Every audit row the deletes below cause then carries `userId` as
+ * actor and is reachable by `purgeAuditTrail`.
+ */
+export async function asOwner(
+  userId: string,
+  fn: (tx: TransactionSql) => Promise<void>,
+): Promise<void> {
+  await fixtureSql.begin(async (tx) => {
+    await tx`select set_config('request.jwt.claims', ${claimsFor(userId)}, true)`;
+    await fn(tx);
+  });
+}
+
+/**
+ * Every row `userId` owns, child before parent, ending at `app_users` and
+ * `auth.users`. Bounded to one id; it names no pattern and no window. Mirrors
+ * `e2e/global-setup.ts:purge`, which already survives `assert_group_keeps_leader`
+ * and the `debt_terms` RESTRICT — including deleting a group by membership alone,
+ * so a group this identity only belongs to (never leads) still comes down, and
+ * whatever else it held under that group's scope rides its cascade.
+ */
+export async function purgeIdentity(userId: string): Promise<void> {
+  await asOwner(userId, async (tx) => {
+    await tx`delete from ingest_deliveries where owner_user_id = ${userId}`;
+    await tx`delete from ingest_shapes where owner_user_id = ${userId}`;
+    await tx`delete from ingest_merchants where owner_user_id = ${userId}`;
+    // A contribution is named before its goal even though it cascades: an aporte
+    // that outlived its goal would be a leak no later count could explain.
+    await tx`
+      delete from goal_contributions
+      where goal_id in (select id from savings_goals where owner_user_id = ${userId})`;
+    await tx`delete from savings_goals where owner_user_id = ${userId}`;
+    await tx`delete from budgets where owner_user_id = ${userId}`;
+    await tx`delete from planned_payments where owner_user_id = ${userId}`;
+    // These three hang off an account rather than off a user. `debt_terms` goes
+    // before `accounts` in particular: its row is what makes an account's deletion
+    // fail rather than cascade.
+    await tx`
+      delete from installment_plans
+      where account_id in (select id from accounts where owner_user_id = ${userId})`;
+    await tx`
+      delete from debt_statements
+      where account_id in (select id from accounts where owner_user_id = ${userId})`;
+    await tx`
+      delete from debt_terms
+      where account_id in (select id from accounts where owner_user_id = ${userId})`;
+    // Splits and labels ride the movement's cascade.
+    await tx`delete from transactions where owner_user_id = ${userId}`;
+    await tx`delete from recurring_rules where owner_user_id = ${userId}`;
+    await tx`delete from webhook_credentials where owner_user_id = ${userId}`;
+    await tx`delete from labels where owner_user_id = ${userId}`;
+    await tx`delete from categories where owner_user_id = ${userId}`;
+    await tx`delete from accounts where owner_user_id = ${userId}`;
+    // The group goes before its members: `assert_group_keeps_leader` refuses to
+    // leave a live group leaderless, and the cascade from a deleted group is the
+    // one path that may take a leader row — or a `created_by` on a group-scoped
+    // row this identity never owned outright — with it.
+    await tx`
+      delete from groups
+      where id in (select group_id from group_members where user_id = ${userId})`;
+    await tx`delete from group_members where user_id = ${userId}`;
+    // The auth row cascades to `app_users`; both are named so the deletion is
+    // stated, not inferred from a foreign key.
+    await tx`delete from app_users where id = ${userId}`;
+    await tx`delete from auth.users where id = ${userId}`;
+  });
+}
+
+/**
+ * The trail those deletes stamped. Same shape as `e2e/global-setup.ts`: bounded
+ * to the ids named, on the two columns that name a person, so a real user's row
+ * is never reachable from here. A no-op on an empty list — `in ()` is not valid
+ * SQL, and an identity nothing touched has nothing to purge.
+ */
+export async function purgeAuditTrail(userIds: string[]): Promise<void> {
+  if (userIds.length === 0) return;
+
+  await fixtureSql`
+    delete from audit_log
+    where actor_user_id in ${fixtureSql(userIds)}
+       or owner_user_id in ${fixtureSql(userIds)}`;
 }
 
 /**
@@ -223,12 +358,40 @@ export async function seedHarnessScope(userId: string): Promise<HarnessScope> {
 }
 
 /**
- * Drops every tracked row, then every user it made. Runs from a `finally`, so a
- * failed assertion still leaves the database at the row counts it found — with
- * `audit_log` excepted, which no harness ever deletes from.
+ * Drops every ephemeral identity this run registered — everything it owns, then
+ * the identity itself — then whatever the tracked-id path still names (a shared
+ * identity's rows, which are never owned by dropping the identity), then the
+ * trail all of that stamped, then closes the run.
+ *
+ * Each identity gets its own try/catch: one identity's undeletable row no longer
+ * costs every later identity its cleanup. Every failure is recorded and the
+ * function still throws at the end, naming every id it could not drop — the
+ * leak is now visible instead of silent.
  */
 export async function cleanup(): Promise<void> {
+  const tripsBefore = statements;
+  const failed: string[] = [];
+
   try {
+    const ephemeralIds = await registeredIdentities(fixtureSql, "ephemeral");
+    const sharedIds = await registeredIdentities(fixtureSql, "shared");
+    const dropped: string[] = [];
+
+    for (const userId of ephemeralIds) {
+      try {
+        await purgeIdentity(userId);
+        dropped.push(userId);
+      } catch (error) {
+        console.error(
+          `cleanup: identity ${userId} did not drop — ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+        failed.push(userId);
+      }
+    }
+
+    // The shared path: never the identity, only what this run tracked by id.
     for (const [table, idColumn] of CLEANUP_ORDER) {
       const ids = tracked.get(table);
       if (ids === undefined || ids.length === 0) continue;
@@ -238,13 +401,23 @@ export async function cleanup(): Promise<void> {
         where ${fixtureSql(idColumn)} in ${fixtureSql(ids)}`;
     }
 
-    for (const { id } of harnessUsers) {
-      // The auth row cascades to `app_users`; both are named so the deletion is
-      // stated, not inferred from a foreign key.
-      await fixtureSql`delete from app_users where id = ${id}`;
-      await fixtureSql`delete from auth.users where id = ${id}`;
+    await purgeAuditTrail([...dropped, ...sharedIds]);
+
+    if (dropped.length > 0) {
+      // No foreign key ties this row to `auth.users` (migration 0039), so it
+      // outlives the identity it names until dropped here, by hand.
+      await fixtureSql`delete from harness.identities where user_id in ${fixtureSql(dropped)}`;
+    }
+
+    await closeRun(fixtureSql);
+
+    if (failed.length > 0) {
+      throw new Error(
+        `cleanup: ${failed.length} identity(ies) still own rows nothing here could drop: ${failed.join(", ")}`,
+      );
     }
   } finally {
+    console.log(`REPORT  cleanup — ${statements - tripsBefore} round trips.`);
     await fixtureSql.end();
   }
 }
