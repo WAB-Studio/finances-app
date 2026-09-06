@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react";
 import { useLocale } from "next-intl";
 
-import { BASE_CURRENCY, type CurrencyCode } from "@/lib/currency";
+import type { CurrencyCode } from "@/lib/currency";
 import { formatMoney } from "@/lib/money";
 
 // The ledger's minus is U+2212, never the hyphen a keyboard types (SPEC-A3).
@@ -30,10 +30,14 @@ const SIZE_STYLE = {
   inherit: {},
 } satisfies Record<string, CSSProperties>;
 
-type MoneyStyle = {
-  // Absent falls back to the settlement currency. A later slice makes it
-  // required, once the fifty call sites below carry the currency of their row.
-  currency?: CurrencyCode;
+export type MoneyProps = {
+  // The amount as the column keeps it, in hundredths of the currency's major
+  // unit, whatever the currency (RNF-05).
+  minor: number;
+  // Required, and with no fallback behind it: a figure no caller gave a currency
+  // to is a row that does not know which one it is in, and guessing the
+  // settlement currency is what let one draw without saying so (RF-124).
+  currency: CurrencyCode;
   tone?: MoneyTone;
   size?: "row" | "figure" | "hero" | "inherit";
   signed?: boolean;
@@ -42,31 +46,20 @@ type MoneyStyle = {
   estimate?: boolean;
 };
 
-export type MoneyProps = MoneyStyle &
-  // Two names for one integer: the amount as the column keeps it, in hundredths
-  // of the currency's major unit. `cents` is the COP-only spelling, marked to
-  // retire with the wrappers in `lib/money`; `minor` is what a screen carrying
-  // its row's currency writes.
-  ({ minor: number; cents?: never } | { cents: number; minor?: never });
-
 /**
  * The one place an amount turns into a figure (RF-48, RF-121, RNF-05). The
  * stored integer in, the currency's own figure out — no screen divides by the
- * stored scale, none names a currency and none writes its own sign.
+ * stored scale, none writes the currency's mark and none writes its own sign.
  */
-export function Money(props: MoneyProps) {
-  const {
-    currency = BASE_CURRENCY,
-    tone = "plain",
-    size = "row",
-    signed = true,
-    estimate = false,
-  } = props;
+export function Money({
+  minor: amountMinor,
+  currency,
+  tone = "plain",
+  size = "row",
+  signed = true,
+  estimate = false,
+}: MoneyProps) {
   const locale = useLocale();
-
-  // Both props spell the same integer: the division into a drawable amount is
-  // `formatMoney`'s, and it is the same for every currency.
-  const amountMinor = props.minor === undefined ? props.cents : props.minor;
 
   // A movement's sign comes from the accounts it touches, which is what its tone
   // says; a plain figure has no tone to read it from, so a signed one carries the
