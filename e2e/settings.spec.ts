@@ -51,22 +51,30 @@ function atCount(message: string, count: number): string {
 test("the categories screen renders the categories it read", async ({ page }) => {
   await page.goto("/es/settings/categories");
 
-  await expect(page.getByText(scope.categoryName, { exact: true })).toBeVisible();
-  // The count comes from the row's own children, so it only reads at all once
-  // the category behind it loaded. It is read inside that row: every childless
-  // category on the screen words its count the same, so a page-wide locator
-  // matches whichever other one the run left standing.
-  const row = page
-    .getByRole("main")
-    .locator("div")
-    .filter({ hasText: scope.categoryName })
-    .last();
+  // Categorías gained a laptop band of its own (RF-63, RF-116): the phone's
+  // card and the table's row both carry the bare name, so this scopes the read
+  // to whichever the width is showing, in line rather than a shared helper.
+  const shown = page.locator("main > div > .rt-Box").filter({ visible: true });
+  await expect(shown.getByText(scope.categoryName, { exact: true })).toBeVisible();
 
-  await expect(
-    row.getByText(atCount(messages.categories.subcategoryCount, 0), {
+  // The phone states the count as a phrase inside the category's own card; the
+  // laptop states it as a bare figure in the row's own column (SPEC-A3). Either
+  // way this is the one node naming this category's own count, not whichever
+  // other childless category the run left standing.
+  const subcategoryCount = shown
+    .getByText(atCount(messages.categories.subcategoryCount, 0), {
       exact: true,
-    }),
-  ).toBeVisible();
+    })
+    .or(
+      shown
+        .getByRole("row")
+        .filter({ hasText: scope.categoryName })
+        .getByRole("cell")
+        .nth(2)
+        .getByText("0", { exact: true }),
+    );
+
+  await expect(subcategoryCount).toBeVisible();
 });
 
 test("the labels screen renders a label with its usage counts", async ({
@@ -83,12 +91,24 @@ test("the labels screen renders a label with its usage counts", async ({
 
   await page.goto("/es/settings/labels");
 
-  await expect(page.getByText(name, { exact: true })).toBeVisible();
+  // Etiquetas gained the same laptop band (RF-70, RF-116); see the categories
+  // test above for why this reads in line rather than through a shared helper.
+  const shown = page.locator("main > div > .rt-Box").filter({ visible: true });
+  await expect(shown.getByText(name, { exact: true })).toBeVisible();
+
+  // The row this label's own two counts ride, in whichever band is shown —
+  // there is no other label on this screen to confuse it with.
+  const row = shown.getByRole("row").filter({ hasText: name });
+
   await expect(
-    page.getByText(atCount(messages.labels.usageCount, 0), { exact: true }),
+    shown
+      .getByText(atCount(messages.labels.usageCount, 0), { exact: true })
+      .or(row.getByRole("cell").nth(2).getByText("0", { exact: true })),
   ).toBeVisible();
   await expect(
-    page.getByText(atCount(messages.labels.budgetCount, 0), { exact: true }),
+    shown
+      .getByText(atCount(messages.labels.budgetCount, 0), { exact: true })
+      .or(row.getByRole("cell").nth(3).getByText("0", { exact: true })),
   ).toBeVisible();
 
   await fixtureSql`delete from labels where id = ${labelId}`;

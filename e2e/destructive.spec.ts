@@ -42,7 +42,7 @@ function rowMenus(page: Page): Locator {
 }
 
 /**
- * The band the width displays. On the three screens that gained a dense table,
+ * The band the width displays. On every screen that gained a dense table,
  * the laptop's rows and the phone's cards are both in the DOM at every width,
  * cut apart by CSS alone, so a name looked for on the screen reaches two nodes
  * and dies on strict mode.
@@ -98,7 +98,10 @@ test("creates a category and deletes it from the screen and the table", async ({
   await form.getByRole("button", { name: common.save, exact: true }).click();
 
   await expect(form).toBeHidden();
-  await expect(page.getByText(name, { exact: true })).toBeVisible();
+  // Categorías gained a laptop band of its own (RF-63, RF-116): a bare name
+  // matches the phone's card and the table's row alike, so the check names the
+  // one the width is showing.
+  await expect(band(page).getByText(name, { exact: true })).toBeVisible();
 
   const [created] = await fixtureSql<{ id: string; kind: string }[]>`
     select id, kind from categories
@@ -126,7 +129,10 @@ test("creates a label and deletes it from the screen and the table", async ({
   await form.getByRole("button", { name: common.save, exact: true }).click();
 
   await expect(form).toBeHidden();
-  await expect(page.getByText(name, { exact: true })).toBeVisible();
+  // Etiquetas gained a laptop band of its own (RF-70, RF-116): a bare name
+  // matches the phone's card and the table's row alike, so the check names the
+  // one the width is showing.
+  await expect(band(page).getByText(name, { exact: true })).toBeVisible();
 
   const [created] = await fixtureSql<{ id: string }[]>`
     select id from labels
