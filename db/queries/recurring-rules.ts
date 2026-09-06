@@ -259,3 +259,22 @@ export async function markTransactionReviewed({
     return rows.length > 0;
   });
 }
+
+// The concept of one rule, for a filter chip to name (RF-127). RLS puts the
+// scope: a rule from another one answers exactly as a uuid that names no rule
+// at all, both `null` — never a thrown error.
+export async function getRecurringRuleName({
+  id,
+}: {
+  id: string;
+}): Promise<string | null> {
+  return withUserDb(async (tx) => {
+    const [row] = await tx
+      .select({ description: recurringRules.description })
+      .from(recurringRules)
+      .where(eq(recurringRules.id, id))
+      .limit(1);
+
+    return row?.description ?? null;
+  });
+}
