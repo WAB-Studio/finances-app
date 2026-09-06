@@ -1,14 +1,18 @@
 #!/usr/bin/env bash
-# Stop hook — names the next unticked module when a plan is open.
+# Stop hook — names the next module a session can actually take.
 #
 # A plan of 29 modules with no state is a plan that lives only in one session's
 # head. On 2026-09-05 a wave landed, the report read complete, and the turn ended
 # with nothing dispatched: the user had to ask what was happening. Nothing in the
 # repo knew a module was pending, so nothing said so.
 #
-# Reads the newest `private/plan-*.md`, finds the first `- [ ]` module line, and
-# says it. Silent when every module is ticked, when no plan is open, or when the
-# session is already being told to close its handoff. Never blocks.
+# A module carries its box in its header: `## [ ]` waiting, `## [~]` dispatched
+# and in flight, `## [x]` landed. The hook reads those and the `Depende de:` line
+# under each, and names the first waiting module whose dependencies are all
+# ticked. Silent when nothing is takeable — every module in flight, blocked or
+# done — because a session that cannot act on the reminder only pays for it.
+# Silent too when no plan is open, or when the session is being told to close.
+# Never blocks.
 
 input=$(cat)
 
@@ -35,25 +39,54 @@ if not plans:
 plan = plans[0]
 text = plan.read_text(encoding="utf-8", errors="replace")
 
-# A module line carries its own box: `- [ ] ## 12 — title` is the plan's state.
-pending = re.findall(r"^## \[ \] (.+)$", text, re.M)
-done = re.findall(r"^## \[x\] ", text, re.M)
-if not pending:
+header = re.compile(r"^## \[([ x~])\] (\d+) — (.+)$", re.M)
+modules = [
+    {"state": m.group(1), "number": m.group(2), "title": m.group(3).strip(), "at": m.end()}
+    for m in header.finditer(text)
+]
+if not modules:
     sys.exit(0)
 
-rel = plan.relative_to(root)
-nxt = pending[0].strip()
+state = {m["number"]: m["state"] for m in modules}
+bounds = [m["at"] for m in modules[1:]] + [len(text)]
+
+def dependencies(module, end):
+    body = text[module["at"]:end]
+    line = re.search(r"\*\*Depende de:\*\*(.+)", body)
+    return re.findall(r"\d+", line.group(1).split(".")[0]) if line else []
+
+waiting = [m for m in modules if m["state"] == " "]
+flight = [m for m in modules if m["state"] == "~"]
+done = [m for m in modules if m["state"] == "x"]
+if not waiting:
+    sys.exit(0)
+
+# A dependency nobody has written yet cannot block: only a module the plan holds counts.
+ready = [
+    m
+    for m, end in zip(modules, bounds)
+    if m["state"] == " " and all(state.get(d, "x") == "x" for d in dependencies(m, end))
+]
+if not ready:
+    sys.exit(0)
+
+nxt = ready[0]
+running = (
+    f" Hay {len(flight)} en vuelo, marcado{'s' if len(flight) != 1 else ''} `## [~]`."
+    if flight
+    else ""
+)
 print(json.dumps({
     "hookSpecificOutput": {
         "hookEventName": "Stop",
         "additionalContext": (
-            f"{len(done)} de {len(done) + len(pending)} módulos de `{rel}` están hechos. "
-            f"El siguiente sin marcar es **{nxt}**.\n\n"
-            "Si ya lo despachaste y está en vuelo, ignorá esto: el gancho lee el plan, no sabe "
-            "qué corre. No cierres el turno con un informe si hay un módulo listo para despachar: "
-            "tomalo. Si de verdad está bloqueado, decí en una línea por quién o por qué. "
-            "Y cuando un módulo aterrice, marcá su `## [ ]` como `## [x]` en el plan — "
-            "un plan sin estado sólo existe mientras una sesión lo recuerde."
+            f"{len(done)} de {len(modules)} módulos de `{plan.relative_to(root)}` están hechos."
+            f"{running} El primero que se puede tomar, con sus dependencias ya ticadas, es "
+            f"**{nxt['number']} — {nxt['title']}**.\n\n"
+            "No cierres el turno con un informe: tomalo, y marcá su `## [ ]` como `## [~]` al "
+            "despacharlo y como `## [x]` en cuanto su rama aterrice. Si de verdad está bloqueado, "
+            "decí en una línea por quién o por qué — un plan sin estado sólo existe mientras una "
+            "sesión lo recuerde."
         ),
     }
 }))
