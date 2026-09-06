@@ -94,10 +94,12 @@ export function MovementsScreen({
   rows,
   options,
   filters,
+  ruleName,
 }: {
   rows: TransactionListRow[];
   options: TransactionFormOptions;
   filters: MovementsFilters;
+  ruleName: string | null;
 }) {
   const t = useTranslations("transactions");
   const tKey = useTranslations();
@@ -216,7 +218,8 @@ export function MovementsScreen({
         filters.member ||
         filters.account ||
         filters.category ||
-        filters.label,
+        filters.label ||
+        filters.rule,
     );
 
   // Only the well-formed values ride the query; a cleared field drops its key so
@@ -231,6 +234,7 @@ export function MovementsScreen({
     if (next.category) query.category = next.category;
     if (next.label) query.label = next.label;
     if (next.unreviewed) query.unreviewed = "1";
+    if (next.rule) query.rule = next.rule;
     return query;
   }
 
@@ -333,6 +337,7 @@ export function MovementsScreen({
         <MovementsFilterBar
           filters={filters}
           options={options}
+          ruleName={ruleName}
           onChange={updateFilters}
         />
       </Box>

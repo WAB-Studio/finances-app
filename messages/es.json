@@ -514,6 +514,7 @@
     "export": "Exportar",
     "emptyTitle": "Todavía no hay movimientos",
     "unreviewedFilter": "Sin revisar",
+    "ruleFilter": "Regla recurrente",
     "chipFrom": "Desde {date}",
     "chipTo": "Hasta {date}"
   },
