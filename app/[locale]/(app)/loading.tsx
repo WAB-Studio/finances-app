@@ -1,3 +1,9 @@
+// The dense skeleton passes `cell` renderers to `DataTable`, which is a client
+// component: a server component cannot hand a function across that boundary and
+// the whole shell 500s when it tries. Nothing here reads a request, so the file
+// runs on the client and the functions stay inside one boundary.
+"use client";
+
 import {
   Box,
   CategoryTile,
