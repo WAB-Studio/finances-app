@@ -1996,6 +1996,49 @@ async function readSuite(
       };
     },
   );
+
+  // D7 follow-up: the assertion above drives only the light guard, in isolation,
+  // as its own comment says. A blank cell also has to clear the authoritative
+  // schema — `createTransactionSchema`, the THIRD gate `processRow` runs and the
+  // one the movement form itself submits through — which declared its own
+  // `externalRef` and kept it `.optional()` after the light guard's went
+  // `.nullish()`. That gap left the RF-49 template's blank-reference row failing
+  // in the app with a generic invalidCell while this file read 100/0.
+  await checkReadValue(
+    "a blank external_ref clears the authoritative transaction schema too",
+    async () => {
+      const guarded = transactionRowSchema.safeParse({
+        externalRef: null,
+        fromAccount: "Harness cuenta",
+        toAccount: null,
+        amount: "1000",
+        category: "Harness categoría",
+        occurredAt: todayInBogota(),
+        description: null,
+      });
+      if (!guarded.success) return { guardedOk: false, authoritativeOk: false };
+
+      // The shape `resolveAndShape` hands the authoritative schema once names
+      // resolve to ids (RF-51's second gate) — an expense, one split, the light
+      // guard's own `externalRef` riding through unchanged.
+      const authoritative = createTransactionSchema.safeParse({
+        fromAccountId: randomUUID(),
+        toAccountId: null,
+        amount: guarded.data.amount,
+        occurredAt: guarded.data.occurredAt,
+        description: guarded.data.description,
+        externalRef: guarded.data.externalRef,
+        splits: [{ categoryId: randomUUID(), amount: guarded.data.amount }],
+        labelIds: [],
+      });
+
+      return { guardedOk: guarded.success, authoritativeOk: authoritative.success };
+    },
+    ({ guardedOk, authoritativeOk }) => ({
+      ok: guardedOk && authoritativeOk,
+      detail: `light guard ${guardedOk ? "accepted" : "refused"} the blank cell, authoritative schema ${authoritativeOk ? "accepted" : "refused"} it`,
+    }),
+  );
 }
 
 // The two modules that name a message key for an installment plan or a debt
