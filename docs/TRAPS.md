@@ -78,6 +78,22 @@ Measured 2026-09-05: Seq Scan → RLS filter → `WindowAgg` over every readable
 and a null owner, unreadable by anyone and still walked by the scan, so purging trims the
 `WindowAgg` and not the scan. **The fix is the policy, not the size.**
 
+**What keeps feeding it, measured 2026-09-06.** The CI runs the full e2e suite on **every push and
+every pull request** — `E2E_IN_CI` has been `true` since 2026-09-05 20:25 — and it drives **the same
+remote database the lanes drive**. Proven, not inferred: the runner's own identity
+`harness-member-9@example.invalid` sits in the database `.env.local` points at
+(`aws-0-us-east-2.pooler.supabase.com`), created 2026-09-05 15:27. `ci.yml` isolates the run **by
+identity** (`HARNESS_LANE=9`), never by database, so it never touches a lane's rows — but every run
+still grows `audit_log`, which is the load this trap feeds on. **A push makes the next run likelier
+to go red.** Two CI runs went red on 2026-09-06 for exactly this test, `[mobile]
+settings.spec.ts:117`.
+
+Turning it off is one command, and it is the switch that also decides which database CI seeds and
+purges: `gh variable set E2E_IN_CI --body false`.
+
+**And the table of identities only grows.** 62 rows matched `harness-%` in `auth.users` on
+2026-09-06; most are `harness-<uuid>@example.invalid` left by old runs. Nothing prunes them.
+
 ## Next
 
 ### A `loading.tsx` makes every `notFound()` under it answer 200
