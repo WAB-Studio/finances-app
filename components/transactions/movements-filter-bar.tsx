@@ -26,6 +26,9 @@ export type MovementsFilters = {
   // The deep-link flag: kept through any other change so the filtered view stays
   // put until the user clears it (RF-31).
   unreviewed: boolean;
+  // The recurring rule that generated a row, entered by link from that rule's
+  // own menu (RF-127).
+  rule: string | null;
 };
 
 // A Radix Select item may not carry an empty value, so the "any" option rides
@@ -45,10 +48,12 @@ type ActiveChip = { key: string; label: string; clear: Partial<MovementsFilters>
 export function MovementsFilterBar({
   filters,
   options,
+  ruleName,
   onChange,
 }: {
   filters: MovementsFilters;
   options: TransactionFormOptions;
+  ruleName: string | null;
   onChange: (next: MovementsFilters) => void;
 }) {
   const t = useTranslations("transactions");
@@ -143,6 +148,15 @@ export function MovementsFilterBar({
       key: "unreviewed",
       label: t("unreviewedFilter"),
       clear: { unreviewed: false },
+    });
+  }
+  // A rule's own row is the only way in, so the chip is the only way out — no
+  // selector lists every rule, which would cost a round trip on every load.
+  if (filters.rule) {
+    chips.push({
+      key: "rule",
+      label: ruleName ?? t("ruleFilter"),
+      clear: { rule: null },
     });
   }
 

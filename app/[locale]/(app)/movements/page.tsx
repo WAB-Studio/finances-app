@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 
 import { MovementsScreen } from "@/components/transactions/movements-screen";
 import { Page } from "@/components/ui";
+import { getRecurringRuleName } from "@/db/queries/recurring-rules";
 import { getTransactionFormOptions } from "@/db/queries/transaction-form";
 import { listTransactions } from "@/db/queries/transactions";
 import type { TransactionListFilters } from "@/db/queries/transactions";
@@ -44,11 +45,13 @@ export default async function MovementsPage(
     categoryId: parsed.category,
     labelId: parsed.label,
     unreviewed: parsed.unreviewed,
+    recurringRuleId: parsed.rule,
   };
 
-  const [rows, options] = await Promise.all([
+  const [rows, options, ruleName] = await Promise.all([
     listTransactions(filters),
     getTransactionFormOptions(),
+    parsed.rule ? getRecurringRuleName({ id: parsed.rule }) : Promise.resolve(null),
   ]);
 
   return (
@@ -56,6 +59,7 @@ export default async function MovementsPage(
       <MovementsScreen
         rows={rows}
         options={options}
+        ruleName={ruleName}
         filters={{
           type: parsed.type,
           from: parsed.from ?? null,
@@ -65,6 +69,7 @@ export default async function MovementsPage(
           category: parsed.category ?? null,
           label: parsed.label ?? null,
           unreviewed: parsed.unreviewed,
+          rule: parsed.rule ?? null,
         }}
       />
     </Page>
