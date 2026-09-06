@@ -85,7 +85,7 @@ accounting exports, native apps. None of this gets built or left
 - [x] **RF-22** — Quick entry: a single text field from which amount, category and description are inferred. Anything inferred stays editable before saving.
 - [x] **RF-23** — Listing with filters by date range, creator, account, category and type.
 - [x] **RF-89** — The transaction listing also filters by label, alongside the RF-23 filters.
-- [ ] **RF-127** — The transaction listing also filters by the recurring rule that generated a movement, alongside the RF-23 and RF-89 filters; a rule opens that filtered listing from its own row, and the filtered export (RF-118) carries the same narrowing.
+- [x] **RF-127** — The transaction listing also filters by the recurring rule that generated a movement, alongside the RF-23 and RF-89 filters; a rule opens that filtered listing from its own row, and the filtered export (RF-118) carries the same narrowing.
 - [x] **RF-24** — Edit and delete transactions.
 - [x] **RF-25** — Every transaction records which user created it.
 - [x] **RF-69** — Every income or expense splits into one or more (category, amount_cents) rows summing to its amount; a single-category income or expense is one split. A transfer has no splits and no category.
