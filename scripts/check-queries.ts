@@ -125,6 +125,7 @@ import { BASE_CURRENCY } from "@/lib/currency";
 import {
   addCivilMonths,
   currentMonthRange,
+  lastSixMonthStarts,
   priorCutOffDates,
   todayInBogota,
 } from "@/lib/dates";
@@ -420,6 +421,28 @@ const PLAN_REMAINDER_CENTS = 5000;
 // The day of the month the fixture debt cuts its statements on.
 const CUT_OFF_DAY = 15;
 
+// RF-124: a second currency in the same run, so a report that folds it beside
+// the peso ones never adds the two into one figure. Spent out of a dollar
+// account that carries no other movement, so this is the whole of its pocket.
+const USD_EXPENSE_CENTS = 250000;
+
+// RF-123: a card purchase abroad the issuer has not billed yet. Booked on the
+// no-limit debt so Q64-Q72's credit-total assertions, keyed to the OTHER debt,
+// stay untouched, and `getAccountBalances` narrowed to that other debt keeps
+// its one row (`getAccountBalances narrows to the ids it is given`).
+const CARD_FOREIGN_CENTS = 15000;
+const CARD_FOREIGN_COUNTER_CENTS = 60000000;
+
+// The two pockets a card purchase and a plain expense leave in the same
+// currency and the same owner: net worth and monthly flow fold every account
+// of one owner into one bucket per currency, so the two sum here too.
+const USD_OWED_AND_SPENT_CENTS = USD_EXPENSE_CENTS + CARD_FOREIGN_CENTS;
+
+// RF-122: the confirmed second leg of a contribution into the group's own
+// dollar account — what the pot received, never the sender's peso amount.
+const CONTRIBUTION_COP_CENTS = 12000000;
+const CONTRIBUTION_USD_CENTS = 500000;
+
 type DebtFixture = {
   // A liability whose terms name NO credit limit, opened six months back so its
   // past statement periods are there to be cut.
@@ -513,6 +536,15 @@ type WriteResults = {
   accountId: string | null;
   transactionId: string | null;
   withdrawalId: string | null;
+  // RF-124 fixtures: a personal account settling in a second currency, and the
+  // group's own account in that same one, so the read suite can prove the
+  // reports never fold one into the other.
+  usdAccountId: string | null;
+  groupUsdAccountId: string | null;
+  // The dollar expense's own category, distinct from `scope.categoryId`: the
+  // foreign card purchase spends the latter, so the two dollar amounts land in
+  // different category rows and neither assertion can pass by adding them.
+  usdCategoryId: string | null;
 };
 
 /**
@@ -626,6 +658,108 @@ async function writeSuite(
       ok: updated,
       detail: `updated = ${updated}, name = ${await readColumn("categories", "id", categoryId, "name")}`,
     }),
+  );
+
+  // RF-121, RF-124: a personal account that settles in a currency other than
+  // the base one, so `netWorthByOwner`, the dashboard, the monthly flow and the
+  // per-category totals each have a second currency to keep apart from pesos.
+  const usdAccount = await checkWrite(
+    "createAccount opens an account in a second currency",
+    () =>
+      createAccount({
+        name: "Harness dólares",
+        kind: "asset",
+        subtype: "bancaria",
+        ownerUserId: userId,
+        groupId: null,
+        isShared: false,
+        institution: null,
+        lastFour: null,
+        settlementCurrency: "USD",
+        amountMinor: 0,
+        balanceOn: today,
+      }),
+    ({ accountId }) => {
+      keep("accounts", accountId);
+      return { ok: true, detail: `account ${accountId}` };
+    },
+  );
+
+  const usdAccountId = usdAccount?.accountId ?? scope.assetAccountId;
+
+  await checkWrite(
+    "createTransaction books a dollar expense beside the peso ones",
+    () =>
+      createTransaction({
+        fromAccountId: usdAccountId,
+        toAccountId: null,
+        amountCents: USD_EXPENSE_CENTS,
+        occurredAt: today,
+        description: "Harness gasto en dólares",
+        externalRef: null,
+        splits: [{ categoryId, amountCents: USD_EXPENSE_CENTS }],
+        labelIds: [],
+      }),
+    async ({ transactionId }) => {
+      keep("transactions", transactionId);
+      return {
+        ok: true,
+        detail: `movement ${transactionId}, currency = ${await readColumn("transactions", "id", transactionId, "currency")}`,
+      };
+    },
+  );
+
+  // RF-121: the group's own account in that second currency, so a contribution
+  // into it (RF-66, RF-122) gives `getMemberContributions` a second currency of
+  // its own — never folded into what the same member put into the group's peso
+  // accounts.
+  const groupUsdAccount = await checkWrite(
+    "createAccount opens the group's own account in a second currency",
+    () =>
+      createAccount({
+        name: "Harness fondo dólares",
+        kind: "asset",
+        subtype: "bancaria",
+        ownerUserId: null,
+        groupId: scope.groupId,
+        isShared: true,
+        institution: null,
+        lastFour: null,
+        settlementCurrency: "USD",
+        amountMinor: 0,
+        balanceOn: today,
+      }),
+    ({ accountId }) => {
+      keep("accounts", accountId);
+      return { ok: true, detail: `account ${accountId}` };
+    },
+  );
+
+  const groupUsdAccountId = groupUsdAccount?.accountId ?? null;
+
+  await checkWrite(
+    "createTransaction confirms a contribution's dollar leg (RF-122)",
+    () =>
+      createTransaction({
+        fromAccountId: scope.assetAccountId,
+        toAccountId: groupUsdAccountId,
+        amountCents: CONTRIBUTION_COP_CENTS,
+        currency: BASE_CURRENCY,
+        counterAmountCents: CONTRIBUTION_USD_CENTS,
+        counterIsEstimate: false,
+        occurredAt: today,
+        description: "Harness aporte en dólares",
+        externalRef: null,
+        splits: [],
+        labelIds: [],
+      }),
+    async ({ transactionId }) => {
+      keep("transactions", transactionId);
+      return {
+        ok: true,
+        detail: `movement ${transactionId}, counter_amount_cents = ${await readColumn("transactions", "id", transactionId, "counter_amount_cents")}`,
+      };
+    },
   );
 
   // Driven by the membership-free user, never the run's own: `seedHarnessScope`
@@ -1290,6 +1424,36 @@ async function writeSuite(
     }),
   );
 
+  // RF-121, RF-123, RF-124: a card purchase abroad, spent in dollars and not
+  // yet billed. Booked on the no-limit debt — never `accountId`, which
+  // `getAccountBalances narrows to the ids it is given` already reads as a
+  // single-currency account — so its dollar pocket rides beside its peso debt
+  // and Q64-Q72 read the two apart.
+  await checkWrite(
+    "createTransaction books a foreign-currency card purchase as an estimate",
+    () =>
+      createTransaction({
+        fromAccountId: debt.unlimitedAccountId,
+        toAccountId: null,
+        amountCents: CARD_FOREIGN_CENTS,
+        currency: "USD",
+        counterAmountCents: CARD_FOREIGN_COUNTER_CENTS,
+        counterIsEstimate: true,
+        occurredAt: today,
+        description: "Harness compra en dólares",
+        externalRef: null,
+        splits: [{ categoryId: scope.categoryId, amountCents: CARD_FOREIGN_CENTS }],
+        labelIds: [],
+      }),
+    async ({ transactionId }) => {
+      keep("transactions", transactionId);
+      return {
+        ok: true,
+        detail: `movement ${transactionId}, counter_is_estimate = ${await readColumn("transactions", "id", transactionId, "counter_is_estimate")}`,
+      };
+    },
+  );
+
   await checkWrite(
     "issueWebhookCredential",
     () =>
@@ -1456,6 +1620,9 @@ async function writeSuite(
     accountId: account?.accountId ?? null,
     transactionId: movement?.transactionId ?? null,
     withdrawalId: withdrawal?.transactionId ?? null,
+    usdAccountId: usdAccount?.accountId ?? null,
+    groupUsdAccountId: groupUsdAccount?.accountId ?? null,
+    usdCategoryId: categoryId,
   };
 }
 
@@ -1477,19 +1644,130 @@ async function readSuite(
   const personal = { ownerUserId: userId } as const;
   const debtAccountId = writes.accountId ?? scope.liabilityAccountId;
 
-  await checkRead("getDashboardData", () => getDashboardData());
-  await checkRead("getReportsData", () => getReportsData());
-  await checkRead("getMonthlyFlow", () => getMonthlyFlow(currentMonthRange()));
-  await checkRead("getSixMonthFlow", () => getSixMonthFlow());
-  await checkRead("getExpensesByCategory", () =>
-    getExpensesByCategory(currentMonthRange()),
+  // RF-124: net worth per owner, folded again by currency alone — the fund's
+  // own total (RF-88) never adds the run's dollar pocket to its peso one, and
+  // this month's flow keeps the same split.
+  await checkReadValue(
+    "getDashboardData splits net worth and this month's flow by currency",
+    () => getDashboardData(),
+    (dashboard) => {
+      const memberUsd = dashboard.netWorth.find(
+        (bucket) =>
+          bucket.bucket === "member" &&
+          bucket.ownerUserId === userId &&
+          bucket.currency === "USD",
+      );
+      const totalUsd = dashboard.totalNetWorth.find((total) => total.currency === "USD");
+      const totalCop = dashboard.totalNetWorth.find(
+        (total) => total.currency === BASE_CURRENCY,
+      );
+      const summedUsd = dashboard.netWorth
+        .filter((bucket) => bucket.currency === "USD")
+        .reduce((sum, bucket) => sum + bucket.netWorthCents, 0);
+      const usdFlow = dashboard.monthFlow.find((flow) => flow.currency === "USD");
+
+      return {
+        ok:
+          memberUsd?.netWorthCents === -USD_OWED_AND_SPENT_CENTS &&
+          totalUsd !== undefined &&
+          totalUsd.netWorthCents === summedUsd &&
+          totalCop !== undefined &&
+          usdFlow?.expenseCents === USD_OWED_AND_SPENT_CENTS &&
+          usdFlow.incomeCents === 0,
+        detail: `the leader's dollar bucket reads ${memberUsd?.netWorthCents ?? "no"} cents against the expected ${-USD_OWED_AND_SPENT_CENTS}; the fund's dollar total ${totalUsd?.netWorthCents ?? "no"} matches the summed buckets' ${summedUsd}; the peso total reads ${totalCop?.netWorthCents ?? "no"} cents; this month's dollar flow spent ${usdFlow?.expenseCents ?? "no"} of the expected ${USD_OWED_AND_SPENT_CENTS}`,
+      };
+    },
   );
-  await checkRead("getMemberContributions", () =>
-    getMemberContributions(currentMonthRange()),
+  await checkRead("getReportsData", () => getReportsData());
+  await checkReadValue(
+    "getMonthlyFlow keeps this month's dollars out of the peso row",
+    () => getMonthlyFlow(currentMonthRange()),
+    (rows) => {
+      const usd = rows.find((row) => row.currency === "USD");
+      const cop = rows.find((row) => row.currency === BASE_CURRENCY);
+
+      return {
+        ok:
+          usd?.expenseCents === USD_OWED_AND_SPENT_CENTS &&
+          usd.incomeCents === 0 &&
+          usd.netCents === -USD_OWED_AND_SPENT_CENTS &&
+          cop !== undefined &&
+          cop.expenseCents !== usd.expenseCents,
+        detail: `dollars this month: income ${usd?.incomeCents ?? "no"}, expense ${usd?.expenseCents ?? "no"} against the expected ${USD_OWED_AND_SPENT_CENTS}; pesos this month spent ${cop?.expenseCents ?? "no"} of their own`,
+      };
+    },
+  );
+  await checkReadValue(
+    "getSixMonthFlow never mixes a currency's series with another's",
+    () => getSixMonthFlow(),
+    (rows) => {
+      const monthStarts = lastSixMonthStarts();
+      const currentMonth = monthStarts[monthStarts.length - 1];
+      const usdRows = rows.filter((row) => row.currency === "USD");
+      const copRows = rows.filter((row) => row.currency === BASE_CURRENCY);
+      const currentUsd = usdRows.find((row) => row.monthStart === currentMonth);
+      const priorMonthsFlat = usdRows
+        .filter((row) => row.monthStart !== currentMonth)
+        .every((row) => row.incomeCents === 0 && row.expenseCents === 0);
+
+      return {
+        ok:
+          usdRows.length === 6 &&
+          copRows.length === 6 &&
+          currentUsd?.expenseCents === USD_OWED_AND_SPENT_CENTS &&
+          priorMonthsFlat,
+        detail: `${usdRows.length} dollar months of 6, the current one spent ${currentUsd?.expenseCents ?? "no"} of the expected ${USD_OWED_AND_SPENT_CENTS}, the other five flat = ${priorMonthsFlat}; ${copRows.length} peso months of 6`,
+      };
+    },
+  );
+  await checkReadValue(
+    "getExpensesByCategory answers one row per category and currency",
+    () => getExpensesByCategory(currentMonthRange()),
+    (rows) => {
+      const dollarExpense = rows.find(
+        (row) => row.currency === "USD" && row.categoryId === writes.usdCategoryId,
+      );
+      const dollarPurchase = rows.find(
+        (row) => row.currency === "USD" && row.categoryId === scope.categoryId,
+      );
+
+      return {
+        ok:
+          dollarExpense?.totalCents === USD_EXPENSE_CENTS &&
+          dollarPurchase?.totalCents === CARD_FOREIGN_CENTS,
+        detail: `"${dollarExpense?.name ?? "no category"}" in dollars totals ${dollarExpense?.totalCents ?? "no"} against ${USD_EXPENSE_CENTS}; the card's own category in dollars totals ${dollarPurchase?.totalCents ?? "no"} against ${CARD_FOREIGN_CENTS}, so the two never fold into one row`,
+      };
+    },
+  );
+  await checkReadValue(
+    "getMemberContributions counts what the pot received in its own currency",
+    () => getMemberContributions(currentMonthRange()),
+    (rows) => {
+      const mine = rows.find((row) => row.userId === userId && row.currency === "USD");
+
+      return {
+        ok: mine?.contributionCents === CONTRIBUTION_USD_CENTS,
+        detail: `the leader's dollar contribution reads ${mine?.contributionCents ?? "no"} cents against the confirmed ${CONTRIBUTION_USD_CENTS}`,
+      };
+    },
   );
   // A pure reducer over two reads, not a round trip of its own.
-  await checkRead("netWorthByOwner", async () =>
-    netWorthByOwner(await listAccounts({ archived: false }), await getAccountBalances()),
+  await checkReadValue(
+    "netWorthByOwner answers one bucket per owner and currency",
+    async () =>
+      netWorthByOwner(await listAccounts({ archived: false }), await getAccountBalances()),
+    (buckets) => {
+      const mine = buckets.filter(
+        (bucket) => bucket.bucket === "member" && bucket.ownerUserId === userId,
+      );
+      const usd = mine.find((bucket) => bucket.currency === "USD");
+      const cop = mine.find((bucket) => bucket.currency === BASE_CURRENCY);
+
+      return {
+        ok: mine.length === 2 && usd?.netWorthCents === -USD_OWED_AND_SPENT_CENTS && cop !== undefined,
+        detail: `${mine.length} bucket(s) for this owner; dollars read ${usd?.netWorthCents ?? "no"} against ${-USD_OWED_AND_SPENT_CENTS}, pesos read ${cop?.netWorthCents ?? "no"}`,
+      };
+    },
   );
   await checkRead("getAccountBalances", () => getAccountBalances());
   await checkRead("listTransactions", () => listTransactions({}, { limit: 20 }));
@@ -1605,6 +1883,56 @@ async function readSuite(
           row.monthlyRatePct !== annual / 12 &&
           row.monthlyInterestCents === Math.round(row.owedCents * row.monthlyRatePct),
         detail: `rate ${row.monthlyRatePct} compounds to ${compounded} against the stored ${annual}, the linear twelfth being ${annual / 12}; ${row.monthlyInterestCents} cents of interest against ${Math.round(row.owedCents * row.monthlyRatePct)} on ${row.owedCents} owed`,
+      };
+    },
+  );
+
+  // RF-121, RF-124: the debt now holds a dollar pocket beside its peso one
+  // (`0032_one_balance_per_currency.sql`'s `account_balances` answers one row
+  // per account AND currency). `pockets` in `debt-overview.ts` folds that
+  // 1:N back to one row per account before the join to `debt_terms` — this is
+  // what the length check catches if it ever regresses to the naive join the
+  // comment there warns against, which answered the debt once per currency
+  // and would have doubled its owed, its limit and its interest with every
+  // other liability that ever holds two.
+  await checkReadValue(
+    "getDebtOverview answers one row per account even when it holds two currencies",
+    () => getDebtOverview(),
+    (overview) => {
+      const rows = overview.filter(
+        (candidate) => candidate.accountId === debt.unlimitedAccountId,
+      );
+      const [row] = rows;
+      const foreign = row?.otherOwed.find((pocket) => pocket.currency === "USD");
+
+      return {
+        ok:
+          rows.length === 1 &&
+          row?.currency === BASE_CURRENCY &&
+          foreign?.owedCents === CARD_FOREIGN_CENTS &&
+          row.otherOwed.length === 1,
+        detail: `${rows.length} row(s) for the debt against the 1 a 1:1 join would answer; its own pocket is in ${row?.currency ?? "no currency"}, its dollar pocket owes ${foreign?.owedCents ?? "no"} cents against the expected ${CARD_FOREIGN_CENTS}, of ${row?.otherOwed.length ?? 0} foreign pocket(s)`,
+      };
+    },
+  );
+
+  // RF-124: the screen's consolidated totals carry the dollar pocket in its
+  // own set, never folded into the peso figures the flat `totals` above read.
+  await checkReadValue(
+    "getDebtsScreenData totals the dollar pocket the card holds beside its peso debt",
+    () => getDebtsScreenData(),
+    (screen) => {
+      const usd = screen.totals.byCurrency.find((set) => set.currency === "USD");
+      const cop = screen.totals.byCurrency.find((set) => set.currency === BASE_CURRENCY);
+
+      return {
+        ok:
+          usd?.owedCents === CARD_FOREIGN_CENTS &&
+          usd.debtCount === 1 &&
+          usd.monthlyInterestCents === 0 &&
+          cop !== undefined &&
+          screen.totals.currency === BASE_CURRENCY,
+        detail: `dollar set owes ${usd?.owedCents ?? "no"} cents across ${usd?.debtCount ?? 0} debt(s) against the expected ${CARD_FOREIGN_CENTS} on 1; peso set owes ${cop?.owedCents ?? "no"}; the flat totals read in ${screen.totals.currency}`,
       };
     },
   );
@@ -1881,6 +2209,32 @@ async function readSuite(
           asked.every((id) => narrowed.some((row) => row.accountId === id)) &&
           same,
         detail: `${narrowed.length} of the ${all.length} accounts came back for ${asked.length} ids, every balance the same as unnarrowed = ${same}`,
+      };
+    },
+  );
+
+  // RF-121, RF-124: `listAccounts` reads every balance through a correlated
+  // subquery, never a join to the view — a join would answer the account once
+  // per currency it holds, the same 1:N `getDebtOverview` folds back with its
+  // own `pockets` CTE.
+  await checkReadValue(
+    "listAccounts answers one row for a debt holding two currencies",
+    () => listAccounts({ archived: false }),
+    (accounts) => {
+      const rows = accounts.filter(
+        (account) => account.id === debt.unlimitedAccountId,
+      );
+      const [account] = rows;
+      const settlement = account?.balances[0];
+      const foreign = account?.balances.find((balance) => balance.currency === "USD");
+
+      return {
+        ok:
+          rows.length === 1 &&
+          account?.balances.length === 2 &&
+          settlement?.currency === BASE_CURRENCY &&
+          foreign?.balanceCents === -CARD_FOREIGN_CENTS,
+        detail: `${rows.length} row(s) for the debt, ${account?.balances.length ?? 0} pocket(s) on it, the first in ${settlement?.currency ?? "no currency"}, the dollar one reading ${foreign?.balanceCents ?? "no"} cents against ${-CARD_FOREIGN_CENTS}`,
       };
     },
   );
@@ -2268,6 +2622,9 @@ async function timingSuite(): Promise<void> {
       listTransactions({}),
     );
     await timed("getReportsData (what /reports loads)", () => getReportsData());
+    await timed("getDebtOverview (what /planning/debts folds into totals)", () =>
+      getDebtOverview(),
+    );
   });
 }
 
