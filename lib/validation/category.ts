@@ -15,47 +15,30 @@ const categoryParentIdSchema = z
   .uuid({ error: "categories.errors.parentInvalid" })
   .nullable();
 
-const categoryColorSchema = z
-  .enum(CATEGORY_COLORS, { error: "categories.errors.colorRequired" })
-  .nullable();
-
-// A subcategory inherits its parent's colour and sends none of its own; a
-// top-level category has no parent to inherit from, so it must pick one (RF-63).
-function requireColorAtTopLevel(
-  data: { parentId: string | null; color: string | null },
-  ctx: z.RefinementCtx,
-) {
-  if (data.parentId === null && data.color === null) {
-    ctx.addIssue({
-      code: "custom",
-      message: "categories.errors.colorRequired",
-      path: ["color"],
-    });
-  }
-}
+// Every category picks its own colour, parent or child alike (D8): a
+// subcategory no longer inherits its parent's at write time.
+const categoryColorSchema = z.enum(CATEGORY_COLORS, {
+  error: "categories.errors.colorRequired",
+});
 
 // The scope (personal or group) is resolved from the session (RF-63), so it
 // never travels in the payload.
-export const createCategorySchema = z
-  .object({
-    name: categoryNameSchema,
-    kind: z.enum(CATEGORY_KINDS, { error: "categories.errors.kindInvalid" }),
-    parentId: categoryParentIdSchema,
-    color: categoryColorSchema,
-  })
-  .superRefine(requireColorAtTopLevel);
+export const createCategorySchema = z.object({
+  name: categoryNameSchema,
+  kind: z.enum(CATEGORY_KINDS, { error: "categories.errors.kindInvalid" }),
+  parentId: categoryParentIdSchema,
+  color: categoryColorSchema,
+});
 
 export type CreateCategoryInput = z.infer<typeof createCategorySchema>;
 
 // `kind` is immutable after creation, so it never appears in the update schema.
-export const updateCategorySchema = z
-  .object({
-    categoryId: z.uuid(),
-    name: categoryNameSchema,
-    parentId: categoryParentIdSchema,
-    color: categoryColorSchema,
-  })
-  .superRefine(requireColorAtTopLevel);
+export const updateCategorySchema = z.object({
+  categoryId: z.uuid(),
+  name: categoryNameSchema,
+  parentId: categoryParentIdSchema,
+  color: categoryColorSchema,
+});
 
 export type UpdateCategoryInput = z.infer<typeof updateCategorySchema>;
 

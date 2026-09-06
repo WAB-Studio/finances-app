@@ -2697,6 +2697,112 @@ async function invariantSuite(
       !humanQueued,
     `the shape is ${shapes.some((shape) => shape.id === restored.shapeId) ? "still silenced" : "no longer silenced"}, ${queued.length} of 2 discarded deliveries are pending again, the person's rejection is ${humanQueued ? "back in the queue" : "still out of it"}`,
   );
+
+  // D8: a fresh fund's categories, madre and hija alike, each draw their own
+  // colour from `nextCategoryColor` — `create-group.ts` no longer copies a
+  // child's colour from its parent.
+  const fundPalette = next("a seeded fund's categories carry no repeated colour");
+  const paletteLeader = await createMembershipFreeUser();
+  const { groupId: paletteGroupId } = await asUser(paletteLeader, () =>
+    createGroup({
+      name: "Harness fondo paleta",
+      leaderName: "Harness leader",
+      cashMode: "shared",
+      locale: "es",
+    }),
+  );
+  track("groups", paletteGroupId);
+  const [paletteSeeded] = await fixtureSql<
+    { member_id: string | null; account_id: string | null }[]
+  >`
+    select
+      (select id from group_members
+         where group_id = ${paletteGroupId} and user_id = ${paletteLeader.id}
+           and role = 'leader') as member_id,
+      (select id from accounts
+         where group_id = ${paletteGroupId} and subtype = 'efectivo') as account_id`;
+  if (paletteSeeded.member_id !== null) track("group_members", paletteSeeded.member_id);
+  if (paletteSeeded.account_id !== null) track("accounts", paletteSeeded.account_id);
+  const fundCategoryRows = await fixtureSql<{ id: string; color: string | null }[]>`
+    select id, color from categories where group_id = ${paletteGroupId}`;
+  for (const row of fundCategoryRows) track("categories", row.id);
+  const fundColours = fundCategoryRows.map((row) => row.color);
+  assert(
+    fundPalette,
+    fundCategoryRows.length > 0 && new Set(fundColours).size === fundColours.length,
+    `${new Set(fundColours).size} unique colour(s) of ${fundCategoryRows.length} categories`,
+  );
+
+  // The personal-space half of the same fix (`personal-space.ts`).
+  const personalPalette = next(
+    "a seeded personal space's categories carry no repeated colour",
+  );
+  const paletteSolo = await createMembershipFreeUser();
+  await asUser(paletteSolo, () =>
+    withUserDb((tx) =>
+      seedPersonalCategories(tx, { userId: paletteSolo.id, locale: "es" }),
+    ),
+  );
+  const personalCategoryRows = await fixtureSql<{ id: string; color: string | null }[]>`
+    select id, color from categories where owner_user_id = ${paletteSolo.id}`;
+  for (const row of personalCategoryRows) track("categories", row.id);
+  const personalColours = personalCategoryRows.map((row) => row.color);
+  assert(
+    personalPalette,
+    personalCategoryRows.length > 0 &&
+      new Set(personalColours).size === personalColours.length,
+    `${new Set(personalColours).size} unique colour(s) of ${personalCategoryRows.length} categories`,
+  );
+
+  // The part that used to revert itself: `categories.ts` forced a subcategory's
+  // colour back to its parent's on every insert AND every update. Create a
+  // parent and a child in distinct colours, edit the child through the real
+  // `updateCategory` path, and read its colour back — it must still be the
+  // child's own, never the parent's.
+  const childKeepsOwnColour = next(
+    "an edited subcategory keeps the colour it was given, not its parent's",
+  );
+  const paletteEditor = await createMembershipFreeUser();
+  const editorScope = { ownerUserId: paletteEditor.id } as const;
+  const { categoryId: paletteParentId } = await asUser(paletteEditor, () =>
+    createCategory({
+      scope: editorScope,
+      name: "Harness paleta madre",
+      kind: "expense",
+      parentId: null,
+      color: "#111111",
+    }),
+  );
+  track("categories", paletteParentId);
+  const { categoryId: paletteChildId } = await asUser(paletteEditor, () =>
+    createCategory({
+      scope: editorScope,
+      name: "Harness paleta hija",
+      kind: "expense",
+      parentId: paletteParentId,
+      color: "#222222",
+    }),
+  );
+  track("categories", paletteChildId);
+  await asUser(paletteEditor, () =>
+    updateCategory({
+      categoryId: paletteChildId,
+      name: "Harness paleta hija editada",
+      parentId: paletteParentId,
+      color: "#333333",
+    }),
+  );
+  const childColourAfterEdit = await readColumn<string>(
+    "categories",
+    "id",
+    paletteChildId,
+    "color",
+  );
+  assert(
+    childKeepsOwnColour,
+    childColourAfterEdit === "#333333",
+    `parent #111111, child created #222222, child after edit ${childColourAfterEdit}`,
+  );
 }
 
 /**
