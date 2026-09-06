@@ -27,7 +27,10 @@ import {
   updateBudget,
 } from "@/db/queries/budgets";
 import { createCategory, listScopedCategories } from "@/db/queries/categories";
-import { materialiseDueStatements } from "@/db/queries/debt-statements";
+import {
+  materialiseDueStatements,
+  recordBilledAmount,
+} from "@/db/queries/debt-statements";
 import { upsertDebtTerms } from "@/db/queries/debt-terms";
 import {
   createInstallmentPlan,
@@ -53,10 +56,14 @@ import {
   createGoal,
   listGoalsWithProgress,
 } from "@/db/queries/savings-goals";
-import { insertTransaction, listTransactions } from "@/db/queries/transactions";
+import {
+  createTransaction,
+  insertTransaction,
+  listTransactions,
+} from "@/db/queries/transactions";
 import type { CreateTransactionArgs } from "@/db/queries/transactions";
 import { withUserDb } from "@/db/session";
-import { BASE_CURRENCY } from "@/lib/currency";
+import { BASE_CURRENCY, type OfferedCurrency } from "@/lib/currency";
 import { addCivilDays, addCivilMonths, todayInBogota } from "@/lib/dates";
 import { pesosToCents } from "@/lib/money";
 
@@ -82,7 +89,7 @@ const MONTHS_BACK = 9;
 const BATCH = 32;
 const PARALLEL = 8;
 
-type AccountKey = "savings" | "nequi" | "cash" | "visa" | "falabella";
+type AccountKey = "savings" | "nequi" | "cash" | "visa" | "falabella" | "usd";
 
 type DemoAccount = {
   key: AccountKey;
@@ -91,9 +98,15 @@ type DemoAccount = {
   subtype: "bancaria" | "efectivo" | "tarjeta";
   institution: string | null;
   lastFour: string | null;
-  // What the account held the day before the oldest movement, in pesos. A
-  // liability opens negative inside `createAccount`; the figure stays positive here.
-  openingPesos: number;
+  // Where the account settles (RF-121): every existing account keeps the peso,
+  // and the one dollar account is what gives the fixture a second currency to
+  // hold and to move between (RF-122).
+  settlementCurrency: OfferedCurrency;
+  // What the account held the day before the oldest movement, in the major unit
+  // of its OWN settlement currency — pesos for a COP account, dollars for the
+  // USD one. `pesosToCents` reads either the same way: the stored scale is
+  // hundredths of the major unit for every currency alike (RNF-05).
+  openingAmount: number;
 };
 
 const DEMO_ACCOUNTS: DemoAccount[] = [
@@ -104,7 +117,8 @@ const DEMO_ACCOUNTS: DemoAccount[] = [
     subtype: "bancaria",
     institution: "Bancolombia",
     lastFour: "4082",
-    openingPesos: 4_200_000,
+    settlementCurrency: "COP",
+    openingAmount: 4_200_000,
   },
   {
     key: "nequi",
@@ -113,7 +127,8 @@ const DEMO_ACCOUNTS: DemoAccount[] = [
     subtype: "bancaria",
     institution: "Nequi",
     lastFour: "7731",
-    openingPesos: 350_000,
+    settlementCurrency: "COP",
+    openingAmount: 350_000,
   },
   {
     key: "cash",
@@ -122,7 +137,18 @@ const DEMO_ACCOUNTS: DemoAccount[] = [
     subtype: "efectivo",
     institution: null,
     lastFour: null,
-    openingPesos: 120_000,
+    settlementCurrency: "COP",
+    openingAmount: 120_000,
+  },
+  {
+    key: "usd",
+    name: "Payoneer USD",
+    kind: "asset",
+    subtype: "bancaria",
+    institution: "Payoneer",
+    lastFour: null,
+    settlementCurrency: "USD",
+    openingAmount: 650,
   },
   {
     key: "visa",
@@ -131,7 +157,8 @@ const DEMO_ACCOUNTS: DemoAccount[] = [
     subtype: "tarjeta",
     institution: "Bancolombia",
     lastFour: "5519",
-    openingPesos: 1_200_000,
+    settlementCurrency: "COP",
+    openingAmount: 1_200_000,
   },
   {
     key: "falabella",
@@ -140,7 +167,8 @@ const DEMO_ACCOUNTS: DemoAccount[] = [
     subtype: "tarjeta",
     institution: "Banco Falabella",
     lastFour: "9204",
-    openingPesos: 5_000_000,
+    settlementCurrency: "COP",
+    openingAmount: 5_000_000,
   },
 ];
 
@@ -993,8 +1021,10 @@ async function ensureScaffold(userId: string): Promise<Scaffold> {
       isShared: false,
       institution: account.institution,
       lastFour: account.lastFour,
-      settlementCurrency: BASE_CURRENCY,
-      amountMinor: account.openingPesos,
+      settlementCurrency: account.settlementCurrency,
+      // The stored scale is ×100 of the major unit for every currency alike
+      // (RNF-05), the same conversion `pesosToCents` already does for a peso.
+      amountMinor: pesosToCents(account.openingAmount),
       balanceOn,
     });
 
@@ -1168,6 +1198,123 @@ async function seedPayments(scaffold: Scaffold): Promise<void> {
     if (plan.outcome === "cancelled") {
       await cancelPlannedPayment({ plannedPaymentId });
     }
+  }
+}
+
+// One purchase in dollars on the Falabella card, which settles in pesos
+// (RF-121, RF-123). `copBilledCents` absent leaves the estimate a person typed
+// standing; present, `recordBilledAmount` replaces it with what the issuer
+// billed, the same write the card's screen calls. Every amount is already in
+// the stored scale — hundredths of its own currency's major unit — so no float
+// crosses into a column here.
+type ForeignPurchase = {
+  slot: string;
+  daysAgo: number;
+  usdCents: number;
+  copEstimateCents: number;
+  copBilledCents?: number;
+  description: string;
+  category: string;
+};
+
+const FOREIGN_PURCHASES: ForeignPurchase[] = [
+  {
+    slot: "spotify",
+    daysAgo: 96,
+    usdCents: 1199,
+    copEstimateCents: pesosToCents(48_000),
+    copBilledCents: pesosToCents(47_640),
+    description: "Spotify Premium",
+    category: "Suscripciones",
+  },
+  {
+    slot: "amazon",
+    daysAgo: 63,
+    usdCents: 6250,
+    copEstimateCents: pesosToCents(250_000),
+    copBilledCents: pesosToCents(248_800),
+    description: "Compra en Amazon",
+    category: "Ocio",
+  },
+  {
+    slot: "netflix",
+    daysAgo: 18,
+    usdCents: 1549,
+    copEstimateCents: pesosToCents(62_000),
+    description: "Netflix",
+    category: "Suscripciones",
+  },
+  {
+    slot: "steam",
+    daysAgo: 6,
+    usdCents: 3999,
+    copEstimateCents: pesosToCents(160_000),
+    description: "Compra en Steam",
+    category: "Ocio",
+  },
+];
+
+// One exchange between the peso and the dollar account (RF-122): booked in
+// pesos, the side that pays, with the dollar side confirmed at the same
+// moment — a transfer carries no estimate, which is RF-123's alone to wait on.
+const CURRENCY_TRANSFER_COP_CENTS = pesosToCents(2_000_000);
+const CURRENCY_TRANSFER_USD_CENTS = 50_000;
+
+/**
+ * The Falabella card's dollar purchases and the one exchange into the Payoneer
+ * account, written through `createTransaction` and `recordBilledAmount` — the
+ * same paths the movement form and the card's screen call. Every external_ref
+ * is checked against the same set `seedMovements` reads, so a second run bills
+ * nothing twice and writes no purchase or transfer again.
+ */
+async function seedForeignCurrency(userId: string, scaffold: Scaffold): Promise<void> {
+  const falabella = scaffold.accountIds.falabella;
+  const already = await seededRefs(userId);
+
+  for (const purchase of FOREIGN_PURCHASES) {
+    const externalRef = `${SEED_PREFIX}usd:${purchase.slot}`;
+    if (already.has(externalRef)) continue;
+
+    const { transactionId } = await createTransaction({
+      fromAccountId: falabella,
+      toAccountId: null,
+      amountCents: purchase.usdCents,
+      currency: "USD",
+      counterAmountCents: purchase.copEstimateCents,
+      counterIsEstimate: true,
+      occurredAt: addCivilDays(todayInBogota(), -purchase.daysAgo),
+      description: purchase.description,
+      externalRef,
+      splits: [
+        { categoryId: categoryId(scaffold, purchase.category), amountCents: purchase.usdCents },
+      ],
+      labelIds: [],
+    });
+
+    if (purchase.copBilledCents === undefined) continue;
+
+    await recordBilledAmount({
+      transactionId,
+      accountId: falabella,
+      currency: BASE_CURRENCY,
+      billedCents: purchase.copBilledCents,
+    });
+  }
+
+  const transferRef = `${SEED_PREFIX}usd:transfer`;
+  if (!already.has(transferRef)) {
+    await createTransaction({
+      fromAccountId: scaffold.accountIds.savings,
+      toAccountId: scaffold.accountIds.usd,
+      amountCents: CURRENCY_TRANSFER_COP_CENTS,
+      currency: BASE_CURRENCY,
+      counterAmountCents: CURRENCY_TRANSFER_USD_CENTS,
+      occurredAt: addCivilDays(todayInBogota(), -20),
+      description: "Compra de dólares",
+      externalRef: transferRef,
+      splits: [],
+      labelIds: [],
+    });
   }
 }
 
@@ -1345,6 +1492,7 @@ async function seed(user: HarnessUser): Promise<void> {
   const scaffold = await ensureScaffold(user.id);
 
   await seedMovements(user.id, scaffold);
+  await seedForeignCurrency(user.id, scaffold);
   await seedRecurring(scaffold);
   await seedPayments(scaffold);
   await seedDebts(scaffold);

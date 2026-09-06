@@ -337,10 +337,12 @@ test.describe("the group's own settings", () => {
     const renamed = `Fondo renombrado ${stamp}`;
 
     // The seeded row is what the fields are read against: a change only proves
-    // anything once the screen is carrying the two values it was given.
-    const [seeded] = await fixtureSql<{ name: string; cash_mode: string }[]>`
-      select name, cash_mode from groups where id = ${groupId}`;
+    // anything once the screen is carrying the three values it was given.
+    const [seeded] = await fixtureSql<
+      { name: string; cash_mode: string; currency: string }[]
+    >`select name, cash_mode, currency from groups where id = ${groupId}`;
     expect(seeded.cash_mode).toBe("per_member");
+    expect(seeded.currency).toBe("COP");
     // Cash per member holds no shared pot, so the one below is the switch's own
     // work and not a row the seed left lying there.
     expect(
@@ -355,19 +357,27 @@ test.describe("the group's own settings", () => {
     await expect(
       page.getByRole("radio", { name: group.cashModePerMember, exact: true }),
     ).toBeChecked();
+    await expect(
+      page.getByRole("radio", { name: "COP", exact: true }),
+    ).toBeChecked();
 
     await page.getByRole("textbox", { name: group.nameLabel }).fill(renamed);
     await page
       .getByRole("radio", { name: group.cashModeShared, exact: true })
       .click();
+    // The currency rides the same one-statement write as the name and the cash
+    // mode (RF-121): a leader changes where the fund settles from here too.
+    await page.getByRole("radio", { name: "USD", exact: true }).click();
     await page.getByRole("button", { name: group.save, exact: true }).click();
 
     await expect(page.getByText(group.saved, { exact: true })).toBeVisible();
 
-    const [saved] = await fixtureSql<{ name: string; cash_mode: string }[]>`
-      select name, cash_mode from groups where id = ${groupId}`;
+    const [saved] = await fixtureSql<
+      { name: string; cash_mode: string; currency: string }[]
+    >`select name, cash_mode, currency from groups where id = ${groupId}`;
     expect(saved.name).toBe(renamed);
     expect(saved.cash_mode).toBe("shared");
+    expect(saved.currency).toBe("USD");
 
     // 'shared' names one pot, so the save has to leave exactly one behind (RF-56):
     // none sends the next withdrawal to an account nothing ever finds again, and
@@ -399,11 +409,17 @@ test.describe("the group's own settings", () => {
       await expect(
         settings.getByText(group.cashModePerMember, { exact: true }),
       ).toBeVisible();
+      // The currency reads as plain text here, the same way the cash mode does
+      // above — no member changes where the fund settles (RF-121).
+      await expect(settings.getByText("COP", { exact: true })).toBeVisible();
 
       // RF-57: the configuration is the leader's, and this screen hands a plain
       // member neither the field nor the button that would reach the action.
       await expect(
         page.getByRole("textbox", { name: group.nameLabel }),
+      ).toHaveCount(0);
+      await expect(
+        page.getByRole("radio", { name: "USD", exact: true }),
       ).toHaveCount(0);
       await expect(
         page.getByRole("button", { name: group.save, exact: true }),
