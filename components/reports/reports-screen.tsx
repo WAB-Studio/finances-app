@@ -8,13 +8,15 @@ import {
   CategoryTile,
   Flex,
   Heading,
+  Money,
   Text,
 } from "@/components/ui";
 import type { BarChartDatum } from "@/components/ui";
+import type { MonthFlow } from "@/db/queries/reports/monthly-flow";
 import type { ReportsData } from "@/db/queries/reports/reports-screen";
 import type { MemberContributionNamed } from "@/db/queries/reports/reports-screen";
+import type { CurrencyCode } from "@/lib/currency";
 import { civilDateToDate } from "@/lib/dates";
-import { centsToPesos } from "@/lib/money";
 
 // The two flow series carry the fund's colours: jade for what comes in, tomato
 // for what goes out.
@@ -27,24 +29,17 @@ const SERIES_COLORS = {
  * The reports screen: this month's expenses by category (largest first, RF-34),
  * the six-month income-vs-expense trend (RF-35) and each member's net contribution
  * to the group pot (RF-66) — the pot itself never a contributor (RF-67). Every
- * figure arrives already derived and stays integer cents; the peso reading is
- * display only. Recharts lives behind the `BarChart` primitive alone.
+ * figure arrives already derived and stays an integer in the stored scale; the
+ * reading is `Money`'s. Recharts lives behind the `BarChart` primitive alone.
+ *
+ * Every band on this screen is drawn once per currency and says which one it
+ * counts (RF-124): two currencies are two breakdowns, two charts and two
+ * contribution lists, and no series ever holds a bar from both.
  */
 export function ReportsScreen({ data }: { data: ReportsData }) {
   const t = useTranslations("reports");
-  const format = useFormatter();
 
   const { expensesByCategory, sixMonthFlow, contributions, hasGroup } = data;
-
-  // Oldest-first months, each flat as the two-series shape the chart wants; the
-  // label is the month's short name in the active locale.
-  const chartData: BarChartDatum[] = sixMonthFlow.map((month) => ({
-    label: format.dateTime(civilDateToDate(month.monthStart), { month: "short" }),
-    series: [
-      { key: "income", valueCents: month.incomeCents },
-      { key: "expense", valueCents: month.expenseCents },
-    ],
-  }));
 
   return (
     <Flex direction="column" gap="6">
@@ -58,23 +53,29 @@ export function ReportsScreen({ data }: { data: ReportsData }) {
               {t("byCategoryEmpty")}
             </Text>
           ) : (
-            <Flex direction="column" gap="3">
-              {expensesByCategory.map((row) => (
-                <Flex key={row.categoryId} align="center" gap="3">
-                  <CategoryTile color={row.color} size={28} />
-                  <Text as="div" size="3" style={{ flex: 1, minWidth: 0 }} truncate>
-                    {row.name}
-                  </Text>
-                  <Text
-                    size="3"
-                    weight="medium"
-                    style={{ fontVariantNumeric: "tabular-nums" }}
-                  >
-                    {format.number(centsToPesos(row.totalCents), "currency")}
-                  </Text>
-                </Flex>
-              ))}
-            </Flex>
+            byCurrency(expensesByCategory).map(([currency, rows]) => (
+              <Flex key={currency} direction="column" gap="3">
+                <Text size="2" color="gray">
+                  {t("inCurrency", { currency })}
+                </Text>
+                {rows.map((row) => (
+                  <Flex key={row.categoryId} align="center" gap="3">
+                    <CategoryTile color={row.color} size={28} />
+                    <Text as="div" size="3" style={{ flex: 1, minWidth: 0 }} truncate>
+                      {row.name}
+                    </Text>
+                    <Text size="3" weight="medium">
+                      <Money
+                        minor={row.totalCents}
+                        currency={row.currency}
+                        signed={false}
+                        size="inherit"
+                      />
+                    </Text>
+                  </Flex>
+                ))}
+              </Flex>
+            ))
           )}
         </section>
       </Flex>
@@ -82,15 +83,9 @@ export function ReportsScreen({ data }: { data: ReportsData }) {
       <Flex direction="column" gap="3" asChild>
         <section>
           <Heading as="h2" size="4">{t("comparisonTitle")}</Heading>
-          <BarChart
-            data={chartData}
-            seriesColors={SERIES_COLORS}
-            aria-label={t("comparisonTitle")}
-          />
-          <Flex gap="4" wrap="wrap">
-            <LegendItem color={SERIES_COLORS.income} label={t("legendIncome")} />
-            <LegendItem color={SERIES_COLORS.expense} label={t("legendExpense")} />
-          </Flex>
+          {byCurrency(sixMonthFlow).map(([currency, months]) => (
+            <CurrencyTrend key={currency} currency={currency} months={months} />
+          ))}
         </section>
       </Flex>
 
@@ -106,13 +101,80 @@ export function ReportsScreen({ data }: { data: ReportsData }) {
               {t("contributionsEmpty")}
             </Text>
           ) : (
-            <Flex direction="column" gap="3">
-              {contributions.map((row) => (
-                <ContributionRow key={row.userId} row={row} />
-              ))}
-            </Flex>
+            byCurrency(contributions).map(([currency, rows]) => (
+              <Flex key={currency} direction="column" gap="3">
+                <Text size="2" color="gray">
+                  {t("inCurrency", { currency })}
+                </Text>
+                {rows.map((row) => (
+                  <ContributionRow key={`${row.userId}|${row.currency}`} row={row} />
+                ))}
+              </Flex>
+            ))
           )}
         </section>
+      </Flex>
+    </Flex>
+  );
+}
+
+// Rows regrouped into the currencies they arrived in, each group keeping the
+// order the query gave it. The one shape every band on this screen draws from:
+// a group is what a figure, a bar or a legend counts, and two are never added.
+function byCurrency<T extends { currency: CurrencyCode }>(
+  rows: T[],
+): [CurrencyCode, T[]][] {
+  const groups = new Map<CurrencyCode, T[]>();
+  for (const row of rows) {
+    const group = groups.get(row.currency);
+    if (group) group.push(row);
+    else groups.set(row.currency, [row]);
+  }
+
+  return [...groups];
+}
+
+// One currency's six-month trend: its own chart and its own legend, both naming
+// the currency, so no bar is read against a figure from another one (RF-35,
+// RF-124).
+function CurrencyTrend({
+  currency,
+  months,
+}: {
+  currency: CurrencyCode;
+  months: MonthFlow[];
+}) {
+  const t = useTranslations("reports");
+  const format = useFormatter();
+
+  const inCurrency = t("inCurrency", { currency });
+
+  // Oldest-first months, each flat as the two-series shape the chart wants; the
+  // label is the month's short name in the active locale.
+  const chartData: BarChartDatum[] = months.map((month) => ({
+    label: format.dateTime(civilDateToDate(month.monthStart), { month: "short" }),
+    series: [
+      { key: "income", valueCents: month.incomeCents },
+      { key: "expense", valueCents: month.expenseCents },
+    ],
+  }));
+
+  return (
+    <Flex direction="column" gap="3">
+      <BarChart
+        data={chartData}
+        seriesColors={SERIES_COLORS}
+        aria-label={`${t("comparisonTitle")} ${inCurrency}`}
+      />
+      <Flex gap="4" wrap="wrap">
+        <LegendItem
+          color={SERIES_COLORS.income}
+          label={`${t("legendIncome")} ${inCurrency}`}
+        />
+        <LegendItem
+          color={SERIES_COLORS.expense}
+          label={`${t("legendExpense")} ${inCurrency}`}
+        />
       </Flex>
     </Flex>
   );
@@ -137,11 +199,10 @@ function LegendItem({ color, label }: { color: string; label: string }) {
   );
 }
 
-// One member's net contribution to the pot; the caller's own row wears the self
-// label when it carries no name.
+// One member's net contribution to the pot, in the currency the pot received;
+// the caller's own row wears the self label when it carries no name.
 function ContributionRow({ row }: { row: MemberContributionNamed }) {
   const t = useTranslations();
-  const format = useFormatter();
 
   const name = row.isSelf && row.name === null ? t("members.you") : row.name ?? t("members.you");
 
@@ -150,12 +211,8 @@ function ContributionRow({ row }: { row: MemberContributionNamed }) {
       <Text as="div" size="3" style={{ flex: 1, minWidth: 0 }} truncate>
         {name}
       </Text>
-      <Text
-        size="3"
-        weight="medium"
-        style={{ fontVariantNumeric: "tabular-nums" }}
-      >
-        {format.number(centsToPesos(row.contributionCents), "currency")}
+      <Text size="3" weight="medium">
+        <Money minor={row.contributionCents} currency={row.currency} size="inherit" />
       </Text>
     </Flex>
   );
