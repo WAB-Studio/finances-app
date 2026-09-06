@@ -14,8 +14,9 @@ import {
   Text,
   type DataColumn,
 } from "@/components/ui";
-import type { DebtOverviewRow } from "@/db/queries/debt-overview";
+import type { DebtOverviewRow, DebtPocket } from "@/db/queries/debt-overview";
 import type { PlanPosition } from "@/db/queries/installment-plans";
+import type { CurrencyCode } from "@/lib/currency";
 import { civilDateToDate } from "@/lib/dates";
 
 // The em dash a cell with nothing to name reads as (SPEC-A3), not a word a
@@ -44,7 +45,11 @@ const WIDTHS = {
 export type DebtTableRow = {
   accountId: string;
   name: string;
+  // The currency the debt bills in: every figure on its row is read in it, and
+  // what it owes in another one rides in `otherOwed` (RF-121, RF-124).
+  currency: CurrencyCode;
   owedCents: number;
+  otherOwed: DebtPocket[];
   planPosition: PlanPosition | null;
   terms: DebtOverviewRow | null;
   canWrite: boolean;
@@ -146,7 +151,8 @@ export function DebtsTable({
           absent()
         ) : (
           <Money
-            cents={row.terms.availableCreditCents}
+            minor={row.terms.availableCreditCents}
+            currency={row.currency}
             tone="income"
             signed={false}
           />
@@ -163,7 +169,11 @@ export function DebtsTable({
           absent()
         ) : (
           <Text color="gray">
-            <Money cents={row.terms.monthlyInterestCents} signed={false} />
+            <Money
+              minor={row.terms.monthlyInterestCents}
+              currency={row.currency}
+              signed={false}
+            />
           </Text>
         ),
     },
@@ -178,7 +188,11 @@ export function DebtsTable({
           absent()
         ) : (
           <Text color="gray">
-            <Money cents={row.terms.minimumPaymentCents} signed={false} />
+            <Money
+              minor={row.terms.minimumPaymentCents}
+              currency={row.currency}
+              signed={false}
+            />
           </Text>
         ),
     },
@@ -222,8 +236,24 @@ export function DebtsTable({
       align: "end",
       numeric: true,
       // The magnitude a liability owes, which the server already derived from
-      // its movements; the debt reads without a sign.
-      cell: (row) => <Money cents={row.owedCents} signed={false} />,
+      // its movements; the debt reads without a sign. The pocket it bills in
+      // first, then what it owes in a currency it does not — one figure each,
+      // never a sum of the two (RF-124).
+      cell: (row) => (
+        <Flex direction="column" align="end">
+          <Money minor={row.owedCents} currency={row.currency} signed={false} />
+          {row.otherOwed.map((pocket) => (
+            <Text key={pocket.currency} size="1" color="gray">
+              <Money
+                minor={pocket.owedCents}
+                currency={pocket.currency}
+                signed={false}
+                size="inherit"
+              />
+            </Text>
+          ))}
+        </Flex>
+      ),
     },
     {
       key: "menu",
