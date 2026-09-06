@@ -8,8 +8,10 @@ import { toast } from "sonner";
 
 import { revokeWebhookCredentialAction } from "@/app/actions/webhook-credentials";
 import { WebhookCredentialDialog } from "@/components/webhooks/webhook-credential-dialog";
+import { WebhooksTable } from "@/components/webhooks/webhooks-table";
 import {
   Badge,
+  Box,
   Button,
   Card,
   ConfirmDialog,
@@ -19,6 +21,7 @@ import {
   Flex,
   Heading,
   IconButton,
+  ScreenHeader,
   Text,
 } from "@/components/ui";
 import type {
@@ -113,89 +116,120 @@ export function WebhooksScreen({
 
   return (
     <Flex direction="column" gap="4">
-      <Flex justify="between" align="center" gap="3" wrap="wrap">
-        <Heading size="5">{t("title")}</Heading>
-        {credentials.length > 0 && issueButton}
-      </Flex>
+      {/* The laptop's band and table, and the phone's header and cards:
+          exactly one set is displayed at any width. */}
+      <Box display={{ initial: "none", lg: "block" }}>
+        <Flex direction="column" gap="4">
+          <ScreenHeader
+            title={t("title")}
+            meta={t("listMeta", { count: credentials.length })}
+            actions={credentials.length > 0 && issueButton}
+          />
 
-      {credentials.length === 0 ? (
-        <EmptyState
-          icon={<Webhook size={40} />}
-          title={t("emptyTitle")}
-          description={t("emptyDescription")}
-          action={issueButton}
-        />
-      ) : (
-        <Flex direction="column" gap="2">
-          {credentials.map((row) => {
-            const lines = defaultLines(row);
-            return (
-              <Card key={row.id}>
-                <Flex justify="between" align="start" gap="3">
-                  <Flex direction="column" minWidth="0">
-                    <Flex align="center" gap="2" wrap="wrap">
-                      <Text weight="medium" truncate>
-                        {row.name}
-                      </Text>
-                      {row.revokedAt !== null && (
-                        <Badge color="gray">{t("revokedBadge")}</Badge>
+          <WebhooksTable
+            rows={credentials}
+            empty={
+              credentials.length === 0 ? (
+                <EmptyState
+                  icon={<Webhook size={40} />}
+                  title={t("emptyTitle")}
+                  description={t("emptyDescription")}
+                  action={issueButton}
+                />
+              ) : undefined
+            }
+            onRevoke={(row) => setRevokeTarget(row.id)}
+          />
+        </Flex>
+      </Box>
+
+      <Box display={{ initial: "block", lg: "none" }}>
+        <Flex direction="column" gap="4">
+          <Flex justify="between" align="center" gap="3" wrap="wrap">
+            <Heading size="5">{t("title")}</Heading>
+            {credentials.length > 0 && issueButton}
+          </Flex>
+
+          {credentials.length === 0 ? (
+            <EmptyState
+              icon={<Webhook size={40} />}
+              title={t("emptyTitle")}
+              description={t("emptyDescription")}
+              action={issueButton}
+            />
+          ) : (
+            <Flex direction="column" gap="2">
+              {credentials.map((row) => {
+                const lines = defaultLines(row);
+                return (
+                  <Card key={row.id}>
+                    <Flex justify="between" align="start" gap="3">
+                      <Flex direction="column" minWidth="0">
+                        <Flex align="center" gap="2" wrap="wrap">
+                          <Text weight="medium" truncate>
+                            {row.name}
+                          </Text>
+                          {row.revokedAt !== null && (
+                            <Badge color="gray">{t("revokedBadge")}</Badge>
+                          )}
+                        </Flex>
+                        <Text size="2" color="gray">
+                          {t("rateLimit", { count: row.rateLimitPerMin })}
+                        </Text>
+                        {lines.length === 0 ? (
+                          <Text size="2" color="gray">
+                            {t("defaultsNone")}
+                          </Text>
+                        ) : (
+                          lines.map((line) => (
+                            <Text key={line} size="2" color="gray">
+                              {line}
+                            </Text>
+                          ))
+                        )}
+                        <Text size="2" color="gray">
+                          {row.lastUsedAt
+                            ? t("lastUsed", { date: formatDate(row.lastUsedAt) })
+                            : t("neverUsed")}
+                        </Text>
+                        <Text size="2" color="gray">
+                          {t("issuedOn", { date: formatDate(row.createdAt) })}
+                        </Text>
+                      </Flex>
+                      {/* A revoked credential has nothing left to act on. */}
+                      {row.revokedAt === null && (
+                        <DropdownMenu.Root>
+                          <DropdownMenu.Trigger>
+                            <IconButton
+                              type="button"
+                              variant="ghost"
+                              color="gray"
+                              size="3"
+                              aria-label={tKey("common.actionsFor", {
+                                name: row.name,
+                              })}
+                            >
+                              <EllipsisVertical size={16} />
+                            </IconButton>
+                          </DropdownMenu.Trigger>
+                          <DropdownMenu.Content>
+                            <DropdownMenu.Item
+                              color="red"
+                              onSelect={() => setRevokeTarget(row.id)}
+                            >
+                              {t("revoke")}
+                            </DropdownMenu.Item>
+                          </DropdownMenu.Content>
+                        </DropdownMenu.Root>
                       )}
                     </Flex>
-                    <Text size="2" color="gray">
-                      {t("rateLimit", { count: row.rateLimitPerMin })}
-                    </Text>
-                    {lines.length === 0 ? (
-                      <Text size="2" color="gray">
-                        {t("defaultsNone")}
-                      </Text>
-                    ) : (
-                      lines.map((line) => (
-                        <Text key={line} size="2" color="gray">
-                          {line}
-                        </Text>
-                      ))
-                    )}
-                    <Text size="2" color="gray">
-                      {row.lastUsedAt
-                        ? t("lastUsed", { date: formatDate(row.lastUsedAt) })
-                        : t("neverUsed")}
-                    </Text>
-                    <Text size="2" color="gray">
-                      {t("issuedOn", { date: formatDate(row.createdAt) })}
-                    </Text>
-                  </Flex>
-                  {/* A revoked credential has nothing left to act on. */}
-                  {row.revokedAt === null && (
-                    <DropdownMenu.Root>
-                      <DropdownMenu.Trigger>
-                        <IconButton
-                          type="button"
-                          variant="ghost"
-                          color="gray"
-                          size="3"
-                          aria-label={tKey("common.actionsFor", {
-                            name: row.name,
-                          })}
-                        >
-                          <EllipsisVertical size={16} />
-                        </IconButton>
-                      </DropdownMenu.Trigger>
-                      <DropdownMenu.Content>
-                        <DropdownMenu.Item
-                          color="red"
-                          onSelect={() => setRevokeTarget(row.id)}
-                        >
-                          {t("revoke")}
-                        </DropdownMenu.Item>
-                      </DropdownMenu.Content>
-                    </DropdownMenu.Root>
-                  )}
-                </Flex>
-              </Card>
-            );
-          })}
+                  </Card>
+                );
+              })}
+            </Flex>
+          )}
         </Flex>
-      )}
+      </Box>
 
       {/* Shown even with no credential: a person reads what a delivery looks
           like before deciding to issue one. */}
