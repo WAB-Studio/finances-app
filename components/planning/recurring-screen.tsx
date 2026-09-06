@@ -27,6 +27,7 @@ import {
   FundChip,
   Heading,
   IconButton,
+  RowMenu,
   Switch,
   Text,
 } from "@/components/ui";
@@ -169,6 +170,7 @@ export function RecurringScreen({
                 key={rule.id}
                 rule={rule}
                 onEdit={() => setFormTarget(rule)}
+                onViewGenerated={() => router.push(`/movements?rule=${rule.id}`)}
               />
             ))}
           </Flex>
@@ -187,14 +189,7 @@ export function RecurringScreen({
             />
           }
           onEdit={(row) => setFormTarget(fromRow(row))}
-          // The rule names one account; the ledger, filtered to it, is the
-          // closest door onto what this rule generated without a filter of
-          // its own (RF-29).
-          onViewGenerated={(row) => {
-            const rule = fromRow(row);
-            const accountId = rule.toAccountId ?? rule.fromAccountId;
-            if (accountId) router.push(`/movements?account=${accountId}`);
-          }}
+          onViewGenerated={(row) => router.push(`/movements?rule=${row.id}`)}
           onDelete={(row) => setDeleteTarget(fromRow(row))}
         />
       </Box>
@@ -234,9 +229,11 @@ export function RecurringScreen({
 function RuleCard({
   rule,
   onEdit,
+  onViewGenerated,
 }: {
   rule: RecurringRuleRow;
   onEdit: () => void;
+  onViewGenerated: () => void;
 }) {
   const t = useTranslations("recurringRules");
   const tKey = useTranslations();
@@ -346,6 +343,16 @@ function RuleCard({
         >
           <Pencil size={16} />
         </IconButton>
+        <RowMenu
+          rowName={rule.description ?? t("noConcept")}
+          items={[
+            {
+              key: "viewGenerated",
+              label: t("rowViewGenerated"),
+              onSelect: onViewGenerated,
+            },
+          ]}
+        />
       </Flex>
     </Card>
   );
