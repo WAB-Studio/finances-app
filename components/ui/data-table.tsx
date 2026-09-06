@@ -41,6 +41,7 @@ export function DataTable<Row>({
   total,
   empty,
   footer,
+  minWidth,
 }: {
   label: string;
   // A head inside the frame, over the column headers: what this run of rows is
@@ -58,6 +59,10 @@ export function DataTable<Row>({
   // Drawn under the container, inside the same gutter: the pagination of
   // SPEC-A3 lines up with the table's edges without a screen padding it.
   footer?: ReactNode;
+  // Floors the row grid at this width so a flexible track scrolls instead of
+  // collapsing when the fixed columns alone already outrun the viewport. Unset
+  // everywhere but the one screen that draws this table under `md`.
+  minWidth?: string;
 }) {
   const groups: DataSection<Row>[] = sections ?? [
     { key: "rows", label: "", rows: rows ?? [] },
@@ -78,6 +83,7 @@ export function DataTable<Row>({
         style={
           {
             "--data-table-columns": columns.map((c) => c.width).join(" "),
+            ...(minWidth ? { "--data-table-min-width": minWidth } : {}),
           } as CSSProperties
         }
       >

@@ -37,13 +37,25 @@ const ACTION_COLOR: Record<AuditTableRow["action"], BadgeProps["color"]> = {
   DELETE: "red",
 };
 
+// The id is a UUID (RF-53's trigger stamps the source row's key verbatim): a
+// column too narrow to show it in full still has to hold enough of it, and
+// its row menu, to stay above zero.
+const RECORD_ID_FLOOR = "160px";
+
 const WIDTHS = {
   occurredAt: "172px",
   entity: "180px",
   action: "116px",
   actor: "170px",
-  recordId: "minmax(0, 1fr)",
+  recordId: `minmax(${RECORD_ID_FLOOR}, 1fr)`,
 } as const;
+
+// This is the only screen that draws its `DataTable` under `md` (RNF-08's
+// exception, see the module 35 report): the fixed columns alone already
+// outrun a phone's viewport, so the flexible one needs a floor too, or grid's
+// negative-free-space step shrinks it to zero instead of scrolling with the
+// rest (D16).
+const MIN_WIDTH = `calc(${WIDTHS.occurredAt} + ${WIDTHS.entity} + ${WIDTHS.action} + ${WIDTHS.actor} + ${RECORD_ID_FLOOR})`;
 
 /**
  * The read-only audit trail (RF-53) as a dense table, replacing the screen's
@@ -175,6 +187,7 @@ export function AuditTable({
         columns={columns}
         rows={rows}
         rowKey={(row) => String(row.id)}
+        minWidth={MIN_WIDTH}
         empty={empty}
         footer={
           pageCount > 1 && (
