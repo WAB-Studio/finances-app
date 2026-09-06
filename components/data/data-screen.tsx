@@ -40,7 +40,7 @@ function parseCommitRowFailure(serverError: string | undefined): CommitRowFailur
       typeof parsed === "object" &&
       parsed !== null &&
       typeof (parsed as CommitRowFailure).entity === "string" &&
-      typeof (parsed as CommitRowFailure).index === "number" &&
+      typeof (parsed as CommitRowFailure).sheetRow === "number" &&
       typeof (parsed as CommitRowFailure).reasonKey === "string"
     ) {
       return parsed as CommitRowFailure;
@@ -117,7 +117,7 @@ export function DataScreen({
       }
       toast.error(
         t("screen.commitRowError", {
-          row: failure.index,
+          row: failure.sheetRow,
           sheet: t(`sheets.${failure.entity}`),
           reason: tKey(failure.reasonKey as MessageKey),
         }),
@@ -160,7 +160,7 @@ export function DataScreen({
             row.errors.map((error, position) => ({
               key: `${entity.entity}-${row.index}-${position}`,
               sheet: t(`sheets.${entity.entity}`),
-              rowIndex: row.index,
+              sheetRow: row.sheetRow,
               column: error.column
                 ? tKey(`data.columns.${error.column}` as MessageKey)
                 : null,
@@ -348,7 +348,7 @@ export function DataScreen({
                                   .map((row) => (
                                     <Table.Row key={row.index}>
                                       <Table.RowHeaderCell>
-                                        {row.index}
+                                        {row.sheetRow}
                                       </Table.RowHeaderCell>
                                       <Table.Cell>
                                         <Flex direction="column" gap="1">

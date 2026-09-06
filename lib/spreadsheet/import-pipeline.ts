@@ -83,8 +83,14 @@ export type RowFieldError = {
 // strips both from `object`, yet the commit needs the raw stable key to write it and
 // key an update (RF-52), and the placeholder a NEW account or category was assigned so
 // a reference to it remaps to its REAL inserted id (RF-51), never the placeholder.
+// `index` is the row's array position — 0-based, stable across preview and commit
+// only because both re-parse the SAME file: it seeds `placeholderFor`, never a
+// person's eyes. `sheetRow` is the row number that same line carries in the
+// spreadsheet (RF-51), the one a person sees opening the file in Excel — a blank
+// row skipped upstream pulls the two apart, so neither substitutes for the other.
 export type ResolvedRow = {
   index: number;
+  sheetRow: number;
   status: "new" | "update";
   errors: RowFieldError[];
   object: unknown | null;
@@ -351,7 +357,7 @@ function issueErrors(
   for (const issue of error.issues) {
     const key = CATALOGUE_KEY.test(issue.message) ? issue.message : INVALID_CELL;
     const column = columnForPath(entity, gate, issue.path);
-    const dedupeKey = `${key} ${column ?? ""}`;
+    const dedupeKey = `${key} ${column ?? ""}`;
     if (seen.has(dedupeKey)) continue;
     seen.add(dedupeKey);
     out.push({ key, column, value: column ? rawCellValue(entity, raw, column) : null });
@@ -516,6 +522,7 @@ function processRow(
   entity: SheetEntity,
   raw: RawRow,
   index: number,
+  sheetRow: number,
   refs: EffectiveRefs,
   existingRefs: Set<string>,
 ): ResolvedRow {
@@ -530,7 +537,7 @@ function processRow(
     (entity === "accounts" || entity === "categories") && status === "new"
       ? placeholderFor(entity, ref, index)
       : null;
-  const carried = { index, status, externalRef, placeholderId };
+  const carried = { index, sheetRow, status, externalRef, placeholderId };
 
   const guarded = sheetDescriptors[entity].rowSchema.safeParse(toNameShaped(entity, raw));
   if (!guarded.success) {
@@ -593,24 +600,25 @@ export async function runImportPipeline(input: { buffer: ArrayBuffer }): Promise
 
   const scope: ImportScope = await readImportScope();
 
+  // Every downstream cross-row check (the effective sets, RF-27's kind map) reads
+  // the record only — the row it came from is meaningless before it is resolved.
+  const recordsOf = (entity: SheetEntity) =>
+    (parsed[entity] ?? []).map((row) => row.record) as RawRow[];
+
   const refs: EffectiveRefs = {
-    accounts: buildEffectiveMap(scope.accounts, (parsed.accounts ?? []) as RawRow[], "accounts"),
-    categories: buildEffectiveMap(
-      scope.categories,
-      (parsed.categories ?? []) as RawRow[],
-      "categories",
-    ),
+    accounts: buildEffectiveMap(scope.accounts, recordsOf("accounts"), "accounts"),
+    categories: buildEffectiveMap(scope.categories, recordsOf("categories"), "categories"),
     accountCurrencies: new Map(
       scope.accounts.map((account) => [account.id, account.settlementCurrency]),
     ),
-    categoryKinds: buildCategoryKinds(scope.categories, (parsed.categories ?? []) as RawRow[]),
+    categoryKinds: buildCategoryKinds(scope.categories, recordsOf("categories")),
   };
 
   const totals = { new: 0, update: 0, error: 0 };
   const perEntity: ImportEntityResult[] = SHEET_ENTITIES.map((entity) => {
     const existingRefs = scope.existingRefs[entity];
-    const rows = (parsed[entity] ?? []).map((raw, index) =>
-      processRow(entity, raw as RawRow, index, refs, existingRefs),
+    const rows = (parsed[entity] ?? []).map((row, index) =>
+      processRow(entity, row.record as RawRow, index, row.sheetRow, refs, existingRefs),
     );
 
     for (const row of rows) {

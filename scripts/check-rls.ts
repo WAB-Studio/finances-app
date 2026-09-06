@@ -3775,6 +3775,7 @@ async function checkImportCommit() {
       {
         status: "new",
         index: 0,
+        sheetRow: 2,
         externalRef: "imp-cat-1",
         placeholderId: phCategory,
         object: { name: "Imp Cat", kind: "expense", parentId: null, color },
@@ -3784,6 +3785,7 @@ async function checkImportCommit() {
       {
         status: "new",
         index: 0,
+        sheetRow: 2,
         externalRef: "imp-acct-A",
         placeholderId: phAccountA,
         object: { name: "Imp A", kind: "asset", subtype: "efectivo", placement: "personal", institution: null, settlementCurrency: "COP", amount: "100", balanceOn: today },
@@ -3791,6 +3793,7 @@ async function checkImportCommit() {
       {
         status: "new",
         index: 0,
+        sheetRow: 2,
         externalRef: "imp-acct-C",
         placeholderId: phAccountC,
         object: { name: "Imp C", kind: "asset", subtype: "efectivo", placement: "personal", institution: null, settlementCurrency: "COP", amount: "200", balanceOn: today },
@@ -3801,6 +3804,7 @@ async function checkImportCommit() {
       {
         status: "new",
         index: 0,
+        sheetRow: 2,
         externalRef: "imp-txn-1",
         placeholderId: null,
         object: {
@@ -3860,6 +3864,7 @@ async function checkImportCommit() {
           {
             status: "update",
             index: 0,
+            sheetRow: 2,
             externalRef: "imp-acct-A",
             placeholderId: null,
             object: { name: "Imp A2", kind: "asset", subtype: "bancaria", placement: "personal", institution: null, settlementCurrency: "COP", amount: "150", balanceOn: today },
@@ -3867,6 +3872,7 @@ async function checkImportCommit() {
           {
             status: "new",
             index: 0,
+            sheetRow: 2,
             externalRef: "imp-acct-B",
             placeholderId: randomUUID(),
             object: { name: "Imp B", kind: "asset", subtype: "efectivo", placement: "personal", institution: null, settlementCurrency: "COP", amount: "10", balanceOn: today },
@@ -3917,6 +3923,7 @@ async function checkImportCommit() {
           {
             status: "update",
             index: 0,
+            sheetRow: 2,
             externalRef: "imp-cat-1",
             placeholderId: null,
             object: { name: "Imp Cat", kind: "expense", parentId: null, color },
@@ -3926,6 +3933,7 @@ async function checkImportCommit() {
           {
             status: "update",
             index: 0,
+            sheetRow: 2,
             externalRef: "imp-acct-A",
             placeholderId: null,
             object: { name: "Imp A", kind: "asset", subtype: "efectivo", placement: "personal", institution: null, settlementCurrency: "COP", amount: "100", balanceOn: today },
@@ -3933,6 +3941,7 @@ async function checkImportCommit() {
           {
             status: "update",
             index: 0,
+            sheetRow: 2,
             externalRef: "imp-acct-C",
             placeholderId: null,
             object: { name: "Imp C", kind: "asset", subtype: "efectivo", placement: "personal", institution: null, settlementCurrency: "COP", amount: "200", balanceOn: today },
@@ -3943,6 +3952,7 @@ async function checkImportCommit() {
           {
             status: "update",
             index: 0,
+            sheetRow: 2,
             externalRef: "imp-txn-1",
             placeholderId: null,
             object: {
@@ -3999,6 +4009,7 @@ async function checkImportCommit() {
       {
         status: "new",
         index: 0,
+        sheetRow: 2,
         externalRef: "imp-fail-cat",
         placeholderId: randomUUID(),
         object: { name: "Imp Fail Cat", kind: "income", parentId: null, color },
@@ -4008,6 +4019,7 @@ async function checkImportCommit() {
       {
         status: "new",
         index: 0,
+        sheetRow: 2,
         externalRef: "imp-fail-acct",
         placeholderId: randomUUID(),
         object: { name: "Imp Fail Acct", kind: "asset", subtype: "efectivo", placement: "personal", institution: null, settlementCurrency: "COP", amount: "100", balanceOn: today },
@@ -4022,6 +4034,7 @@ async function checkImportCommit() {
     {
       status: "new",
       index: 0,
+      sheetRow: 2,
       externalRef: "imp-fail-txn",
       placeholderId: null,
       object: {

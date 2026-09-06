@@ -33,14 +33,19 @@ import type { CreateTransactionInput } from "@/lib/validation/transaction";
 // never trusted from the file: a personal row names the user, a group row the group.
 export type CommitScope = { userId: string; groupId: string | null };
 
-// One classified, validated row the commit writes. `index` is its position on the
-// sheet, carried for no reason but naming the row if this very row is what a later
-// write refuses (RF-51). `externalRef` is the stable per-scope key (RF-52): present
-// on an update to locate the row, written on an insert unless blank. `placeholderId`
-// is set only for a NEW account or category, so a reference to it remaps to its REAL
-// inserted id. `object` is the entity's `createXSchema` payload.
+// One classified, validated row the commit writes. `index` is its array position,
+// carried for no reason but seeding a NEW row's placeholder upstream — never shown
+// to a person. `sheetRow` is the row this same line carries in the spreadsheet
+// (RF-51): what a person sees opening the file in Excel, and what names the row if
+// this very one is what a later write refuses — a blank row skipped upstream pulls
+// the two apart, so neither substitutes for the other. `externalRef` is the stable
+// per-scope key (RF-52): present on an update to locate the row, written on an
+// insert unless blank. `placeholderId` is set only for a NEW account or category,
+// so a reference to it remaps to its REAL inserted id. `object` is the entity's
+// `createXSchema` payload.
 export type CommitRow<T> = {
   index: number;
+  sheetRow: number;
   status: "new" | "update";
   externalRef: string | null;
   placeholderId: string | null;
@@ -51,14 +56,20 @@ export type CommitRow<T> = {
 // sheet, its row and a reason the screen already knows how to translate — the very
 // keys `mapTransactionError` throws from the live create action. JSON-encoded into
 // the one string `ActionError` carries, since a rolled-back commit still owes the
-// row it choked on, not just that one did.
-export type CommitRowFailure = { entity: SheetEntity; index: number; reasonKey: string };
+// row it choked on, not just that one did. `sheetRow` is the number a person reads
+// opening the file, never the row's array position.
+export type CommitRowFailure = { entity: SheetEntity; sheetRow: number; reasonKey: string };
 
 // `cause` carries the original throw (a raw PostgresError included) so a caller
 // walking the chain with `pgErrorCode` — `scripts/check-rls.ts`'s own proof does —
 // still finds the sqlstate under this wrapper, same as before this named the row.
-function rowFailure(entity: SheetEntity, index: number, reasonKey: string, cause: unknown): ActionError {
-  const failure: CommitRowFailure = { entity, index, reasonKey };
+function rowFailure(
+  entity: SheetEntity,
+  sheetRow: number,
+  reasonKey: string,
+  cause: unknown,
+): ActionError {
+  const failure: CommitRowFailure = { entity, sheetRow, reasonKey };
   const error = new ActionError(JSON.stringify(failure));
   error.cause = cause;
   return error;
@@ -603,7 +614,7 @@ async function commitTransactions(
       // this throw, and every row already inserted goes with it (RF-51) — the same
       // all-or-nothing the preview promised, minus the three minutes of guessing
       // which row it was.
-      throw rowFailure("transactions", row.index, transactionReasonKey(error), error);
+      throw rowFailure("transactions", row.sheetRow, transactionReasonKey(error), error);
     }
   }
 }

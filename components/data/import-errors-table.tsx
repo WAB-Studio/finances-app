@@ -16,7 +16,9 @@ const NO_VALUE = "—";
 export type ImportErrorRow = {
   key: string;
   sheet: string;
-  rowIndex: number;
+  // The row number the file itself carries (RF-51) — what a person sees opening it
+  // in Excel, never the row's position in the parsed array.
+  sheetRow: number;
   column: string | null;
   value: string | null;
   problem: string;
@@ -24,7 +26,7 @@ export type ImportErrorRow = {
 
 const WIDTHS = {
   sheet: "150px",
-  rowIndex: "70px",
+  sheetRow: "70px",
   column: "150px",
   value: "150px",
   problem: "minmax(0, 1fr)",
@@ -54,11 +56,11 @@ export function ImportErrorsTable({ rows }: { rows: ImportErrorRow[] }) {
       ),
     },
     {
-      key: "rowIndex",
+      key: "sheetRow",
       header: t("screen.reportRow"),
-      width: WIDTHS.rowIndex,
+      width: WIDTHS.sheetRow,
       numeric: true,
-      cell: (row) => <Text size="2">{row.rowIndex}</Text>,
+      cell: (row) => <Text size="2">{row.sheetRow}</Text>,
     },
     {
       key: "column",
