@@ -6,7 +6,6 @@ import {
   date,
   index,
   pgPolicy,
-  pgTable,
   smallint,
   text,
   timestamp,
@@ -15,6 +14,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { authenticatedRole, authUid } from "drizzle-orm/supabase";
 
+import { finances } from "./_schema";
 import { accounts } from "./accounts";
 import { appUsers } from "./app-users";
 import { categories } from "./categories";
@@ -24,7 +24,7 @@ import { groups } from "./groups";
 // cadence, advancing `next_run_on` each run. Always one-sided — one account, one category, never a
 // transfer. A generation lands a transaction the rule stamps and reviews (RF-31); pausing or ending a
 // rule leaves its history intact (RF-32).
-export const recurringRules = pgTable(
+export const recurringRules = finances.table(
   "recurring_rules",
   {
     id: uuid().primaryKey().defaultRandom(),

@@ -6,7 +6,6 @@ import {
   index,
   numeric,
   pgPolicy,
-  pgTable,
   smallint,
   text,
   timestamp,
@@ -14,12 +13,13 @@ import {
 } from "drizzle-orm/pg-core";
 import { authenticatedRole } from "drizzle-orm/supabase";
 
+import { finances } from "./_schema";
 import { accounts } from "./accounts";
 
 // A fixed-installment or BNPL plan over an existing liability (RF-81): principal, count, frequency,
 // interest, down payment, aval, start date and merchant. It schedules the balance into dated lines and
 // never adds to total owed. It has no scope — the account's scope gates it (RLS below).
-export const installmentPlans = pgTable(
+export const installmentPlans = finances.table(
   "installment_plans",
   {
     id: uuid().primaryKey().defaultRandom(),

@@ -37,7 +37,7 @@ import {
 const sql = postgres(process.env.DATABASE_URL!, {
   prepare: false,
   max: 1,
-  connection: { application_name: applicationName("rls") },
+  connection: { application_name: applicationName("rls"), search_path: "finances, public" },
 });
 
 // The import commit writes through Drizzle, so the proof drives it through a Drizzle
@@ -79,7 +79,7 @@ async function main() {
 
   const [relOutside] = await sql<{ rowsecurity: boolean; forced: boolean }[]>`
     select relrowsecurity as rowsecurity, relforcerowsecurity as forced
-    from pg_class where oid = 'public.app_users'::regclass`;
+    from pg_class where oid = 'finances.app_users'::regclass`;
 
   assert(
     "1. row security enabled",
@@ -2569,7 +2569,7 @@ async function checkInviteClaimPolicies() {
   // 101: read the flags outside any transaction, so FORCE is proved on the committed catalog, not a local edit.
   const [gmRel] = await sql<{ rowsecurity: boolean; forced: boolean }[]>`
     select relrowsecurity as rowsecurity, relforcerowsecurity as forced
-    from pg_class where oid = 'public.group_members'::regclass`;
+    from pg_class where oid = 'finances.group_members'::regclass`;
   assert(
     labels[3],
     gmRel.rowsecurity === true && gmRel.forced === true,
@@ -2989,7 +2989,7 @@ async function checkAuditLogPolicies() {
     select c.relname as tablename
     from pg_class c
     join pg_namespace n on n.oid = c.relnamespace
-    where n.nspname = 'public' and c.relkind = 'r' and c.relrowsecurity
+    where n.nspname = 'finances' and c.relkind = 'r' and c.relrowsecurity
       and c.relname <> 'audit_log'
       and not exists (
         select 1 from pg_trigger t
@@ -4839,7 +4839,7 @@ async function checkIngestMerchantTrust() {
         from pg_proc p
         join pg_namespace n on n.oid = p.pronamespace
         join pg_roles r on r.oid = p.proowner
-        join pg_class c on c.oid = 'public.ingest_shapes'::regclass
+        join pg_class c on c.oid = 'finances.ingest_shapes'::regclass
         where n.nspname = 'private' and p.proname = 'set_ingest_delivery_state'`;
       assert(
         labels[5],
@@ -5215,7 +5215,7 @@ async function columnGapMap(privilege: "INSERT" | "UPDATE"): Promise<Record<stri
     select c.table_name, c.column_name,
       not has_column_privilege(
         'authenticated',
-        ('public.' || quote_ident(c.table_name))::regclass,
+        ('finances.' || quote_ident(c.table_name))::regclass,
         c.column_name,
         ${privilege}) as barred
     from information_schema.columns c
@@ -5223,7 +5223,7 @@ async function columnGapMap(privilege: "INSERT" | "UPDATE"): Promise<Record<stri
       on t.table_schema = c.table_schema
      and t.table_name = c.table_name
      and t.table_type = 'BASE TABLE'
-    where c.table_schema = 'public'`;
+    where c.table_schema = 'finances'`;
 
   const map: Record<string, string[]> = {};
   for (const row of rows) {
@@ -5242,11 +5242,11 @@ async function tableGrantList(
   const rows = await on<{ table_name: string }[]>`
     select t.table_name
     from information_schema.tables t
-    where t.table_schema = 'public'
+    where t.table_schema = 'finances'
       and t.table_type = 'BASE TABLE'
       and has_table_privilege(
         'authenticated',
-        ('public.' || quote_ident(t.table_name))::regclass,
+        ('finances.' || quote_ident(t.table_name))::regclass,
         ${privilege})
     order by t.table_name`;
   return rows.map((row) => row.table_name);
@@ -5293,7 +5293,7 @@ async function checkInsertGrantMap() {
       on t.table_schema = c.table_schema
      and t.table_name = c.table_name
      and t.table_type = 'BASE TABLE'
-    where c.table_schema = 'public'`;
+    where c.table_schema = 'finances'`;
 
   const realColumns = new Set(live.map((row) => `${row.table_name}.${row.column_name}`));
   const unmapped = tables.flatMap((table) =>
@@ -5873,7 +5873,9 @@ async function checkMemberManagementLeaderOnly() {
   );
 }
 
-// Assertions 191-192: the default privileges Supabase attaches to `public`. Every table here
+// Assertions 191-192: the default privileges that reach `finances`, where this app's tables
+// live. Supabase attaches its own to `public` alone, so a table born here inherits nothing —
+// which is the point, and has to stay true. Every table here
 // clears them with an explicit REVOKE ALL, so nothing is exposed — but the next CREATE TABLE that
 // forgets one hands `authenticated` TRUNCATE, which consults no policy and fires no row trigger:
 // the table empties and `capture_audit` records nothing (RF-45). The second assertion creates a
@@ -5889,7 +5891,7 @@ async function checkDefaultPrivileges() {
     from pg_default_acl d
     cross join lateral aclexplode(d.defaclacl) a
     where d.defaclrole = 'postgres'::regrole
-      and d.defaclnamespace = 'public'::regnamespace
+      and d.defaclnamespace = 'finances'::regnamespace
       and a.grantee::regrole::text in ('anon', 'authenticated', 'service_role')
     order by d.defaclobjtype, a.grantee::regrole::text, a.privilege_type`;
 
@@ -5906,12 +5908,12 @@ async function checkDefaultPrivileges() {
   let attached = "the transaction never ran";
   await sql
     .begin(async (tx) => {
-      await tx.unsafe(`create table public.${probeTable} (id int)`);
+      await tx.unsafe(`create table finances.${probeTable} (id int)`);
       const granted = await tx<{ role: string; priv: string }[]>`
         select a.grantee::regrole::text as role, a.privilege_type as priv
         from pg_class c
         cross join lateral aclexplode(c.relacl) a
-        where c.oid = ${`public.${probeTable}`}::regclass
+        where c.oid = ${`finances.${probeTable}`}::regclass
           and a.grantee::regrole::text in ('anon', 'authenticated', 'service_role')
         order by a.grantee::regrole::text, a.privilege_type`;
       attached =
@@ -5925,7 +5927,7 @@ async function checkDefaultPrivileges() {
     });
 
   const [{ still }] = await sql<{ still: string | null }[]>`
-    select to_regclass(${`public.${probeTable}`})::text as still`;
+    select to_regclass(${`finances.${probeTable}`})::text as still`;
 
   assert(
     "192. a table created now inherits nothing for the client roles",
@@ -5959,7 +5961,7 @@ async function checkSlippedGrants() {
     select a.privilege_type as priv
     from pg_class c
     cross join lateral aclexplode(c.relacl) a
-    where c.oid = 'public.goal_progress'::regclass
+    where c.oid = 'finances.goal_progress'::regclass
       and a.grantee = 'authenticated'::regrole
     order by a.privilege_type`;
 
@@ -8080,7 +8082,7 @@ async function checkLeadershipTransfer() {
       await tx.execute(dsql`reset role`);
       const memberUpdatable = await tx.execute<{ column_name: string }>(
         dsql`select column_name from information_schema.column_privileges
-          where grantee = 'authenticated' and table_schema = 'public'
+          where grantee = 'authenticated' and table_schema = 'finances'
             and table_name = 'group_members' and privilege_type = 'UPDATE'`,
       );
       const updatableColumns = memberUpdatable.map((row) => row.column_name);
@@ -8413,7 +8415,7 @@ async function checkAccountHandOver() {
       await tx.execute(dsql`reset role`);
       const accountUpdatable = await tx.execute<{ column_name: string }>(
         dsql`select column_name from information_schema.column_privileges
-          where grantee = 'authenticated' and table_schema = 'public'
+          where grantee = 'authenticated' and table_schema = 'finances'
             and table_name = 'accounts' and privilege_type = 'UPDATE'`,
       );
       const updatableColumns = accountUpdatable.map((row) => row.column_name);
@@ -8533,12 +8535,12 @@ async function checkCurrencyPolicies() {
     select a.grantee::regrole::text as role, a.privilege_type as priv
     from pg_class c
     cross join lateral aclexplode(c.relacl) a
-    where c.oid = 'public.account_balances'::regclass
+    where c.oid = 'finances.account_balances'::regclass
       and a.grantee::regrole::text in ('anon', 'authenticated', 'service_role')
     order by a.grantee::regrole::text, a.privilege_type`;
   const [{ invoker }] = await sql<{ invoker: boolean }[]>`
     select coalesce('security_invoker=on' = any(c.reloptions), false) as invoker
-    from pg_class c where c.oid = 'public.account_balances'::regclass`;
+    from pg_class c where c.oid = 'finances.account_balances'::regclass`;
 
   const handed = viewGrants.map((row) => `${row.role}:${row.priv}`).join(", ");
   assert(
@@ -8877,7 +8879,7 @@ async function checkAccountStatementShape() {
   const shape = await sql<{ column_name: string; is_nullable: string }[]>`
     select column_name, is_nullable
     from information_schema.columns
-    where table_schema = 'public' and table_name = 'account_statements'`;
+    where table_schema = 'finances' and table_name = 'account_statements'`;
   const dueDate = shape.find((column) => column.column_name === "payment_due_date");
   assert(
     labels[0],
@@ -8895,14 +8897,14 @@ async function checkAccountStatementShape() {
     select a.grantee::regrole::text as role, a.privilege_type as priv
     from pg_class c
     cross join lateral aclexplode(c.relacl) a
-    where c.oid = 'public.account_statements'::regclass
+    where c.oid = 'finances.account_statements'::regclass
       and a.grantee::regrole::text in ('anon', 'authenticated', 'service_role')
     order by a.grantee::regrole::text, a.privilege_type`;
   const columnAcl = await sql<{ role: string; priv: string }[]>`
     select a.grantee::regrole::text as role, a.privilege_type as priv
     from pg_attribute att
     cross join lateral aclexplode(att.attacl) a
-    where att.attrelid = 'public.account_statements'::regclass
+    where att.attrelid = 'finances.account_statements'::regclass
       and att.attnum > 0 and not att.attisdropped
       and a.grantee::regrole::text in ('anon', 'authenticated', 'service_role')
     order by a.grantee::regrole::text, a.privilege_type`;

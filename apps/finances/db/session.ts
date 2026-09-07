@@ -60,12 +60,15 @@ export async function withUserDb<T>(
   const claims = JSON.stringify(session.claims);
 
   return db.transaction(async (tx) => {
-    // One statement, not three: a round trip to the pooler costs more than the
+    // One statement, not four: a round trip to the pooler costs more than the
     // query it precedes, and no statement runs between the claims and the role.
+    // `search_path` is what lets raw SQL keep naming a table unqualified now
+    // that the tables live in `finances` rather than `public`.
     // `true` is `is_local`: the pooler hands this connection on at commit.
     await tx.execute(sql`select
       set_config('request.jwt.claims', ${claims}, true),
       set_config('statement_timeout', '8000', true),
+      set_config('search_path', 'finances, public', true),
       set_config('role', 'authenticated', true)`);
 
     return fn(tx);
@@ -99,6 +102,7 @@ export async function withImpersonatedDb<T>(
     await tx.execute(sql`select
       set_config('request.jwt.claims', ${claims}, true),
       set_config('statement_timeout', '8000', true),
+      set_config('search_path', 'finances, public', true),
       set_config('role', 'authenticated', true)`);
 
     return fn(tx);

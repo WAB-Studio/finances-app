@@ -5,13 +5,13 @@ import {
   date,
   index,
   pgPolicy,
-  pgTable,
   text,
   timestamp,
   uuid,
 } from "drizzle-orm/pg-core";
 import { authenticatedRole, authUid } from "drizzle-orm/supabase";
 
+import { finances } from "./_schema";
 import { accounts } from "./accounts";
 import { appUsers } from "./app-users";
 import { categories } from "./categories";
@@ -20,7 +20,7 @@ import { transactions } from "./transactions";
 
 // A one-off deferred movement (RF-74): its accounts, amount, category and due date, with an optional
 // reminder, kept distinct from recurring rules. Settling records the transaction and links it (RF-75).
-export const plannedPayments = pgTable(
+export const plannedPayments = finances.table(
   "planned_payments",
   {
     id: uuid().primaryKey().defaultRandom(),

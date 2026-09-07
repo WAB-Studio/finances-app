@@ -6,7 +6,6 @@ import {
   date,
   index,
   pgPolicy,
-  pgTable,
   text,
   timestamp,
   uniqueIndex,
@@ -14,6 +13,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { authenticatedRole, authUid } from "drizzle-orm/supabase";
 
+import { finances } from "./_schema";
 import { accounts } from "./accounts";
 import { appUsers } from "./app-users";
 import { categories } from "./categories";
@@ -24,7 +24,7 @@ import { webhookCredentials } from "./webhook-credentials";
 // and the row survives the decision so a re-delivery of the same reference lands on nothing new. Every
 // `proposed_*` column is what the interpreter read, not what will be written — the movement is recorded
 // through the ordinary insert path, which derives its kind from the accounts.
-export const ingestDeliveries = pgTable(
+export const ingestDeliveries = finances.table(
   "ingest_deliveries",
   {
     id: uuid().primaryKey().defaultRandom(),

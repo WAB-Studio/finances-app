@@ -4,7 +4,6 @@ import {
   check,
   index,
   pgPolicy,
-  pgTable,
   smallint,
   text,
   timestamp,
@@ -12,6 +11,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { authenticatedRole, authUid } from "drizzle-orm/supabase";
 
+import { finances } from "./_schema";
 import { accounts } from "./accounts";
 import { appUsers } from "./app-users";
 import { categories } from "./categories";
@@ -20,7 +20,7 @@ import { labels } from "./labels";
 
 // A spending limit on a category for a repeating period (RF-71); scoped to a user or a group,
 // optionally narrowed to one account and/or one label. Spent and remaining derive from splits (RF-72).
-export const budgets = pgTable(
+export const budgets = finances.table(
   "budgets",
   {
     id: uuid().primaryKey().defaultRandom(),

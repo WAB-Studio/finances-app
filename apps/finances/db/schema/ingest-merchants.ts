@@ -2,7 +2,6 @@ import { sql } from "drizzle-orm";
 import {
   check,
   pgPolicy,
-  pgTable,
   smallint,
   text,
   timestamp,
@@ -11,6 +10,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { authenticatedRole, authUid } from "drizzle-orm/supabase";
 
+import { finances } from "./_schema";
 import { appUsers } from "./app-users";
 import { categories } from "./categories";
 
@@ -21,7 +21,7 @@ import { categories } from "./categories";
 //
 // `private.remember_ingest_merchant` is the sole writer: `authenticated` holds neither INSERT nor UPDATE,
 // so the transition cannot be forged from a client. SELECT and DELETE stay with the person.
-export const ingestMerchants = pgTable(
+export const ingestMerchants = finances.table(
   "ingest_merchants",
   {
     id: uuid().primaryKey().defaultRandom(),

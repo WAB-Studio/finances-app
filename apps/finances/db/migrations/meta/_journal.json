@@ -323,6 +323,20 @@
       "when": 1788790992488,
       "tag": "0045_the_trail_names_the_table_that_exists",
       "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1788796612376,
+      "tag": "0046_the_app_takes_a_schema_of_its_own",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1788796964269,
+      "tag": "0047_the_triggers_follow_their_tables",
+      "breakpoints": true
     }
   ]
 }

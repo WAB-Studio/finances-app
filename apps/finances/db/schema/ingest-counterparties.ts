@@ -2,7 +2,6 @@ import { sql } from "drizzle-orm";
 import {
   check,
   pgPolicy,
-  pgTable,
   smallint,
   text,
   timestamp,
@@ -11,6 +10,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { authenticatedRole, authUid } from "drizzle-orm/supabase";
 
+import { finances } from "./_schema";
 import { accounts } from "./accounts";
 import { appUsers } from "./app-users";
 
@@ -25,7 +25,7 @@ import { appUsers } from "./app-users";
 //
 // `private.remember_counterparty` is the sole writer: `authenticated` holds neither INSERT nor
 // UPDATE, so the transition cannot be forged from a client. SELECT and DELETE stay with the person.
-export const ingestCounterparties = pgTable(
+export const ingestCounterparties = finances.table(
   "ingest_counterparties",
   {
     id: uuid().primaryKey().defaultRandom(),

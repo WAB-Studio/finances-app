@@ -1,13 +1,14 @@
 import { sql } from "drizzle-orm";
-import { check, pgPolicy, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { check, pgPolicy, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { authenticatedRole, authUid } from "drizzle-orm/supabase";
 
+import { finances } from "./_schema";
 import { appUsers } from "./app-users";
 
 // What a user has decided about a message shape (RF-92). A `rejected` shape arrives already rejected and
 // never waits for review; anything else waits. The decision only chooses land-versus-silence — no shape
 // ever records a movement. The sample keeps one message of that shape, so the decision stays readable.
-export const ingestShapes = pgTable(
+export const ingestShapes = finances.table(
   "ingest_shapes",
   {
     id: uuid().primaryKey().defaultRandom(),

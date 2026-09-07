@@ -1,9 +1,11 @@
 import { sql } from "drizzle-orm";
-import { check, pgPolicy, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { check, pgPolicy, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { authenticatedRole } from "drizzle-orm/supabase";
 
+import { finances } from "./_schema";
+
 // The optional shared pot: a user may belong to one, and its `cash_mode` sets how cash is held (RF-56).
-export const groups = pgTable(
+export const groups = finances.table(
   "groups",
   {
     id: uuid().primaryKey().defaultRandom(),

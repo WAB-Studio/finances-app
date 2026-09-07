@@ -3,7 +3,6 @@ import {
   check,
   index,
   pgPolicy,
-  pgTable,
   text,
   timestamp,
   uniqueIndex,
@@ -11,11 +10,12 @@ import {
 } from "drizzle-orm/pg-core";
 import { authenticatedRole, authUid } from "drizzle-orm/supabase";
 
+import { finances } from "./_schema";
 import { appUsers } from "./app-users";
 import { groups } from "./groups";
 
 // A person in a group, with or without a login (RF-07): `user_id` is null until they accept an invite.
-export const groupMembers = pgTable(
+export const groupMembers = finances.table(
   "group_members",
   {
     id: uuid().primaryKey().defaultRandom(),

@@ -5,7 +5,6 @@ import {
   date,
   index,
   pgPolicy,
-  pgTable,
   smallint,
   timestamp,
   unique,
@@ -13,6 +12,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { authenticatedRole } from "drizzle-orm/supabase";
 
+import { finances } from "./_schema";
 import { installmentPlans } from "./installment-plans";
 import { transactions } from "./transactions";
 
@@ -20,7 +20,7 @@ import { transactions } from "./transactions";
 // is allocated oldest-first (RF-82); a line is marked paid only when covered in full, and the paying
 // movement is linked. Pending derives from the unpaid lines and is never stored. No scope of its own —
 // the plan's account gates it (RLS below).
-export const installmentLines = pgTable(
+export const installmentLines = finances.table(
   "installment_lines",
   {
     id: uuid().primaryKey().defaultRandom(),

@@ -4,7 +4,6 @@ import {
   foreignKey,
   index,
   pgPolicy,
-  pgTable,
   text,
   timestamp,
   unique,
@@ -13,11 +12,12 @@ import {
 } from "drizzle-orm/pg-core";
 import { authenticatedRole, authUid } from "drizzle-orm/supabase";
 
+import { finances } from "./_schema";
 import { appUsers } from "./app-users";
 import { groups } from "./groups";
 
 // How a transaction is classified; RF-63 nests one level of subcategory and scopes each to a user or a group.
-export const categories = pgTable(
+export const categories = finances.table(
   "categories",
   {
     id: uuid().primaryKey().defaultRandom(),

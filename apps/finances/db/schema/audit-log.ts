@@ -1,13 +1,15 @@
 import { sql } from "drizzle-orm";
-import { bigint, check, index, jsonb, pgPolicy, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { bigint, check, index, jsonb, pgPolicy, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { authenticatedRole, authUid } from "drizzle-orm/supabase";
+
+import { finances } from "./_schema";
 
 // The append-only trail of every write (RF-43/44/45): one row per INSERT, UPDATE or DELETE, stamped
 // with the full before/after snapshot. The capture trigger is the only writer and the RNF-14 purge the
 // only deleter — both land in the migration. No foreign keys: the log outlives the rows it references,
 // so a purged or deleted record still reads back. `owner_user_id`/`group_id` scope the row the way its
 // entity was scoped, both null for child or reference rows; `actor_user_id` null marks a system write.
-export const auditLog = pgTable(
+export const auditLog = finances.table(
   "audit_log",
   {
     id: bigint({ mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),

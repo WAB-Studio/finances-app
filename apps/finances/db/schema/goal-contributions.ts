@@ -4,19 +4,19 @@ import {
   check,
   index,
   pgPolicy,
-  pgTable,
   timestamp,
   unique,
   uuid,
 } from "drizzle-orm/pg-core";
 import { authenticatedRole, authUid } from "drizzle-orm/supabase";
 
+import { finances } from "./_schema";
 import { savingsGoals } from "./savings-goals";
 import { transactions } from "./transactions";
 
 // The amounts a savings goal sets aside (RF-87): a goal's progress sums these and is never stored.
 // A row names a movement only when one earmarks it; the amount alone is enough.
-export const goalContributions = pgTable(
+export const goalContributions = finances.table(
   "goal_contributions",
   {
     id: uuid().primaryKey().defaultRandom(),
