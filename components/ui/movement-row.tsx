@@ -7,7 +7,8 @@ type MovementTone = "expense" | "income" | "transfer";
 
 // One ledger line: a leading tile, the title over an optional subtitle, and the
 // caller-formatted amount. A generated movement wears the `badge` label beside its
-// title. Pure — every string and the sign arrive as props.
+// title, a movement that names a cause the `caused` one (RF-132). Pure — every
+// string and the sign arrive as props.
 export function MovementRow({
   tile,
   title,
@@ -15,6 +16,7 @@ export function MovementRow({
   amount,
   tone = "expense",
   badge,
+  caused,
 }: {
   tile: ReactNode;
   title: string;
@@ -22,6 +24,8 @@ export function MovementRow({
   amount: ReactNode;
   tone?: MovementTone;
   badge?: string;
+  // The marker a charge wears; the screen passes the word, never the style.
+  caused?: string;
 }) {
   return (
     <Flex align="center" gap="3">
@@ -34,6 +38,11 @@ export function MovementRow({
           {badge && (
             <Badge color="jade" variant="soft" radius="full">
               {badge}
+            </Badge>
+          )}
+          {caused && (
+            <Badge color="gray" variant="surface" radius="full">
+              {caused}
             </Badge>
           )}
         </Flex>

@@ -48,7 +48,7 @@ import {
   type CurrencyCode,
   OFFERED_CURRENCIES,
 } from "@/lib/currency";
-import { todayInBogota } from "@/lib/dates";
+import { civilDateToDate, todayInBogota } from "@/lib/dates";
 import { amountToInput, deriveRate, formatMoney, parseAmount } from "@/lib/money";
 import { useActionErrorToast } from "@/lib/use-action-toast";
 import {
@@ -82,6 +82,7 @@ type MovementFormValues = {
   externalRef?: string;
   splits: { categoryId: string; amount: string }[];
   labelIds: string[];
+  causedByTransactionId: string | null;
 };
 
 // The kind the DB generates from the accounts (RF-18): a lone destination is an
@@ -124,6 +125,10 @@ const RATE_FORMAT = { maximumSignificantDigits: 6 } as const;
 // not carry an empty value; it maps back to null the moment it is picked.
 const NO_ACCOUNT = "none";
 
+// The same trick for the cause picker: nothing chosen is a movement that names
+// no cause, which is every movement most days (RF-132).
+const NO_CAUSE = "none";
+
 // What the two named accounts settle in, off the map the options already carry
 // (RF-121): no read of its own, and the same pair the action reads back from the
 // accounts before it writes.
@@ -152,12 +157,20 @@ export function MovementForm({
   movement,
   deliveryId,
   defaults,
+  causeOptions = [],
+  causedByTransactionId = null,
   onDone,
 }: {
   mode: "create" | "edit";
   options: TransactionFormOptions;
   movement?: TransactionListRow;
   deliveryId?: string;
+  // The movements the cause picker offers, the one already named among them so
+  // it keeps its words; an empty set leaves the picker off the form entirely.
+  causeOptions?: TransactionListRow[];
+  // The cause the movement already names, seeded into the picker so an edit
+  // that ignores it leaves it where it was (RF-132).
+  causedByTransactionId?: string | null;
   defaults?: {
     fromAccountId?: string | null;
     toAccountId?: string | null;
@@ -239,6 +252,7 @@ export function MovementForm({
             amount: amountToInput(split.amountCents, movement.currency),
           })),
           labelIds: movement.labels.map((label) => label.id),
+          causedByTransactionId,
         }
       : {
           deliveryId: isAccept ? deliveryId : undefined,
@@ -263,6 +277,7 @@ export function MovementForm({
             defaults?.description !== undefined ? defaults.description : null,
           splits: defaults?.splits ?? [],
           labelIds: [],
+          causedByTransactionId,
         },
   });
 
@@ -342,6 +357,13 @@ export function MovementForm({
   }, [options.accounts, scopeAccountId]);
 
   const isGroupScoped = kind !== null && scope === "group";
+
+  // A movement is never its own cause (RF-132), so the movement under edit is
+  // dropped from what the picker offers; the rest arrive already ordered.
+  const causeCandidates = useMemo(
+    () => causeOptions.filter((row) => row.id !== movement?.id),
+    [causeOptions, movement?.id],
+  );
 
   // A movement's labels share its scope, so only that scope's set is on offer
   // (RF-70); the other scope's would be refused by the check on write.
@@ -425,6 +447,21 @@ export function MovementForm({
     } else {
       create.execute(values as CreateTransactionInput);
     }
+  }
+
+  function causeOptionLabel(row: TransactionListRow): string {
+    const name =
+      row.description ??
+      (row.kind === "income"
+        ? t("kindIncome")
+        : row.kind === "transfer"
+          ? t("kindTransfer")
+          : t("kindExpense"));
+    const day = format.dateTime(civilDateToDate(row.occurredAt), {
+      day: "numeric",
+      month: "short",
+    });
+    return `${name} · ${day} · ${formatMoney(row.amountCents, row.currency, locale)}`;
   }
 
   const kindLabel =
@@ -869,6 +906,50 @@ export function MovementForm({
               </Field>
             )}
           />
+          {/* The movement this one is a charge on (RF-132). Nothing on the
+              form waits for it, and no caller is asked to fill it. */}
+          {causeCandidates.length > 0 && (
+            <Controller
+              name="causedByTransactionId"
+              control={form.control}
+              render={({ field, fieldState }) => (
+                <Field invalid={fieldState.invalid}>
+                  <FieldLabel htmlFor="movement-cause">
+                    <Flex as="span" align="center" gap="1">
+                      {t("causeField")}
+                      <Text size="2" weight="regular" color="gray">
+                        {tKey("common.optional")}
+                      </Text>
+                    </Flex>
+                  </FieldLabel>
+                  <Select.Root
+                    size="3"
+                    value={field.value ?? NO_CAUSE}
+                    onValueChange={(value) =>
+                      field.onChange(value === NO_CAUSE ? null : value)
+                    }
+                    disabled={isPending}
+                  >
+                    <FieldControl>
+                      <Select.Trigger
+                        id="movement-cause"
+                        placeholder={t("causePlaceholder")}
+                      />
+                    </FieldControl>
+                    <Select.Content position="popper">
+                      <Select.Item value={NO_CAUSE}>{t("causeNone")}</Select.Item>
+                      {causeCandidates.map((row) => (
+                        <Select.Item key={row.id} value={row.id}>
+                          {causeOptionLabel(row)}
+                        </Select.Item>
+                      ))}
+                    </Select.Content>
+                  </Select.Root>
+                  <FieldMessage error={fieldState.error} />
+                </Field>
+              )}
+            />
+          )}
         </FieldGroup>
 
         <Box gridColumn={{ md: "1 / -1" }} width="100%">
