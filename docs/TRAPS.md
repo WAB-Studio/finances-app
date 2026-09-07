@@ -563,3 +563,19 @@ from it. `git status` stays clean when the lockfile was already correct, which i
 manifest was never the problem.
 
 Measured 2026-09-07.
+
+### StrictMode doubles a Worker count in `next dev`, and only there
+
+React 19 under Next 16 double-invokes effects in `next dev`. A hook that creates a `Worker` in an
+effect therefore reports **two** creations and two terminations per mount when you count them in dev,
+and the honest one per mount against `next start`.
+
+The reading app's `useDictionary` was checked both ways: `created: 4 / terminated: 4` in dev for two
+mounted hooks, `created: 2 / terminated: 2` against the production build. Nothing was wrong either
+time.
+
+Measure a mount-count, an effect-count or anything else StrictMode touches against `next build &&
+next start`, never against `next dev`. Reading it in dev invents a leak that is not there — or hides
+a real one behind a number you have already talked yourself out of.
+
+Measured 2026-09-07 while validating the dictionary worker.
