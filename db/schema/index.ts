@@ -22,3 +22,4 @@ export * from "./audit-log";
 export * from "./ingest-deliveries";
 export * from "./ingest-shapes";
 export * from "./ingest-merchants";
+export * from "./ingest-counterparties";
