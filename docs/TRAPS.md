@@ -359,3 +359,57 @@ It did **not** reproduce inside the e2e suite's single persistent connection, an
 the identity Postgres sees. If a claim can outlive its connection, a policy test can pass under the
 wrong identity and prove nothing. Chase it with two scripts and one connection string before
 trusting any single-statement identity swap again.
+
+### A trusted-pointer check turns `on delete set null` into a refusal
+
+Found 2026-09-07, driving it on the shipped `ingest_merchants` and on the day-old
+`ingest_counterparties`. Both pair a nullable pointer with a check that ties it to a state:
+
+```
+trusted_category_id  references categories(id) on delete set null
+check ((state = 'trusted') = (trusted_category_id is not null))
+```
+
+Deleting the referenced row nulls the pointer while `state` stays `'trusted'`, so the check fires and
+**the delete is refused**, not cascaded:
+
+```
+delete from categories where id = <a trusted merchant's category>
+  -> 23514  ingest_merchants_trusted_category_matches_state
+```
+
+Measured the same way on `ingest_counterparties.trusted_account_id` against `accounts`. Use a
+transaction-free row to see it: an account or category with movements is refused first by
+`transactions_*_fk` (23503), which hides the real defect.
+
+**RF-63 promises category CRUD and RF-94 built the memory; the two collide and no suite caught it**
+because every test deleted an identity, never a single category a trusted pattern happened to name.
+
+`on delete set null` is only safe where nothing else asserts the column is non-null. Where a state
+column mirrors the pointer, the state has to move with it — cascade the row, or demote it in a
+trigger. Never pair the two and assume the FK wins.
+
+### One-sided is not "waiting for a counterparty"
+
+Found 2026-09-07 measuring Module 16 of `plan-modelo-real.md` before merging it. The plan asked to
+widen the ledger's `unreviewed` filter to "any movement waiting for a person", reading a null account
+leg as the signal. Counted on the real database:
+
+```
+reviewed_at null and recurring_rule_id not null   (before)  ->     3
+reviewed_at null and (generated or one-sided)     (after)   -> 8 277
+                                       total transactions   -> 8 462
+```
+
+**RF-17 makes every income and every expense one-sided by construction** — an income names only a
+destination, an expense only a source — so the predicate means "is not a transfer", and the review
+queue swallows 98 % of the ledger.
+
+`reviewed_at` does not separate them either: it is stamped only on generated movements, so every
+hand-recorded expense has carried a null there since the first one. `external_ref` does not separate
+them either — it is set on all 8 462 rows.
+
+**Nothing in the model distinguished "one-sided because it is an expense" from "one-sided because the
+reader could not tell."** That mark had to be added, not derived. Before widening any queue's
+predicate, count what it will hold afterwards on real rows; a predicate that reads correct in prose
+can still name almost everything.
