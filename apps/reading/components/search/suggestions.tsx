@@ -27,7 +27,9 @@ export function Suggestions({
               characters with no space to break on need to fit at all. */}
           <Grid width="100%">
             <Button variant="ghost" tap onClick={() => onPick(item)}>
-              <Text truncate>{item}</Text>
+              <Text truncate serif>
+                {item}
+              </Text>
             </Button>
           </Grid>
         </TapTarget>

@@ -1,11 +1,10 @@
 // The only door: every screen imports Radix Themes from here, and nowhere else.
+// No `Card`: docs/reading/DESIGN.md rules a sense with a hairline, never a box.
 export {
   Box,
   Flex,
   Grid,
   Heading,
-  Text,
-  Card,
   Separator,
   TextField,
   Badge,
@@ -26,3 +25,9 @@ export { Page } from "./page";
 export { TapTarget } from "./tap-target";
 
 export { Button, IconButton } from "./button";
+
+export { Text } from "./text";
+
+export { Headword } from "./headword";
+
+export { PosLabel } from "./label";
