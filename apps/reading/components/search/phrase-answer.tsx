@@ -3,7 +3,7 @@
 import { useTranslations } from "next-intl";
 
 import type { TranslationResult } from "@/lib/translate/types";
-import { Button, Flex, Progress, Spinner, Text } from "@/components/ui";
+import { Button, Flex, MetaLabel, Progress, Spinner, Text } from "@/components/ui";
 
 // What stage a sentence lookup is at. The composing module owns the debounce,
 // the token floor and the request itself; this only draws the stage it lands
@@ -60,11 +60,9 @@ export function PhraseAnswer({
           <Text size="2" color="gray">
             {source}
           </Text>
-          {/* A metadata label, not a status pill (docs/reading/DESIGN.md
-              "Metadata labels"): muted, never a coloured badge. */}
-          <Text size="1" color="gray">
+          <MetaLabel>
             {state.result.origin === "device" ? t("originDevice") : t("originNetwork")}
-          </Text>
+          </MetaLabel>
         </Flex>
       )}
 
