@@ -3,7 +3,7 @@
 import { useTranslations } from "next-intl";
 
 import type { TranslationResult } from "@/lib/translate/types";
-import { Badge, Button, Flex, Progress, Spinner, Text } from "@/components/ui";
+import { Button, Flex, MetaLabel, Progress, Spinner, Text } from "@/components/ui";
 
 // What stage a sentence lookup is at. The composing module owns the debounce,
 // the token floor and the request itself; this only draws the stage it lands
@@ -60,15 +60,9 @@ export function PhraseAnswer({
           <Text size="2" color="gray">
             {source}
           </Text>
-          {state.result.origin === "device" ? (
-            <Badge color="green" variant="soft">
-              {t("originDevice")}
-            </Badge>
-          ) : (
-            <Badge color="blue" variant="soft">
-              {t("originNetwork")}
-            </Badge>
-          )}
+          <MetaLabel>
+            {state.result.origin === "device" ? t("originDevice") : t("originNetwork")}
+          </MetaLabel>
         </Flex>
       )}
 
