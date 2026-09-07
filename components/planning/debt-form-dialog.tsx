@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useFormatter, useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
 import { Controller, useForm, useWatch, type Resolver } from "react-hook-form";
 import { toast } from "sonner";
@@ -23,8 +23,14 @@ import {
   Text,
   TextField,
 } from "@/components/ui";
+import {
+  BASE_CURRENCY,
+  minorUnitExponent,
+  type CurrencyCode,
+  type OfferedCurrency,
+} from "@/lib/currency";
 import { todayInBogota } from "@/lib/dates";
-import { centsToPesos } from "@/lib/money";
+import { formatMoney } from "@/lib/money";
 import { useActionErrorToast } from "@/lib/use-action-toast";
 import {
   ACCOUNT_PLACEMENTS,
@@ -36,6 +42,11 @@ import {
   debtTermsSchema,
   type DebtTermsInput,
 } from "@/lib/validation/debt-terms";
+
+// A currency with decimals needs the keypad that types one (RF-121).
+function amountInputMode(currency: CurrencyCode): "decimal" | "numeric" {
+  return minorUnitExponent(currency) > 0 ? "decimal" : "numeric";
+}
 
 // The bare liability the "complete" mode writes terms onto: the screen resolves
 // its derived balance and passes it in, so the dialog never reads a stored one.
@@ -87,12 +98,17 @@ export function DebtFormDialog({
   mode,
   hasGroup,
   account,
+  currency = BASE_CURRENCY,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   mode: "create" | "complete";
   hasGroup: boolean;
   account?: DebtAccount;
+  // The currency the account settles in: the balance reads in it and the terms
+  // are typed in its minor unit (RF-121). A new debt has none yet, so a caller
+  // that names none is on the base currency.
+  currency?: OfferedCurrency;
 }) {
   const t = useTranslations("debts");
 
@@ -109,6 +125,7 @@ export function DebtFormDialog({
           mode={mode}
           hasGroup={hasGroup}
           account={account}
+          currency={currency}
           onOpenChange={onOpenChange}
         />
       </Dialog.Content>
@@ -120,17 +137,19 @@ function DebtForm({
   mode,
   hasGroup,
   account,
+  currency,
   onOpenChange,
 }: {
   mode: "create" | "complete";
   hasGroup: boolean;
   account?: DebtAccount;
+  currency: OfferedCurrency;
   onOpenChange: (open: boolean) => void;
 }) {
   const t = useTranslations("debts");
   // Root-scoped: the keys under `common` sit outside the `debts` namespace.
   const tKey = useTranslations();
-  const format = useFormatter();
+  const locale = useLocale();
 
   const isCreate = mode === "create";
 
@@ -193,7 +212,8 @@ function DebtForm({
   async function onSubmit(values: DebtFormValues) {
     if (isCreate) {
       // Step one: the account. A liability's opening balance is submitted as a
-      // positive peso string; the query signs it negative from its kind.
+      // positive string in the currency it settles in; the query signs it
+      // negative from its kind.
       const created = await createAccount.executeAsync({
         name: values.name,
         kind: "liability",
@@ -201,6 +221,7 @@ function DebtForm({
         subtype: "tarjeta",
         placement: values.placement,
         institution: values.institution,
+        settlementCurrency: currency,
         amount: values.amount,
         balanceOn: values.balanceOn,
       } satisfies CreateAccountInput);
@@ -258,10 +279,9 @@ function DebtForm({
             <Field>
               <FieldLabel>{t("openingBalanceLabel")}</FieldLabel>
               <Text size="3">
-                {format.number(
-                  centsToPesos(Math.abs(account?.owedCents ?? 0)),
-                  "currency",
-                )}
+                {/* JSX cannot travel through `t()`, and this is the same figure
+                    `Money` draws, character for character (RF-121). */}
+                {formatMoney(Math.abs(account?.owedCents ?? 0), currency, locale)}
               </Text>
             </Field>
           </>
@@ -342,7 +362,7 @@ function DebtForm({
                     {...field}
                     id="debt-amount"
                     size="3"
-                    inputMode="numeric"
+                    inputMode={amountInputMode(currency)}
                     disabled={isPending}
                   />
                 </FieldControl>
@@ -452,7 +472,7 @@ function DebtForm({
                   <TextField.Root
                     id="debt-minimum-fixed"
                     size="3"
-                    inputMode="numeric"
+                    inputMode={amountInputMode(currency)}
                     value={field.value ?? ""}
                     onChange={(event) =>
                       field.onChange(event.target.value || null)
@@ -510,7 +530,7 @@ function DebtForm({
                 <TextField.Root
                   id="debt-credit-limit"
                   size="3"
-                  inputMode="numeric"
+                  inputMode={amountInputMode(currency)}
                   value={field.value ?? ""}
                   onChange={(event) => field.onChange(event.target.value || null)}
                   onBlur={field.onBlur}
@@ -609,7 +629,7 @@ function DebtForm({
                 <TextField.Root
                   id="debt-aval"
                   size="3"
-                  inputMode="numeric"
+                  inputMode={amountInputMode(currency)}
                   value={field.value ?? ""}
                   onChange={(event) => field.onChange(event.target.value || null)}
                   onBlur={field.onBlur}

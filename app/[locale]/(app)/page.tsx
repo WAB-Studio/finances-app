@@ -1,11 +1,7 @@
 import { Banknote, CreditCard, Landmark, Plus, Wallet } from "lucide-react";
 import { hasLocale } from "next-intl";
 import type { Metadata } from "next";
-import {
-  getFormatter,
-  getTranslations,
-  setRequestLocale,
-} from "next-intl/server";
+import { getTranslations, setRequestLocale } from "next-intl/server";
 import { notFound } from "next/navigation";
 
 import { WithdrawCashCard } from "@/components/cash/withdraw-dialog";
@@ -45,7 +41,8 @@ import { requireUser } from "@/db/session";
 import { Link as LocaleLink } from "@/i18n/navigation";
 import { routing } from "@/i18n/routing";
 import { PERSONAL_CASH_ACCOUNT_NAME } from "@/lib/fund/seed";
-import { centsToPesos } from "@/lib/money";
+import type { Locale } from "@/lib/locales";
+import { formatMoney } from "@/lib/money";
 
 export async function generateMetadata(
   props: PageProps<"/[locale]">,
@@ -94,7 +91,7 @@ export default async function HomePage(props: PageProps<"/[locale]">) {
   // requireUser stays the auth guard. The form options carry the account and
   // category names a row reads for its title and subtitle, the same pairing the
   // movements list fans out (RF-23); the amount is formatted for display only.
-  const [, group, dashboardData, rows, options, withdrawal, t, td, ta, format] =
+  const [, group, dashboardData, rows, options, withdrawal, t, td, ta] =
     await Promise.all([
       requireUser(),
       getUserGroup(),
@@ -105,7 +102,6 @@ export default async function HomePage(props: PageProps<"/[locale]">) {
       getTranslations("transactions"),
       getTranslations("dashboard"),
       getTranslations("accounts"),
-      getFormatter(),
     ]);
 
   if (dashboardData.hasAccounts === false) {
@@ -277,7 +273,7 @@ export default async function HomePage(props: PageProps<"/[locale]">) {
                       tile={<CategoryTile color={rowColor(row, categoryColors)} />}
                       title={rowTitle(row, categoryNames, kindLabels)}
                       subtitle={rowSubtitle(row, accountNames)}
-                      amount={rowAmount(row, format)}
+                      amount={rowAmount(row, locale)}
                       tone={rowTone(row)}
                     />
                   </LocaleLink>
@@ -319,11 +315,10 @@ function AccountClassIcon({
 }
 
 // Income reads with a leading +, expense with a −, a transfer with neither; the
-// figure is the peso view of the stored cents, formatted for display only.
-function rowAmount(
-  row: TransactionListRow,
-  format: Awaited<ReturnType<typeof getFormatter>>,
-): string {
+// magnitude is drawn in the currency the movement was booked in (RF-121). The
+// card takes a string, which is why this calls `formatMoney` rather than compose
+// `Money` — the one other door from a stored integer to a figure.
+function rowAmount(row: TransactionListRow, locale: Locale): string {
   const sign = row.kind === "income" ? "+" : row.kind === "expense" ? "−" : "";
-  return `${sign}${format.number(centsToPesos(row.amountCents), "currency")}`;
+  return `${sign}${formatMoney(row.amountCents, row.currency, locale)}`;
 }

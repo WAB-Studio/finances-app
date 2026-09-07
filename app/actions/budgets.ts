@@ -2,33 +2,49 @@
 
 import { refresh } from "next/cache";
 
+import { z } from "zod";
+
 import {
   archiveBudget,
   createBudget,
   deleteBudget,
+  resolveBudgetCurrency,
   restoreBudget,
   updateBudget,
 } from "@/db/queries/budgets";
 import { getUserGroup } from "@/db/queries/groups";
+import type { CurrencyCode } from "@/lib/currency";
 import { pgErrorCode } from "@/lib/db-error";
 import { ActionError } from "@/lib/errors";
-import { parsePesos, pesosToCents } from "@/lib/money";
+import { parseAmount } from "@/lib/money";
 import { authActionClient } from "@/lib/safe-action";
 import {
   archiveBudgetSchema,
   createBudgetSchema,
   deleteBudgetSchema,
+  refineBudgetLimit,
   restoreBudgetSchema,
   updateBudgetSchema,
 } from "@/lib/validation/budget";
 
-// The limit arrives as a Zod-validated peso string; turning it into integer
-// cents here can only fail if the schema let something through it should not
-// have, so a null parse is `errors.unexpected`, not a field message.
-function toCents(amount: string): number {
-  const pesos = parsePesos(amount);
-  if (pesos === null) throw new ActionError("errors.unexpected");
-  return pesosToCents(pesos);
+/**
+ * The limit read in the currency the budget derives, never in the one the
+ * payload implies (RF-121). The refinement is the very one the form runs, so a
+ * limit the account's currency cannot hold is refused in the same words on both
+ * sides (RNF-10); past it, a null parse can only be a schema that let something
+ * through, so it is `errors.unexpected` and not a field message.
+ */
+function toMinor(amount: string, currency: CurrencyCode): number {
+  const verdict = z
+    .custom<{ limit: string }>()
+    .superRefine(refineBudgetLimit(currency))
+    .safeParse({ limit: amount });
+
+  if (!verdict.success) throw new ActionError(verdict.error.issues[0].message);
+
+  const minor = parseAmount(amount);
+  if (minor === null) throw new ActionError("errors.unexpected");
+  return minor;
 }
 
 // The `assert_budget_scope` trigger raises 23514 when the account, label or
@@ -50,9 +66,13 @@ function mapBudgetError(error: unknown): never {
 export const createBudgetAction = authActionClient
   .inputSchema(createBudgetSchema)
   .action(async ({ parsedInput: { limit, accountId, labelId, name, ...budget }, ctx }) => {
-    const limitCents = toCents(limit);
+    // The currency and the scope ride one fan-out: neither read waits on the other.
+    const [currency, group] = await Promise.all([
+      resolveBudgetCurrency({ accountId: accountId ?? null }),
+      getUserGroup(),
+    ]);
+    const limitCents = toMinor(limit, currency);
 
-    const group = await getUserGroup();
     const scope = group
       ? { ownerUserId: null, groupId: group.id }
       : { ownerUserId: ctx.user.id, groupId: null };
@@ -83,7 +103,11 @@ export const createBudgetAction = authActionClient
 export const updateBudgetAction = authActionClient
   .inputSchema(updateBudgetSchema)
   .action(async ({ parsedInput: { limit, accountId, labelId, name, ...budget } }) => {
-    const limitCents = toCents(limit);
+    const currency = await resolveBudgetCurrency({
+      budgetId: budget.budgetId,
+      accountId: accountId ?? null,
+    });
+    const limitCents = toMinor(limit, currency);
 
     let updated: boolean;
     try {

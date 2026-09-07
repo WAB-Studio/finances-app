@@ -1,13 +1,46 @@
 import { z } from "zod";
 
+import { BASE_CURRENCY } from "@/lib/currency";
 import { isCivilDate } from "@/lib/dates";
-import { accountRefSchema, pesoAmountSchema } from "@/lib/validation/transaction";
+import {
+  accountRefSchema,
+  anyCurrencyAmountSchema,
+  minorAmountSchema,
+  type SettlementCurrencies,
+} from "@/lib/validation/transaction";
 
-const amountSchema = pesoAmountSchema({
+const amountKeys = {
   required: "recurringRules.errors.amountRequired",
   invalid: "recurringRules.errors.amountInvalid",
   tooLarge: "recurringRules.errors.amountTooLarge",
-});
+};
+
+// The field cannot know its minor unit until the account is read, so the shape
+// passes if any offered currency reads it and `refineRuleAmount` runs the one
+// right reading (RF-121).
+const amountSchema = anyCurrencyAmountSchema(amountKeys);
+
+const checkAmount = minorAmountSchema(amountKeys);
+
+/**
+ * What the rule settles in: a rule names exactly one account, so one side
+ * answers and the other is null — the currency the movement it generates is
+ * booked in.
+ */
+export function recurringRuleCurrency(settlement: SettlementCurrencies): string {
+  return settlement.from ?? settlement.to ?? BASE_CURRENCY;
+}
+
+/**
+ * The amount read in that account's currency (RF-121). The form runs it against
+ * the currency it was handed and the action against the one it reads back — the
+ * same rule on both sides (RNF-10).
+ */
+export function refineRuleAmount(settlement: SettlementCurrencies) {
+  return function refine(data: { amount: string }, ctx: z.RefinementCtx) {
+    checkAmount(data.amount, recurringRuleCurrency(settlement), ["amount"], ctx);
+  };
+}
 
 // The date the next run falls due; a rule runs into the future, so no not-future
 // bound applies (RF-29).

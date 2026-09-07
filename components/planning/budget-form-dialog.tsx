@@ -26,11 +26,14 @@ import {
 } from "@/components/ui";
 import type { BudgetStatus } from "@/db/queries/budgets";
 import type { TransactionFormOptions } from "@/db/queries/transaction-form";
-import { centsToPesos } from "@/lib/money";
+// The field takes the decimals the row's currency is written with, so
+// reopening a figure and saving it back stores the integer it already held.
+import { amountToInput } from "@/lib/money";
 import { useActionErrorToast } from "@/lib/use-action-toast";
 import {
   BUDGET_PERIODS,
   createBudgetSchema,
+  refineBudgetLimit,
   updateBudgetSchema,
   type CreateBudgetInput,
   type UpdateBudgetInput,
@@ -58,11 +61,16 @@ export function BudgetFormDialog({
   open,
   onOpenChange,
   options,
+  scopeCurrency,
   budget,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   options: TransactionFormOptions;
+  // What a budget naming no account derives: the fund's currency, or the
+  // person's own when they hold no fund (RF-121). Read by the server, since a
+  // form cannot see either row.
+  scopeCurrency: string;
   budget?: BudgetStatus;
 }) {
   const t = useTranslations("budgets");
@@ -76,6 +84,7 @@ export function BudgetFormDialog({
         <BudgetForm
           key={budget?.id ?? "create"}
           options={options}
+          scopeCurrency={scopeCurrency}
           budget={budget}
           onOpenChange={onOpenChange}
         />
@@ -86,10 +95,12 @@ export function BudgetFormDialog({
 
 function BudgetForm({
   options,
+  scopeCurrency,
   budget,
   onOpenChange,
 }: {
   options: TransactionFormOptions;
+  scopeCurrency: string;
   budget?: BudgetStatus;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -112,17 +123,35 @@ function BudgetForm({
     (category) => category.id === budget?.categoryId,
   )?.name;
 
+  // The limit is read in the currency the budget derives: the account's when it
+  // names one, the scope's otherwise — the same chain `resolveBudgetCurrency`
+  // walks for the action, so the form refuses exactly what the action refuses
+  // (RF-121, RNF-10).
+  const resolver: Resolver<BudgetFormValues> = (values, context, options_) => {
+    const schema = (isEdit ? updateBudgetSchema : createBudgetSchema).superRefine(
+      refineBudgetLimit(
+        (values.accountId
+          ? options.accountCurrencies[values.accountId]
+          : undefined) ?? scopeCurrency,
+      ),
+    );
+
+    return (zodResolver(schema) as unknown as Resolver<BudgetFormValues>)(
+      values,
+      context,
+      options_,
+    );
+  };
+
   const form = useForm<BudgetFormValues>({
-    resolver: (isEdit
-      ? zodResolver(updateBudgetSchema)
-      : zodResolver(createBudgetSchema)) as unknown as Resolver<BudgetFormValues>,
+    resolver,
     defaultValues: budget
       ? {
           budgetId: budget.id,
           accountId: budget.accountId,
           labelId: budget.labelId,
           period: budget.period,
-          limit: String(centsToPesos(budget.limitCents)),
+          limit: amountToInput(budget.limitCents, budget.currency),
           thresholdPct: budget.thresholdPct,
           name: budget.name,
         }

@@ -5,13 +5,12 @@ import {
   tableFeatures,
   useTable,
 } from "@tanstack/react-table";
-import { ChevronLeft, ChevronRight, ScrollText, SlidersHorizontal } from "lucide-react";
-import { useFormatter, useTranslations } from "next-intl";
+import { ScrollText, SlidersHorizontal } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { useState } from "react";
 
+import { AuditTable, type AuditTableRow } from "@/components/audit/audit-table";
 import {
-  Badge,
-  type BadgeProps,
   Button,
   Card,
   EmptyState,
@@ -20,13 +19,10 @@ import {
   Heading,
   IconButton,
   Select,
-  Table,
-  Text,
   TextField,
 } from "@/components/ui";
 import type { AuditFilterOptions, AuditLogRow } from "@/db/queries/audit-log";
 import { usePathname, useRouter } from "@/i18n/navigation";
-import { TIME_ZONE } from "@/lib/locales";
 
 type AuditFilters = {
   entity: string | null;
@@ -44,14 +40,6 @@ const ANY = "all";
 const features = tableFeatures({});
 const columnHelper = createColumnHelper<typeof features, AuditLogRow>();
 const columns = columnHelper.columns([columnHelper.accessor("id", {})]);
-
-// The write kind colours the badge: a creation reads green, an edit amber, a
-// removal red.
-const actionColors: Record<AuditLogRow["action"], BadgeProps["color"]> = {
-  INSERT: "green",
-  UPDATE: "amber",
-  DELETE: "red",
-};
 
 /**
  * The read-only audit trail (RF-53): the entity, actor and date-range filters
@@ -73,7 +61,6 @@ export function AuditScreen({
   filters: AuditFilters;
 }) {
   const t = useTranslations("audit");
-  const format = useFormatter();
   const pathname = usePathname();
   const router = useRouter();
 
@@ -121,6 +108,17 @@ export function AuditScreen({
   }
 
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
+
+  const tableRows: AuditTableRow[] = pageRows.map((row) => ({
+    id: row.id,
+    occurredAt: row.occurredAt,
+    entity: entityLabels[row.entity] ?? row.entity,
+    action: row.action,
+    actionLabel: actionLabels[row.action],
+    actor: actorLabel(row.actorUserId),
+    recordId: row.recordId,
+  }));
+
   const filtersActive = Boolean(
     filters.entity || filters.actor || filters.from || filters.to,
   );
@@ -273,75 +271,13 @@ export function AuditScreen({
           }
         />
       ) : (
-        <Flex direction="column" gap="4">
-          <Table.Root variant="surface">
-            <Table.Header>
-              <Table.Row>
-                <Table.ColumnHeaderCell>{t("colOccurredAt")}</Table.ColumnHeaderCell>
-                <Table.ColumnHeaderCell>{t("colEntity")}</Table.ColumnHeaderCell>
-                <Table.ColumnHeaderCell>{t("colAction")}</Table.ColumnHeaderCell>
-                <Table.ColumnHeaderCell>{t("colActor")}</Table.ColumnHeaderCell>
-                <Table.ColumnHeaderCell>{t("colRecordId")}</Table.ColumnHeaderCell>
-              </Table.Row>
-            </Table.Header>
-            <Table.Body>
-              {pageRows.map((row) => (
-                <Table.Row key={row.id}>
-                  <Table.Cell>
-                    {format.dateTime(row.occurredAt, {
-                      day: "numeric",
-                      month: "short",
-                      year: "numeric",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                      timeZone: TIME_ZONE,
-                    })}
-                  </Table.Cell>
-                  <Table.Cell>{entityLabels[row.entity] ?? row.entity}</Table.Cell>
-                  <Table.Cell>
-                    <Badge color={actionColors[row.action]}>
-                      {actionLabels[row.action]}
-                    </Badge>
-                  </Table.Cell>
-                  <Table.Cell>{actorLabel(row.actorUserId)}</Table.Cell>
-                  <Table.Cell>
-                    <Text size="1" color="gray">
-                      {row.recordId}
-                    </Text>
-                  </Table.Cell>
-                </Table.Row>
-              ))}
-            </Table.Body>
-          </Table.Root>
-
-          {pageCount > 1 && (
-            <Flex justify="between" align="center" gap="3">
-              <Button
-                type="button"
-                variant="soft"
-                color="gray"
-                disabled={filters.page <= 1}
-                onClick={() => goToPage(filters.page - 1)}
-              >
-                <ChevronLeft size={16} />
-                {t("previousPage")}
-              </Button>
-              <Text size="2" color="gray">
-                {t("pageStatus", { page: filters.page, pages: pageCount })}
-              </Text>
-              <Button
-                type="button"
-                variant="soft"
-                color="gray"
-                disabled={filters.page >= pageCount}
-                onClick={() => goToPage(filters.page + 1)}
-              >
-                {t("nextPage")}
-                <ChevronRight size={16} />
-              </Button>
-            </Flex>
-          )}
-        </Flex>
+        <AuditTable
+          rows={tableRows}
+          page={filters.page}
+          pageCount={pageCount}
+          onPrev={() => goToPage(filters.page - 1)}
+          onNext={() => goToPage(filters.page + 1)}
+        />
       )}
     </Flex>
   );

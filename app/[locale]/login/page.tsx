@@ -51,7 +51,7 @@ export default async function LoginPage(props: PageProps<"/[locale]/login">) {
           <ThemeSwitcher />
         </Flex>
         <Flex direction="column" flexGrow="1" align="center" justify="center">
-          <Box width="100%" maxWidth="24rem">
+          <Box width="100%" maxWidth={{ initial: "24rem", md: "28rem" }}>
             <Flex direction="column" gap="4">
               <Flex direction="column" gap="3">
                 <AppMark />

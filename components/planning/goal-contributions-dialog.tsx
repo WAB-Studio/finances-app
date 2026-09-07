@@ -1,7 +1,7 @@
 "use client";
 
 import { Trash2 } from "lucide-react";
-import { useFormatter, useTranslations } from "next-intl";
+import { useFormatter, useLocale, useTranslations } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
 import { useEffect } from "react";
 import { toast } from "sonner";
@@ -26,7 +26,7 @@ import type {
 } from "@/db/queries/savings-goals";
 import { Link as LocaleLink } from "@/i18n/navigation";
 import { civilDateToDate } from "@/lib/dates";
-import { centsToPesos } from "@/lib/money";
+import { formatMoney } from "@/lib/money";
 import { useActionErrorToast } from "@/lib/use-action-toast";
 
 /**
@@ -62,6 +62,7 @@ export function GoalContributionsDialog({
 function ContributionList({ goal }: { goal: GoalProgress }) {
   const t = useTranslations("goals");
   const format = useFormatter();
+  const locale = useLocale();
   const onActionError = useActionErrorToast();
 
   const list = useAction(listGoalContributionsAction, { onError: onActionError });
@@ -106,7 +107,14 @@ function ContributionList({ goal }: { goal: GoalProgress }) {
           {index > 0 && <Separator size="4" />}
           <ContributionEntry
             row={row}
-            amount={format.number(centsToPesos(row.amountCents), "currency")}
+            // An aporte earmarking a movement is in that movement's currency; a
+            // virtual one is set aside in the goal's own (RF-121).
+            currency={row.currency ?? goal.currency}
+            amount={formatMoney(
+              row.amountCents,
+              row.currency ?? goal.currency,
+              locale,
+            )}
             date={format.dateTime(civilDateToDate(row.occurredAt), {
               day: "numeric",
               month: "short",
@@ -123,12 +131,14 @@ function ContributionList({ goal }: { goal: GoalProgress }) {
 
 function ContributionEntry({
   row,
+  currency,
   amount,
   date,
   pending,
   onRemove,
 }: {
   row: GoalContributionRow;
+  currency: string;
   amount: string;
   date: string;
   pending: boolean;
@@ -140,7 +150,12 @@ function ContributionEntry({
     <Flex align="center" gap="3">
       <Flex direction="column" minWidth="0" flexGrow="1">
         <Text size="2" weight="medium">
-          <Money cents={row.amountCents} size="inherit" signed={false} />
+          <Money
+            minor={row.amountCents}
+            currency={currency}
+            size="inherit"
+            signed={false}
+          />
         </Text>
         <Text size="1" color="gray" truncate>
           {date}

@@ -24,8 +24,9 @@ import {
   TextField,
 } from "@/components/ui";
 import type { AccountRow } from "@/db/queries/accounts";
+import { BASE_CURRENCY, OFFERED_CURRENCIES } from "@/lib/currency";
 import { todayInBogota } from "@/lib/dates";
-import { centsToPesos } from "@/lib/money";
+import { amountToInput } from "@/lib/money";
 import { useActionErrorToast } from "@/lib/use-action-toast";
 import {
   ACCOUNT_KINDS,
@@ -67,6 +68,7 @@ type AccountFormValues = {
   isShared: boolean;
   institution: string;
   lastFour: string;
+  settlementCurrency: (typeof OFFERED_CURRENCIES)[number];
   amount: string;
   balanceOn: string;
 };
@@ -137,7 +139,14 @@ function AccountForm({
           isShared: account.isShared,
           institution: account.institution ?? "",
           lastFour: account.lastFour ?? "",
-          amount: String(centsToPesos(Math.abs(account.initialBalanceCents))),
+          settlementCurrency: account
+            .settlementCurrency as (typeof OFFERED_CURRENCIES)[number],
+          // The stored integer is already in this currency's minor unit, so the
+          // field shows it with the decimals that currency has and no others.
+          amount: amountToInput(
+            Math.abs(account.initialBalanceCents),
+            account.settlementCurrency,
+          ),
           balanceOn: account.initialBalanceOn,
         }
       : {
@@ -151,6 +160,7 @@ function AccountForm({
           isShared: false,
           institution: "",
           lastFour: "",
+          settlementCurrency: BASE_CURRENCY as (typeof OFFERED_CURRENCIES)[number],
           amount: "",
           balanceOn: todayInBogota(),
         },
@@ -373,6 +383,38 @@ function AccountForm({
                 />
               </FieldControl>
               <FieldDescription>{t("lastFourDescription")}</FieldDescription>
+              <FieldMessage error={fieldState.error} />
+            </Field>
+          )}
+        />
+        {/* Above the amount because it decides how the amount reads (RF-121):
+            "10,50" is a dollar figure and no peso figure at all. */}
+        <Controller
+          name="settlementCurrency"
+          control={form.control}
+          render={({ field, fieldState }) => (
+            <Field invalid={fieldState.invalid}>
+              <FieldLabel htmlFor="account-currency">
+                {t("settlementCurrencyLabel")}
+              </FieldLabel>
+              <Select.Root
+                size="3"
+                value={field.value}
+                onValueChange={field.onChange}
+                disabled={isPending}
+              >
+                <FieldControl>
+                  <Select.Trigger id="account-currency" />
+                </FieldControl>
+                <Select.Content position="popper">
+                  {OFFERED_CURRENCIES.map((currency) => (
+                    <Select.Item key={currency} value={currency}>
+                      {currency}
+                    </Select.Item>
+                  ))}
+                </Select.Content>
+              </Select.Root>
+              <FieldDescription>{t("settlementCurrencyHint")}</FieldDescription>
               <FieldMessage error={fieldState.error} />
             </Field>
           )}

@@ -12,12 +12,18 @@
 //
 // THE CACHE IS NOT AN OPTIMISATION EITHER. The stored session is the only way
 // back in: every run refreshes it, and a lost file cannot be replaced without a
-// token row landed by hand.
+// token row landed by hand. Pruning the sessions a refresh superseded needs no
+// call either: the one to keep is named by a claim already inside the token
+// this run holds, decoded locally, and the rest are dropped by a plain delete
+// over the connection this file already opens.
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
+import type postgres from "postgres";
+
 import { fixtureSql } from "./fixtures";
+import { registerSharedIdentity } from "./registry";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const PUBLISHABLE_KEY = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!;
@@ -109,6 +115,13 @@ export async function harnessSession(
   mkdirSync(dirname(file), { recursive: true });
   writeFileSync(file, `${JSON.stringify(session, null, 2)}\n`, "utf8");
 
+  // Once per process per address: a later call returns the memoised session
+  // above and never reaches here. `ensureHarnessAuthUser` runs even on a
+  // refresh, which never reaches it on its own path through `mintSession` —
+  // without this, a lane whose cache still refreshes would never register.
+  await ensureHarnessAuthUser(email);
+  await pruneSupersededSessions(email);
+
   return session;
 }
 
@@ -124,6 +137,61 @@ export async function harnessUserId(
   email: string = HARNESS_EMAIL,
 ): Promise<string> {
   return (await harnessSession(email)).user.id;
+}
+
+// The `session_id` claim out of a JWT's middle segment, read by
+// base64url-decoding the payload — never verified, because this file trusts no
+// claim for a decision, only for naming the row a delete must spare.
+function sessionIdClaim(accessToken: string): string {
+  const payload = accessToken.split(".")[1];
+  if (!payload) {
+    throw new Error("access token carries no payload segment to decode");
+  }
+
+  const claims = JSON.parse(
+    Buffer.from(payload, "base64url").toString("utf8"),
+  ) as { session_id?: string };
+  if (!claims.session_id) {
+    throw new Error("access token payload carries no session_id claim");
+  }
+
+  return claims.session_id;
+}
+
+/**
+ * Every `auth.sessions` row this identity holds except the one backing the
+ * token just cached, and the refresh tokens that ride their cascade
+ * (`refresh_tokens_session_id_fkey`, `ON DELETE CASCADE`). The session to keep
+ * is named by the `session_id` claim, read by base64-decoding the access
+ * token's payload locally. Bounded to `user_id` of this identity and further to
+ * identities `harness.identities` holds, so this reaches no other row in
+ * `auth` — a session outside the registry is never a candidate.
+ */
+export async function pruneSupersededSessions(email: string): Promise<number> {
+  const session = current.get(email);
+  if (!session) {
+    throw new Error(
+      `pruneSupersededSessions(${email}): no session in hand — call harnessSession first`,
+    );
+  }
+
+  const userId = session.user.id;
+  const keep = sessionIdClaim(session.access_token);
+
+  const dropped = await fixtureSql`
+    delete from auth.sessions
+    where user_id = ${userId}
+      and id != ${keep}
+      and user_id in (select user_id from harness.identities)`;
+
+  const [{ count }] = await fixtureSql<{ count: string }[]>`
+    select count(*)::int as count from auth.sessions where user_id = ${userId}`;
+
+  console.log(
+    `REPORT  pruneSupersededSessions — ${email}: dropped ${dropped.count}, ${count} session(s) remain.`,
+  );
+
+  return dropped.count;
 }
 
 /**
@@ -261,31 +329,45 @@ async function newestTokenHash(userId: string): Promise<string | null> {
  * A harness identity, created once and never dropped — the cached session is
  * worthless against a user that a cleanup removed. Every column GoTrue scans is
  * filled; the nulls it cannot read are what the 500 above came from.
+ *
+ * Registers the identity `shared` either way: an existing row lands in
+ * `harness.identities` on this call alone (`on conflict do nothing`, so lanes
+ * 1–7 and 9 enter the registry on their next run with no migration), and a
+ * fresh row is registered inside the same transaction as its `auth.users`
+ * insert, so no crash between the two can leave one without the other.
  */
 export async function ensureHarnessAuthUser(email: string): Promise<string> {
   const [existing] = await fixtureSql<{ id: string }[]>`
     select id from auth.users where email = ${email}`;
-  if (existing) return existing.id;
+  if (existing) {
+    await registerSharedIdentity(fixtureSql, { id: existing.id, email });
+    return existing.id;
+  }
 
   const id = randomUUID();
 
-  await fixtureSql`
-    insert into auth.users (
-      id, instance_id, aud, role, email, email_confirmed_at,
-      encrypted_password, confirmation_token, recovery_token,
-      email_change, email_change_token_current, email_change_token_new,
-      email_change_confirm_status, phone_change, phone_change_token,
-      reauthentication_token, raw_app_meta_data, raw_user_meta_data,
-      is_sso_user, is_anonymous, created_at, updated_at)
-    values (
-      ${id}, '00000000-0000-0000-0000-000000000000', 'authenticated',
-      'authenticated', ${email}, now(),
-      '', '', '',
-      '', '', '',
-      0, '', '',
-      '', '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb,
-      false, false, now(), now())`;
-  await fixtureSql`insert into app_users (id, locale) values (${id}, 'es')`;
+  await fixtureSql.begin(async (tx) => {
+    await tx`
+      insert into auth.users (
+        id, instance_id, aud, role, email, email_confirmed_at,
+        encrypted_password, confirmation_token, recovery_token,
+        email_change, email_change_token_current, email_change_token_new,
+        email_change_confirm_status, phone_change, phone_change_token,
+        reauthentication_token, raw_app_meta_data, raw_user_meta_data,
+        is_sso_user, is_anonymous, created_at, updated_at)
+      values (
+        ${id}, '00000000-0000-0000-0000-000000000000', 'authenticated',
+        'authenticated', ${email}, now(),
+        '', '', '',
+        '', '', '',
+        0, '', '',
+        '', '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb,
+        false, false, now(), now())`;
+    await tx`insert into app_users (id, locale) values (${id}, 'es')`;
+    // `TransactionSql` lacks the pool-only members of `Sql` (`end`, `close`, …)
+    // that `registerSharedIdentity` never calls; the cast asks for none of them.
+    await registerSharedIdentity(tx as unknown as postgres.Sql, { id, email });
+  });
 
   return id;
 }

@@ -21,7 +21,7 @@ members and history. Personal accounts hang off the fund, not the other way
 around. The immediate use case is a household, but nothing in the model depends
 on that.
 
-Default language: Spanish. Currency: COP. Time zone: `America/Bogota`.
+Default language: Spanish. Settlement currency of a new account: COP. Time zone: `America/Bogota`.
 
 ### Scope and phases
 
@@ -31,7 +31,7 @@ Default language: Spanish. Currency: COP. Time zone: `America/Bogota`.
 changes required: `external_ref` exists from phase 1 so that importing is
 idempotent from day one.
 
-**Out of scope:** bank synchronisation, receipt OCR, multi-currency,
+**Out of scope:** bank synchronisation, receipt OCR,
 accounting exports, native apps. None of this gets built or left
 "prepared for".
 
@@ -56,6 +56,11 @@ accounting exports, native apps. None of this gets built or left
 - [x] **RF-61** — Archiving a member does not archive their accounts. The owner decides per account: archive it or hand it to the group.
 - [x] **RF-100** — Only the group `leader` adds, renames, archives, restores and removes a member; every member renames their own row and no other.
 - [x] **RF-114** — The accounts list shows each account's balance, derived from its opening balance and its movements and never stored.
+- [x] **RF-121** — An account, a group and a person each declare the currency they settle in; what a person declares is what a budget, a goal or a planned payment of their own falls back to when it names no account. A movement carries its own currency, so one account holds several at once — a card bills in pesos and buys in dollars — and a balance derives one figure per account and currency. Amounts are stored as an integer number of hundredths of their currency's major unit, the same scale for every currency; how many decimals a person writes and reads comes from the currency, so one with two decimal places accepts them.
+- [x] **RF-122** — A movement between two currencies carries both amounts, each an integer in the one stored scale, hundredths of its own currency's major unit, and a person confirms the second one before it is booked. The rate is their quotient: derived to be read, never stored and never multiplied back out. The app proposes an amount and never imposes one.
+- [x] **RF-123** — A card purchase in a foreign currency settles later. The movement books what was spent in the currency it was spent in, and carries the amount a person confirmed it is expected to cost in the account's settlement currency, marked as an estimate. What the issuer actually billed arrives with the statement (RF-84) and replaces the estimate; from then on the two amounts are both settled and the estimate is gone.
+- [x] **RF-124** — No surface sums two currencies. A balance, a total and a chart derive per currency and state which one they count.
+- [x] **RF-126** — Reading a written amount into the integer a column stores accepts up to two decimals for every currency alike, never capped at fewer because the currency's own convention shows none: a bank posts a savings account's interest, a 4x1000 debit or a settled foreign purchase in centavos whether or not the peso circulates a coin that small. The cap on a typed or imported amount is the column's own stored scale, not what a currency is usually written with; display keeps each currency's own convention (RF-121, RF-125).
 
 #### Debts
 
@@ -63,8 +68,6 @@ accounting exports, native apps. None of this gets built or left
 - [x] **RF-78** — A liability account may carry debt terms: an effective annual rate, a minimum payment as a fixed amount or a percentage of balance, a credit limit, a statement cut-off day, a payment due day and an aval.
 - [x] **RF-79** — The app estimates a debt's monthly interest from its derived balance and effective annual rate; the annual-to-monthly conversion is effective, not linear.
 - [x] **RF-80** — A revolving card exposes its available credit — its limit less its derived balance — its statement cut-off and payment due day, and its minimum payment for the period. Interest, when charged, is a real movement, so the balance stays derived.
-- [x] **RF-81** — A fixed-installment or BNPL debt carries a plan — principal, number of installments, frequency (monthly or fortnightly), interest, down payment, aval, start date and merchant — from which dated installment lines are generated.
-- [x] **RF-82** — A payment into a debt account is allocated to its unpaid installment lines oldest-first, marking a line paid only when the payment fully covers it and linking the paying movement; a partial remainder is left unallocated, and a plan's pending is its unpaid lines, always derived, never stored.
 - [x] **RF-83** — Consolidated debt view: total owed across all debts, each card's available credit, the summed estimated monthly interest, and the next payment due — each debt's minimum.
 - [x] **RF-117** — The consolidated debt view shows the summed available credit across the liability accounts that carry a credit limit.
 - [x] **RF-84** — A liability account keeps a statement history: one record per statement period with its bounds, its payment due date and the balance, minimum and interest captured at the cut-off. A statement is an immutable historical snapshot, materialised for past periods, never rewritten.
@@ -80,13 +83,14 @@ accounting exports, native apps. None of this gets built or left
 - [x] **RF-22** — Quick entry: a single text field from which amount, category and description are inferred. Anything inferred stays editable before saving.
 - [x] **RF-23** — Listing with filters by date range, creator, account, category and type.
 - [x] **RF-89** — The transaction listing also filters by label, alongside the RF-23 filters.
+- [x] **RF-127** — The transaction listing also filters by the recurring rule that generated a movement, alongside the RF-23 and RF-89 filters; a rule opens that filtered listing from its own row, and the filtered export (RF-118) carries the same narrowing.
 - [x] **RF-24** — Edit and delete transactions.
 - [x] **RF-25** — Every transaction records which user created it.
 - [x] **RF-69** — Every income or expense splits into one or more (category, amount_cents) rows summing to its amount; a single-category income or expense is one split. A transfer has no splits and no category.
 
 #### Categories
 
-- [ ] **RF-63** — CRUD for categories with one level of subcategories, scoped to a user (personal) or a group; a subcategory shares its parent's scope.
+- [x] **RF-63** — CRUD for categories with one level of subcategories, scoped to a user (personal) or a group; a subcategory shares its parent's scope.
 - [x] **RF-27** — Each category is either expense or income.
 - [x] **RF-64** — Creating a personal space or a group seeds an initial category set in the active language.
 - [x] **RF-70** — Labels, independent of category, attach to transactions through a transaction_labels join; a group's labels are managed by its leader, a user's by their owner.
@@ -129,14 +133,14 @@ accounting exports, native apps. None of this gets built or left
 #### Audit
 
 - [x] **RF-43** — Every creation, change and deletion of fund data is logged with what was touched, by whom, when, and the before and after values.
-- [x] **RF-44** — No user can edit or delete the log. The only permitted removal is the automatic purge in RNF-14.
+- [x] **RF-44** — No user can edit or delete the log. The only permitted removal is the automatic purge in RNF-14, or a row proven to be the test harness's own: one naming a registered harness identity as its actor or its owner, or, when neither is named, one whose actor and owner are both null and whose action is `DELETE`. A null actor and a null owner together mean a connection that settled no session claims; only the harness's own connections and the recurring generator (RF-30) write without claims, and the generator only inserts, so a both-null `DELETE` row cannot be the generator's and is the harness's.
 - [x] **RF-45** — Capture is automatic and no write can bypass it, including those from the recurring process, which are marked as system writes.
 
 #### Language
 
 - [x] **RF-46** — Interface in Spanish and English, with the language visible in the URL. Spanish by default.
 - [x] **RF-47** — The preference belongs to the user and holds wherever they sign in, fund or no fund.
-- [x] **RF-48** — No interface text is hardcoded. Dates and numbers follow the active language; the currency is always COP.
+- [x] **RF-125** — No interface text is hardcoded. Dates and numbers follow the active language, and an amount is formatted in the currency it is in.
 
 #### Appearance
 
@@ -159,7 +163,7 @@ accounting exports, native apps. None of this gets built or left
 - [x] **RF-92** — A message shape is remembered per user: a shape a person silenced arrives already rejected and never waits for review, and a shape never seen before always waits.
 - [x] **RF-93** — A merchant's category prefills a delivery's proposal only once that merchant is trusted; it never records a movement on its own.
 - [x] **RF-94** — A merchant becomes trusted after two consecutive approvals under the same category, and an approval under a different category marks it ambiguous, which no later consistency undoes.
-- [x] **RF-95** — Quick entry accepts bank amounts written with comma or dot thousands separators and an optional zero-decimal suffix in either locale, without accepting fractional pesos.
+- [x] **RF-128** — Quick entry and webhook ingest read a bank amount the way the importer does: thousands separators as comma or dot, in either convention, an optional zero-decimal suffix, and up to the two decimals the column stores (RF-126). A finer amount is refused, never rounded; no path drops a cent a person or a bank wrote in silence.
 - [x] **RF-96** — Webhook ingest proposes income or expense only when the bank message carries a recognized direction verb; a caller-supplied direction overrides it, and an unknown verb leaves it empty.
 - [x] **RF-97** — An account may store its last four digits; webhook ingest proposes the uniquely matching account named by a bank message before falling back to the credential default, while an explicit account override still wins.
 - [x] **RF-98** — Webhook ingest proposes the date the bank message carries, written with a two- or four-digit year and interpreted in `America/Bogota`; a caller-supplied date still overrides it, and a message whose date is unreadable or later than the day of delivery falls back to that day.
@@ -175,7 +179,7 @@ The webhook (RF-90) reuses RF-22 (quick entry), RF-25 (created_by) and RF-45 (no
 | RNF-02 | Fixed stack, the one in section 4. Every library must save a substantial amount of code. |
 | RNF-03 | The browser never queries the database directly. Everything goes through the server. |
 | RNF-04 | Authorisation is enforced in the database, evaluated against the real session user. Automatic system writes run with their own privileges and are identified as such. |
-| RNF-05 | Money is stored as an integer number of cents. Floating point is forbidden. COP formatting exists only in the presentation layer. |
+| RNF-05 | Money is stored as an integer number of hundredths of its currency's major unit — one scale for every currency, whatever its own minor unit is. How many decimals a person types and reads comes from the currency. Floating point is forbidden. Formatting exists only in the presentation layer. |
 | RNF-06 | Movement dates carry no time and are interpreted in `America/Bogota`. |
 | RNF-07 | Balances are derived from movements. They are never stored in a column that has to be kept in sync. |
 | RNF-08 | Mobile-first and installable as a PWA. |
@@ -183,7 +187,7 @@ The webhook (RF-90) reuses RF-22 (quick entry), RF-25 (created_by) and RF-45 (no
 | RNF-10 | All input is validated on the server, with the same schema that validates the form. Client-side validation is never sufficient. |
 | RNF-11 | The database schema is versioned in migrations. TypeScript types are derived from the schema, never written by hand. |
 | RNF-12 | The service cannot go down because of free-tier inactivity. |
-| RNF-13 | No data leaves to third parties: no analytics, no bank credentials, no scraping. |
+| RNF-13 | No data leaves to third parties: no analytics, no bank credentials, no scraping. Reading a public figure from the server — an exchange rate — sends nothing about the fund or the person and is not an exit. |
 | RNF-14 | The audit log is purged automatically after 24 months. |
 | RNF-15 | Import is processed on the server and must work within the free tier's execution limits, in batches if necessary. |
 
@@ -194,6 +198,7 @@ Dead codes. The number stays burned and the tick stays as it was.
 - [x] **RF-02** — A user can belong to several funds; they operate on one at a time and can switch. _Retired 2026-08-28. Successor: RF-55 (one optional group per user, no switching)._
 - [x] **RF-38** — The fund has a shared cash account, created along with the fund. _Retired 2026-08-28. Successor: RF-56 (configurable `cash_mode`)._
 - [ ] **RF-03** — Only the `owner` invites members, edits the fund and manages categories. _Retired 2026-08-28. Successor: RF-57 (group leader manages the group)._
+- [x] **RF-48** — No interface text is hardcoded. Dates and numbers follow the active language; the currency is always COP. _Retired 2026-09-05. Successor: RF-125 (an amount is formatted in the currency it is in)._
 - [x] **RF-04** — All members of a fund see the same data. There are no partial-read roles. _Retired 2026-08-28. Successor: RF-58 (universal read, bounded write)._
 - [ ] **RF-05** — Whoever creates the fund becomes `owner`. The role is transferable, but a fund is never left without an owner. _Retired 2026-08-28. Successor: RF-59 (group leader)._
 - [x] **RF-08** — CRUD for accounts. Every account belongs to the fund; linking it to a member is optional. Without a member it is a shared account. _Retired 2026-08-28. Successor: RF-60 (personal vs group account)._
@@ -213,6 +218,9 @@ Dead codes. The number stays burned and the tick stays as it was.
 - [ ] **RF-85** — A signed JSON webhook creates a movement from a payload: the request carries a bearer credential that resolves it to exactly one user; the quick-entry interpreter (RF-22) infers amount, category and description from the payload's text; the movement is written under that user's writable scope so the access policies and the audit apply as if the user had recorded it; and a stable external reference makes a re-delivery idempotent, updating nothing and duplicating nothing. _Retired 2026-08-31. Successor: RF-90 (a delivery is stored as a proposal a person accepts; the webhook never writes a movement)._
 - [ ] **RF-115** — A budget's spent and remaining derive for a chosen period, not only the current one; the period is browsable into the past and the derivation is unchanged. _Retired 2026-09-01. Successor: RF-72 (the browsable period was already built under RF-72; this code named it a second time, so nothing was dropped)._
 - [ ] **RF-116** — A category shows how many subcategories hang off it, and a label how many transactions and how many budgets use it; every count derives and is never stored. _Retired 2026-09-01. Successors: RF-63 and RF-70 (the category and label counts were already built under those codes; this code named them a second time, so nothing was dropped)._
+- [x] **RF-81** — A fixed-installment or BNPL debt carries a plan — principal, number of installments, frequency (monthly or fortnightly), interest, down payment, aval, start date and merchant — from which dated installment lines are generated. _Retired 2026-09-06. No successor: six credit-card statements publish no per-instalment due dates, only `n/36`, and carry not one line at instalment 2 or higher. A card's plan is observable only as the full purchase on the balance the month it bills it (RF-16, RF-80) and the minimum it sets (RF-78, RF-83)._
+- [x] **RF-82** — A payment into a debt account is allocated to its unpaid installment lines oldest-first, marking a line paid only when the payment fully covers it and linking the paying movement; a partial remainder is left unallocated, and a plan's pending is its unpaid lines, always derived, never stored. _Retired 2026-09-06 with RF-81, whose lines it allocated against._
+- [x] **RF-95** — Quick entry accepts bank amounts written with comma or dot thousands separators and an optional zero-decimal suffix in either locale, without accepting fractional pesos. _Retired 2026-09-06. Successor: RF-128 (the same reading as the importer, up to the two decimals the column stores)._
 
 ---
 
@@ -293,7 +301,7 @@ erDiagram
     groups {
         uuid id PK
         text name
-        text currency "default COP"
+        text currency "ISO 4217 shape; default COP"
         text cash_mode "shared | per_member"
         timestamptz created_at
         timestamptz updated_at
@@ -319,7 +327,8 @@ erDiagram
         text kind "asset | liability"
         text institution
         text last_four "nullable; exactly four digits"
-        bigint initial_balance_cents
+        text settlement_currency "ISO 4217 shape; default COP"
+        bigint initial_balance_cents "hundredths of settlement_currency"
         date initial_balance_on
         timestamptz archived_at
         timestamptz created_at
@@ -396,7 +405,10 @@ erDiagram
         uuid group_id FK "null = personal movement"
         uuid from_account_id FK "null if income"
         uuid to_account_id FK "null if expense"
-        bigint amount_cents
+        bigint amount_cents "hundredths of currency"
+        text currency "ISO 4217 shape; from the accounts when unset"
+        bigint counter_amount_cents "null unless an account settles elsewhere"
+        boolean counter_is_estimate "true until the statement confirms it"
         text kind "income | expense | transfer (generated)"
         date occurred_at
         text description

@@ -1,6 +1,10 @@
 import { z } from "zod";
 
-import { pesoAmountSchema } from "@/lib/validation/transaction";
+import type { CurrencyCode } from "@/lib/currency";
+import {
+  anyCurrencyAmountSchema,
+  minorAmountSchema,
+} from "@/lib/validation/transaction";
 
 // The two debt shapes the form and the DB enum read the same list (RF-78).
 export const DEBT_KINDS = ["revolving", "installment"] as const;
@@ -56,23 +60,65 @@ export function percentToFraction(value: string): string {
   return `${padded.slice(0, cut)}.${padded.slice(cut)}`;
 }
 
-const minimumSchema = pesoAmountSchema({
+// The three money fields, read by any offered currency: a field on its own
+// cannot know its minor unit, since "10,50" is a dollar amount and no peso
+// amount at all (RF-121). `refineDebtTermsAmounts` is the one right reading,
+// run by the caller that knows what the account settles in.
+const minimumKeys = {
   required: "debts.errors.minimumRequired",
   invalid: "debts.errors.minimumInvalid",
   tooLarge: "debts.errors.minimumTooLarge",
-});
+};
 
-const creditLimitSchema = pesoAmountSchema({
+const creditLimitKeys = {
   required: "debts.errors.creditLimitRequired",
   invalid: "debts.errors.creditLimitInvalid",
   tooLarge: "debts.errors.creditLimitTooLarge",
-});
+};
 
-const avalSchema = pesoAmountSchema({
+const avalKeys = {
   required: "debts.errors.avalRequired",
   invalid: "debts.errors.avalInvalid",
   tooLarge: "debts.errors.avalTooLarge",
-});
+};
+
+const minimumSchema = anyCurrencyAmountSchema(minimumKeys);
+const creditLimitSchema = anyCurrencyAmountSchema(creditLimitKeys);
+const avalSchema = anyCurrencyAmountSchema(avalKeys);
+
+const checkMinimum = minorAmountSchema(minimumKeys);
+const checkCreditLimit = minorAmountSchema(creditLimitKeys);
+const checkAval = minorAmountSchema(avalKeys);
+
+// Every money field of the profile, read in the currency the account bills in
+// (RF-121): a credit limit and a minimum payment are denominated in what the
+// card settles in, so how many decimals they may carry comes from that currency
+// and from no other. The form runs this against the currency it was handed and
+// the action against the one it reads off the account — the same rule, never the
+// payload's word for it (RNF-10).
+//
+// An absent field is no amount at all; each field's own schema already refused
+// the ones that read in no currency, so nothing here says the same thing twice.
+export function refineDebtTermsAmounts(currency: CurrencyCode) {
+  return function refine(
+    data: {
+      minimumPayment?: string | null;
+      creditLimit?: string | null;
+      aval?: string | null;
+    },
+    ctx: z.RefinementCtx,
+  ) {
+    if (data.minimumPayment != null) {
+      checkMinimum(data.minimumPayment, currency, ["minimumPayment"], ctx);
+    }
+    if (data.creditLimit != null) {
+      checkCreditLimit(data.creditLimit, currency, ["creditLimit"], ctx);
+    }
+    if (data.aval != null) {
+      checkAval(data.aval, currency, ["aval"], ctx);
+    }
+  };
+}
 
 // A statement cut-off or payment due day-of-month; the DB clamps a 31 to a short
 // month, so the schema only bounds the raw 1..31 range.

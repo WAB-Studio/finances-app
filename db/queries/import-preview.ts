@@ -32,13 +32,21 @@ export type ScopedEntity = {
   externalRef: string | null;
 };
 
+// An account additionally carries what it settles in (RF-121): the pipeline checks a
+// resolved reference against it before a row that names one ever reaches `parsePesos`.
+export type ScopedAccount = ScopedEntity & { settlementCurrency: string };
+
+// A category additionally carries its kind (RF-27): a transaction row resolving one
+// checks it against the movement's own direction before the row ever reaches a write.
+export type ScopedCategory = ScopedEntity & { kind: string };
+
 // The caller's existing scope, read once so the pipeline resolves references and
 // classifies rows without touching Postgres again. The account and category rows
 // seed the effective post-import set a reference resolves against; `existingRefs`
 // is the per-entity stable-key set the new-vs-update classification matches on.
 export type ImportScope = {
-  accounts: ScopedEntity[];
-  categories: ScopedEntity[];
+  accounts: ScopedAccount[];
+  categories: ScopedCategory[];
   existingRefs: Record<SheetEntity, Set<string>>;
 };
 
@@ -73,12 +81,22 @@ export async function readImportScope(): Promise<ImportScope> {
     await Promise.all([
       withUserDb((tx) =>
         tx
-          .select({ id: accounts.id, name: accounts.name, externalRef: accounts.externalRef })
+          .select({
+            id: accounts.id,
+            name: accounts.name,
+            externalRef: accounts.externalRef,
+            settlementCurrency: accounts.settlementCurrency,
+          })
           .from(accounts),
       ),
       withUserDb((tx) =>
         tx
-          .select({ id: categories.id, name: categories.name, externalRef: categories.externalRef })
+          .select({
+            id: categories.id,
+            name: categories.name,
+            externalRef: categories.externalRef,
+            kind: categories.kind,
+          })
           .from(categories),
       ),
       readExistingRefs("members"),

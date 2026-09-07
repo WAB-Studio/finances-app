@@ -23,6 +23,7 @@ import type { GoalProgress } from "@/db/queries/savings-goals";
 import { useActionErrorToast } from "@/lib/use-action-toast";
 import {
   contributeGoalSchema,
+  refineContributionAmount,
   type ContributeGoalInput,
 } from "@/lib/validation/savings-goal";
 
@@ -65,7 +66,11 @@ function ContributeForm({
   const tKey = useTranslations();
 
   const form = useForm<ContributeGoalInput>({
-    resolver: zodResolver(contributeGoalSchema),
+    // An aporte is set aside in the goal's own currency, so the field reads in it
+    // here exactly as the action reads it back (RF-121, RNF-10).
+    resolver: zodResolver(
+      contributeGoalSchema.superRefine(refineContributionAmount(goal.currency)),
+    ),
     defaultValues: { goalId: goal.id, amount: "" },
   });
 

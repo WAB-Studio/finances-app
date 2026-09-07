@@ -1,16 +1,39 @@
 import { z } from "zod";
 
-import { pesoAmountSchema } from "@/lib/validation/transaction";
+import type { CurrencyCode } from "@/lib/currency";
+import {
+  anyCurrencyAmountSchema,
+  minorAmountSchema,
+} from "@/lib/validation/transaction";
 
 // The window a budget's limit is spent against (RF-71); the form and the DB
 // enum read the same list.
 export const BUDGET_PERIODS = ["monthly", "weekly", "yearly"] as const;
 
-const limitSchema = pesoAmountSchema({
+const limitKeys = {
   required: "budgets.errors.limitRequired",
   invalid: "budgets.errors.limitInvalid",
   tooLarge: "budgets.errors.limitTooLarge",
-});
+};
+
+// The field on its own cannot know its minor unit: a budget's currency is
+// derived from its account, its fund or its owner (RF-121), which is a read.
+// So the shape passes if any offered currency reads it, and the one right
+// reading is `refineBudgetLimit`'s, run by whoever knows the currency.
+const limitSchema = anyCurrencyAmountSchema(limitKeys);
+
+const checkLimit = minorAmountSchema(limitKeys);
+
+/**
+ * The limit read in the currency the budget derives (RF-121). The form runs it
+ * against the currency it was handed and the action against the one it reads
+ * back — the same rule on both sides, never the payload's word for it (RNF-10).
+ */
+export function refineBudgetLimit(currency: CurrencyCode) {
+  return function refine(data: { limit: string }, ctx: z.RefinementCtx) {
+    checkLimit(data.limit, currency, ["limit"], ctx);
+  };
+}
 
 // A whole percentage of the limit at which the budget warns (RF-71); one and a
 // hundred are both allowed, nothing outside.

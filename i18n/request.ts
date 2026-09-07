@@ -1,7 +1,8 @@
 import { hasLocale, type Messages } from "next-intl";
 import { getRequestConfig } from "next-intl/server";
 
-import { CURRENCY, DEFAULT_LOCALE, TIME_ZONE } from "@/lib/locales";
+import { BASE_CURRENCY, minorUnitExponent } from "@/lib/currency";
+import { DEFAULT_LOCALE, TIME_ZONE } from "@/lib/locales";
 import type en from "../messages/en.json";
 import { routing } from "./routing";
 
@@ -23,11 +24,15 @@ export default getRequestConfig(async ({ requestLocale }) => {
     timeZone: TIME_ZONE,
     formats: {
       number: {
-        // COP has no cent denomination in circulation, so amounts round to the peso.
+        // What is left of a one-currency app, not the policy: a movement's
+        // currency is a column, and next-intl resolves a named format once for
+        // the whole request. `Money` formats per currency; the calls still
+        // reaching for this name are the ones not yet carrying one (RF-121).
         currency: {
           style: "currency",
-          currency: CURRENCY,
-          maximumFractionDigits: 0,
+          currency: BASE_CURRENCY,
+          minimumFractionDigits: minorUnitExponent(BASE_CURRENCY),
+          maximumFractionDigits: minorUnitExponent(BASE_CURRENCY),
         },
       },
     },

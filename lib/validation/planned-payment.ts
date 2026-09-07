@@ -1,18 +1,48 @@
 import { z } from "zod";
 
+import { BASE_CURRENCY } from "@/lib/currency";
 import { isCivilDate } from "@/lib/dates";
 import {
   accountRefSchema,
+  anyCurrencyAmountSchema,
+  minorAmountSchema,
   occurredAtSchema,
-  pesoAmountSchema,
   requireAnAccount,
+  type SettlementCurrencies,
 } from "@/lib/validation/transaction";
 
-const amountSchema = pesoAmountSchema({
+const amountKeys = {
   required: "plannedPayments.errors.amountRequired",
   invalid: "plannedPayments.errors.amountInvalid",
   tooLarge: "plannedPayments.errors.amountTooLarge",
-});
+};
+
+// The field cannot know its minor unit until the accounts are read, so the
+// shape passes if any offered currency reads it and `refinePaymentAmount` runs
+// the one right reading (RF-121).
+const amountSchema = anyCurrencyAmountSchema(amountKeys);
+
+const checkAmount = minorAmountSchema(amountKeys);
+
+/**
+ * What the payment settles in: the source account's currency, or the
+ * destination's when the payment is an income — the very `coalesce`
+ * `set_transaction_currency` runs when the movement it plans is booked.
+ */
+export function plannedPaymentCurrency(settlement: SettlementCurrencies): string {
+  return settlement.from ?? settlement.to ?? BASE_CURRENCY;
+}
+
+/**
+ * The amount read in the currency the named account settles in (RF-121). The
+ * form runs it against the currencies it was handed and the action against the
+ * ones it reads back — the same rule on both sides (RNF-10).
+ */
+export function refinePaymentAmount(settlement: SettlementCurrencies) {
+  return function refine(data: { amount: string }, ctx: z.RefinementCtx) {
+    checkAmount(data.amount, plannedPaymentCurrency(settlement), ["amount"], ctx);
+  };
+}
 
 // The day the payment falls due; unlike a movement it may sit in the future,
 // so no not-future bound applies (RF-74).

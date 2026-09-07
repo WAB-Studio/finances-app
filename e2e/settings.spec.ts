@@ -48,17 +48,43 @@ function atCount(message: string, count: number): string {
   return branch.replace("#", String(count));
 }
 
+/**
+ * The band the width displays. On the members and webhooks screens the
+ * laptop's table and the phone's cards are both in the DOM at every width, cut
+ * apart by CSS alone, so a locator that names no band reaches a row twice and
+ * dies on strict mode.
+ */
+function band(page: Page): Locator {
+  return page.locator("main > div > .rt-Box").filter({ visible: true });
+}
+
 test("the categories screen renders the categories it read", async ({ page }) => {
   await page.goto("/es/settings/categories");
 
-  await expect(page.getByText(scope.categoryName, { exact: true })).toBeVisible();
-  // The count comes from the row's own children, so it only reads at all once
-  // the category behind it loaded.
-  await expect(
-    page.getByText(atCount(messages.categories.subcategoryCount, 0), {
+  // Categorías gained a laptop band of its own (RF-63, RF-116): the phone's
+  // card and the table's row both carry the bare name, so this scopes the read
+  // to whichever the width is showing, in line rather than a shared helper.
+  const shown = page.locator("main > div > .rt-Box").filter({ visible: true });
+  await expect(shown.getByText(scope.categoryName, { exact: true })).toBeVisible();
+
+  // The phone states the count as a phrase inside the category's own card; the
+  // laptop states it as a bare figure in the row's own column (SPEC-A3). Either
+  // way this is the one node naming this category's own count, not whichever
+  // other childless category the run left standing.
+  const subcategoryCount = shown
+    .getByText(atCount(messages.categories.subcategoryCount, 0), {
       exact: true,
-    }),
-  ).toBeVisible();
+    })
+    .or(
+      shown
+        .getByRole("row")
+        .filter({ hasText: scope.categoryName })
+        .getByRole("cell")
+        .nth(2)
+        .getByText("0", { exact: true }),
+    );
+
+  await expect(subcategoryCount).toBeVisible();
 });
 
 test("the labels screen renders a label with its usage counts", async ({
@@ -75,34 +101,55 @@ test("the labels screen renders a label with its usage counts", async ({
 
   await page.goto("/es/settings/labels");
 
-  await expect(page.getByText(name, { exact: true })).toBeVisible();
+  // Etiquetas gained the same laptop band (RF-70, RF-116); see the categories
+  // test above for why this reads in line rather than through a shared helper.
+  const shown = page.locator("main > div > .rt-Box").filter({ visible: true });
+  await expect(shown.getByText(name, { exact: true })).toBeVisible();
+
+  // The row this label's own two counts ride, in whichever band is shown —
+  // there is no other label on this screen to confuse it with.
+  const row = shown.getByRole("row").filter({ hasText: name });
+
   await expect(
-    page.getByText(atCount(messages.labels.usageCount, 0), { exact: true }),
+    shown
+      .getByText(atCount(messages.labels.usageCount, 0), { exact: true })
+      .or(row.getByRole("cell").nth(2).getByText("0", { exact: true })),
   ).toBeVisible();
   await expect(
-    page.getByText(atCount(messages.labels.budgetCount, 0), { exact: true }),
+    shown
+      .getByText(atCount(messages.labels.budgetCount, 0), { exact: true })
+      .or(row.getByRole("cell").nth(3).getByText("0", { exact: true })),
   ).toBeVisible();
 
   await fixtureSql`delete from labels where id = ${labelId}`;
 });
 
-test("the audit screen lists the record a write just left", async ({ page }) => {
+test.describe("the audit screen", () => {
   const categoryId = randomUUID();
 
   // The trail answers only to its triggers (RF-44), so a write is the only way
   // to put a row on this screen; the id it stamps is what the table shows.
-  await asHarnessUser(async (tx) => {
-    await tx`
-      insert into categories (id, owner_user_id, name, kind, color)
-      values (${categoryId}, ${scope.userId}, ${`Auditoría ${stamp}`}, 'expense', '#4C8C4A')`;
+  test.beforeEach(async () => {
+    await asHarnessUser(async (tx) => {
+      await tx`
+        insert into categories (id, owner_user_id, name, kind, color)
+        values (${categoryId}, ${scope.userId}, ${`Auditoría ${stamp}`}, 'expense', '#4C8C4A')`;
+    });
   });
 
-  await page.goto("/es/settings/audit");
+  // The drop rides a hook rather than the end of the test: a category this one
+  // leaves alive when it fails is a second '0 subcategorías' for the categories
+  // test above, which turns one red into two and hides which was the real one.
+  test.afterEach(async () => {
+    await fixtureSql`delete from categories where id = ${categoryId}`;
+  });
 
-  // Newest first, so the row this test wrote is on the first page.
-  await expect(page.getByRole("cell", { name: categoryId })).toBeVisible();
+  test("lists the record a write just left", async ({ page }) => {
+    await page.goto("/es/settings/audit");
 
-  await fixtureSql`delete from categories where id = ${categoryId}`;
+    // Newest first, so the row this test wrote is on the first page.
+    await expect(page.getByRole("cell", { name: categoryId })).toBeVisible();
+  });
 });
 
 test("the data screen carries every exportable entity into its download link", async ({
@@ -141,9 +188,9 @@ test("the webhooks screen renders a credential with its own rate limit", async (
 
   await page.goto("/es/settings/webhooks");
 
-  await expect(page.getByText(name, { exact: true })).toBeVisible();
+  await expect(band(page).getByText(name, { exact: true })).toBeVisible();
   await expect(
-    page.getByText(atCount(messages.webhooks.rateLimit, rateLimit), {
+    band(page).getByText(atCount(messages.webhooks.rateLimit, rateLimit), {
       exact: true,
     }),
   ).toBeVisible();
@@ -176,16 +223,21 @@ test.describe("the members screen", () => {
   });
 
   test.afterEach(async () => {
-    await fixtureSql`delete from groups where id = ${groupId}`;
-    await fixtureSql`delete from group_members where group_id = ${groupId}`;
+    // Under the caller's claims, so the trail rows this drop stamps name an actor
+    // the next run's purge can find again.
+    await asHarnessUser(async (tx) => {
+      await tx`delete from groups where id = ${groupId}`;
+      await tx`delete from group_members where group_id = ${groupId}`;
+    });
   });
 
   test("renders the roster of the caller's fund", async ({ page }) => {
     await page.goto("/es/settings/members");
 
     // The sidebar names the signed-in person, so their name is on the screen
-    // twice by design; the roster is the one under test.
-    const roster = page.getByRole("main");
+    // twice by design; the roster is the one under test, in the band this
+    // width displays — the other band carries the same names, hidden.
+    const roster = band(page);
 
     await expect(roster.getByText(memberName, { exact: true })).toBeVisible();
     await expect(roster.getByText(leaderName, { exact: true })).toBeVisible();
@@ -205,9 +257,9 @@ function rowMenus(page: Page): Locator {
 }
 
 // Whichever of the two the browser signs in as is named by the sidebar as well,
-// so both rows are read from the screen's own landmark.
+// so both rows are read from the band this width displays, not the sidebar's.
 async function expectRosterRendered(page: Page): Promise<void> {
-  const roster = page.getByRole("main");
+  const roster = band(page);
 
   await expect(roster.getByText(LEADER_MEMBER_NAME, { exact: true })).toBeVisible();
   await expect(roster.getByText(PLAIN_MEMBER_NAME, { exact: true })).toBeVisible();
@@ -316,10 +368,12 @@ test.describe("the group's own settings", () => {
     const renamed = `Fondo renombrado ${stamp}`;
 
     // The seeded row is what the fields are read against: a change only proves
-    // anything once the screen is carrying the two values it was given.
-    const [seeded] = await fixtureSql<{ name: string; cash_mode: string }[]>`
-      select name, cash_mode from groups where id = ${groupId}`;
+    // anything once the screen is carrying the three values it was given.
+    const [seeded] = await fixtureSql<
+      { name: string; cash_mode: string; currency: string }[]
+    >`select name, cash_mode, currency from groups where id = ${groupId}`;
     expect(seeded.cash_mode).toBe("per_member");
+    expect(seeded.currency).toBe("COP");
     // Cash per member holds no shared pot, so the one below is the switch's own
     // work and not a row the seed left lying there.
     expect(
@@ -334,19 +388,27 @@ test.describe("the group's own settings", () => {
     await expect(
       page.getByRole("radio", { name: group.cashModePerMember, exact: true }),
     ).toBeChecked();
+    await expect(
+      page.getByRole("radio", { name: "COP", exact: true }),
+    ).toBeChecked();
 
     await page.getByRole("textbox", { name: group.nameLabel }).fill(renamed);
     await page
       .getByRole("radio", { name: group.cashModeShared, exact: true })
       .click();
+    // The currency rides the same one-statement write as the name and the cash
+    // mode (RF-121): a leader changes where the fund settles from here too.
+    await page.getByRole("radio", { name: "USD", exact: true }).click();
     await page.getByRole("button", { name: group.save, exact: true }).click();
 
     await expect(page.getByText(group.saved, { exact: true })).toBeVisible();
 
-    const [saved] = await fixtureSql<{ name: string; cash_mode: string }[]>`
-      select name, cash_mode from groups where id = ${groupId}`;
+    const [saved] = await fixtureSql<
+      { name: string; cash_mode: string; currency: string }[]
+    >`select name, cash_mode, currency from groups where id = ${groupId}`;
     expect(saved.name).toBe(renamed);
     expect(saved.cash_mode).toBe("shared");
+    expect(saved.currency).toBe("USD");
 
     // 'shared' names one pot, so the save has to leave exactly one behind (RF-56):
     // none sends the next withdrawal to an account nothing ever finds again, and
@@ -378,11 +440,17 @@ test.describe("the group's own settings", () => {
       await expect(
         settings.getByText(group.cashModePerMember, { exact: true }),
       ).toBeVisible();
+      // The currency reads as plain text here, the same way the cash mode does
+      // above — no member changes where the fund settles (RF-121).
+      await expect(settings.getByText("COP", { exact: true })).toBeVisible();
 
       // RF-57: the configuration is the leader's, and this screen hands a plain
       // member neither the field nor the button that would reach the action.
       await expect(
         page.getByRole("textbox", { name: group.nameLabel }),
+      ).toHaveCount(0);
+      await expect(
+        page.getByRole("radio", { name: "USD", exact: true }),
       ).toHaveCount(0);
       await expect(
         page.getByRole("button", { name: group.save, exact: true }),

@@ -112,6 +112,9 @@ function transactionConditions(filters?: TransactionExportFilters): SQL[] {
       ) as SQL,
     );
   }
+  if (filters.recurringRuleId) {
+    conditions.push(eq(transactions.recurringRuleId, filters.recurringRuleId));
+  }
 
   return conditions;
 }

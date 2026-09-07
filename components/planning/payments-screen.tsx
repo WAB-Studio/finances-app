@@ -1,7 +1,7 @@
 "use client";
 
 import { EllipsisVertical, Info, Plus } from "lucide-react";
-import { useFormatter, useTranslations } from "next-intl";
+import { useFormatter, useLocale, useTranslations } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -11,8 +11,11 @@ import {
   deletePlannedPaymentAction,
 } from "@/app/actions/planned-payments";
 import { PaymentFormDialog } from "@/components/planning/payment-form-dialog";
+import { PaymentsTable } from "@/components/planning/payments-table";
 import { PaymentSettleDialog } from "@/components/planning/payment-settle-dialog";
+import { PlanningSubNav } from "@/components/planning/planning-sub-nav";
 import {
+  Box,
   Button,
   Callout,
   Card,
@@ -25,19 +28,21 @@ import {
   IconButton,
   MovementRow,
   Text,
+  type DataSection,
 } from "@/components/ui";
 import type { PlannedPaymentRow } from "@/db/queries/planned-payments";
 import type { TransactionFormOptions } from "@/db/queries/transaction-form";
 import { civilDateToDate } from "@/lib/dates";
-import { centsToPesos } from "@/lib/money";
+import { formatMoney } from "@/lib/money";
 import { useActionErrorToast } from "@/lib/use-action-toast";
 
 /**
  * The planned-payments area: pending payments read as dated reminder rows grouped
  * by their due month, soonest first (RF-74). Each row's dropdown settles it into a
  * real movement, edits it, cancels it or deletes it; settling runs the reused
- * action and removes the row on refresh (RF-75). Money stays integer cents; the
- * peso figure is display only.
+ * action and removes the row on refresh (RF-75). Money stays integer cents and
+ * every figure is drawn in the settlement currency of the account the payment
+ * names (RF-121).
  */
 export function PaymentsScreen({
   payments,
@@ -80,6 +85,34 @@ export function PaymentsScreen({
     return [...byMonth.entries()];
   }, [payments]);
 
+  // A name and colour per category id — children included — and a name per
+  // account id, so the desktop table reads a payment's row without a lookup
+  // of its own.
+  const categoryNames = new Map<string, string>();
+  const categoryColors = new Map<string, string | null>();
+  for (const category of options.categories) {
+    categoryNames.set(category.id, category.name);
+    categoryColors.set(category.id, category.color);
+    for (const child of category.children) {
+      categoryNames.set(child.id, child.name);
+      categoryColors.set(child.id, child.color);
+    }
+  }
+  const accountNames = new Map(options.accounts.map((a) => [a.id, a.name]));
+
+  // `groups` reshaped into the table's sections — one band per month, its
+  // rows unchanged — so the month grouping is derived once for both widths.
+  const sections: DataSection<PlannedPaymentRow>[] = groups.map(
+    ([monthKey, rows]) => ({
+      key: monthKey,
+      label: format.dateTime(civilDateToDate(`${monthKey}-01`), {
+        month: "long",
+        year: "numeric",
+      }),
+      rows,
+    }),
+  );
+
   const cancelState = useAction(cancelPlannedPaymentAction, {
     onSuccess() {
       toast.success(t("cancelled"));
@@ -113,6 +146,11 @@ export function PaymentsScreen({
         {addButton}
       </Flex>
 
+      <Box display={{ initial: "none", md: "block" }}>
+        <PlanningSubNav />
+      </Box>
+
+      <Box display={{ initial: "block", lg: "none" }}>
       {payments.length === 0 ? (
         <EmptyState
           title={t("emptyTitle")}
@@ -148,6 +186,27 @@ export function PaymentsScreen({
           ))}
         </Flex>
       )}
+      </Box>
+
+      <Box display={{ initial: "none", lg: "block" }}>
+        <PaymentsTable
+          sections={sections}
+          categoryNames={categoryNames}
+          categoryColors={categoryColors}
+          accountNames={accountNames}
+          empty={
+            <EmptyState
+              title={t("emptyTitle")}
+              description={t("emptyDescription")}
+              action={addButton}
+            />
+          }
+          onSettle={(payment) => setSettleTarget(payment)}
+          onEdit={(payment) => setFormTarget(payment)}
+          onCancel={(payment) => setCancelTarget(payment)}
+          onDelete={(payment) => setDeleteTarget(payment)}
+        />
+      </Box>
 
       {/* A planned payment only reminds; the person records the real movement
           when they settle it (RF-74, RF-75). */}
@@ -225,6 +284,7 @@ function PaymentCard({
   const t = useTranslations("plannedPayments");
   const tKey = useTranslations();
   const format = useFormatter();
+  const locale = useLocale();
 
   const due = civilDateToDate(payment.dueDate);
 
@@ -241,7 +301,7 @@ function PaymentCard({
             }
             title={payment.description ?? t("noConcept")}
             subtitle={t("reminder")}
-            amount={format.number(centsToPesos(payment.amountCents), "currency")}
+            amount={formatMoney(payment.amountCents, payment.currency, locale)}
             tone="transfer"
           />
         </Flex>

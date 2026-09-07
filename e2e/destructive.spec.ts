@@ -42,6 +42,16 @@ function rowMenus(page: Page): Locator {
 }
 
 /**
+ * The band the width displays. On every screen that gained a dense table,
+ * the laptop's rows and the phone's cards are both in the DOM at every width,
+ * cut apart by CSS alone, so a name looked for on the screen reaches two nodes
+ * and dies on strict mode.
+ */
+function band(page: Page): Locator {
+  return page.locator("main > div > .rt-Box").filter({ visible: true });
+}
+
+/**
  * Runs a row's destructive item through the confirmation it raises. The menu and
  * the `ConfirmDialog` are the same pair on every screen here; only the two
  * labels change.
@@ -88,7 +98,10 @@ test("creates a category and deletes it from the screen and the table", async ({
   await form.getByRole("button", { name: common.save, exact: true }).click();
 
   await expect(form).toBeHidden();
-  await expect(page.getByText(name, { exact: true })).toBeVisible();
+  // Categorías gained a laptop band of its own (RF-63, RF-116): a bare name
+  // matches the phone's card and the table's row alike, so the check names the
+  // one the width is showing.
+  await expect(band(page).getByText(name, { exact: true })).toBeVisible();
 
   const [created] = await fixtureSql<{ id: string; kind: string }[]>`
     select id, kind from categories
@@ -116,7 +129,10 @@ test("creates a label and deletes it from the screen and the table", async ({
   await form.getByRole("button", { name: common.save, exact: true }).click();
 
   await expect(form).toBeHidden();
-  await expect(page.getByText(name, { exact: true })).toBeVisible();
+  // Etiquetas gained a laptop band of its own (RF-70, RF-116): a bare name
+  // matches the phone's card and the table's row alike, so the check names the
+  // one the width is showing.
+  await expect(band(page).getByText(name, { exact: true })).toBeVisible();
 
   const [created] = await fixtureSql<{ id: string }[]>`
     select id from labels
@@ -157,7 +173,7 @@ test("creates a budget and deletes it from the screen and the table", async ({
   await form.getByRole("button", { name: budgets.save, exact: true }).click();
 
   await expect(form).toBeHidden();
-  await expect(page.getByText(categoryName, { exact: true })).toBeVisible();
+  await expect(band(page).getByText(categoryName, { exact: true })).toBeVisible();
 
   const [created] = await fixtureSql<{ id: string; limit_cents: string }[]>`
     select id, limit_cents::text as limit_cents from budgets
@@ -166,7 +182,7 @@ test("creates a budget and deletes it from the screen and the table", async ({
 
   await removeOnlyRow(page, common.delete, common.delete);
 
-  await expect(page.getByText(categoryName, { exact: true })).toHaveCount(0);
+  await expect(band(page).getByText(categoryName, { exact: true })).toHaveCount(0);
   const left = await fixtureSql`select id from budgets where id = ${created.id}`;
   expect(left).toHaveLength(0);
 
@@ -236,7 +252,7 @@ test("creates a planned payment and deletes it from the screen and the table", a
   await form.getByRole("button", { name: payments.save, exact: true }).click();
 
   await expect(form).toBeHidden();
-  await expect(page.getByText(concept, { exact: true })).toBeVisible();
+  await expect(band(page).getByText(concept, { exact: true })).toBeVisible();
 
   const [created] = await fixtureSql<
     { id: string; amount_cents: string; due_date: string }[]
@@ -249,7 +265,7 @@ test("creates a planned payment and deletes it from the screen and the table", a
 
   await removeOnlyRow(page, common.delete, common.delete);
 
-  await expect(page.getByText(concept, { exact: true })).toHaveCount(0);
+  await expect(band(page).getByText(concept, { exact: true })).toHaveCount(0);
   const left = await fixtureSql`select id from planned_payments where id = ${created.id}`;
   expect(left).toHaveLength(0);
 });
@@ -281,7 +297,14 @@ test("creates a recurring rule and pauses it, the only write its card offers", a
   await form.getByRole("button", { name: rules.save, exact: true }).click();
 
   await expect(form).toBeHidden();
-  await expect(page.getByText(concept, { exact: true })).toBeVisible();
+  // The line each band names the rule on: the concept, with the Auto badge
+  // beside it. The laptop leaves that cell no width of its own between the seven
+  // fixed columns after it, so what the line says is the assertion.
+  const named = band(page)
+    .locator("div")
+    .filter({ has: page.getByText(rules.autoBadge, { exact: true }) })
+    .last();
+  await expect(named).toHaveText(`${concept}${rules.autoBadge}`);
 
   const [created] = await fixtureSql<
     { id: string; amount_cents: string; is_active: boolean }[]
@@ -293,10 +316,18 @@ test("creates a recurring rule and pauses it, the only write its card offers", a
 
   // No card offers a rule's removal, so the pause switch is the only write left
   // to drive: `deleteRecurringRuleAction` has no caller in the interface.
-  const toggle = page.getByRole("switch", { name: rules.activeToggle, exact: true });
+  // Either band's switch: the card names it for the screen, the row for the rule.
+  const toggle = page
+    .getByRole("switch", { name: rules.activeToggle, exact: true })
+    .or(
+      page.getByRole("switch", {
+        name: rules.pauseSwitchLabel.replace("{name}", concept),
+        exact: true,
+      }),
+    );
   await expect(toggle).toHaveCount(1);
   await toggle.click();
-  await expect(page.getByText(rules.statePaused, { exact: true })).toBeVisible();
+  await expect(band(page).getByText(rules.statePaused, { exact: true })).toBeVisible();
 
   const [paused] = await fixtureSql<{ is_active: boolean }[]>`
     select is_active from recurring_rules where id = ${created.id}`;
@@ -425,13 +456,15 @@ test("revokes a webhook credential and reads the revocation back", async ({
   });
 
   await page.goto("/es/settings/webhooks");
-  await expect(page.getByText(name, { exact: true })).toBeVisible();
+  await expect(band(page).getByText(name, { exact: true })).toBeVisible();
 
   await removeOnlyRow(page, webhooks.revoke, webhooks.revoke);
 
   // A revoked credential stays listed under its badge: the row is not deleted,
   // it is stamped, and the badge is what says the write landed.
-  await expect(page.getByText(webhooks.revokedBadge, { exact: true })).toBeVisible();
+  await expect(
+    band(page).getByText(webhooks.revokedBadge, { exact: true }),
+  ).toBeVisible();
 
   const [revoked] = await fixtureSql<{ revoked_at: string | null }[]>`
     select revoked_at::text as revoked_at from webhook_credentials
@@ -467,22 +500,28 @@ test.describe("the fund's roster", () => {
   });
 
   test.afterEach(async () => {
-    await fixtureSql`delete from groups where id = ${groupId}`;
-    await fixtureSql`delete from group_members where group_id = ${groupId}`;
+    // Under the caller's claims, so the trail rows this drop stamps name an actor
+    // the next run's purge can find again.
+    await asHarnessUser(async (tx) => {
+      await tx`delete from groups where id = ${groupId}`;
+      await tx`delete from group_members where group_id = ${groupId}`;
+    });
   });
 
   test("archives a member, restores them and finally deletes them", async ({
     page,
   }) => {
     await page.goto("/es/settings/members");
-    await expect(page.getByText(memberName, { exact: true })).toBeVisible();
+    await expect(band(page).getByText(memberName, { exact: true })).toBeVisible();
 
     // Two menus: the leader's own row carries one too, offering only the edit.
     const menus = rowMenus(page);
     await expect(menus).toHaveCount(2);
     await confirmThroughMenu(page, menus.nth(1), common.archive, common.archive);
 
-    await expect(page.getByText(memberName, { exact: true })).toHaveCount(0);
+    await expect(
+      band(page).getByText(memberName, { exact: true }),
+    ).toHaveCount(0);
     const [archived] = await fixtureSql<{ archived_at: string | null }[]>`
       select archived_at::text as archived_at from group_members
       where id = ${memberId}`;
@@ -490,9 +529,11 @@ test.describe("the fund's roster", () => {
 
     // The archived tab holds only this row, so its menu is the only one there.
     await page.goto("/es/settings/members?tab=archived");
-    await expect(page.getByText(memberName, { exact: true })).toBeVisible();
+    await expect(band(page).getByText(memberName, { exact: true })).toBeVisible();
     await removeOnlyRow(page, common.restore, common.restore);
-    await expect(page.getByText(memberName, { exact: true })).toHaveCount(0);
+    await expect(
+      band(page).getByText(memberName, { exact: true }),
+    ).toHaveCount(0);
 
     const [restored] = await fixtureSql<{ archived_at: string | null }[]>`
       select archived_at::text as archived_at from group_members
@@ -507,7 +548,9 @@ test.describe("the fund's roster", () => {
       common.delete,
     );
 
-    await expect(page.getByText(memberName, { exact: true })).toHaveCount(0);
+    await expect(
+      band(page).getByText(memberName, { exact: true }),
+    ).toHaveCount(0);
     const left = await fixtureSql`
       select id from group_members where id = ${memberId}`;
     expect(left).toHaveLength(0);

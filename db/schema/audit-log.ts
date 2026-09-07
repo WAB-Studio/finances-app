@@ -33,9 +33,23 @@ export const auditLog = pgTable(
     index("audit_log_group_id_idx")
       .on(table.groupId)
       .where(sql`${table.groupId} is not null`),
+    // Without this one, the actor branch of the policy below has no index to plan a
+    // `BitmapOr` from, so the planner falls back to a Seq Scan for the whole `OR`.
+    index("audit_log_actor_user_id_idx")
+      .on(table.actorUserId)
+      .where(sql`${table.actorUserId} is not null`),
     // Read-only viewer (RF-53): a user reads a row scoped to them personally, scoped to a group they
     // belong to, or one they themselves caused — the last surfaces the unscoped child rows to their
     // actor alone. No write policy accompanies it: the log stays append-only to the trigger (RF-44).
+    //
+    // Left as the same three-branch `or`, `is_group_member(group_id)` included: with an index behind
+    // every branch (below), Postgres plans it as a `BitmapOr` of three Bitmap Index Scans, the group
+    // one filtered to `group_id is not null` and rechecked against the function per candidate row —
+    // never a Seq Scan. Rewriting the group branch as `group_id in (select group_id from group_members
+    // where user_id = auth.uid() and archived_at is null)` was measured and discarded: `in` compiles
+    // to `= any(hashed SubPlan)`, which cannot join a `BitmapOr` with the other two branches, so
+    // Postgres drops the *whole* `or` back to a Seq Scan with a Filter — the trap this migration closes,
+    // reopened by the fix meant to close it further.
     pgPolicy("audit_log_select_scope", {
       for: "select",
       to: authenticatedRole,

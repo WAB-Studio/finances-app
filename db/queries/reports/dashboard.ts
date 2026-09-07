@@ -11,6 +11,7 @@ import { netWorthByOwner } from "@/db/queries/reports/net-worth";
 import type { OwnerNetWorth } from "@/db/queries/reports/net-worth";
 import { countUnreviewedGenerated } from "@/db/queries/recurring-rules";
 import { getSessionUser } from "@/db/session";
+import type { CurrencyCode } from "@/lib/currency";
 import { currentMonthRange } from "@/lib/dates";
 
 // A net-worth bucket carrying the display name the dashboard renders: a member's
@@ -21,11 +22,18 @@ export type OwnerNetWorthNamed = OwnerNetWorth & {
   isSelf: boolean;
 };
 
+// The fund's whole net worth in one currency. There is no single figure to
+// carry: two currencies are two totals, each saying which one it counts (RF-124).
+export type CurrencyNetWorth = {
+  currency: CurrencyCode;
+  netWorthCents: number;
+};
+
 export type DashboardData = {
   hasAccounts: boolean;
   netWorth: OwnerNetWorthNamed[];
-  totalNetWorthCents: number;
-  monthFlow: MonthlyFlow;
+  totalNetWorth: CurrencyNetWorth[];
+  monthFlow: MonthlyFlow[];
   // Generated movements still awaiting review — the "N sin revisar" badge (RF-31).
   unreviewedCount: number;
   pendingDeliveryCount: number;
@@ -68,6 +76,7 @@ export async function getDashboardData(): Promise<DashboardData> {
 
   // A group account is one bucket, never split across its members (RF-67); the
   // signed sum of derived balances IS net worth with no per-kind branch (RNF-05).
+  // One bucket per owner AND currency, since an account holds several at once.
   const buckets = netWorthByOwner(accounts, balances);
 
   const netWorth: OwnerNetWorthNamed[] = buckets.map((bucket) => {
@@ -83,15 +92,22 @@ export async function getDashboardData(): Promise<DashboardData> {
     };
   });
 
-  const totalNetWorthCents = buckets.reduce(
-    (total, bucket) => total + bucket.netWorthCents,
-    0,
-  );
+  // The buckets folded again, this time over the currency alone. In code order,
+  // so two renders draw the figures in the same places.
+  const totalByCurrency = new Map<CurrencyCode, number>();
+  for (const bucket of buckets) {
+    const running = totalByCurrency.get(bucket.currency) ?? 0;
+    totalByCurrency.set(bucket.currency, running + bucket.netWorthCents);
+  }
+
+  const totalNetWorth: CurrencyNetWorth[] = [...totalByCurrency]
+    .map(([currency, netWorthCents]) => ({ currency, netWorthCents }))
+    .sort((a, b) => a.currency.localeCompare(b.currency));
 
   return {
     hasAccounts: accounts.length > 0,
     netWorth,
-    totalNetWorthCents,
+    totalNetWorth,
     monthFlow,
     unreviewedCount,
     pendingDeliveryCount,

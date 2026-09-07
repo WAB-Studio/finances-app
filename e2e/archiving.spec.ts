@@ -16,7 +16,7 @@ import { expect, type Locator, type Page } from "@playwright/test";
 import messages from "@/messages/es.json";
 
 import { fixtureSql } from "../scripts/harness/fixtures";
-import { readScope, test } from "./global-setup";
+import { asHarnessUser, readScope, test } from "./global-setup";
 
 const budgets = messages.budgets;
 const goals = messages.goals;
@@ -45,6 +45,15 @@ function rowMenu(page: Page, title: string): Locator {
 // The two tabs are one segmented control, which Radix renders as radios.
 function tab(page: Page, label: string): Locator {
   return page.getByRole("radio", { name: label, exact: true });
+}
+
+/**
+ * The band the width displays. The laptop's table and the phone's cards are both
+ * in the DOM at every width, cut apart by CSS alone, so a title looked for on the
+ * screen reaches two nodes and dies on strict mode.
+ */
+function band(page: Page): Locator {
+  return page.locator("main > div > .rt-Box").filter({ visible: true });
 }
 
 /**
@@ -86,7 +95,7 @@ test("archives a budget out of the active list and restores it from the archive"
   await form.getByRole("button", { name: budgets.save, exact: true }).click();
 
   await expect(form).toBeHidden();
-  await expect(page.getByText(name, { exact: true })).toBeVisible();
+  await expect(band(page).getByText(name, { exact: true })).toBeVisible();
 
   const [created] = await fixtureSql<{ id: string }[]>`
     select id from budgets
@@ -94,7 +103,7 @@ test("archives a budget out of the active list and restores it from the archive"
 
   await confirmThroughMenu(page, rowMenu(page, name), common.archive, common.archive);
 
-  await expect(page.getByText(name, { exact: true })).toHaveCount(0);
+  await expect(band(page).getByText(name, { exact: true })).toHaveCount(0);
   const [archived] = await fixtureSql<{ archived_at: string | null }[]>`
     select archived_at::text as archived_at from budgets where id = ${created.id}`;
   expect(archived.archived_at).not.toBeNull();
@@ -102,13 +111,13 @@ test("archives a budget out of the active list and restores it from the archive"
   // The archive is the other half of RF-120: leaving the active list is not
   // disappearing, and this tab is where the row has to be readable.
   await tab(page, budgets.archivedTab).click();
-  await expect(page.getByText(name, { exact: true })).toBeVisible();
+  await expect(band(page).getByText(name, { exact: true })).toBeVisible();
 
   await confirmThroughMenu(page, rowMenu(page, name), common.restore, common.restore);
 
-  await expect(page.getByText(name, { exact: true })).toHaveCount(0);
+  await expect(band(page).getByText(name, { exact: true })).toHaveCount(0);
   await tab(page, budgets.activeTab).click();
-  await expect(page.getByText(name, { exact: true })).toBeVisible();
+  await expect(band(page).getByText(name, { exact: true })).toBeVisible();
 
   const [restored] = await fixtureSql<{ archived_at: string | null }[]>`
     select archived_at::text as archived_at from budgets where id = ${created.id}`;
@@ -196,9 +205,13 @@ test("archives a savings goal and restores it still saving the same amount", asy
   expect(await savedCents(created.id)).toBe(openingCents);
 
   // The aporte is named before its goal even though it cascades: one that
-  // outlived its goal would be a leak no later count could explain.
-  await fixtureSql`delete from goal_contributions where goal_id = ${created.id}`;
-  await fixtureSql`delete from savings_goals where id = ${created.id}`;
+  // outlived its goal would be a leak no later count could explain. Under the
+  // caller's claims, so the trail rows this drop stamps name an actor the next
+  // run's purge can find again.
+  await asHarnessUser(async (tx) => {
+    await tx`delete from goal_contributions where goal_id = ${created.id}`;
+    await tx`delete from savings_goals where id = ${created.id}`;
+  });
 });
 
 // What the goal has set aside, summed from the aportes the progress derives from

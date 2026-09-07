@@ -5,11 +5,24 @@ import type { SQL } from "drizzle-orm";
 
 import type { DebtTerms } from "@/db/schema";
 import { withUserDb } from "@/db/session";
+import type { CurrencyCode } from "@/lib/currency";
 import { todayInBogota } from "@/lib/dates";
+
+// What a debt owes in a currency it does not bill in: a purchase abroad the
+// issuer has not billed yet (RF-123), which stays in the currency it was spent
+// in. It travels beside the figures below and is never added to them (RF-124).
+export type DebtPocket = {
+  currency: CurrencyCode;
+  owedCents: number;
+};
 
 export type DebtOverviewRow = {
   accountId: string;
   debtKind: DebtTerms["debtKind"];
+  // The currency the debt bills in. The owed, the limit, the available credit,
+  // the interest and the minimum below are all read in this one and no other
+  // (RF-121): a credit limit is denominated in what the card settles in.
+  currency: CurrencyCode;
   owedCents: number;
   creditLimitCents: number | null;
   availableCreditCents: number | null;
@@ -21,6 +34,9 @@ export type DebtOverviewRow = {
   nextCutOffDate: string | null;
   nextDueDate: string | null;
   dueInstallmentsCents: number;
+  // The card's other pockets, in currency order. The screen shows them; no
+  // figure above counts them.
+  otherOwed: DebtPocket[];
 };
 
 // The next date on or after `today` whose day-of-month is `dayCol`, clamped to the
@@ -48,15 +64,22 @@ function nextDayOfMonthOnOrAfterSql(dayCol: SQL, today: string): SQL {
 /**
  * Every liability that carries debt terms with its derived figures in ONE round
  * trip (RF-78, RF-79, RNF-09): owed is the magnitude of the balance derived by
- * `account_balances`; the limit rides along for the consolidated sums and
- * available credit nets it against the balance (both null with no limit); the
- * monthly interest is the effective twelfth-root step of the annual rate, NOT
- * the linear `rate/12`, and that step rides along as a rate of its own so the
- * screen states the percentage without dividing anything; the minimum is the
- * fixed amount, or a percentage
+ * `account_balances` FOR THE POCKET THE CARD BILLS IN; the limit rides along for
+ * the consolidated sums and available credit nets it against that same pocket
+ * (both null with no limit); the monthly interest is the effective twelfth-root
+ * step of the annual rate, NOT the linear `rate/12`, and that step rides along as
+ * a rate of its own so the screen states the percentage without dividing
+ * anything; the minimum is the fixed amount, or a percentage
  * of the owed, or null; and due installments sum the unpaid lines falling on or
  * before the next due date. No figure is re-summed from a stored balance, and the
  * CALLER folds these rows into the totals — this adds no round trip for them.
+ *
+ * The view answers one row per account AND currency since `0032`, so every
+ * figure above names the settlement currency in its join: unbounded, the join
+ * would return the debt once per currency it holds and each of those readings
+ * would net a peso limit against a dollar balance. What the card holds in
+ * another currency rides along as `otherOwed`, which nothing here adds up
+ * (RF-121, RF-124).
  */
 export async function getDebtOverview(): Promise<DebtOverviewRow[]> {
   const today = todayInBogota();
@@ -76,20 +99,46 @@ export async function getDebtOverview(): Promise<DebtOverviewRow[]> {
       next_cut_off_date: string | null;
       next_due_date: string | null;
       due_installments_cents: string;
+      currency: string;
+      other_owed: { currency: string; owedCents: string }[];
     }>(sql`
+      -- ONE pass over the view for both readings a debt takes off it: the pocket
+      -- it bills in, and the ones it does not. A correlated subselect for the
+      -- second would re-run the whole aggregate once per debt (RNF-09).
+      -- Grouped by the account's own key, never the view's column of that name:
+      -- the settlement currency is then functionally dependent and reads
+      -- unaggregated inside the two filters.
+      with pockets as (
+        select
+          ac.id,
+          max(ab.balance_cents) filter (
+            where ab.currency = ac.settlement_currency
+          ) as settlement_cents,
+          coalesce(jsonb_agg(
+            jsonb_build_object(
+              'currency', ab.currency,
+              -- The cast keeps a bigint out of a JSON number.
+              'owedCents', abs(ab.balance_cents)::text
+            ) order by ab.currency
+          ) filter (where ab.currency <> ac.settlement_currency), '[]'::jsonb) as other_owed
+        from account_balances ab
+        join accounts ac on ac.id = ab.id and ac.kind = 'liability'
+        group by ac.id
+      )
       select
         dt.account_id,
         dt.debt_kind,
-        abs(b.balance_cents) as owed_cents,
+        a.settlement_currency as currency,
+        abs(b.settlement_cents) as owed_cents,
         dt.credit_limit_cents,
         case when dt.credit_limit_cents is null then null
-          else dt.credit_limit_cents - abs(b.balance_cents) end as available_credit_cents,
-        round(abs(b.balance_cents) * mr.monthly_rate)::bigint as monthly_interest_cents,
+          else dt.credit_limit_cents - abs(b.settlement_cents) end as available_credit_cents,
+        round(abs(b.settlement_cents) * mr.monthly_rate)::bigint as monthly_interest_cents,
         mr.monthly_rate as monthly_rate_pct,
         case
           when dt.minimum_payment_cents is not null then dt.minimum_payment_cents
           when dt.minimum_payment_pct is not null
-            then round(abs(b.balance_cents) * dt.minimum_payment_pct)::bigint
+            then round(abs(b.settlement_cents) * dt.minimum_payment_pct)::bigint
           else null
         end as minimum_payment_cents,
         nc.next_cut_off as next_cut_off_date,
@@ -102,10 +151,11 @@ export async function getDebtOverview(): Promise<DebtOverviewRow[]> {
             and l.paid_transaction_id is null
             and nd.next_due is not null
             and l.due_date <= nd.next_due
-        ), 0) as due_installments_cents
+        ), 0) as due_installments_cents,
+        b.other_owed
       from debt_terms dt
       join accounts a on a.id = dt.account_id and a.kind = 'liability'
-      join account_balances b on b.id = dt.account_id
+      join pockets b on b.id = dt.account_id
       cross join lateral (select ${nextCutOff} as next_cut_off) nc
       cross join lateral (select ${nextDue} as next_due) nd
       -- One expression for both readings, so the figure and its rate can never
@@ -117,6 +167,7 @@ export async function getDebtOverview(): Promise<DebtOverviewRow[]> {
     return rows.map((row) => ({
       accountId: row.account_id,
       debtKind: row.debt_kind,
+      currency: row.currency,
       // A bigint arrives from the driver as a string; the ledger keeps cents a number.
       owedCents: Number(row.owed_cents),
       creditLimitCents:
@@ -130,35 +181,54 @@ export async function getDebtOverview(): Promise<DebtOverviewRow[]> {
       nextCutOffDate: row.next_cut_off_date,
       nextDueDate: row.next_due_date,
       dueInstallmentsCents: Number(row.due_installments_cents),
+      otherOwed: row.other_owed.map((pocket) => ({
+        currency: pocket.currency,
+        owedCents: Number(pocket.owedCents),
+      })),
     }));
   });
 }
 
 export type DebtCreditTotals = {
+  currency: CurrencyCode;
   availableCreditCents: number;
   creditLimitCents: number;
 };
 
 /**
  * The consolidated credit figures across exactly the liabilities that carry a
- * limit (RF-83, RF-117): each one's limit, and each one's limit less its derived
- * balance. A liability with no limit is skipped, so it neither lifts the summed
- * limit nor drags the summed available down. Folded over the rows `getDebtOverview`
- * already returned, in the pass the caller spends on the other totals — no second
- * round trip, no stored figure, integer cents throughout.
+ * limit (RF-83, RF-117), ONE SET PER CURRENCY: each one's limit, and each one's
+ * limit less the pocket it bills in. A limit is denominated in the currency its
+ * card settles in, so two cards billing in different currencies answer two sets
+ * and nothing adds them (RF-124). A liability with no limit is skipped, so it
+ * neither lifts a summed limit nor drags a summed available down. Folded over the
+ * rows `getDebtOverview` already returned, in the pass the caller spends on the
+ * other totals — no second round trip, no stored figure, integer cents throughout.
+ *
+ * The sets come out in currency order, so two calls on the same rows read alike.
  */
-export function sumDebtCreditTotals(rows: DebtOverviewRow[]): DebtCreditTotals {
-  return rows.reduce<DebtCreditTotals>(
-    (totals, row) => {
-      if (row.creditLimitCents === null) return totals;
+export function sumDebtCreditTotals(rows: DebtOverviewRow[]): DebtCreditTotals[] {
+  const byCurrency = new Map<CurrencyCode, DebtCreditTotals>();
 
-      return {
-        // The statement pairs the two nulls; the fallback only satisfies the type.
-        availableCreditCents:
-          totals.availableCreditCents + (row.availableCreditCents ?? 0),
-        creditLimitCents: totals.creditLimitCents + row.creditLimitCents,
-      };
-    },
-    { availableCreditCents: 0, creditLimitCents: 0 },
+  for (const row of rows) {
+    if (row.creditLimitCents === null) continue;
+
+    const totals = byCurrency.get(row.currency) ?? {
+      currency: row.currency,
+      availableCreditCents: 0,
+      creditLimitCents: 0,
+    };
+
+    byCurrency.set(row.currency, {
+      currency: row.currency,
+      // The statement pairs the two nulls; the fallback only satisfies the type.
+      availableCreditCents:
+        totals.availableCreditCents + (row.availableCreditCents ?? 0),
+      creditLimitCents: totals.creditLimitCents + row.creditLimitCents,
+    });
+  }
+
+  return [...byCurrency.values()].sort((left, right) =>
+    left.currency.localeCompare(right.currency),
   );
 }

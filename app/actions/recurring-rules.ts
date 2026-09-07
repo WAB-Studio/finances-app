@@ -2,6 +2,8 @@
 
 import { refresh } from "next/cache";
 
+import { z } from "zod";
+
 import {
   createRecurringRule,
   deleteRecurringRule,
@@ -10,26 +12,44 @@ import {
   setRecurringRuleEndDate,
   updateRecurringRule,
 } from "@/db/queries/recurring-rules";
+import { getSettlementCurrencies } from "@/db/queries/transactions";
 import { pgErrorCode } from "@/lib/db-error";
 import { ActionError } from "@/lib/errors";
-import { parsePesos, pesosToCents } from "@/lib/money";
+import { parseAmount } from "@/lib/money";
 import { authActionClient } from "@/lib/safe-action";
 import {
   createRecurringRuleSchema,
   deleteRecurringRuleSchema,
   markMovementReviewedSchema,
   pauseRecurringRuleSchema,
+  refineRuleAmount,
   resumeRecurringRuleSchema,
   setRecurringRuleEndDateSchema,
   updateRecurringRuleSchema,
 } from "@/lib/validation/recurring-rule";
 
-// The amount arrives as a Zod-validated peso string; parsing it into cents here
-// can only fail if the schema let something through it should not have.
-function toCents(amount: string): number {
-  const pesos = parsePesos(amount);
-  if (pesos === null) throw new ActionError("errors.unexpected");
-  return pesosToCents(pesos);
+/**
+ * The amount read in the currency the rule's one account settles in, never in
+ * the one the payload implies (RF-121): the currency comes from the account, in
+ * one round trip, and the refinement that reads the string against it is the
+ * very one the form runs (RNF-10). Past it, a null parse can only be a schema
+ * that let something through, so it is `errors.unexpected`.
+ */
+async function toMinor(
+  amount: string,
+  accounts: { fromAccountId: string | null; toAccountId: string | null },
+): Promise<number> {
+  const settlement = await getSettlementCurrencies(accounts);
+  const verdict = z
+    .custom<{ amount: string }>()
+    .superRefine(refineRuleAmount(settlement))
+    .safeParse({ amount });
+
+  if (!verdict.success) throw new ActionError(verdict.error.issues[0].message);
+
+  const minor = parseAmount(amount);
+  if (minor === null) throw new ActionError("errors.unexpected");
+  return minor;
 }
 
 // Weekly advances from `next_run_on` and carries no day anchor; the DB check
@@ -59,7 +79,7 @@ function mapRecurringRuleError(error: unknown): never {
 export const createRecurringRuleAction = authActionClient
   .inputSchema(createRecurringRuleSchema)
   .action(async ({ parsedInput: { amount, frequency, dayOfMonth, description, endsOn, ...rule } }) => {
-    const amountCents = toCents(amount);
+    const amountCents = await toMinor(amount, rule);
 
     let recurringRuleId: string;
     try {
@@ -87,7 +107,7 @@ export const createRecurringRuleAction = authActionClient
 export const updateRecurringRuleAction = authActionClient
   .inputSchema(updateRecurringRuleSchema)
   .action(async ({ parsedInput: { amount, frequency, dayOfMonth, description, endsOn, ...rule } }) => {
-    const amountCents = toCents(amount);
+    const amountCents = await toMinor(amount, rule);
 
     let updated: boolean;
     try {

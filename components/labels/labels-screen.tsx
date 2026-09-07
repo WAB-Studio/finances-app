@@ -11,19 +11,28 @@ import {
   LabelFormDialog,
   type LabelPlacement,
 } from "@/components/labels/label-form-dialog";
+import { LabelsTable, type LabelTableRow } from "@/components/labels/labels-table";
 import {
+  Box,
   Button,
   Card,
   ColorSwatch,
   ConfirmDialog,
   DropdownMenu,
+  EmptyState,
   Flex,
   Heading,
   IconButton,
   Text,
+  type DataSection,
 } from "@/components/ui";
 import type { LabelManagementRow } from "@/db/queries/labels";
 import { useActionErrorToast } from "@/lib/use-action-toast";
+
+// A desktop row carries its own placement: the table hands the exact row
+// object back to `onEdit`/`onDelete`, so the handler reads it off the row
+// instead of re-deriving it from the section it sat in.
+type ManagedLabelRow = LabelTableRow & { placement: LabelPlacement };
 
 // What the form dialog opens for: a blank label in one scope, or an existing
 // label to edit. The placement travels either way, since the row itself never
@@ -77,36 +86,93 @@ export function LabelsScreen({
 
   const hasGroup = groupName !== null;
 
+  // The table's rows, tagged with the placement `onEdit`/`onDelete` need and
+  // the section they belong to — the same personal/group split the cards draw,
+  // reshaped once instead of read twice.
+  const personalRows: ManagedLabelRow[] = personal.map((row) => ({
+    ...row,
+    placement: "personal",
+    scopeLabel: t("placementPersonal"),
+    canManage: true,
+  }));
+  const groupRows: ManagedLabelRow[] = group.map((row) => ({
+    ...row,
+    placement: "group",
+    scopeLabel: groupName ?? "",
+    canManage: canManageGroup,
+  }));
+  const sections: DataSection<ManagedLabelRow>[] = [
+    { key: "personal", label: t("personalSection"), rows: personalRows },
+    ...(groupName !== null
+      ? [{ key: "group", label: groupName, rows: groupRows }]
+      : []),
+  ];
+
+  function onEditRow(row: ManagedLabelRow) {
+    setFormTarget({
+      placement: row.placement,
+      label: { id: row.id, name: row.name, color: row.color },
+    });
+  }
+
+  function onDeleteRow(row: ManagedLabelRow) {
+    setDeleteTarget({ id: row.id, movementCount: row.movementCount });
+  }
+
   return (
     <Flex direction="column" gap="4">
       <Heading size="5">{t("title")}</Heading>
 
-      {/* Each scope keeps its own heading and add button even while empty, so a
-          leader with no label anywhere still reaches the group's create path. */}
-      <Flex direction="column" gap="5">
-        <LabelSection
-          title={t("personalSection")}
-          rows={personal}
-          // A member who does not lead their group still governs their own
-          // set, and their personal movements carry only personal labels.
-          manageable
-          note={personal.length === 0 ? t("emptyDescription") : undefined}
-          addButton={addButton("personal")}
-          onEdit={(label) => setFormTarget({ placement: "personal", label })}
-          onDelete={setDeleteTarget}
-        />
-        {hasGroup && (
+      {/* The laptop's dense table and the phone's cards: exactly one of the
+          two is displayed at any width. */}
+      <Box display={{ initial: "block", lg: "none" }}>
+        {/* Each scope keeps its own heading and add button even while empty, so a
+            leader with no label anywhere still reaches the group's create path. */}
+        <Flex direction="column" gap="5">
           <LabelSection
-            title={groupName}
-            rows={group}
-            manageable={canManageGroup}
-            note={canManageGroup ? undefined : t("leaderOnly")}
-            addButton={addButton("group")}
-            onEdit={(label) => setFormTarget({ placement: "group", label })}
+            title={t("personalSection")}
+            rows={personal}
+            // A member who does not lead their group still governs their own
+            // set, and their personal movements carry only personal labels.
+            manageable
+            note={personal.length === 0 ? t("emptyDescription") : undefined}
+            addButton={addButton("personal")}
+            onEdit={(label) => setFormTarget({ placement: "personal", label })}
             onDelete={setDeleteTarget}
           />
-        )}
-      </Flex>
+          {hasGroup && (
+            <LabelSection
+              title={groupName}
+              rows={group}
+              manageable={canManageGroup}
+              note={canManageGroup ? undefined : t("leaderOnly")}
+              addButton={addButton("group")}
+              onEdit={(label) => setFormTarget({ placement: "group", label })}
+              onDelete={setDeleteTarget}
+            />
+          )}
+        </Flex>
+      </Box>
+
+      <Box display={{ initial: "none", lg: "block" }}>
+        <Flex direction="column" gap="3">
+          {/* One entry point for both scopes: the dialog itself offers the
+              placement choice a leader has and locks it for anyone else. */}
+          <Flex justify="end">{addButton("personal")}</Flex>
+          <LabelsTable
+            sections={sections}
+            empty={
+              <EmptyState
+                variant="filtered"
+                title={t("emptyTitle")}
+                description={t("emptyDescription")}
+              />
+            }
+            onEdit={onEditRow}
+            onDelete={onDeleteRow}
+          />
+        </Flex>
+      </Box>
 
       {/* Below Dialog.Content the form keys itself on the subject; closing unmounts it. */}
       <LabelFormDialog

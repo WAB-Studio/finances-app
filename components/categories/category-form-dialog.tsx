@@ -3,7 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useTranslations } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
-import { Controller, useForm, useWatch, type Resolver } from "react-hook-form";
+import { Controller, useForm, type Resolver } from "react-hook-form";
 import { toast } from "sonner";
 
 import {
@@ -112,17 +112,12 @@ function CategoryForm({
         kind,
         name: category?.name ?? "",
         parentId,
-        color:
-          parentId === null
-            ? (category?.color ?? nextCategoryColor(usedColors))
-            : null,
+        // Own colour whether this node is a parent or a child (D8): a
+        // subcategory picks its own instead of inheriting one at write time.
+        color: category?.color ?? nextCategoryColor(usedColors),
       };
     })(),
   });
-
-  // Subscribes to the field itself; `form.watch` would return a function the
-  // React Compiler refuses to memoize, skipping the whole component.
-  const parentId = useWatch({ control: form.control, name: "parentId" });
 
   function onActionSuccess() {
     toast.success(t(isEdit ? "updated" : "created"));
@@ -205,14 +200,8 @@ function CategoryForm({
                   const nextParentId =
                     value === NO_PARENT_VALUE ? null : value;
                   field.onChange(nextParentId);
-                  // A subcategory carries no colour of its own; picking a
-                  // parent clears it, clearing the parent brings back the default.
-                  form.setValue(
-                    "color",
-                    nextParentId === null
-                      ? nextCategoryColor(usedColors)
-                      : null,
-                  );
+                  // A category keeps its own colour whichever parent it has
+                  // (D8): moving it under or out of a parent never touches it.
                 }}
                 disabled={isPending}
               >
@@ -242,31 +231,29 @@ function CategoryForm({
           </Text>
           <FieldDescription>{t("kindLocked")}</FieldDescription>
         </Field>
-        {parentId === null && (
-          <Controller
-            name="color"
-            control={form.control}
-            render={({ field, fieldState }) => (
-              <Field invalid={fieldState.invalid}>
-                <FieldControl>
-                  <ColorSwatchPicker
-                    id="category-color"
-                    name="color"
-                    value={field.value ?? ""}
-                    onValueChange={field.onChange}
-                    colors={CATEGORY_COLORS}
-                    label={t("colorLabel")}
-                    optionLabel={(index) =>
-                      t("colorOption", { number: index + 1 })
-                    }
-                    disabled={isPending}
-                  />
-                </FieldControl>
-                <FieldMessage error={fieldState.error} />
-              </Field>
-            )}
-          />
-        )}
+        <Controller
+          name="color"
+          control={form.control}
+          render={({ field, fieldState }) => (
+            <Field invalid={fieldState.invalid}>
+              <FieldControl>
+                <ColorSwatchPicker
+                  id="category-color"
+                  name="color"
+                  value={field.value ?? ""}
+                  onValueChange={field.onChange}
+                  colors={CATEGORY_COLORS}
+                  label={t("colorLabel")}
+                  optionLabel={(index) =>
+                    t("colorOption", { number: index + 1 })
+                  }
+                  disabled={isPending}
+                />
+              </FieldControl>
+              <FieldMessage error={fieldState.error} />
+            </Field>
+          )}
+        />
         <Field>
           <Flex gap="3" justify="end">
             <Dialog.Close>

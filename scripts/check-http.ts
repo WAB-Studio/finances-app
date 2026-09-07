@@ -16,12 +16,15 @@ import messages from "@/messages/es.json";
 
 import { assert, report, skip } from "./harness/assert";
 import {
+  asOwner,
   cleanup,
   countOwnedMovements,
   fixtureSql,
+  purgeAuditTrail,
   track,
   YEAR_OF_MOVEMENTS,
 } from "./harness/fixtures";
+import { openRun } from "./harness/registry";
 import {
   HARNESS_BASE_URL,
   HARNESS_EMAIL,
@@ -415,6 +418,13 @@ async function seedHttpScope(userId: string): Promise<HttpScope> {
 // append-only for the app and carries no cleanup entry in `fixtures.ts`.
 const landedDeliveries: string[] = [];
 
+// The identity the whole run measures and writes under, set once `main()`
+// reads the session. The `finally` below needs it to bound its own deletes —
+// this identity is `shared`, never `ephemeral`, so `cleanup()`'s per-identity
+// drop never reaches it and the ingest tables the webhook suite fills would
+// otherwise outlive every run.
+let httpUserId: string | undefined;
+
 async function guardSuite(routes: AppRoute[]): Promise<void> {
   for (const { path } of routes) {
     const response = await fetch(`${HARNESS_BASE_URL}${path}`, {
@@ -503,6 +513,16 @@ type WebhookSecrets = {
   deliveryId: string;
   tokenHash: string;
   smsFragment: string;
+  // RF-128 C3, asserted by the caller rather than here: `next()`'s counter is
+  // read at call time (`docs/TRAPS.md`'s trap for `check-queries.ts`'s `Q`
+  // applies here too), so an assertion mid-`webhookSuite` would renumber
+  // every later `H` case. Landing the delivery here and asserting on it after
+  // `timingSuite` keeps every existing number exactly where it prints today.
+  centavosDelivery: {
+    status: number;
+    body: Record<string, unknown>;
+    amountCents: number | null;
+  };
 };
 
 /**
@@ -534,14 +554,17 @@ async function webhookSuite(userId: string): Promise<WebhookSecrets> {
   const smsFragment = randomUUID().slice(0, 8);
   const text = `Bancolombia: Compraste COP122.000,00 en BOLD CO ONLINE ${smsFragment} con tu T.Cred *4872, el 25/08/2026 a las 20:07. Si tienes dudas, encuentranos aqui: 6045109095 o 018000931987. Estamos cerca.`;
 
-  async function post(bearer: string): Promise<{ status: number; body: Record<string, unknown> }> {
+  async function post(
+    bearer: string,
+    message: string = text,
+  ): Promise<{ status: number; body: Record<string, unknown> }> {
     const response = await fetch(`${HARNESS_BASE_URL}/api/webhooks/ingest`, {
       method: "POST",
       headers: {
         authorization: `Bearer ${bearer}`,
         "content-type": "application/json",
       },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({ text: message }),
     });
 
     return {
@@ -592,6 +615,25 @@ async function webhookSuite(userId: string): Promise<WebhookSecrets> {
     `the credential holds ${count} deliveries`,
   );
 
+  // RF-128: a bank amount past the thousands group carrying real centavos,
+  // read the way the importer reads one — `parseAmount` on `rawPesos`
+  // (`db/queries/webhook-ingest.ts`). Revert that call to the old
+  // `parsePesos` + `pesosToCents` pair and this fifty-centavo figure comes
+  // back null instead of kept: `parsePesos` refuses any amount that is not a
+  // whole peso. Landed, not asserted, here — see `WebhookSecrets`.
+  const centavosFragment = randomUUID().slice(0, 8);
+  const centavosText = `Bancolombia: Compraste COP122.000,50 en BOLD CO ONLINE ${centavosFragment} con tu T.Cred *4872, el 26/08/2026 a las 09:15. Si tienes dudas, encuentranos aqui: 6045109095 o 018000931987. Estamos cerca.`;
+  const centavos = await post(token, centavosText);
+  if (typeof centavos.body.deliveryId === "string") {
+    landedDeliveries.push(centavos.body.deliveryId);
+  }
+  // Cast off `bigint`: postgres.js reads that column as a string, and the
+  // caller's `===` needs the number the column actually stores.
+  const [centavosRow] = await fixtureSql<{ amountCents: number | null }[]>`
+    select proposed_amount_cents::int as "amountCents"
+    from ingest_deliveries
+    where id = ${typeof centavos.body.deliveryId === "string" ? centavos.body.deliveryId : ""}`;
+
   const unknown = await post(`whk_${randomBytes(32).toString("base64url")}`);
   assert(
     next("a token that resolves to nothing is refused"),
@@ -614,6 +656,11 @@ async function webhookSuite(userId: string): Promise<WebhookSecrets> {
     deliveryId: String(first.body.deliveryId),
     tokenHash,
     smsFragment,
+    centavosDelivery: {
+      status: centavos.status,
+      body: centavos.body,
+      amountCents: centavosRow?.amountCents ?? null,
+    },
   };
 }
 
@@ -742,8 +789,10 @@ async function timingSuite(
 }
 
 async function main(): Promise<void> {
+  await openRun("http", fixtureSql);
   const session = await harnessSession();
   const userId = session.user.id;
+  httpUserId = userId;
   console.log(
     `REPORT  harness user ${userId} <${HARNESS_EMAIL}>, session ${
       mintedThisRun()
@@ -769,6 +818,23 @@ async function main(): Promise<void> {
   await auditPayloadSuite(cookie, secrets);
   console.log("");
   await timingSuite(cases, cookie, userId);
+  console.log("");
+  // Asserted here, not inside `webhookSuite`, so this case's `H` number lands
+  // after every one above instead of shifting them (RF-128 C3).
+  assert(
+    next("a delivery carrying centavos lands through the ingest endpoint"),
+    secrets.centavosDelivery.status === 200 &&
+      secrets.centavosDelivery.body.duplicate === false &&
+      typeof secrets.centavosDelivery.body.deliveryId === "string",
+    `it answered ${secrets.centavosDelivery.status} — ${JSON.stringify(secrets.centavosDelivery.body)}`,
+  );
+  assert(
+    next("the delivery keeps the fifty centavos the message named"),
+    secrets.centavosDelivery.amountCents === 12200050,
+    // `null` here is a real answer (`parsePesos` refusing the fraction), not a
+    // missing row — H64 already proved the row landed — so it prints as-is.
+    `it landed proposed_amount_cents ${String(secrets.centavosDelivery.amountCents)}`,
+  );
 }
 
 // Wrapped in an async IIFE (not top-level await) so the runner can transpile this
@@ -786,6 +852,18 @@ void (async () => {
     try {
       if (landedDeliveries.length > 0) {
         await fixtureSql`delete from ingest_deliveries where id in ${fixtureSql(landedDeliveries)}`;
+      }
+      // The webhook suite's own leftovers, bounded to the lane identity: the
+      // shape and merchant memory the ingest endpoint may have written. Under
+      // `asOwner` so `capture_audit` stamps each delete with this user as
+      // actor, which is what makes it reachable by `purgeAuditTrail` next.
+      if (httpUserId) {
+        const owner = httpUserId;
+        await asOwner(owner, async (tx) => {
+          await tx`delete from ingest_shapes where owner_user_id = ${owner}`;
+          await tx`delete from ingest_merchants where owner_user_id = ${owner}`;
+        });
+        await purgeAuditTrail([owner]);
       }
       await cleanup();
     } catch (error) {

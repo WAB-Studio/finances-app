@@ -6,6 +6,7 @@ import { insertRow } from "@/db/insert-row";
 import { budgets } from "@/db/schema";
 import type { Budget } from "@/db/schema";
 import { withUserDb } from "@/db/session";
+import { BASE_CURRENCY } from "@/lib/currency";
 import { periodRange, todayInBogota } from "@/lib/dates";
 
 type BudgetPeriod = Budget["period"];
@@ -18,6 +19,10 @@ export type BudgetStatus = {
   labelId: string | null;
   period: BudgetPeriod;
   thresholdPct: number;
+  // What the limit and the spend are counted in, derived and never stored
+  // (RF-121, RF-124): the settlement currency of the account the budget names,
+  // the fund's when it is the fund's, else its owner's own.
+  currency: string;
   limitCents: number;
   spentCents: number;
   remainingCents: number;
@@ -29,7 +34,9 @@ export type BudgetStatus = {
  * Every non-archived budget with its spent and remaining derived in ONE grouped
  * read — never one round trip per budget (RF-72, RNF-09). Spent sums the budget
  * category's expense splits over the budget's own period window, optionally
- * narrowed to the movements touching its account and/or carrying its label; a
+ * narrowed to the movements touching its account and/or carrying its label, and
+ * only the movements booked in the budget's own currency, so no limit is ever
+ * measured against two currencies added together (RF-124); a
  * correlated subselect picks each row's window by its period. The window bounds
  * come from `periodRange` around `anchorDate` (today by default), so a stored
  * spent column never exists; the anchor only slides the window the split sum
@@ -68,6 +75,7 @@ export async function listBudgetsWithStatus(
       label_id: string | null;
       period: BudgetPeriod;
       threshold_pct: number;
+      currency: string;
       limit_cents: string;
       spent_cents: string;
     }>(sql`
@@ -79,6 +87,7 @@ export async function listBudgetsWithStatus(
         b.label_id,
         b.period,
         b.threshold_pct,
+        cur.code as currency,
         b.limit_cents,
         coalesce((
           select sum(s.amount_cents)
@@ -99,8 +108,19 @@ export async function listBudgetsWithStatus(
             and (b.label_id is null or exists (
               select 1 from transaction_labels tl
               where tl.transaction_id = t.id and tl.label_id = b.label_id))
+            and t.currency = cur.code
         ), 0) as spent_cents
       from budgets b
+      left join accounts a on a.id = b.account_id
+      left join groups g on g.id = b.group_id
+      left join app_users u on u.id = b.owner_user_id
+      -- The scope is an XOR, so at most one of the fund's and the owner's ever
+      -- answers. The last leg is the one case none of them can: another member's
+      -- personal budget naming no account, whose owner's row app_users_select_self
+      -- keeps out of reach — it reads in the base currency rather than in none.
+      cross join lateral (select coalesce(
+        a.settlement_currency, g.currency, u.settlement_currency, ${BASE_CURRENCY}
+      ) as code) cur
       where ${archivedFilter}
       order by b.name
     `);
@@ -118,6 +138,7 @@ export async function listBudgetsWithStatus(
         labelId: row.label_id,
         period: row.period,
         thresholdPct: row.threshold_pct,
+        currency: row.currency,
         limitCents,
         spentCents,
         remainingCents: limitCents - spentCents,
@@ -126,6 +147,45 @@ export async function listBudgetsWithStatus(
         overspent: spentCents > limitCents,
       };
     });
+  });
+}
+
+/**
+ * The currency a budget's limit is written and read in, in ONE round trip
+ * (RF-121). The same chain the listing derives, asked of one budget: the
+ * account it names, then the scope it belongs to — the fund's currency for a
+ * group budget, its owner's own for a personal one — and the base currency
+ * when the caller may read none of them. A write that names no budget yet
+ * falls through to the caller's own fund and row, which is what a new budget
+ * of theirs will derive.
+ *
+ * RLS does the scoping: `groups` shows the caller their one fund and
+ * `app_users` shows them only their own row, so neither subselect needs a
+ * predicate of its own.
+ */
+export async function resolveBudgetCurrency({
+  budgetId = null,
+  accountId = null,
+}: {
+  budgetId?: string | null;
+  accountId?: string | null;
+}): Promise<string> {
+  return withUserDb(async (tx) => {
+    const [row] = await tx.execute<{ code: string }>(sql`
+      select coalesce(
+        (select a.settlement_currency from accounts a where a.id = ${accountId}::uuid),
+        (select coalesce(g.currency, u.settlement_currency)
+           from budgets b
+           left join groups g on g.id = b.group_id
+           left join app_users u on u.id = b.owner_user_id
+          where b.id = ${budgetId}::uuid),
+        (select g.currency from groups g limit 1),
+        (select u.settlement_currency from app_users u limit 1),
+        ${BASE_CURRENCY}
+      ) as code
+    `);
+
+    return row.code;
   });
 }
 

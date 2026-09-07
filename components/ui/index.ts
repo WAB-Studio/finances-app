@@ -97,7 +97,7 @@ export {
   type BarChartSeries,
 } from "./bar-chart";
 
-export { Money, type MoneyTone } from "./money";
+export { Money, type MoneyProps, type MoneyTone } from "./money";
 
 export { ScreenHeader } from "./screen-header";
 

@@ -60,7 +60,12 @@ export function OnboardingInviteStep({
     <Flex direction="column" gap="4">
       <InviteByEmailForm />
 
-      <Button type="button" variant="soft" onClick={() => setDialogOpen(true)}>
+      <Button
+        type="button"
+        variant="soft"
+        size={{ initial: "2", md: "3" }}
+        onClick={() => setDialogOpen(true)}
+      >
         <Plus size={16} />
         {t("addWithoutEmail")}
       </Button>
@@ -78,7 +83,7 @@ export function OnboardingInviteStep({
       )}
 
       <Flex direction="column" gap="3" pt="2">
-        <Button asChild size="3">
+        <Button asChild size={{ initial: "3", md: "4" }}>
           <LocaleLink href="/">{t("toDashboard")}</LocaleLink>
         </Button>
         <Flex justify="center">
@@ -138,7 +143,11 @@ function InviteByEmailForm() {
                   />
                 </FieldControl>
               </Box>
-              <Button type="submit" size="3" disabled={isPending}>
+              <Button
+                type="submit"
+                size={{ initial: "3", md: "4" }}
+                disabled={isPending}
+              >
                 {isPending && <Spinner />}
                 {t("sendInvite")}
               </Button>

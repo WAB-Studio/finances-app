@@ -119,7 +119,11 @@ export const SidebarPerson = forwardRef<
         fallback={name.slice(0, 1).toUpperCase()}
         className={styles.avatar}
       />
-      <Flex direction="column" align="start" minWidth="0">
+      {/* `align="start"` would let each Text keep its own content width instead of
+          the column's, so a long one spills past the chevron and the sidebar's
+          edge rather than truncating: stretch (the default) hands both Texts the
+          column's own, already-shrunk, width. */}
+      <Flex direction="column" minWidth="0" flexGrow="1">
         <Text truncate className={styles.name}>
           {name}
         </Text>

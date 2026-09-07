@@ -2,13 +2,17 @@
  * The year of movements RNF-09 is measured against, and its removal. 4 015
  * movements — eleven a day for 365 days — written for a named user THROUGH the
  * app's own insert path, so the ledger under measurement is the one the app
- * would have written rather than SQL invented here.
+ * would have written rather than SQL invented here. Two currencies, as
+ * `seed-demo.ts` seeds them: most days spend a card purchase in dollars, and
+ * one day a month exchanges pesos for dollars, so the dashboard RNF-09 measures
+ * is the one RF-121 to RF-124 actually shaped, not a peso-only stand-in.
  *
  * Repeatable: every movement carries an `external_ref` derived from its index,
  * so a second run tops the ledger up to 4 015 instead of doubling it, and an
  * interrupted run resumes. `drop` deletes exactly what those references name,
- * plus the accounts and categories the seed made, which returns every table to
- * the count it found — `audit_log` excepted, whose rows no path here removes.
+ * plus the accounts and categories the seed made, under the seeded user's own
+ * claims, then purges the trail those deletes and the seed itself left — which
+ * returns every table, `audit_log` included, to the count it found.
  *
  * Usage:
  *   npm run seed:year          # top the named user's ledger up to 4 015
@@ -23,11 +27,15 @@ import { createCategory } from "@/db/queries/categories";
 import { insertTransaction } from "@/db/queries/transactions";
 import type { CreateTransactionArgs } from "@/db/queries/transactions";
 import { withUserDb } from "@/db/session";
+import { BASE_CURRENCY, type OfferedCurrency } from "@/lib/currency";
 import { addCivilDays, todayInBogota } from "@/lib/dates";
+import { pesosToCents } from "@/lib/money";
 
 import {
+  asOwner,
   findUserByEmail,
   fixtureSql,
+  purgeAuditTrail,
   YEAR_OF_MOVEMENTS,
   YEAR_SEED_PREFIX,
 } from "./harness/fixtures";
@@ -47,8 +55,9 @@ const SCAFFOLD_PREFIX = "RNF-09";
  * it found" unprovable rather than false. A split and a label carry no owner, so
  * they are attributed through the movement they hang off.
  *
- * `audit_log` is counted and reported, never expected back: the trail is
- * append-only and only the RNF-14 purge removes from it.
+ * `audit_log` is expected back to its starting count too: `drop` runs under
+ * the seeded user's own claims and then purges the trail bounded to them, so
+ * no delete here stamps a both-null row nothing can find again.
  */
 const CENSUS_TABLES = {
   accounts: "select count(*) from accounts where owner_user_id = $1",
@@ -77,9 +86,18 @@ type Scaffold = {
   bankAccountId: string;
   cashAccountId: string;
   cardAccountId: string;
+  // Settles in dollars (RF-121), so the card's foreign purchases and the
+  // monthly exchange below have a second currency to land in.
+  usdAccountId: string;
   expenseCategoryIds: string[];
   incomeCategoryId: string;
 };
+
+// Pesos per dollar, an integer so every conversion below is exact — no float
+// crosses into a stored column. Both amounts already share one scale, hundredths
+// of their own currency's major unit, so a dollar-cents amount times this rate
+// is a peso-cents amount directly.
+const USD_TO_COP_RATE = 4000;
 
 const EXPENSE_CATEGORIES = [
   "Mercado",
@@ -108,7 +126,11 @@ function noise(index: number, salt: number): number {
  * The movement at `index`, as the quick-entry form would have submitted it.
  * Eleven a day: nine expenses, one income, and a transfer to cash once a week
  * where an expense would otherwise be. Every fifth expense splits in two, so the
- * split path is exercised at the shape the screens read it back at.
+ * split path is exercised at the shape the screens read it back at. Roughly
+ * every fourth day, one expense is a card purchase billed in dollars instead of
+ * pesos (RF-121, RF-123), and monthly, one more becomes an exchange into the
+ * dollar account (RF-122) — the ledger RNF-09 measures carries two currencies,
+ * not one grown large.
  */
 function movementAt(index: number, day: string, scaffold: Scaffold): CreateTransactionArgs {
   const slot = index % 11;
@@ -140,6 +162,48 @@ function movementAt(index: number, day: string, scaffold: Scaffold): CreateTrans
       description: "Retiro de efectivo",
       externalRef,
       splits: [],
+      labelIds: [],
+    };
+  }
+
+  // Monthly, an exchange into the dollar account (RF-122): booked in pesos, the
+  // side that pays, confirmed at the same moment — a transfer carries no
+  // estimate, RF-123's alone to wait on.
+  if (slot === 5 && dayIndex % 30 === 11) {
+    const copCents = pesosToCents(1000000);
+
+    return {
+      fromAccountId: scaffold.bankAccountId,
+      toAccountId: scaffold.usdAccountId,
+      amountCents: copCents,
+      currency: BASE_CURRENCY,
+      counterAmountCents: copCents / USD_TO_COP_RATE,
+      occurredAt: day,
+      description: "Compra de dólares",
+      externalRef,
+      splits: [],
+      labelIds: [],
+    };
+  }
+
+  // Roughly weekly, a card purchase billed in dollars while the card itself
+  // settles in pesos (RF-121, RF-123): the estimate a person typed stands until
+  // the statement replaces it, which this seed never runs, matching the movements
+  // that arrive through the recurring rules and the manual form alike.
+  if (slot === 6 && dayIndex % 4 === 0) {
+    const usdCents = 500 + (noise(index, 5) % 5000);
+
+    return {
+      fromAccountId: scaffold.cardAccountId,
+      toAccountId: null,
+      amountCents: usdCents,
+      currency: "USD",
+      counterAmountCents: usdCents * USD_TO_COP_RATE,
+      counterIsEstimate: true,
+      occurredAt: day,
+      description: "Compra en dólares",
+      externalRef,
+      splits: [{ categoryId: scaffold.expenseCategoryIds[5], amountCents: usdCents }],
       labelIds: [],
     };
   }
@@ -200,8 +264,8 @@ function printCensus(when: string, counts: Census): void {
   console.log(`CENSUS  ${when}: ${line}`);
 }
 
-// The difference the run left, table by table. A drop that reports nothing but
-// `audit_log` is a drop that took back exactly what the seed wrote.
+// The difference the run left, table by table. A drop that reports "every
+// table unchanged" is a drop that took back exactly what the seed wrote.
 function printDelta(before: Census, after: Census): void {
   const moved = tables()
     .filter((table) => after[table] !== before[table])
@@ -249,7 +313,8 @@ async function ensureScaffold(userId: string): Promise<Scaffold> {
     name: string,
     kind: "asset" | "liability",
     subtype: "bancaria" | "efectivo" | "tarjeta",
-    pesos: number,
+    amountMinor: number,
+    currency: OfferedCurrency = BASE_CURRENCY,
   ): Promise<string> => {
     const fullName = `${SCAFFOLD_PREFIX} ${name}`;
     const already = found.get(fullName);
@@ -264,7 +329,8 @@ async function ensureScaffold(userId: string): Promise<Scaffold> {
       isShared: false,
       institution: "Bancolombia",
       lastFour: null,
-      pesos,
+      settlementCurrency: currency,
+      amountMinor,
       // A year back, so the opening balance predates the oldest movement.
       balanceOn: addCivilDays(today, -366),
     });
@@ -297,6 +363,7 @@ async function ensureScaffold(userId: string): Promise<Scaffold> {
     bankAccountId: await account("banco", "asset", "bancaria", 12000000),
     cashAccountId: await account("efectivo", "asset", "efectivo", 200000),
     cardAccountId: await account("tarjeta", "liability", "tarjeta", 3000000),
+    usdAccountId: await account("dolares", "asset", "bancaria", 50000, "USD"),
     expenseCategoryIds,
     incomeCategoryId: await category("Salario", "income"),
   };
@@ -361,23 +428,34 @@ async function seed(user: HarnessUser): Promise<void> {
 /**
  * Removes exactly what the seed wrote: the movements its references name — their
  * splits cascade — then the scaffolding, which no other row points at once the
- * movements are gone.
+ * movements are gone. Run under `asOwner` so `capture_audit` stamps every one of
+ * these deletes with the seeded user as actor, which is what makes the trail
+ * they cause reachable by `purgeAuditTrail` next — otherwise the connection
+ * settles no claims and the rows land both-null, unattributed and unfindable.
  */
 async function drop(user: HarnessUser): Promise<void> {
-  const movements = await fixtureSql`
-    delete from transactions
-    where owner_user_id = ${user.id} and external_ref like ${`${YEAR_SEED_PREFIX}%`}`;
+  let movements = 0;
+  let categories = 0;
+  let accounts = 0;
 
-  const categories = await fixtureSql`
-    delete from categories
-    where owner_user_id = ${user.id} and name like ${`${SCAFFOLD_PREFIX}%`}`;
+  await asOwner(user.id, async (tx) => {
+    ({ count: movements } = await tx`
+      delete from transactions
+      where owner_user_id = ${user.id} and external_ref like ${`${YEAR_SEED_PREFIX}%`}`);
 
-  const accounts = await fixtureSql`
-    delete from accounts
-    where owner_user_id = ${user.id} and name like ${`${SCAFFOLD_PREFIX}%`}`;
+    ({ count: categories } = await tx`
+      delete from categories
+      where owner_user_id = ${user.id} and name like ${`${SCAFFOLD_PREFIX}%`}`);
+
+    ({ count: accounts } = await tx`
+      delete from accounts
+      where owner_user_id = ${user.id} and name like ${`${SCAFFOLD_PREFIX}%`}`);
+  });
+
+  await purgeAuditTrail([user.id]);
 
   console.log(
-    `DROP    ${movements.count} movements, ${categories.count} categories and ${accounts.count} accounts removed.`,
+    `DROP    ${movements} movements, ${categories} categories and ${accounts} accounts removed.`,
   );
 }
 

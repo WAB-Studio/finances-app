@@ -1,7 +1,15 @@
 import { sql } from "drizzle-orm";
-import { pgPolicy, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import {
+  check,
+  pgPolicy,
+  pgTable,
+  text,
+  timestamp,
+  uuid,
+} from "drizzle-orm/pg-core";
 import { authenticatedRole, authUid, authUsers } from "drizzle-orm/supabase";
 
+import { BASE_CURRENCY } from "@/lib/currency";
 import { DEFAULT_LOCALE, LOCALES } from "@/lib/locales";
 
 // The application-side half of an auth user: what Supabase Auth does not store.
@@ -16,10 +24,19 @@ export const appUsers = pgTable(
     // `enum` types the column as the locale union without emitting a Postgres
     // enum or a check constraint: adding a language stays a catalogue edit.
     locale: text("locale", { enum: LOCALES }).notNull().default(DEFAULT_LOCALE),
+    // What a budget, a goal or a planned payment of this person's own falls
+    // back to when it names no account (RF-121). Typed loose like every other
+    // currency column: the check is the shape of ISO 4217 and the short list a
+    // person picks from is the interface's.
+    settlementCurrency: text().notNull().default(BASE_CURRENCY),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
+    check(
+      "app_users_settlement_currency_iso",
+      sql`${table.settlementCurrency} ~ '^[A-Z]{3}$'`,
+    ),
     // `authUid` is `(select auth.uid())`: evaluated once per query, not once per row.
     pgPolicy("app_users_select_self", {
       for: "select",

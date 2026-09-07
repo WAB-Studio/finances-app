@@ -1,10 +1,14 @@
 import type { CSSProperties } from "react";
-import { useFormatter } from "next-intl";
+import { useLocale } from "next-intl";
 
-import { centsToPesos } from "@/lib/money";
+import type { CurrencyCode } from "@/lib/currency";
+import { formatMoney } from "@/lib/money";
 
 // The ledger's minus is U+2212, never the hyphen a keyboard types (SPEC-A3).
 const MINUS = "−";
+
+// U+2248, the mark a figure the issuer has not billed yet carries (RF-123).
+const APPROXIMATELY = "≈";
 
 export type MoneyTone = "expense" | "income" | "transfer" | "plain";
 
@@ -26,34 +30,51 @@ const SIZE_STYLE = {
   inherit: {},
 } satisfies Record<string, CSSProperties>;
 
-/**
- * The one place an amount turns into a figure (RF-48, RNF-05). Cents in, pesos
- * out through `centsToPesos` and next-intl's currency format — no screen divides
- * by a hundred and none writes its own sign.
- */
-export function Money({
-  cents,
-  tone = "plain",
-  size = "row",
-  signed = true,
-}: {
-  cents: number;
+export type MoneyProps = {
+  // The amount as the column keeps it, in hundredths of the currency's major
+  // unit, whatever the currency (RNF-05).
+  minor: number;
+  // Required, and with no fallback behind it: a figure no caller gave a currency
+  // to is a row that does not know which one it is in, and guessing the
+  // settlement currency is what let one draw without saying so (RF-124).
+  currency: CurrencyCode;
   tone?: MoneyTone;
   size?: "row" | "figure" | "hero" | "inherit";
   signed?: boolean;
-}) {
-  const format = useFormatter();
+  // Marks the figure as what a person expects to be billed, not what was
+  // billed (RF-123). No screen writes that mark itself.
+  estimate?: boolean;
+};
 
-  // The magnitude, never the stored sign: the accounts involved decide how an
-  // amount reads, and a zero total reads without a sign whatever its tone.
+/**
+ * The one place an amount turns into a figure (RF-48, RF-121, RNF-05). The
+ * stored integer in, the currency's own figure out — no screen divides by the
+ * stored scale, none writes the currency's mark and none writes its own sign.
+ */
+export function Money({
+  minor: amountMinor,
+  currency,
+  tone = "plain",
+  size = "row",
+  signed = true,
+  estimate = false,
+}: MoneyProps) {
+  const locale = useLocale();
+
+  // A movement's sign comes from the accounts it touches, which is what its tone
+  // says; a plain figure has no tone to read it from, so a signed one carries the
+  // sign it stores — a balance below zero is an overdraft, not an amount. A zero
+  // total reads without a sign whatever its tone.
   const sign =
-    !signed || cents === 0
+    !signed || amountMinor === 0
       ? ""
       : tone === "income"
         ? "+"
         : tone === "expense"
           ? MINUS
-          : "";
+          : amountMinor < 0
+            ? MINUS
+            : "";
 
   return (
     <span
@@ -64,8 +85,9 @@ export function Money({
         whiteSpace: "nowrap",
       }}
     >
+      {estimate ? `${APPROXIMATELY} ` : ""}
       {sign}
-      {format.number(centsToPesos(Math.abs(cents)), "currency")}
+      {formatMoney(amountMinor, currency, locale)}
     </span>
   );
 }

@@ -23,7 +23,7 @@ import { TIME_ZONE } from "@/lib/locales";
 import messages from "@/messages/es.json";
 
 import { fixtureSql } from "../scripts/harness/fixtures";
-import { readScope, test } from "./global-setup";
+import { asHarnessUser, readScope, test } from "./global-setup";
 
 const goals = messages.goals;
 const common = messages.common;
@@ -150,9 +150,13 @@ test.afterEach(async () => {
   if (ids.length === 0) return;
 
   // The aportes are named before their goals even though they cascade: one that
-  // outlived its goal would be a leak no later count could explain.
-  await fixtureSql`delete from goal_contributions where goal_id in ${fixtureSql(ids)}`;
-  await fixtureSql`delete from savings_goals where id in ${fixtureSql(ids)}`;
+  // outlived its goal would be a leak no later count could explain. Under the
+  // caller's claims, so the trail rows this drop stamps name an actor the next
+  // run's purge can find again.
+  await asHarnessUser(async (tx) => {
+    await tx`delete from goal_contributions where goal_id in ${tx(ids)}`;
+    await tx`delete from savings_goals where id in ${tx(ids)}`;
+  });
 });
 
 test("names every progress bar after its own goal and percentage", async ({

@@ -37,6 +37,15 @@ const OPENING_SEPARATOR = accounts.openingBalanceRow
   .split("</amount>")[1]
   .split("{date}")[0];
 
+// The static tail of "<amount></amount> en {currency}" once the figure tag is
+// gone: a second currency's line ends in it, on the phone's card and in the
+// laptop's cell alike (RF-121, RF-124).
+const CURRENCY_LINE_SUFFIX = accounts.balanceInCurrency.split("</amount>")[1];
+
+function otherCurrencyLabel(currency: string): string {
+  return CURRENCY_LINE_SUFFIX.replace("{currency}", currency).trim();
+}
+
 // The menu names the row it belongs to, so a card is reached by its own name and
 // never by a position among whatever else the list is carrying.
 function rowMenu(page: Page, name: string): Locator {
@@ -46,11 +55,19 @@ function rowMenu(page: Page, name: string): Locator {
   });
 }
 
+/**
+ * The band the width displays. The laptop's table and the phone's cards are both
+ * in the DOM at every width, cut apart by CSS alone, so a locator that names no
+ * band reaches an account twice and dies on strict mode.
+ */
+function band(page: Page): Locator {
+  return page.locator("main > div > .rt-Box").filter({ visible: true });
+}
+
 // One account's card: the innermost node carrying both its name and the menu that
 // acts on it, so a figure read inside it can only be that account's.
 function card(page: Page, name: string): Locator {
-  return page
-    .getByRole("main")
+  return band(page)
     .locator("div")
     .filter({ has: rowMenu(page, name) })
     .filter({ hasText: name })
@@ -63,30 +80,76 @@ function line(subject: Locator, label: string): Locator {
 }
 
 // The pesos a line is showing: COP rounds to the peso, so the digits of the
-// figure are the cents behind it divided by a hundred.
+// figure are the cents behind it divided by a hundred. `\D` throws away the
+// sign along with the currency symbol, so this alone can never prove a minus
+// made it to the screen (D4) — the raw text has to be read for that.
 function pesosOf(text: string): number {
   return Number(text.replace(/\D/g, ""));
 }
 
+// `Money`'s own sign, U+2212 (components/ui/money.tsx), never the hyphen a
+// keyboard types.
+const MINUS = "−";
+
+// The two sides an account may be drawn on, named the same way whichever band
+// the width is showing.
+type Placement = "personal" | "fund";
+
 /**
- * The band a card is drawn under: the last one to appear above it in the reading
- * order of `main`. The screen states an account's placement by which band holds
- * it, and a hand-over is only proved by the card changing sides.
+ * The placement the displayed band states for an account. The phone heads a run
+ * of cards with it and calls the group by its own name, so it is the last band
+ * to appear above the card; the laptop's table gives every row a scope cell
+ * under the name instead, and nothing at all precedes the first row's.
  */
-async function bandOf(
+async function placementOf(
   page: Page,
   name: string,
-  bands: string[],
-): Promise<string | null> {
-  const text = await page.getByRole("main").innerText();
+  fundBand: string,
+): Promise<Placement | null> {
+  const rows = page
+    .getByRole("table", { name: accounts.title })
+    .getByRole("row")
+    .filter({ hasText: name });
+
+  if ((await rows.count()) > 0) {
+    const scope = await rows.getByRole("cell").first().innerText();
+    if (scope.includes(accounts.ownerFund)) return "fund";
+
+    return scope.includes(accounts.ownerPersonal) ? "personal" : null;
+  }
+
+  const text = await band(page).innerText();
   const at = text.indexOf(name);
   if (at < 0) return null;
 
-  return bands
-    .map((band) => ({ band, at: text.lastIndexOf(band, at) }))
-    .filter((one) => one.at >= 0)
-    .sort((a, b) => a.at - b.at)
-    .at(-1)?.band ?? null;
+  const bands = [
+    [accounts.ownerPersonal, "personal"],
+    [fundBand, "fund"],
+  ] as const;
+
+  return (
+    bands
+      .map(([label, placement]) => ({ placement, at: text.lastIndexOf(label, at) }))
+      .filter((one) => one.at >= 0)
+      .sort((a, b) => a.at - b.at)
+      .at(-1)?.placement ?? null
+  );
+}
+
+/**
+ * Moves the list to one of its two tabs. The phone segments the states into a
+ * control of its own; the laptop keeps them in the filter bar's select, and only
+ * one of the pair is ever displayed.
+ */
+async function showTab(page: Page, label: string): Promise<void> {
+  const segment = page.getByRole("radio", { name: label, exact: true });
+  if ((await segment.count()) > 0) {
+    await segment.click();
+    return;
+  }
+
+  await page.getByRole("combobox", { name: accounts.statusLabel }).click();
+  await page.getByRole("option", { name: label, exact: true }).click();
 }
 
 /** Runs a row's menu item through the confirmation it raises. */
@@ -185,7 +248,7 @@ test("creates an account from the form and stores its opening balance signed by 
   await dialog.getByRole("button", { name: messages.common.save }).click();
 
   await expect(dialog).toBeHidden();
-  await expect(page.getByText(name, { exact: true })).toBeVisible();
+  await expect(band(page).getByText(name, { exact: true })).toBeVisible();
 
   const rows = await fixtureSql<
     { id: string; kind: string; subtype: string; initial_balance_cents: string }[]
@@ -204,33 +267,229 @@ test("creates an account from the form and stores its opening balance signed by 
   await fixtureSql`delete from accounts where id = ${rows[0].id}`;
 });
 
-test("draws the balance its movements derive and not the figure it opened with", async ({
-  page,
-}) => {
-  const openingCents = 1_000_000;
-  const movementCents = 250_000;
-  const account = await seedAccount({ openingCents, movementCents });
+test.describe("the phone's card", () => {
+  // The two figures below are two labelled lines of the card, and both projects
+  // drive them at the width that draws it: the laptop's table gives the balance a
+  // column of its own and states no opening figure anywhere, so the pair is only
+  // ever readable off the card (SPEC-A3, RNF-08).
+  test.use({ viewport: { width: 360, height: 740 } });
 
-  await page.goto("/es/settings/accounts");
+  test("draws the balance its movements derive and not the figure it opened with", async ({
+    page,
+  }) => {
+    const openingCents = 1_000_000;
+    const movementCents = 250_000;
+    const account = await seedAccount({ openingCents, movementCents });
 
-  // The view is where the balance comes from (RF-114): the card is read against
-  // it, never against a figure this test computed on its own.
-  const [derived] = await fixtureSql<{ balance_cents: string }[]>`
-    select balance_cents::text as balance_cents
-    from account_balances where id = ${account.id}`;
-  expect(Number(derived.balance_cents)).toBe(openingCents - movementCents);
+    await page.goto("/es/settings/accounts");
 
-  const subject = card(page, account.name);
-  const shown = pesosOf(await line(subject, accounts.balanceLabel).innerText());
-  expect(shown).toBe(Number(derived.balance_cents) / 100);
+    // The view is where the balance comes from (RF-114): the card is read against
+    // it, never against a figure this test computed on its own.
+    const [derived] = await fixtureSql<{ balance_cents: string }[]>`
+      select balance_cents::text as balance_cents
+      from account_balances where id = ${account.id}`;
+    expect(Number(derived.balance_cents)).toBe(openingCents - movementCents);
 
-  // And the opening figure is still on the same card, still saying what it said:
-  // a screen that drew one figure twice would agree with itself and be wrong.
-  const opening = await line(subject, accounts.openingBalanceLabel).innerText();
-  expect(pesosOf(opening.split(OPENING_SEPARATOR)[0])).toBe(openingCents / 100);
-  expect(shown).not.toBe(openingCents / 100);
+    const subject = card(page, account.name);
+    const shown = pesosOf(await line(subject, accounts.balanceLabel).innerText());
+    expect(shown).toBe(Number(derived.balance_cents) / 100);
 
-  await dropAccount(account.id);
+    // And the opening figure is still on the same card, still saying what it said:
+    // a screen that drew one figure twice would agree with itself and be wrong.
+    const opening = await line(subject, accounts.openingBalanceLabel).innerText();
+    expect(pesosOf(opening.split(OPENING_SEPARATOR)[0])).toBe(openingCents / 100);
+    expect(shown).not.toBe(openingCents / 100);
+
+    await dropAccount(account.id);
+  });
+
+  // D4: a balance drawn with `tone="plain"` has no tone to carry the sign, so
+  // an overdraft used to lose it and read as a positive figure.
+  test("draws the minus when the derived balance is negative", async ({ page }) => {
+    const openingCents = 200_000;
+    const movementCents = 500_000;
+    const account = await seedAccount({ openingCents, movementCents });
+
+    await page.goto("/es/settings/accounts");
+
+    const [derived] = await fixtureSql<{ balance_cents: string }[]>`
+      select balance_cents::text as balance_cents
+      from account_balances where id = ${account.id}`;
+    expect(Number(derived.balance_cents)).toBeLessThan(0);
+
+    const shown = await line(card(page, account.name), accounts.balanceLabel).innerText();
+    expect(shown).toContain(MINUS);
+    expect(pesosOf(shown)).toBe(Math.abs(Number(derived.balance_cents)) / 100);
+
+    await dropAccount(account.id);
+  });
+
+  test("shows a second currency under the settlement figure, itself unmoved by the estimate", async ({
+    page,
+  }) => {
+    const openingCents = 300_000;
+    const account = await seedAccount({ openingCents });
+    // A dollar purchase against this peso account, still an estimate (RF-121,
+    // RF-123): it opens a pocket of its own and never touches the settlement one.
+    const usdCents = 8_000;
+    const copEstimateCents = 3_200_000;
+
+    await asHarnessUser(async (tx) => {
+      const [movement] = await tx<{ id: string }[]>`
+        insert into transactions (
+          from_account_id, amount_cents, occurred_at, description,
+          currency, counter_amount_cents, counter_is_estimate)
+        values (
+          ${account.id}, ${usdCents}, (now() at time zone ${TIME_ZONE})::date,
+          'Compra en dólares', 'USD', ${copEstimateCents}, true)
+        returning id`;
+      await tx`
+        insert into transaction_splits (transaction_id, category_id, amount_cents)
+        values (${movement.id}, ${scope.categoryId}, ${usdCents})`;
+    });
+
+    await page.goto("/es/settings/accounts");
+
+    const [foreignPocket] = await fixtureSql<{ balance_cents: string }[]>`
+      select balance_cents::text as balance_cents
+      from account_balances where id = ${account.id} and currency = 'USD'`;
+    expect(Number(foreignPocket.balance_cents)).toBe(-usdCents);
+
+    const subject = card(page, account.name);
+    const settlementShown = pesosOf(
+      await line(subject, accounts.balanceLabel).innerText(),
+    );
+    expect(settlementShown).toBe(openingCents / 100);
+
+    // USD is written with two decimals, the same scale the column already
+    // stores every currency in (RNF-05), so its digits are the stored cents
+    // directly — no division by 100 as `pesosOf` does for a peso figure.
+    const otherLine = subject.getByText(otherCurrencyLabel("USD"), { exact: false });
+    await expect(otherLine).toBeVisible();
+    const otherText = await otherLine.innerText();
+    expect(otherText).toContain(MINUS);
+    expect(Number(otherText.replace(/\D/g, ""))).toBe(usdCents);
+
+    await dropAccount(account.id);
+  });
+});
+
+test.describe("the laptop row", () => {
+  // The dense table renders from `lg` up, and both projects drive it at the
+  // width the artboard states rather than skipping one of them (SPEC-A3,
+  // RNF-08).
+  test.use({ viewport: { width: 1280, height: 900 } });
+
+  test("states the derived balance in the cell under its own column", async ({
+    page,
+  }) => {
+    const openingCents = 1_000_000;
+    const movementCents = 250_000;
+    const account = await seedAccount({ openingCents, movementCents });
+
+    await page.goto("/es/settings/accounts");
+
+    // The view is where the balance comes from (RF-114): the cell is read
+    // against it, never against a figure this test computed on its own.
+    const [derived] = await fixtureSql<{ balance_cents: string }[]>`
+      select balance_cents::text as balance_cents
+      from account_balances where id = ${account.id}`;
+    expect(Number(derived.balance_cents)).toBe(openingCents - movementCents);
+
+    // The fifth of the six tracks, after the name, the entity, the last four
+    // digits and the class.
+    const cell = page
+      .getByRole("table", { name: accounts.title })
+      .getByRole("row")
+      .filter({ hasText: account.name })
+      .getByRole("cell")
+      .nth(4);
+    await expect(cell).toBeVisible();
+
+    // The table states no opening figure, so what says the column is derived is
+    // that it is not the one the account was written with.
+    const shown = pesosOf(await cell.innerText());
+    expect(shown).toBe(Number(derived.balance_cents) / 100);
+    expect(shown).not.toBe(openingCents / 100);
+
+    await dropAccount(account.id);
+  });
+
+  // D4: the fifth cell also draws through `Money` with `tone="plain"`, the same
+  // tone that lost the sign on the phone's card.
+  test("draws the minus when the derived balance is negative", async ({ page }) => {
+    const openingCents = 200_000;
+    const movementCents = 500_000;
+    const account = await seedAccount({ openingCents, movementCents });
+
+    await page.goto("/es/settings/accounts");
+
+    const [derived] = await fixtureSql<{ balance_cents: string }[]>`
+      select balance_cents::text as balance_cents
+      from account_balances where id = ${account.id}`;
+    expect(Number(derived.balance_cents)).toBeLessThan(0);
+
+    const cell = page
+      .getByRole("table", { name: accounts.title })
+      .getByRole("row")
+      .filter({ hasText: account.name })
+      .getByRole("cell")
+      .nth(4);
+    await expect(cell).toBeVisible();
+
+    const shown = await cell.innerText();
+    expect(shown).toContain(MINUS);
+    expect(pesosOf(shown)).toBe(Math.abs(Number(derived.balance_cents)) / 100);
+
+    await dropAccount(account.id);
+  });
+
+  test("draws a second currency in the same cell, apart from the settlement figure", async ({
+    page,
+  }) => {
+    const openingCents = 300_000;
+    const account = await seedAccount({ openingCents });
+    const usdCents = 8_000;
+    const copEstimateCents = 3_200_000;
+
+    await asHarnessUser(async (tx) => {
+      const [movement] = await tx<{ id: string }[]>`
+        insert into transactions (
+          from_account_id, amount_cents, occurred_at, description,
+          currency, counter_amount_cents, counter_is_estimate)
+        values (
+          ${account.id}, ${usdCents}, (now() at time zone ${TIME_ZONE})::date,
+          'Compra en dólares', 'USD', ${copEstimateCents}, true)
+        returning id`;
+      await tx`
+        insert into transaction_splits (transaction_id, category_id, amount_cents)
+        values (${movement.id}, ${scope.categoryId}, ${usdCents})`;
+    });
+
+    await page.goto("/es/settings/accounts");
+
+    const cell = page
+      .getByRole("table", { name: accounts.title })
+      .getByRole("row")
+      .filter({ hasText: account.name })
+      .getByRole("cell")
+      .nth(4);
+    await expect(cell).toBeVisible();
+
+    // The cell's own second line, read in isolation first: the column stores no
+    // per-row label to scope by here, so the settlement figure below is read as
+    // whatever the cell states beyond this substring, not by DOM position.
+    const otherLine = cell.getByText(otherCurrencyLabel("USD"), { exact: false });
+    await expect(otherLine).toBeVisible();
+    const otherText = await otherLine.innerText();
+    expect(otherText).toContain(MINUS);
+    expect(Number(otherText.replace(/\D/g, ""))).toBe(usdCents);
+
+    const settlementOnly = (await cell.innerText()).replace(otherText, "").trim();
+    expect(pesosOf(settlementOnly)).toBe(openingCents / 100);
+
+    await dropAccount(account.id);
+  });
 });
 
 test("saves the name and the opening date the edit dialog was given", async ({
@@ -255,7 +514,7 @@ test("saves the name and the opening date the edit dialog was given", async ({
   await dialog.getByRole("button", { name: common.save, exact: true }).click();
 
   await expect(dialog).toBeHidden();
-  await expect(page.getByText(renamed, { exact: true })).toBeVisible();
+  await expect(band(page).getByText(renamed, { exact: true })).toBeVisible();
 
   const [saved] = await fixtureSql<{ name: string; initial_balance_on: string }[]>`
     select name, initial_balance_on::text as initial_balance_on
@@ -295,7 +554,7 @@ test("refuses to delete an account carrying a movement, and archives it instead"
   await dialog.getByRole("button", { name: common.cancel, exact: true }).click();
   await expect(dialog).toBeHidden();
 
-  await expect(page.getByText(account.name, { exact: true })).toBeVisible();
+  await expect(band(page).getByText(account.name, { exact: true })).toBeVisible();
   expect(
     await fixtureSql`select id from accounts where id = ${account.id}`,
   ).toHaveLength(1);
@@ -308,10 +567,10 @@ test("refuses to delete an account carrying a movement, and archives it instead"
     common.archive,
   );
   await expect(archiving).toBeHidden();
-  await expect(page.getByText(account.name, { exact: true })).toHaveCount(0);
+  await expect(band(page).getByText(account.name, { exact: true })).toHaveCount(0);
 
-  await page.getByRole("radio", { name: accounts.archivedTab, exact: true }).click();
-  await expect(page.getByText(account.name, { exact: true })).toBeVisible();
+  await showTab(page, accounts.archivedTab);
+  await expect(band(page).getByText(account.name, { exact: true })).toBeVisible();
 
   const [archived] = await fixtureSql<{ archived_at: string | null }[]>`
     select archived_at::text as archived_at from accounts where id = ${account.id}`;
@@ -337,7 +596,7 @@ test("deletes an account that carries nothing, from that same confirmation", asy
 
   await expect(page.getByText(accounts.deleted, { exact: true })).toBeVisible();
   await expect(dialog).toBeHidden();
-  await expect(page.getByText(account.name, { exact: true })).toHaveCount(0);
+  await expect(band(page).getByText(account.name, { exact: true })).toHaveCount(0);
 
   // Gone, not archived: nothing derived from it, so nothing had to be kept.
   expect(
@@ -381,7 +640,7 @@ test.describe("with a fund behind the caller", () => {
     await dialog.getByRole("button", { name: common.save, exact: true }).click();
 
     await expect(dialog).toBeHidden();
-    await expect(page.getByText(name, { exact: true })).toBeVisible();
+    await expect(band(page).getByText(name, { exact: true })).toBeVisible();
 
     // The placement is resolved from the session, so the row is what says where
     // it landed: a group account names its group, no owner, and is shared.
@@ -399,7 +658,7 @@ test.describe("with a fund behind the caller", () => {
     expect(created.group_id).toBe(groupId);
     expect(created.is_shared).toBe(true);
 
-    expect(await bandOf(page, name, [accounts.ownerPersonal, fundName])).toBe(fundName);
+    expect(await placementOf(page, name, fundName)).toBe("fund");
 
     await dropAccount(created.id);
   });
@@ -444,10 +703,9 @@ test.describe("with a fund behind the caller", () => {
     page,
   }) => {
     const account = await seedAccount({ openingCents: 300_000 });
-    const bands = [accounts.ownerPersonal, fundName];
 
     await page.goto("/es/settings/accounts");
-    expect(await bandOf(page, account.name, bands)).toBe(accounts.ownerPersonal);
+    expect(await placementOf(page, account.name, fundName)).toBe("personal");
 
     const dialog = await confirmThroughMenu(
       page,
@@ -458,11 +716,11 @@ test.describe("with a fund behind the caller", () => {
     await expect(page.getByText(accounts.handedOver, { exact: true })).toBeVisible();
     await expect(dialog).toBeHidden();
 
-    // The card changes sides, which is the only thing on screen that says the
-    // account stopped being one person's (RF-61).
+    // The account changes sides, which is the only thing on screen that says it
+    // stopped being one person's (RF-61).
     await expect
-      .poll(async () => await bandOf(page, account.name, bands))
-      .toBe(fundName);
+      .poll(async () => await placementOf(page, account.name, fundName))
+      .toBe("fund");
 
     const [handed] = await fixtureSql<
       { owner_user_id: string | null; group_id: string | null; is_shared: boolean }[]

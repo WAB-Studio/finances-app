@@ -171,9 +171,15 @@ export type ReverseSheetLabels = {
   readonly columnKeyByHeader: ReadonlyMap<SheetEntity, ReadonlyMap<string, string>>;
 };
 
-// Every entity's raw rows, keyed by the descriptor's column `key`. An entity whose
-// sheet is absent (or holds no data rows) has no key here.
-export type ParsedWorkbook = Partial<Record<SheetEntity, Record<string, CellValue>[]>>;
+// One parsed data row: the cells keyed by the descriptor's column `key`, and the
+// sheet's own row number — the one a person sees opening the file in Excel, header
+// counted, a skipped blank row included. Never the array position: a blank line in
+// the middle of the file pulls the two apart (RF-51).
+export type ParsedRow = { record: Record<string, CellValue>; sheetRow: number };
+
+// Every entity's raw rows. An entity whose sheet is absent (or holds no data rows)
+// has no key here.
+export type ParsedWorkbook = Partial<Record<SheetEntity, ParsedRow[]>>;
 
 // One cell reduced to a plain scalar: a formula yields its cached result, a
 // hyperlink or rich-text run its text, a date its civil day, an error nothing. A
@@ -241,7 +247,7 @@ export async function parseWorkbook(input: {
       if (key !== undefined) keyByColumn.set(columnNumber, key);
     });
 
-    const rows: Record<string, CellValue>[] = [];
+    const rows: ParsedRow[] = [];
     for (let rowNumber = 2; rowNumber <= sheet.rowCount; rowNumber += 1) {
       const row = sheet.getRow(rowNumber);
       const record: Record<string, CellValue> = {};
@@ -257,8 +263,9 @@ export async function parseWorkbook(input: {
       });
 
       // A row with no value under any known column is a blank template line, not an
-      // import: it counts toward neither the row cap nor per-row validation.
-      if (hasValue) rows.push(record);
+      // import: it counts toward neither the row cap nor per-row validation. Its
+      // number is skipped along with it, so the next real row keeps its own.
+      if (hasValue) rows.push({ record, sheetRow: rowNumber });
     }
 
     result[entity] = rows;

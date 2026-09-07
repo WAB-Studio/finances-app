@@ -7,7 +7,10 @@
   background-color: var(--color-panel-solid);
   border: 1px solid var(--gray-a4);
   border-radius: 14px;
-  overflow: hidden;
+  /* A row narrower than its tracks scrolls to reach them; the axis that never
+     needs to (the vertical one, against the rounded corners) stays clipped. */
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
 /* One template for the header and every row under it, so the columns line up
@@ -17,6 +20,10 @@
   grid-template-columns: var(--data-table-columns);
   align-items: center;
   padding: 10px 18px;
+  /* Unset everywhere: a fixed track sum already forces the scroll a caller
+     wants. Set, it floors the row so a flexible track can't collapse to zero
+     under negative free space — it scrolls with the fixed tracks instead. */
+  min-width: var(--data-table-min-width, 0);
 }
 
 /* Panel's own head measures, so a table that names itself sits at the same

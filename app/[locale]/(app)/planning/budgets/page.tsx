@@ -61,6 +61,7 @@ export default async function BudgetsPage(
       <BudgetsScreen
         budgets={budgets}
         options={options}
+        scopeCurrency={options.scopeCurrency}
         hasGroup={group !== null}
         month={month}
         archived={archived}

@@ -9,10 +9,11 @@ import {
   ingestMerchants,
 } from "@/db/schema";
 import { withImpersonatedDb } from "@/db/session";
+import { BASE_CURRENCY } from "@/lib/currency";
 import { pgErrorCode } from "@/lib/db-error";
 import { todayInBogota } from "@/lib/dates";
 import { fingerprintMessage } from "@/lib/ingest/fingerprint";
-import { parsePesos, pesosToCents } from "@/lib/money";
+import { parseAmount } from "@/lib/money";
 import { interpretQuickEntry } from "@/lib/transactions/interpret";
 import type { WebhookPayloadInput } from "@/lib/validation/webhook";
 
@@ -65,7 +66,12 @@ export async function recordIngestDelivery({
         .select({ id: categories.id, name: categories.name, kind: categories.kind })
         .from(categories),
       tx
-        .select({ id: accounts.id, name: accounts.name, lastFour: accounts.lastFour })
+        .select({
+          id: accounts.id,
+          name: accounts.name,
+          lastFour: accounts.lastFour,
+          settlementCurrency: accounts.settlementCurrency,
+        })
         .from(accounts)
         .where(isNull(accounts.archivedAt)),
       fingerprint.merchant
@@ -86,12 +92,15 @@ export async function recordIngestDelivery({
       defaultAccountId,
     });
 
+    // Reads the same way the importer does (RF-128): thousands separators in
+    // either convention, an optional zero-decimal suffix, up to the two
+    // decimals the column stores. A finer amount or a non-positive one is
+    // dropped here, not rounded — the proposal is left without a figure
+    // rather than one nobody wrote.
     const rawPesos = payload.amount ?? proposal.amountPesos;
-    const pesos =
-      rawPesos === null || rawPesos === undefined
-        ? null
-        : parsePesos(rawPesos);
-    const proposedAmountCents = pesos !== null && pesos > 0 ? pesosToCents(pesos) : null;
+    const parsedAmountCents = rawPesos === null ? null : parseAmount(rawPesos);
+    const proposedAmountCents =
+      parsedAmountCents !== null && parsedAmountCents > 0 ? parsedAmountCents : null;
 
     const merchant = merchantRows?.[0] ?? null;
     const trustedCategoryId =
@@ -109,6 +118,12 @@ export async function recordIngestDelivery({
     const description = proposal.description.trim().slice(0, MAX_DESCRIPTION_LENGTH);
 
     const proposedAccountId = payload.account_id ?? proposal.accountId;
+    // A delivery that names an account settling outside BASE_CURRENCY is
+    // forced rejected below (errors.foreignCurrencyUnsupported): `pesos`
+    // above read the amount as pesos, which only that settlement makes true.
+    const proposedAccount = accountRows.find((row) => row.id === proposedAccountId);
+    const foreignCurrencyAccount =
+      proposedAccount !== undefined && proposedAccount.settlementCurrency !== BASE_CURRENCY;
     const proposedDirection = payload.direction ?? proposal.direction;
     const proposedOccurredAt = resolveOccurredAt(
       payload.occurred_at,
@@ -155,6 +170,18 @@ export async function recordIngestDelivery({
           returning id, status
         `),
       );
+
+      // The insert trigger only reads the shape memory (RF-92); a currency
+      // mismatch is this module's own reason to reject, applied after — never
+      // silently, and never turned into a movement either way (RF-90).
+      if (foreignCurrencyAccount && row.status === "pending") {
+        await tx.execute(sql`
+          update ingest_deliveries
+          set status = 'rejected', resolved_at = now()
+          where id = ${row.id} and status = 'pending'
+        `);
+        return { deliveryId: row.id, status: "rejected", duplicate: false };
+      }
 
       return {
         deliveryId: row.id,

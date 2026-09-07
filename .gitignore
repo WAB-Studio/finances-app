@@ -53,3 +53,4 @@ CLAUDE.local.md
 
 # plans and local working notes: readable, never committed
 private/
+.claude/usage-log.tsv
