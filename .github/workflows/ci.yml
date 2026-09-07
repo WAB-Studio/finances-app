@@ -97,6 +97,13 @@ jobs:
       # Lane 9's two identities and their token rows. Idempotent.
       - run: npm run harness:token
 
+      # No step here runs a migration — the database is remote and shared, and
+      # whatever schema it carries came from a migration applied out of band.
+      # This only reports the weight already on it, so a regression shows up
+      # as a number in a diff of two logs (docs/TRAPS.md, "One database, many
+      # branches").
+      - run: npm run harness:census
+
       - name: Start the dev server and wait for it to answer
         run: |
           npm run dev > /tmp/next-dev.log 2>&1 &
@@ -112,6 +119,36 @@ jobs:
           echo "the dev server never answered"; tail -50 /tmp/next-dev.log; exit 1
 
       - run: npm run check:e2e
+
+      # Runs whether check:e2e passed, failed or the job was cancelled — a
+      # cancelled or failed run is exactly the one that leaves orphans behind.
+      # `--yes` is required (dry-run is the default); the reaper never touches
+      # a `shared` identity, so lane 9's own two rows survive every run.
+      #
+      # A live run elsewhere (another lane driving the same remote database)
+      # makes the reaper refuse to start and exit 1 — the concurrency group
+      # above keeps that from being *this* job's own next run, but it cannot
+      # stop a developer's lane from holding harness.runs at the same moment.
+      # That refusal is the interlock working, not a broken build, so it must
+      # not turn a green e2e run red. Anything else non-zero — a purge that
+      # failed, an unhandled exception — is a real reaper failure and must
+      # still fail the job.
+      - name: Reap orphaned harness data
+        if: always()
+        run: |
+          set +e
+          npm run harness:reap -- --yes | tee /tmp/harness-reap.log
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -eq 0 ]; then
+            exit 0
+          fi
+          if grep -q '^BLOCKED' /tmp/harness-reap.log; then
+            echo "::warning::harness:reap was blocked by a live run elsewhere; nothing reaped this run"
+            exit 0
+          fi
+          echo "::error::harness:reap failed for a reason other than a live run blocking it"
+          exit "$status"
 
       # The server log is where a red spec is explained — a `57014` there is the
       # remote database stalling, not the code (docs/TRAPS.md).
