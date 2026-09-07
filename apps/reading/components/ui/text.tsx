@@ -11,21 +11,27 @@ type SerifProps = {
   serif?: boolean;
   // The exact 21px / 1.5 a translation line runs, no Radix step covers it.
   variant?: "translation";
+  // The muted tone every caption, status line and secondary link takes
+  // (docs/reading/DESIGN.md "Tokens"), so a screen never reaches for Radix's
+  // own `color="gray"`.
+  muted?: boolean;
 };
 
 function withSerif(
   serif: boolean | undefined,
   variant: SerifProps["variant"],
+  muted: boolean | undefined,
   className: string | undefined,
 ): string | undefined {
   const classes = [
     serif || variant === "translation" ? styles.serif : undefined,
     variant === "translation" ? styles.translation : undefined,
+    muted ? styles.muted : undefined,
     className,
   ].filter(Boolean);
   return classes.length > 0 ? classes.join(" ") : undefined;
 }
 
-export function Text({ serif, variant, className, ...props }: TextProps & SerifProps) {
-  return <ThemesText {...props} className={withSerif(serif, variant, className)} />;
+export function Text({ serif, variant, muted, className, ...props }: TextProps & SerifProps) {
+  return <ThemesText {...props} className={withSerif(serif, variant, muted, className)} />;
 }
