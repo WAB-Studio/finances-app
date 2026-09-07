@@ -219,29 +219,51 @@ for (let i = 0; i < singleWordLetterHeadwords.length; i += stride) {
   }
 }
 
-const coverageSample = new Set<string>(regularSample);
-for (const surface of IRREGULAR_FORMS.keys()) {
-  if (surface.length > 0) coverageSample.add(surface);
-}
-
-if (coverageSample.size < MIN_SAMPLE_SIZE) {
+if (regularSample.size < MIN_SAMPLE_SIZE) {
   throw new Error(
-    `coverage sample only reached ${coverageSample.size} forms, below the ${MIN_SAMPLE_SIZE} the contract requires`,
+    `the generated sample only reached ${regularSample.size} forms, below the ${MIN_SAMPLE_SIZE} the contract requires`,
   );
 }
 
-let resolvedCount = 0;
-for (const surface of coverageSample) {
-  if (hasEntry(index, surface)) resolvedCount += 1;
+const irregularSample = new Set<string>();
+for (const surface of IRREGULAR_FORMS.keys()) {
+  if (surface.length > 0) irregularSample.add(surface);
 }
-const coverageFraction = resolvedCount / coverageSample.size;
-const coveragePercent = (coverageFraction * 100).toFixed(1);
+
+const coverageSample = new Set<string>(regularSample);
+for (const surface of irregularSample) coverageSample.add(surface);
+
+function resolvedCountOf(sample: ReadonlySet<string>): number {
+  let count = 0;
+  for (const surface of sample) {
+    if (hasEntry(index, surface)) count += 1;
+  }
+  return count;
+}
+
+// Reported separately, not only blended: the generated half is a closed
+// loop — every form is built by appending the very suffix the resolver
+// strips back off, so a rate there proves lemmaCandidates and this
+// generator are inverses of each other, not that a reader's word gets
+// found. The irregular half is the only non-circular signal: those surfaces
+// come from a hand-written table that no rule reaches. Blending the two
+// buries the real (irregular) rate inside a higher headline number.
+const resolvedRegular = resolvedCountOf(regularSample);
+const resolvedIrregular = resolvedCountOf(irregularSample);
+const resolvedBlended = resolvedCountOf(coverageSample);
+const pct = (numerator: number, denominator: number) =>
+  denominator === 0 ? "0.0" : ((numerator / denominator) * 100).toFixed(1);
+
 assert(
-  next("coverage report over the generated + irregular sample (no threshold)"),
+  next("coverage report: generated-only, irregular-only and blended (no threshold)"),
   true,
-  `${resolvedCount}/${coverageSample.size} resolved = ${coveragePercent}% ` +
+  `generated (closed loop, suffix appended then stripped back off): ` +
+    `${resolvedRegular}/${regularSample.size} = ${pct(resolvedRegular, regularSample.size)}%; ` +
+    `irregular (the honest signal, a hand-written table no rule reaches): ` +
+    `${resolvedIrregular}/${irregularSample.size} = ${pct(resolvedIrregular, irregularSample.size)}%; ` +
+    `blended: ${resolvedBlended}/${coverageSample.size} = ${pct(resolvedBlended, coverageSample.size)}% ` +
     `(sample: ${regularSample.size} regular forms from ${Math.ceil(singleWordLetterHeadwords.length / stride)} ` +
-    `stride-sampled single-word letter headwords, union ${IRREGULAR_FORMS.size} IRREGULAR_FORMS surfaces)`,
+    `stride-sampled single-word letter headwords, union ${irregularSample.size} IRREGULAR_FORMS surfaces)`,
 );
 
 // D10 — p95 of lookupWord over 1,000 headwords, in Node, under 1 ms. A
