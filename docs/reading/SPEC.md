@@ -73,6 +73,13 @@ this gets built, and no schema, table or column is "prepared for" it.
 ### Non-functional requirements
 
 - [ ] **RNL-01** — A word lookup answers in under 10 ms with the dictionary installed.
+  - **What the 10 ms measures, settled 2026-09-07 before module 22 was written:** the lookup itself —
+    the worker round trip, from the message posted to the answer received. Measured that way against
+    the live app: p50 0,10 ms, p95 0,30 ms, max 1,30 ms over 200 sequential lookups.
+  - Keystroke to painted answer is a **different and larger** number — p50 17 ms, p95 41 ms measured
+    through Playwright — because it also carries React's render and commit and the driver's own
+    dispatch. It is recorded here so nobody reads one number and cites the other. This requirement
+    governs the first; no assertion anywhere enforces the second.
 - [ ] **RNL-02** — Every string a person reads comes from the message catalogue. The interface is Spanish.
 - [ ] **RNL-03** — The app holds at a 360 px viewport: no horizontal overflow, no overlapping control, no tap target under 32 px on its shorter side. It is used one-handed, standing, holding a book. It also holds at a wide viewport: the reading column keeps a maximum measure and centres, so at 1440 px the box and the answer read as a column rather than stretching the full width. The phone is the case the app is designed for; the desktop is the case it must not look neglected in.
   - Widened 2026-09-07 from the 360 px case alone. The code was unticked and nothing had been verified against it, so no tick is invalidated; the alternative was retiring it for a successor, which buys nothing here.
