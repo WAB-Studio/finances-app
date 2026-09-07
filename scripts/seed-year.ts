@@ -10,8 +10,9 @@
  * Repeatable: every movement carries an `external_ref` derived from its index,
  * so a second run tops the ledger up to 4 015 instead of doubling it, and an
  * interrupted run resumes. `drop` deletes exactly what those references name,
- * plus the accounts and categories the seed made, which returns every table to
- * the count it found — `audit_log` excepted, whose rows no path here removes.
+ * plus the accounts and categories the seed made, under the seeded user's own
+ * claims, then purges the trail those deletes and the seed itself left — which
+ * returns every table, `audit_log` included, to the count it found.
  *
  * Usage:
  *   npm run seed:year          # top the named user's ledger up to 4 015
@@ -31,8 +32,10 @@ import { addCivilDays, todayInBogota } from "@/lib/dates";
 import { pesosToCents } from "@/lib/money";
 
 import {
+  asOwner,
   findUserByEmail,
   fixtureSql,
+  purgeAuditTrail,
   YEAR_OF_MOVEMENTS,
   YEAR_SEED_PREFIX,
 } from "./harness/fixtures";
@@ -52,8 +55,9 @@ const SCAFFOLD_PREFIX = "RNF-09";
  * it found" unprovable rather than false. A split and a label carry no owner, so
  * they are attributed through the movement they hang off.
  *
- * `audit_log` is counted and reported, never expected back: the trail is
- * append-only and only the RNF-14 purge removes from it.
+ * `audit_log` is expected back to its starting count too: `drop` runs under
+ * the seeded user's own claims and then purges the trail bounded to them, so
+ * no delete here stamps a both-null row nothing can find again.
  */
 const CENSUS_TABLES = {
   accounts: "select count(*) from accounts where owner_user_id = $1",
@@ -260,8 +264,8 @@ function printCensus(when: string, counts: Census): void {
   console.log(`CENSUS  ${when}: ${line}`);
 }
 
-// The difference the run left, table by table. A drop that reports nothing but
-// `audit_log` is a drop that took back exactly what the seed wrote.
+// The difference the run left, table by table. A drop that reports "every
+// table unchanged" is a drop that took back exactly what the seed wrote.
 function printDelta(before: Census, after: Census): void {
   const moved = tables()
     .filter((table) => after[table] !== before[table])
@@ -424,23 +428,34 @@ async function seed(user: HarnessUser): Promise<void> {
 /**
  * Removes exactly what the seed wrote: the movements its references name — their
  * splits cascade — then the scaffolding, which no other row points at once the
- * movements are gone.
+ * movements are gone. Run under `asOwner` so `capture_audit` stamps every one of
+ * these deletes with the seeded user as actor, which is what makes the trail
+ * they cause reachable by `purgeAuditTrail` next — otherwise the connection
+ * settles no claims and the rows land both-null, unattributed and unfindable.
  */
 async function drop(user: HarnessUser): Promise<void> {
-  const movements = await fixtureSql`
-    delete from transactions
-    where owner_user_id = ${user.id} and external_ref like ${`${YEAR_SEED_PREFIX}%`}`;
+  let movements = 0;
+  let categories = 0;
+  let accounts = 0;
 
-  const categories = await fixtureSql`
-    delete from categories
-    where owner_user_id = ${user.id} and name like ${`${SCAFFOLD_PREFIX}%`}`;
+  await asOwner(user.id, async (tx) => {
+    ({ count: movements } = await tx`
+      delete from transactions
+      where owner_user_id = ${user.id} and external_ref like ${`${YEAR_SEED_PREFIX}%`}`);
 
-  const accounts = await fixtureSql`
-    delete from accounts
-    where owner_user_id = ${user.id} and name like ${`${SCAFFOLD_PREFIX}%`}`;
+    ({ count: categories } = await tx`
+      delete from categories
+      where owner_user_id = ${user.id} and name like ${`${SCAFFOLD_PREFIX}%`}`);
+
+    ({ count: accounts } = await tx`
+      delete from accounts
+      where owner_user_id = ${user.id} and name like ${`${SCAFFOLD_PREFIX}%`}`);
+  });
+
+  await purgeAuditTrail([user.id]);
 
   console.log(
-    `DROP    ${movements.count} movements, ${categories.count} categories and ${accounts.count} accounts removed.`,
+    `DROP    ${movements} movements, ${categories} categories and ${accounts} accounts removed.`,
   );
 }
 

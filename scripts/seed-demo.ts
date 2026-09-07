@@ -8,8 +8,9 @@
  * Repeatable: every movement carries an `external_ref` derived from its date and
  * its slot, and every other entity is found again by the name it shows on screen,
  * so a second run tops the fixture up instead of doubling it. `drop` deletes
- * exactly what those names reach, which returns every table to the count it found
- * — `audit_log` excepted, whose rows no path here removes.
+ * exactly what those names reach, under the seeded user's own claims, then
+ * purges the trail those deletes and the seed itself left — which returns every
+ * table, `audit_log` included, to the count it found.
  *
  * Usage:
  *   npm run seed:demo          # fill the app for the demo user
@@ -67,7 +68,7 @@ import { BASE_CURRENCY, type OfferedCurrency } from "@/lib/currency";
 import { addCivilDays, addCivilMonths, todayInBogota } from "@/lib/dates";
 import { pesosToCents } from "@/lib/money";
 
-import { fixtureSql, findUserByEmail } from "./harness/fixtures";
+import { asOwner, fixtureSql, findUserByEmail, purgeAuditTrail } from "./harness/fixtures";
 import type { HarnessUser } from "./harness/fixtures";
 
 // The user the fixture fills the app for. Named here rather than taken from the
@@ -780,8 +781,9 @@ const PLAN_PAID_LINES = 3;
  * the harness layers and the other tracks, and a global count moves under a run
  * that has nothing to do with the seed.
  *
- * `audit_log` is counted and reported, never expected back: the trail is
- * append-only and only the RNF-14 purge removes from it.
+ * `audit_log` is expected back to its starting count too: `drop` runs under
+ * the seeded user's own claims and then purges the trail bounded to them, so
+ * no delete here stamps a both-null row nothing can find again.
  */
 const CENSUS_TABLES = {
   accounts: "select count(*) from accounts where owner_user_id = $1",
@@ -956,8 +958,8 @@ function printCensus(when: string, counts: Census): void {
   );
 }
 
-// The difference the run left, table by table. A drop that reports nothing but
-// `audit_log` is a drop that took back exactly what the seed wrote.
+// The difference the run left, table by table. A drop that reports "every
+// table unchanged" is a drop that took back exactly what the seed wrote.
 function printDelta(before: Census, after: Census): void {
   const moved = tables()
     .filter((table) => after[table] !== before[table])
@@ -1502,6 +1504,11 @@ async function seed(user: HarnessUser): Promise<void> {
  *
  * `ingest_deliveries` is absent on purpose: a delivery is reviewed or silenced,
  * never deleted, and no grant admits one.
+ *
+ * The deletes run under `asOwner` so `capture_audit` stamps every one of them
+ * with the seeded user as actor, which is what makes the trail they cause
+ * reachable by `purgeAuditTrail` next — otherwise the connection settles no
+ * claims and the rows land both-null, unattributed and unfindable.
  */
 async function drop(user: HarnessUser): Promise<void> {
   const accountNames = DEMO_ACCOUNTS.map((account) => account.name);
@@ -1515,49 +1522,61 @@ async function drop(user: HarnessUser): Promise<void> {
     return;
   }
 
-  const budgets = await fixtureSql`
-    delete from budgets
-    where owner_user_id = ${user.id} and name = any(${DEMO_BUDGETS.map((one) => one.name)})`;
+  let budgets = 0;
+  let payments = 0;
+  let rules = 0;
+  let goals = 0;
+  let movements = 0;
+  let labels = 0;
+  let categories = 0;
 
-  const payments = await fixtureSql`
-    delete from planned_payments
-    where owner_user_id = ${user.id}
-      and (from_account_id = any(${accountIds}) or to_account_id = any(${accountIds}))`;
+  await asOwner(user.id, async (tx) => {
+    ({ count: budgets } = await tx`
+      delete from budgets
+      where owner_user_id = ${user.id} and name = any(${DEMO_BUDGETS.map((one) => one.name)})`);
 
-  const rules = await fixtureSql`
-    delete from recurring_rules
-    where owner_user_id = ${user.id}
-      and (from_account_id = any(${accountIds}) or to_account_id = any(${accountIds}))`;
+    ({ count: payments } = await tx`
+      delete from planned_payments
+      where owner_user_id = ${user.id}
+        and (from_account_id = any(${accountIds}) or to_account_id = any(${accountIds}))`);
 
-  // The aportes cascade off the goal.
-  const goals = await fixtureSql`
-    delete from savings_goals
-    where owner_user_id = ${user.id} and name = any(${DEMO_GOALS.map((one) => one.name)})`;
+    ({ count: rules } = await tx`
+      delete from recurring_rules
+      where owner_user_id = ${user.id}
+        and (from_account_id = any(${accountIds}) or to_account_id = any(${accountIds}))`);
 
-  // The lines cascade off the plan.
-  await fixtureSql`delete from installment_plans where account_id = any(${accountIds})`;
-  await fixtureSql`delete from debt_statements where account_id = any(${accountIds})`;
-  await fixtureSql`delete from debt_terms where account_id = any(${accountIds})`;
+    // The aportes cascade off the goal.
+    ({ count: goals } = await tx`
+      delete from savings_goals
+      where owner_user_id = ${user.id} and name = any(${DEMO_GOALS.map((one) => one.name)})`);
 
-  // The splits and the label joins cascade off the movement.
-  const movements = await fixtureSql`
-    delete from transactions
-    where owner_user_id = ${user.id}
-      and (from_account_id = any(${accountIds}) or to_account_id = any(${accountIds}))`;
+    // The lines cascade off the plan.
+    await tx`delete from installment_plans where account_id = any(${accountIds})`;
+    await tx`delete from debt_statements where account_id = any(${accountIds})`;
+    await tx`delete from debt_terms where account_id = any(${accountIds})`;
 
-  const labels = await fixtureSql`
-    delete from labels
-    where owner_user_id = ${user.id} and name = any(${DEMO_LABELS.map((one) => one.name)})`;
+    // The splits and the label joins cascade off the movement.
+    ({ count: movements } = await tx`
+      delete from transactions
+      where owner_user_id = ${user.id}
+        and (from_account_id = any(${accountIds}) or to_account_id = any(${accountIds}))`);
 
-  const categories = await fixtureSql`
-    delete from categories
-    where owner_user_id = ${user.id} and parent_id is not null
-      and name = any(${DEMO_SUBCATEGORIES.map((one) => one.name)})`;
+    ({ count: labels } = await tx`
+      delete from labels
+      where owner_user_id = ${user.id} and name = any(${DEMO_LABELS.map((one) => one.name)})`);
 
-  await fixtureSql`delete from accounts where id = any(${accountIds})`;
+    ({ count: categories } = await tx`
+      delete from categories
+      where owner_user_id = ${user.id} and parent_id is not null
+        and name = any(${DEMO_SUBCATEGORIES.map((one) => one.name)})`);
+
+    await tx`delete from accounts where id = any(${accountIds})`;
+  });
+
+  await purgeAuditTrail([user.id]);
 
   console.log(
-    `DROP    ${movements.count} movements, ${budgets.count} budgets, ${goals.count} goals, ${payments.count} payments, ${rules.count} rules, ${labels.count} labels, ${categories.count} subcategories and ${accountIds.length} accounts removed.`,
+    `DROP    ${movements} movements, ${budgets} budgets, ${goals} goals, ${payments} payments, ${rules} rules, ${labels} labels, ${categories} subcategories and ${accountIds.length} accounts removed.`,
   );
 }
 
