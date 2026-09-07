@@ -76,6 +76,11 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
 - The database is remote: every query pays the round trip. Count round trips, not queries.
 - Prove a policy by driving it. Never assert it from the migration.
 - Read `docs/TRAPS.md` before writing a query, a migration or a spec.
+- Run `npm run harness:census` before and after a session that runs suites. The two numbers are the
+  session's own footprint.
+- Register every `auth.users` row a script creates through `scripts/harness/registry.ts`. An ad-hoc
+  probe that does not is a leak nothing can prune — seven such users exist today.
+- `npm run harness:reap` is safe beside a running lane. It never touches a lane identity.
 
 ## What a session spends
 

@@ -113,8 +113,13 @@ settings.spec.ts:117`.
 Turning it off is one command, and it is the switch that also decides which database CI seeds and
 purges: `gh variable set E2E_IN_CI --body false`.
 
-**And the table of identities only grows.** 62 rows matched `harness-%` in `auth.users` on
-2026-09-06; most are `harness-<uuid>@example.invalid` left by old runs. Nothing prunes them.
+**Updated 2026-09-06.** `audit_log` sits at 105 971 rows, 110 MB, of a 136 MB database. 75
+identities are registered in `harness.identities` (72 `ephemeral`, 3 `shared`) after
+`harness:adopt` swept 70 legacy orphans into the registry in one batch. Two commands prune this
+pool now: `npm run harness:census` counts it, `npm run harness:reap` drops every dead run's
+identities and settles their audit trail. `npm run harness:adopt` is what brings a legacy,
+never-registered `auth.users` row into either command's reach in the first place — before it,
+neither can see the row at all.
 
 **Closed 2026-09-06, the scan half.** The `OR` was never the whole cause: `owner_user_id` and
 `group_id` each already carried a partial index, but `actor_user_id` carried none. One indexable
@@ -177,6 +182,63 @@ the directory, regenerate.
 
 `TSX_TSCONFIG_PATH` stubs `server-only`. The session is minted from `auth.one_time_tokens`, so no
 mailbox is needed.
+
+### A harness row is proved by `harness.identities`, never a pattern
+
+An email pattern and a `created_at` window both fail as an ownership test: every orphan's
+`created_at` reads null, and `createUser()` puts no lane number in `harness-<uuid>@example.invalid`
+— neither predicate can tell a live lane's fixture from a dead one's. `harness.identities` is the
+one proof: a row there names an identity, `harness.runs` names the run that made it live or dead.
+Query the registry. Never `auth.users` by pattern or by age.
+
+### A claimless delete writes an audit row no purge can ever name
+
+`private.capture_audit()` stamps `actor_user_id` from `auth.uid()` and `owner_user_id` from the
+deleted row's own `owner_user_id` column. A delete issued with no settled claim, on a table that
+carries no `owner_user_id` of its own, lands both columns null — and a null-keyed row matches no
+purge that names a user.
+
+52 294 both-null rows exist, measured 2026-09-06: 51 088 `DELETE`, 1 153 `INSERT` (the
+recurring-rule generator, RF-30/RF-45 — it only inserts and never claims, left alone by design), 53
+`UPDATE`. Corrects the plan's earlier 51 954: the set keeps growing while it is read, so it is a
+count, not a fact that sits still. Settle claims (`asOwner`/`asUser`) before every harness delete.
+
+### A table with no `owner_user_id` can never own its own delete
+
+`transaction_splits`, `installment_lines`, `goal_contributions`, `group_members`, `groups`,
+`debt_terms`, `debt_statements`, `installment_plans`, `transaction_labels` and `app_users` all carry
+no `owner_user_id` column. Generalizes past `transaction_splits`: a child table without one produces
+an unattributable audit row on every delete that runs with no settled actor claim, no matter who
+owns the parent row it hangs off.
+
+### `app_users` is `RESTRICT` from four tables — one untracked row throws for its owner
+
+`accounts`, `transactions`, `planned_payments` and `recurring_rules` are `ON DELETE RESTRICT`
+against `app_users` (confirmed against `pg_constraint`). Deleting a user before every row it owns is
+gone raises `23503`. A loop over several identities sharing one `try` fails closed for every
+identity still queued, not only the one that owns the untracked row. `fixtures.ts`'s `cleanup()`
+gives each identity its own `try`/`catch` for exactly this — copy that shape in any new delete loop
+that spans more than one identity.
+
+### `registeredIdentities(sql, "shared")` reads every lane, not just its own
+
+`harness.identities` carries no lane column, and a `shared` row hangs off no run by its own `CHECK`
+— the query is global by construction. A `cleanup()` that purged every row this call returns would
+wipe every other lane's shared trail on every run. Scope the caller to the lane's own identity
+before deleting anything it returns.
+
+### A run that leaked must not stamp `finished_at`
+
+`harness:reap` finds dead runs by `finished_at is null` and a stale heartbeat. A run that stamps
+`finished_at` on its way out is invisible to the reaper forever after, leaked rows included.
+`cleanup()` skips `closeRun` on a partial failure by design — leave a failed run open so a later
+reap can still find it.
+
+### `harness:adopt` blocking on its own run is the feature
+
+Its run is created live and is the quarantine marker: for 30 minutes after one batch, both a second
+`harness:adopt` and a `harness:reap` are refused. Not a bug to route around — exempting `adopt`'s
+own run from the interlock would let a second batch register while the first is still quarantined.
 
 ### A new desktop table reddens the screen's landed specs
 
