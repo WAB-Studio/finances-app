@@ -40,16 +40,11 @@ export function useDictionary(): UseDictionaryResult {
       const message = event.data;
 
       if (message.kind === "status") {
+        // `status` alone drives the retry control. A `failed` status settles
+        // nothing here: the worker keeps every queued request and answers it
+        // once a later `retry` reaches `ready`, so a pending resolver stays
+        // in the map across the failure.
         setStatus(message.status);
-        // A failed install answers nothing more on its own: fail every
-        // request waiting on it now, rather than leave it pending forever.
-        if (message.status.state === "failed") {
-          const reason = message.status.reason;
-          for (const pending of resolvers.values()) {
-            pending.reject(new Error("La instalación del diccionario falló.", { cause: reason }));
-          }
-          resolvers.clear();
-        }
         return;
       }
 
