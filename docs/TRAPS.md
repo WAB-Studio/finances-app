@@ -508,3 +508,21 @@ own, then prove the negative — no function outside it names a table of yours.
 
 Nothing in the repository points at this. `pg_proc` is the only place the coupling is visible, so
 neither typecheck nor a grep over the tree finds it. Only driving the database does.
+
+### `Translator.availability()` hangs forever in Playwright's Chromium
+
+Chromium 151.0.7922.34, the build Playwright ships today, exposes a native `Translator` global. It
+is not the absent global the reading plan assumed. Calling `Translator.availability()` in headless
+never settles: it neither resolves nor rejects, so an `await` on it hangs the page for the life of
+the run.
+
+`deviceTranslatorState()` wraps the call in a try/catch, which catches a throw and does nothing at
+all for a promise that never settles. A timeout is the only thing that saves it.
+
+So any Playwright spec that loads a screen calling `deviceTranslatorState()` must stub
+`window.Translator` — delete it for the unsupported path, or inject a fake that settles — in an
+`addInitScript`, before the page script runs. A spec that forgets hangs on page load with no error.
+
+Measured 2026-09-07 while validating the reading app's translate module. The module's own checks
+pass because every one of them either deletes the global or injects a fake that settles; the real
+global was only reached by a bare, un-mocked call, which timed out.
