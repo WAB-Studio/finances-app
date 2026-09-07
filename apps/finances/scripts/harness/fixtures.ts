@@ -34,6 +34,8 @@ export const fixtureSql = postgres(process.env.DATABASE_URL!, {
   prepare: false,
   max: 1,
   connection: {
+    // The tables live in `finances`; raw SQL here names them unqualified.
+    search_path: "finances, public",
     // A getter, not a value: `max: 1` connects lazily on the first query, so this
     // reads `currentSuite` at that moment, after `setSuite` has had its chance —
     // not at module load, when the suite is not yet known. It never reaches

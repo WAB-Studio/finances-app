@@ -483,3 +483,28 @@ select updated.id from updated join learned on true
 **A function call parked in a `SELECT` CTE for its side effect is not a write the planner has to
 respect.** Join it into the final select, or make it a data-modifying statement. The failure is
 silent — no error, no row, just a side effect that did not happen.
+
+### A schema rename leaves the trigger functions behind
+
+Found 2026-09-07 moving all 24 tables from `public` to `finances`. `ALTER TABLE ... SET SCHEMA`
+carries the table's indexes, constraints, owned sequences and all 95 RLS policies with it, because
+each of those is stored as a parse tree that points at an OID. **A function body is not a parse
+tree. It is text.**
+
+So the 37 functions in `private` kept naming `public.audit_log`, `public.accounts` and the rest,
+and every one of them runs `SET search_path TO ''` — the setting that makes a security-definer
+function safe is exactly the setting that denies it any fallback. The first suite aborted on
+`relation "public.audit_log" does not exist`, and the app would have done the same on the first
+write.
+
+The fix is `CREATE OR REPLACE FUNCTION` for each one, generated from `pg_get_functiondef` so the
+definition that ships is the definition that ran. The OID survives a replace, so no trigger has to
+be re-pointed.
+
+**Two things to check before rewriting anything.** `realtime.apply_rls` and
+`realtime.build_prepared_statement_sql` name `public.notes`, which is Supabase's table, not yours:
+a blind `public.` → `finances.` sweep across `pg_proc` breaks Realtime. Filter by the schema you
+own, then prove the negative — no function outside it names a table of yours.
+
+Nothing in the repository points at this. `pg_proc` is the only place the coupling is visible, so
+neither typecheck nor a grep over the tree finds it. Only driving the database does.

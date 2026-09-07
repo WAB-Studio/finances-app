@@ -7,7 +7,6 @@ import {
   foreignKey,
   index,
   pgPolicy,
-  pgTable,
   text,
   timestamp,
   uniqueIndex,
@@ -15,13 +14,14 @@ import {
 } from "drizzle-orm/pg-core";
 import { authenticatedRole, authUid } from "drizzle-orm/supabase";
 
+import { finances } from "./_schema";
 import { accounts } from "./accounts";
 import { appUsers } from "./app-users";
 import { groups } from "./groups";
 import { recurringRules } from "./recurring-rules";
 
 // A movement of money (RF-17): income names only a destination, expense only a source, a transfer both.
-export const transactions = pgTable(
+export const transactions = finances.table(
   "transactions",
   {
     id: uuid().primaryKey().defaultRandom(),

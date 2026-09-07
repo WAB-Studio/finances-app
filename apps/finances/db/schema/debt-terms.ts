@@ -4,7 +4,6 @@ import {
   check,
   numeric,
   pgPolicy,
-  pgTable,
   smallint,
   text,
   timestamp,
@@ -12,12 +11,13 @@ import {
 } from "drizzle-orm/pg-core";
 import { authenticatedRole } from "drizzle-orm/supabase";
 
+import { finances } from "./_schema";
 import { accounts } from "./accounts";
 
 // The debt profile a liability account may carry (RF-78): its effective annual rate, its minimum
 // payment as a fixed amount XOR a percentage of balance, its credit limit, its statement cut-off and
 // payment due days and its aval. It has no scope of its own — the account's scope gates it (RLS below).
-export const debtTerms = pgTable(
+export const debtTerms = finances.table(
   "debt_terms",
   {
     accountId: uuid()

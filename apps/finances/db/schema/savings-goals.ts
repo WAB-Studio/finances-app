@@ -5,20 +5,20 @@ import {
   date,
   index,
   pgPolicy,
-  pgTable,
   text,
   timestamp,
   uuid,
 } from "drizzle-orm/pg-core";
 import { authenticatedRole, authUid } from "drizzle-orm/supabase";
 
+import { finances } from "./_schema";
 import { accounts } from "./accounts";
 import { appUsers } from "./app-users";
 import { groups } from "./groups";
 
 // A virtual envelope (RF-76): a target amount and optional target date, scoped to a user or a group.
 // Progress derives from its contributions and is never stored (RF-87).
-export const savingsGoals = pgTable(
+export const savingsGoals = finances.table(
   "savings_goals",
   {
     id: uuid().primaryKey().defaultRandom(),

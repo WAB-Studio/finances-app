@@ -9,8 +9,8 @@ export default defineConfig({
     // Session pooler: DDL and advisory locks need a connection that is not swapped mid-transaction.
     url: process.env.MIGRATION_DATABASE_URL!,
   },
-  // `auth`, `storage` and the rest of Supabase's schemas are not ours to diff.
-  schemaFilter: ["public"],
+  // `public`, `auth`, `storage` and the rest of Supabase's schemas are not ours to diff.
+  schemaFilter: ["finances"],
   casing: "snake_case",
   // Teaches drizzle-kit which roles already exist, so it never emits `create role`.
   entities: { roles: { provider: "supabase" } },

@@ -4,7 +4,6 @@ import {
   check,
   date,
   pgPolicy,
-  pgTable,
   text,
   timestamp,
   unique,
@@ -12,6 +11,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { authenticatedRole } from "drizzle-orm/supabase";
 
+import { finances } from "./_schema";
 import { accounts } from "./accounts";
 
 // Any account's statement history (RF-129, RF-130): one immutable snapshot per period carrying what
@@ -19,7 +19,7 @@ import { accounts } from "./accounts";
 // Every printed figure but the closing balance is nullable: not every institution prints all of them,
 // and a null says "not printed", which a zero would misreport. No scope of its own — the account's
 // scope gates it.
-export const accountStatements = pgTable(
+export const accountStatements = finances.table(
   "account_statements",
   {
     id: uuid().primaryKey().defaultRandom(),

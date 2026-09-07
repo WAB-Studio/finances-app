@@ -1,10 +1,11 @@
-import { index, pgTable, primaryKey, uuid } from "drizzle-orm/pg-core";
+import { index, primaryKey, uuid } from "drizzle-orm/pg-core";
 
+import { finances } from "./_schema";
 import { labels } from "./labels";
 import { transactions } from "./transactions";
 
 // The join that attaches labels to a movement (RF-70); a movement's labels share its scope.
-export const transactionLabels = pgTable(
+export const transactionLabels = finances.table(
   "transaction_labels",
   {
     transactionId: uuid()

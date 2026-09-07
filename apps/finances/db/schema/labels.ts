@@ -1,12 +1,13 @@
 import { sql } from "drizzle-orm";
-import { check, index, pgPolicy, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { check, index, pgPolicy, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { authenticatedRole, authUid } from "drizzle-orm/supabase";
 
+import { finances } from "./_schema";
 import { appUsers } from "./app-users";
 import { groups } from "./groups";
 
 // A free tag on a movement, independent of category (RF-70); scoped to a user or a group like a category.
-export const labels = pgTable(
+export const labels = finances.table(
   "labels",
   {
     id: uuid().primaryKey().defaultRandom(),

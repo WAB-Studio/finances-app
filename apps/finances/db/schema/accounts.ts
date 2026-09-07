@@ -6,7 +6,6 @@ import {
   date,
   index,
   pgPolicy,
-  pgTable,
   text,
   timestamp,
   uniqueIndex,
@@ -14,11 +13,12 @@ import {
 } from "drizzle-orm/pg-core";
 import { authenticatedRole, authUid } from "drizzle-orm/supabase";
 
+import { finances } from "./_schema";
 import { appUsers } from "./app-users";
 import { groups } from "./groups";
 
 // Where money sits: an asset or a liability, owned by a user XOR held by a group.
-export const accounts = pgTable(
+export const accounts = finances.table(
   "accounts",
   {
     id: uuid().primaryKey().defaultRandom(),

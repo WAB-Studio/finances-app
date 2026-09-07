@@ -2,7 +2,6 @@ import { sql } from "drizzle-orm";
 import {
   check,
   pgPolicy,
-  pgTable,
   text,
   timestamp,
   uuid,
@@ -12,10 +11,12 @@ import { authenticatedRole, authUid, authUsers } from "drizzle-orm/supabase";
 import { BASE_CURRENCY } from "@/lib/currency";
 import { DEFAULT_LOCALE, LOCALES } from "@/lib/locales";
 
+import { finances } from "./_schema";
+
 // The application-side half of an auth user: what Supabase Auth does not store.
 // The primary key is `auth.users.id` itself — a v4 uuid minted by Auth — so no
 // surrogate key and no join stand between a session and its row.
-export const appUsers = pgTable(
+export const appUsers = finances.table(
   "app_users",
   {
     id: uuid()
