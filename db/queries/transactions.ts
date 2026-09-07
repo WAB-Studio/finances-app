@@ -324,17 +324,18 @@ export async function listTransactions(
   if (filters.kind) conditions.push(eq(transactions.kind, filters.kind));
   if (filters.unreviewed) {
     // "Waiting for a person" (RF-133): a generated movement not yet confirmed,
-    // or any movement naming only one account — the counterparty an ingest
-    // reader could not decide, left for Module 16/17 to complete. Both share
-    // the same guard: `reviewed_at is null` is the one column that means
-    // "nobody has looked at this yet" for either reason.
+    // or one `awaiting_counterparty` — never every one-sided movement. Income
+    // and expense are one-sided BY DESIGN (RF-17): naming only one account is
+    // the ordinary shape of most movements, not a sign anything is missing, so
+    // `from_account_id is null or to_account_id is null` cannot stand in for
+    // this on its own (measured against the live database: 8 462 of 8 462
+    // movements are one-sided). `awaiting_counterparty` is the fact itself.
     conditions.push(
       and(
         isNull(transactions.reviewedAt),
         or(
           isNotNull(transactions.recurringRuleId),
-          isNull(transactions.fromAccountId),
-          isNull(transactions.toAccountId),
+          eq(transactions.awaitingCounterparty, true),
         ),
       ) as SQL,
     );
@@ -484,11 +485,17 @@ type TrustedPattern = {
 };
 
 /**
- * Movements waiting for a person (RF-133): `reviewed_at is null` and only one
- * account named. `counterpartyPatternKey` (Module 12) is a TypeScript function,
- * not a SQL one, so it cannot run inside the WHERE clause without a second,
- * SQL-only copy of its normalisation — a copy that could silently drift from
- * what `private.remember_counterparty` was taught with (RF-135) and poison a
+ * Movements waiting for a person (RF-133): `awaiting_counterparty` and
+ * `reviewed_at is null`. Naming only one account is NOT this condition on its
+ * own — every income and every expense is one-sided by design (RF-17), so that
+ * shape alone would catch nearly the whole ledger; `awaiting_counterparty` is
+ * the one column that says which one-sided movements actually are missing a
+ * side an ingest reader could not tell (migration 0042).
+ *
+ * `counterpartyPatternKey` (Module 12) is a TypeScript function, not a SQL
+ * one, so it cannot run inside the WHERE clause without a second, SQL-only
+ * copy of its normalisation — a copy that could silently drift from what
+ * `private.remember_counterparty` was taught with (RF-135) and poison a
  * proposal nobody could then explain. Instead, the caller's own `trusted`
  * patterns ride along in the SAME round trip as a small side-set, one row's
  * worth of JSON regardless of how many movements match (`state = 'trusted'` is
@@ -500,11 +507,8 @@ export async function listAwaitingCounterparty(
   filters: AwaitingCounterpartyFilters = {},
 ): Promise<AwaitingCounterpartyRow[]> {
   const conditions: SQL[] = [
+    eq(transactions.awaitingCounterparty, true),
     isNull(transactions.reviewedAt),
-    or(
-      isNull(transactions.fromAccountId),
-      isNull(transactions.toAccountId),
-    ) as SQL,
   ];
 
   if (filters.accountId) {

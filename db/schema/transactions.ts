@@ -54,6 +54,14 @@ export const transactions = pgTable(
     recurringRuleId: uuid().references(() => recurringRules.id, { onDelete: "set null" }),
     // Set once a generated movement has been reviewed; null until then (RF-31).
     reviewedAt: timestamp({ withTimezone: true }),
+    // True while a movement was recorded with only the side an ingest reader could
+    // tell, and still needs its other account named (RF-133, RF-135). Never derived
+    // from the shape of the row: every income and every expense is one-sided by
+    // design (RF-17), so `from_account_id is null or to_account_id is null` alone
+    // cannot mean "waiting" — every income/expense in the ledger matches that shape,
+    // measured at 8 462 of 8 462 the day this column was added. This is the one
+    // mark that says which ones actually are.
+    awaitingCounterparty: boolean().notNull().default(false),
     externalRef: text(),
     // The movement that produced this one — a tax or a fee a transfer generated (RF-132). Self-
     // referencing, so the foreign key is declared below, one hop only: nothing here reads a chain.
@@ -127,6 +135,12 @@ export const transactions = pgTable(
     index("transactions_group_id_idx")
       .on(table.groupId)
       .where(sql`${table.groupId} is not null`),
+    // The read Module 16 builds filters on this alone; the true rows are a small
+    // fraction of the table (today: none — no writer sets it yet), so a partial
+    // index keeps the scan bounded to them instead of to every movement.
+    index("transactions_awaiting_counterparty_idx")
+      .on(table.awaitingCounterparty)
+      .where(sql`${table.awaitingCounterparty} = true`),
     // `external_ref` is unique within a scope, so re-importing the same row updates instead of
     // duplicating (RF-52); an accepted delivery carries its own ref under the same key (RF-90).
     uniqueIndex("transactions_owner_external_ref_unique")

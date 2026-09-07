@@ -425,6 +425,7 @@ erDiagram
         text description
         uuid recurring_rule_id FK "null if manual"
         timestamptz reviewed_at "null until a generated movement is reviewed"
+        boolean awaiting_counterparty "true until the ingest-unknown side is named"
         text external_ref "import reference"
         uuid caused_by_transaction_id FK "null unless another movement caused this one"
         uuid created_by FK
@@ -710,6 +711,8 @@ Rules the model must always guarantee, regardless of how they are implemented:
 - A counterparty's remembered account and side are earned by two consecutive
   agreeing completions and lost for good on the first disagreement; only an
   explicit forget clears it.
+- A movement recorded with only the side an ingest could read is marked
+  awaiting its counterparty; naming the other account clears the mark.
 
 ---
 
