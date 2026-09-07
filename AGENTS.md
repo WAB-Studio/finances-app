@@ -19,7 +19,15 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
 - Run the `orchestrator` skill to develop. It dispatches `planner`, `worker` and `validator`.
 - Keep plans in `private/`.
 - Ship one slice at a time.
-- Work five tracks at once, one per lane. See `## Parallel tracks`.
+- Work five tracks at once, one per lane. See `## Monorepo
+
+- `apps/` holds the apps, `packages/` the code two of them share. npm workspaces, one lockfile at the root.
+- `apps/finances` is the app that was this whole repo. Its `.env.local` lives there, not at the root.
+- `docs/`, `private/`, `.claude/` and `scripts/worktree.sh` govern every app and stay at the root.
+- `node_modules` hoists to the root. A script that names a binary by path reaches it as `../../node_modules/...`.
+- Promote nothing to `packages/` until a second app asks for it.
+
+## Parallel tracks`.
 - Start the dev server on :3000 yourself and keep it running. Restart it when you must.
 - Run one instance per worktree. Take `Another next dev server is already running` as: one is up, use it.
 - Never ask whether to keep going or close the handoff. The `Stop` hook says when the window is full.
@@ -37,6 +45,7 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
 ## Parallel tracks
 
 - Five lanes exist. Lane 1 is this checkout on :3000; lanes 2 to 5 are worktrees at `../finances-app-l<n>` on :300<n-1>.
+- Run an app's npm scripts from its own directory, `apps/finances`, or from the root with `-w apps/finances`.
 - Open a lane: `scripts/worktree.sh <lane> <branch> [base]`. It costs 4 seconds.
 - `private/` is gitignored. `worktree.sh` copies the plans into the lane at birth; a plan you edit after that is stale there. Re-copy before you dispatch, and carry the report back by hand.
 - Give every track its own lane. Never two tracks on one lane.
@@ -53,8 +62,8 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
   the entry's `when`, rename file, tag and snapshot — but the merge collides in `meta/_journal.json`.
 - Generate a migration early. Apply it last, after typecheck and lint are clean over every file it
   touches. See `docs/TRAPS.md`, "One database, many branches", for what the gap costs.
-- Append an assertion at the end of its suite, in `scripts/check-queries.ts` and in
-  `scripts/check-http.ts` alike. `Q` and `H` are both a runtime counter over call order, so
+- Append an assertion at the end of its suite, in `apps/finances/scripts/check-queries.ts`
+  and in `apps/finances/scripts/check-http.ts` alike. `Q` and `H` are both a runtime counter over call order, so
   inserting in the middle renumbers everything below.
 
 ## Harness lanes
