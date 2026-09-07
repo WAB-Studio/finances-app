@@ -1,0 +1,12 @@
+{
+  "metadata": {
+    "title": "Diccionario",
+    "description": "Diccionario inglés-español que funciona sin conexión.",
+    "shortTitle": "Diccionario"
+  },
+  "notFound": {
+    "title": "Esta página no existe",
+    "description": "La dirección que abriste no lleva a ninguna parte.",
+    "back": "Volver al buscador"
+  }
+}
