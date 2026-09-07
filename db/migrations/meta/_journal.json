@@ -316,6 +316,13 @@
       "when": 1788786771514,
       "tag": "0044_any_account_closes_a_period",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1788790992488,
+      "tag": "0045_the_trail_names_the_table_that_exists",
+      "breakpoints": true
     }
   ]
 }
