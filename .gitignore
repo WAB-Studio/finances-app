@@ -1,8 +1,8 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
-/node_modules
-/.pnp
+node_modules
+.pnp
 .pnp.*
 .yarn/*
 !.yarn/patches
@@ -11,14 +11,14 @@
 !.yarn/versions
 
 # testing
-/coverage
+coverage
 
 # next.js
-/.next/
-/out/
+.next/
+out/
 
 # production
-/build
+build
 
 # misc
 .DS_Store
@@ -54,3 +54,6 @@ CLAUDE.local.md
 # plans and local working notes: readable, never committed
 private/
 .claude/usage-log.tsv
+
+# the dictionary build's downloaded tarball and extracted TEI source
+apps/reading/.cache/

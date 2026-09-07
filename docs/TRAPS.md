@@ -483,3 +483,99 @@ select updated.id from updated join learned on true
 **A function call parked in a `SELECT` CTE for its side effect is not a write the planner has to
 respect.** Join it into the final select, or make it a data-modifying statement. The failure is
 silent — no error, no row, just a side effect that did not happen.
+
+### A schema rename leaves the trigger functions behind
+
+Found 2026-09-07 moving all 24 tables from `public` to `finances`. `ALTER TABLE ... SET SCHEMA`
+carries the table's indexes, constraints, owned sequences and all 95 RLS policies with it, because
+each of those is stored as a parse tree that points at an OID. **A function body is not a parse
+tree. It is text.**
+
+So the 37 functions in `private` kept naming `public.audit_log`, `public.accounts` and the rest,
+and every one of them runs `SET search_path TO ''` — the setting that makes a security-definer
+function safe is exactly the setting that denies it any fallback. The first suite aborted on
+`relation "public.audit_log" does not exist`, and the app would have done the same on the first
+write.
+
+The fix is `CREATE OR REPLACE FUNCTION` for each one, generated from `pg_get_functiondef` so the
+definition that ships is the definition that ran. The OID survives a replace, so no trigger has to
+be re-pointed.
+
+**Two things to check before rewriting anything.** `realtime.apply_rls` and
+`realtime.build_prepared_statement_sql` name `public.notes`, which is Supabase's table, not yours:
+a blind `public.` → `finances.` sweep across `pg_proc` breaks Realtime. Filter by the schema you
+own, then prove the negative — no function outside it names a table of yours.
+
+Nothing in the repository points at this. `pg_proc` is the only place the coupling is visible, so
+neither typecheck nor a grep over the tree finds it. Only driving the database does.
+
+### `Translator.availability()` hangs forever in Playwright's Chromium
+
+Chromium 151.0.7922.34, the build Playwright ships today, exposes a native `Translator` global. It
+is not the absent global the reading plan assumed. Calling `Translator.availability()` in headless
+never settles: it neither resolves nor rejects, so an `await` on it hangs the page for the life of
+the run.
+
+`deviceTranslatorState()` wraps the call in a try/catch, which catches a throw and does nothing at
+all for a promise that never settles. A timeout is the only thing that saves it.
+
+So any Playwright spec that loads a screen calling `deviceTranslatorState()` must stub
+`window.Translator` — delete it for the unsupported path, or inject a fake that settles — in an
+`addInitScript`, before the page script runs. A spec that forgets hangs on page load with no error.
+
+Measured 2026-09-07 while validating the reading app's translate module. The module's own checks
+pass because every one of them either deletes the global or injects a fake that settles; the real
+global was only reached by a bare, un-mocked call, which timed out.
+
+### An explicit `--port` in a `dev` script silently ignores `PORT`
+
+`apps/reading`'s `dev` script read `next dev --port 3100`. A flag on the command line beats the `PORT`
+environment variable, so `PORT=3103 npm run dev -w apps/reading` bound **3100** — lane 1's port — and
+said so only in a line nobody reads. Two lanes hit it the same afternoon; one bound another lane's
+port and had to kill the process it did not own.
+
+Nothing fails loudly. The server starts, the suite runs, and the lane quietly drives another lane's
+app. `EADDRINUSE` is the lucky outcome, because at least it stops.
+
+The script now reads `next dev --port ${PORT:-3100}`: npm runs scripts through a shell, so the default
+still holds for lane 1 and `PORT` works everywhere else. Measured 2026-09-07: `PORT=3105` binds 3105,
+unset binds 3100.
+
+A lane's port belongs to the lane. A script that pins one takes it from whoever runs it next.
+
+### A dependency declared on a branch is not installed by merging it
+
+Module 3 added `fast-xml-parser` to `apps/reading/package.json` and to the lockfile. Nobody ran
+`npm install` in the main checkout afterwards, so the package was never on disk there. Merging the
+branch changed the manifest, not `node_modules`.
+
+`worktree.sh` hardlinks `node_modules` from the main checkout, so **every lane born after that
+inherits the same hole**. The lane whose worker happened to run `npm install` was green; the main
+checkout and every other lane were red with `TS2307: Cannot find module 'fast-xml-parser'`, plus a
+downstream `TS7006` implicit-any from the callback whose types went missing with it.
+
+The failure blames the wrong file. `scripts/build-dictionary.ts` typechecked clean in its own lane and
+under its own validation, then read as broken on `integracion` — so the module that landed it looks at
+fault when the checkout is what is stale.
+
+Run `npm install` at the root after merging a branch that adds a dependency, before opening a lane
+from it. `git status` stays clean when the lockfile was already correct, which is the tell that the
+manifest was never the problem.
+
+Measured 2026-09-07.
+
+### StrictMode doubles a Worker count in `next dev`, and only there
+
+React 19 under Next 16 double-invokes effects in `next dev`. A hook that creates a `Worker` in an
+effect therefore reports **two** creations and two terminations per mount when you count them in dev,
+and the honest one per mount against `next start`.
+
+The reading app's `useDictionary` was checked both ways: `created: 4 / terminated: 4` in dev for two
+mounted hooks, `created: 2 / terminated: 2` against the production build. Nothing was wrong either
+time.
+
+Measure a mount-count, an effect-count or anything else StrictMode touches against `next build &&
+next start`, never against `next dev`. Reading it in dev invents a leak that is not there — or hides
+a real one behind a number you have already talked yourself out of.
+
+Measured 2026-09-07 while validating the dictionary worker.

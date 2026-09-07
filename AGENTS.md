@@ -34,10 +34,27 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
   It happened twice: module 16 read a mark no writer sets, module 14 drew data no query selects.
 - Measure what a module's own claim includes, in real rows, before dispatching it. Never after.
 
+## Monorepo
+
+- `apps/` holds the apps, `packages/` the code two of them share. npm workspaces, one lockfile at the root.
+- `apps/finances` is the app that was this whole repo. Its `.env.local` lives there, not at the root.
+- `docs/`, `private/`, `.claude/` and `scripts/worktree.sh` govern every app and stay at the root.
+- `node_modules` hoists to the root. A script that names a binary by path reaches it as `../../node_modules/...`.
+- Promote nothing to `packages/` until a second app asks for it.
+- `apps/reading` is the reading dictionary. Its contract is `docs/reading/SPEC.md`; its `RL` and `RNL` codes share no number with the finances `RF`/`RNF` series.
+- Give every app its own design. `docs/DESIGN.md` governs `apps/finances` alone; `docs/reading/DESIGN.md`
+  governs `apps/reading`. Never carry a pattern across because it exists next door.
+
 ## Parallel tracks
 
-- Five lanes exist. Lane 1 is this checkout on :3000; lanes 2 to 5 are worktrees at `../finances-app-l<n>` on :300<n-1>.
-- Open a lane: `scripts/worktree.sh <lane> <branch> [base]`. It costs 4 seconds.
+- Five lanes exist. Lane 1 is this checkout; lanes 2 to 5 are worktrees at `../<checkout>-l<n>`.
+- A lane's port comes from its app: finances on :300<n-1>, reading on :310<n-1>. They never collide.
+- Run an app's npm scripts from its own directory, `apps/finances`, or from the root with `-w apps/finances`.
+- Open a lane: `scripts/worktree.sh <lane> <branch> [base] [--app <name>]`. It costs 4 seconds.
+- `--app` defaults to `finances`. An app with no database copies no `.env.local` and mints no
+  identity, so its lane opens with the database unreachable. An unknown name refuses, never guesses.
+- The app must already be committed on the base branch. A lane for an app that is not there yet
+  is opened by hand: `git worktree add -b <branch> ../<checkout>-l<n> <base> && cp -al node_modules ...`.
 - `private/` is gitignored. `worktree.sh` copies the plans into the lane at birth; a plan you edit after that is stale there. Re-copy before you dispatch, and carry the report back by hand.
 - Give every track its own lane. Never two tracks on one lane.
 - Split the work before you start it. A track per defect, per module, per screen.
@@ -53,8 +70,8 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
   the entry's `when`, rename file, tag and snapshot — but the merge collides in `meta/_journal.json`.
 - Generate a migration early. Apply it last, after typecheck and lint are clean over every file it
   touches. See `docs/TRAPS.md`, "One database, many branches", for what the gap costs.
-- Append an assertion at the end of its suite, in `scripts/check-queries.ts` and in
-  `scripts/check-http.ts` alike. `Q` and `H` are both a runtime counter over call order, so
+- Append an assertion at the end of its suite, in `apps/finances/scripts/check-queries.ts`
+  and in `apps/finances/scripts/check-http.ts` alike. `Q` and `H` are both a runtime counter over call order, so
   inserting in the middle renumbers everything below.
 
 ## Harness lanes

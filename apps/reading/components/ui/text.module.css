@@ -1,0 +1,17 @@
+/* Doubled to outrank `.rt-Text:where(.rt-r-size-N)` and the inherited
+   `--default-font-family`. */
+.serif.serif {
+  font-family: var(--font-serif);
+}
+
+/* docs/reading/DESIGN.md: a translation line runs 21px / 1.5, no Radix step. */
+.translation.translation {
+  font-size: 21px;
+  line-height: 1.5;
+}
+
+/* docs/reading/DESIGN.md "Tokens": the muted role, never Radix's own
+   `color="gray"`. */
+.muted.muted {
+  color: var(--rl-muted);
+}

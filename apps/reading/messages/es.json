@@ -1,0 +1,73 @@
+{
+  "metadata": {
+    "title": "Diccionario",
+    "description": "Diccionario inglés-español que funciona sin conexión.",
+    "shortTitle": "Diccionario"
+  },
+  "search": {
+    "placeholder": "Escribe una palabra o una frase",
+    "label": "Buscar",
+    "clear": "Borrar",
+    "empty": "Escribe una palabra o una frase en inglés",
+    "notFound": "El diccionario no tiene esa palabra",
+    "notFoundHint": "Revisa la ortografía o prueba con otra forma de la palabra"
+  },
+  "install": {
+    "preparing": "Instalando el diccionario en el dispositivo. Puedes seguir buscando mientras tanto",
+    "progress": "Instalando el diccionario: {percent}%",
+    "unknownSize": "Instalando el diccionario",
+    "failed": "No se pudo instalar el diccionario",
+    "retry": "Reintentar",
+    "ready": "Diccionario instalado"
+  },
+  "word": {
+    "viaInflection": "\"{surface}\" es una forma de \"{lemma}\"",
+    "ipa": "Pronunciación",
+    "translations": "Traducciones",
+    "definition": "Definición",
+    "suggestions": "Sugerencias",
+    "pos": {
+      "n": "sustantivo",
+      "adj": "adjetivo",
+      "v": "verbo",
+      "pn": "pronombre",
+      "adv": "adverbio",
+      "phraseologicalUnit": "locución"
+    }
+  },
+  "phrase": {
+    "translating": "Traduciendo…",
+    "originDevice": "Traducido en el dispositivo",
+    "originNetwork": "Traducido por internet",
+    "enableDevice": "Traducir en este dispositivo",
+    "enableDeviceHint": "Las próximas frases se traducirán sin conexión",
+    "downloadingModel": "Descargando el traductor",
+    "downloadProgress": "Descargando el traductor: {percent}%",
+    "failed": "No se pudo traducir la frase",
+    "retry": "Reintentar"
+  },
+  "source": {
+    "title": "Origen del diccionario",
+    "open": "Ver origen",
+    "dictionary": "FreeDict inglés-español",
+    "edition": "Edición 2025.11.23",
+    "licence": "Licencia",
+    "licenceName": "CC BY-SA 3.0",
+    "sourceLink": "Ver la fuente",
+    "licenceLink": "Ver el texto de la licencia",
+    "modified": "Esta app distribuye un extracto reformateado del diccionario, bajo la misma licencia.",
+    "back": "Volver al buscador"
+  },
+  "offline": {
+    "notice": "Estás usando la app instalada en el dispositivo, sin conexión"
+  },
+  "error": {
+    "title": "Algo salió mal",
+    "retry": "Reintentar"
+  },
+  "notFound": {
+    "title": "Esta página no existe",
+    "description": "La dirección que abriste no lleva a ninguna parte.",
+    "back": "Volver al buscador"
+  }
+}
