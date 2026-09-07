@@ -526,3 +526,19 @@ So any Playwright spec that loads a screen calling `deviceTranslatorState()` mus
 Measured 2026-09-07 while validating the reading app's translate module. The module's own checks
 pass because every one of them either deletes the global or injects a fake that settles; the real
 global was only reached by a bare, un-mocked call, which timed out.
+
+### An explicit `--port` in a `dev` script silently ignores `PORT`
+
+`apps/reading`'s `dev` script read `next dev --port 3100`. A flag on the command line beats the `PORT`
+environment variable, so `PORT=3103 npm run dev -w apps/reading` bound **3100** — lane 1's port — and
+said so only in a line nobody reads. Two lanes hit it the same afternoon; one bound another lane's
+port and had to kill the process it did not own.
+
+Nothing fails loudly. The server starts, the suite runs, and the lane quietly drives another lane's
+app. `EADDRINUSE` is the lucky outcome, because at least it stops.
+
+The script now reads `next dev --port ${PORT:-3100}`: npm runs scripts through a shell, so the default
+still holds for lane 1 and `PORT` works everywhere else. Measured 2026-09-07: `PORT=3105` binds 3105,
+unset binds 3100.
+
+A lane's port belongs to the lane. A script that pins one takes it from whoever runs it next.
