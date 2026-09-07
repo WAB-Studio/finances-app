@@ -67,6 +67,7 @@ this gets built, and no schema, table or column is "prepared for" it.
 #### The shell
 
 - [ ] **RL-16** — The app opens with no connection and shows its box, and it can be launched from the phone's home screen without a browser around it. This holds from the second time it is opened onwards: the first open needs the network to deliver the app itself.
+- [ ] **RL-17** — Every lookup a reader settles on is recorded on the device, from the app's first day: what was typed, whether it was answered as a word or a sentence, the headword it actually reached when an inflected form was typed, whether it found anything at all, and when. The record is append-only and nothing in the interface shows it.
 
 ### Non-functional requirements
 
@@ -75,6 +76,7 @@ this gets built, and no schema, table or column is "prepared for" it.
 - [ ] **RNL-03** — The app holds at a 360 px viewport: no horizontal overflow, no overlapping control, no tap target under 32 px on its shorter side. It is used one-handed, standing, holding a book.
 - [ ] **RNL-04** — The dictionary asset is built from its source by a script kept in the repository, and the build records the source URL, the edition, the licence and the entry counts beside the asset.
 - [ ] **RNL-05** — The sentence path never fires on a keystroke: it waits for the typing to settle, does not fire below a minimum number of tokens, never fires twice for the same text, and cancels a request already in flight when the text changes. The word path is never throttled and never delayed.
+- [ ] **RNL-06** — Recording a lookup never delays, blocks or fails a lookup. The write is never awaited on the path that produces an answer, a failure to write is swallowed, and the log's storage is a separate database from the dictionary's, so a write can never contend with a read of the payload.
 
 ### Retired
 
