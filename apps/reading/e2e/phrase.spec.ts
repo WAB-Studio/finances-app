@@ -28,6 +28,24 @@ async function stubTranslateRoute(page: Page, text: string): Promise<{ count: ()
   return { count: () => count };
 }
 
+// One answer per source sentence, each held for its own artificial delay:
+// this is what lets two translate requests genuinely overlap in time, which
+// `stubTranslateRoute`'s zero-latency fulfil never gives a chance to happen.
+async function stubTranslateRouteWithLatency(
+  page: Page,
+  answers: Record<string, { text: string; delayMs: number }>,
+): Promise<{ count: () => number }> {
+  let count = 0;
+  await page.route("**/api/translate", async (route) => {
+    count++;
+    const { text: source } = route.request().postDataJSON() as { text: string };
+    const answer = answers[source];
+    if (answer.delayMs > 0) await new Promise((resolve) => setTimeout(resolve, answer.delayMs));
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ text: answer.text, origin: "network" }) });
+  });
+  return { count: () => count };
+}
+
 test("the sentence path debounces, dedupes, and never raises the word UI", async ({ page }) => {
   // Chromium's built-in `Translator` hangs `availability()` forever
   // (docs/TRAPS.md); deleting it routes every sentence over the network,
@@ -130,4 +148,47 @@ test("a translator that can be installed answers over the network until a person
     () => (window as unknown as { __translatorCreateCalls: () => number }).__translatorCreateCalls(),
   );
   expect(createCallsAfterClick, "the control is what starts the download (RL-11)").toBe(1);
+});
+
+test("a stale phrase response never lands once the query has moved on (RNL-05, rule 4)", async ({ page }) => {
+  await page.addInitScript(() => {
+    delete (window as unknown as { Translator?: unknown }).Translator;
+  });
+
+  const staleText = "I left my house yesterday";
+  const staleAnswer = "Me fui de mi casa ayer";
+  const freshText = "We drove to the coast together";
+  const freshAnswer = "Condujimos juntos hasta la costa";
+
+  // The abandoned sentence answers long after the one that supersedes it —
+  // long enough that, unaborted, it would still arrive and overwrite the
+  // fresh answer already on screen.
+  const translated = await stubTranslateRouteWithLatency(page, {
+    [staleText]: { text: staleAnswer, delayMs: 1400 },
+    [freshText]: { text: freshAnswer, delayMs: 0 },
+  });
+  await waitForDictionary(page);
+
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+
+  await searchBox.fill(staleText);
+  // Past the debounce: the slow request is genuinely in flight now, not
+  // merely scheduled.
+  await page.waitForTimeout(PHRASE_DEBOUNCE_MS + 200);
+  expect(translated.count(), "the slow request already left").toBe(1);
+  await expect(page.getByText(staleAnswer)).toHaveCount(0);
+
+  // A new sentence, typed while the first is still in flight, is what
+  // rule 4 exists to answer for.
+  await searchBox.fill(freshText);
+  await page.waitForTimeout(PHRASE_DEBOUNCE_MS + 300);
+  expect(translated.count(), "the fresh query issues its own request").toBe(2);
+  await expect(page.getByText(freshAnswer)).toBeVisible();
+  await expect(page.getByText(staleAnswer)).toHaveCount(0);
+
+  // The slow response is still on its way; give it time to land and prove
+  // it never displaces what is already shown.
+  await page.waitForTimeout(700);
+  await expect(page.getByText(staleAnswer)).toHaveCount(0);
+  await expect(page.getByText(freshAnswer)).toBeVisible();
 });
