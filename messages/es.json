@@ -502,7 +502,11 @@
       "splitsForbidden": "Un traspaso no lleva categorías.",
       "splitsRequired": "Asigna al menos una categoría.",
       "splitsSumMismatch": "Las categorías deben sumar el monto del movimiento.",
-      "splitsScopeViolation": "La cuenta o la categoría no pertenecen al mismo ámbito."
+      "splitsScopeViolation": "La cuenta o la categoría no pertenecen al mismo ámbito.",
+      "causeInvalid": "Elige un movimiento válido.",
+      "causeNotFound": "No puedes usar ese movimiento como causa.",
+      "causeSelf": "Un movimiento no puede ser su propia causa.",
+      "counterpartyComplete": "Este movimiento ya tiene las dos cuentas; no hay nada que completar."
     },
     "labelsLabel": "Etiquetas",
     "labelsNone": "Crea etiquetas en Ajustes para usarlas aquí.",
