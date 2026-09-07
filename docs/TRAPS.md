@@ -64,6 +64,26 @@ the database and in no snapshot. **A rebuild from the migrations will not equal 
 A migration applied from any branch is applied for everyone, immediately, including branches
 whose schema files know nothing about it. Never apply one to reach a proof.
 
+**What it costs, measured 2026-09-07.** A lane renaming `debt_statements` to `account_statements`
+applied its migration while it still had files to edit. For as long as that gap stayed open:
+
+- **13 e2e specs died on `relation "debt_statements" does not exist`** — 17 red out of 178 passed, in
+  a run that took 17,9 minutes and had to be thrown away whole. The suite was measuring a branch that
+  had not changed and was green an hour earlier.
+- **`scripts/harness/fixtures.ts#purgeIdentity` broke for every identity on the database**, on every
+  lane, because it names the old table. No lane could clean up after itself.
+- A validator on an unrelated branch spent part of its run root-causing the drift before it could
+  attribute its own failures.
+
+**So: generate the migration early, apply it last.** Finish every file the rename touches, get
+typecheck and lint clean, and only then apply — as the last act before the commit. The window in
+which the schema is ahead of the tree is a window in which no suite anywhere means anything.
+
+**And two lanes generating at once collide on the number.** Both took `idx 43` the same afternoon and
+both applied. Renumbering afterwards is safe — drizzle matches on the SQL's hash, so keep the entry's
+`when` untouched, rename the file, the tag and the snapshot, and the database still reads it as
+applied — but the merge conflicts in `meta/_journal.json` and someone has to notice before it does.
+
 ### An unscoped locator finds both bands at once
 
 The desktop layout is additive: a screen keeps its mobile subtree and gains a sibling, so **both live
