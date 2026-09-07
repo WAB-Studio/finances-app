@@ -42,6 +42,8 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
 - `node_modules` hoists to the root. A script that names a binary by path reaches it as `../../node_modules/...`.
 - Promote nothing to `packages/` until a second app asks for it.
 - `apps/reading` is the reading dictionary. Its contract is `docs/reading/SPEC.md`; its `RL` and `RNL` codes share no number with the finances `RF`/`RNF` series.
+- Give every app its own design. `docs/DESIGN.md` governs `apps/finances` alone; `docs/reading/DESIGN.md`
+  governs `apps/reading`. Never carry a pattern across because it exists next door.
 
 ## Parallel tracks
 
