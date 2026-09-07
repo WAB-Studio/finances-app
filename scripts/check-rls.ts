@@ -24,7 +24,21 @@ import { pgErrorCode } from "@/lib/db-error";
 import { CATEGORY_COLORS } from "@/lib/fund/category-color";
 import { GROUP_CASH_ACCOUNT_NAME } from "@/lib/fund/seed";
 
-const sql = postgres(process.env.DATABASE_URL!, { prepare: false, max: 1 });
+import {
+  applicationName,
+  closeRun,
+  openRun,
+  registerEphemeralIdentity,
+} from "./harness/registry";
+
+// `application_name` names the suite and the lane in `pg_stat_activity`; Supabase's
+// pooler overwrites it to `Supavisor` on both endpoints (`docs/TRAPS.md`), so this
+// is set on faith, never read back.
+const sql = postgres(process.env.DATABASE_URL!, {
+  prepare: false,
+  max: 1,
+  connection: { application_name: applicationName("rls") },
+});
 
 // The import commit writes through Drizzle, so the proof drives it through a Drizzle
 // transaction over the same pool. `commitImport` takes the transaction and settles the
@@ -58,6 +72,8 @@ async function enterUserContext(
 }
 
 async function main() {
+  await openRun("rls", sql);
+
   const subject = randomUUID();
   const intruder = randomUUID();
 
@@ -7172,16 +7188,19 @@ async function checkReportFunctionsExcludeTransfers() {
 
   const budgetId = randomUUID();
   const claims = JSON.stringify({ sub: reader, role: "authenticated", aud: "authenticated" });
+  let auditPurged = "0";
 
   // The Supabase stub reads these, and it throws rather than query as nobody.
   process.env.HARNESS_USER_ID = reader;
   process.env.HARNESS_USER_EMAIL = email;
 
   try {
-    await sql.begin(async (tx) => {
-      await tx`insert into auth.users (id, email) values (${reader}, ${email})`;
-      await tx`insert into app_users (id) values (${reader})`;
+    // One statement, not two: a crash between the auth row and the registry row
+    // can never happen — there is no gap between them for it to land in. It needs
+    // no transaction of its own; the CTE it runs on is already atomic.
+    await registerEphemeralIdentity(sql, { id: reader, email });
 
+    await sql.begin(async (tx) => {
       // Claims without the role switch: the stamping triggers read `auth.uid()` while the owner's
       // privileges do the writing, so a fixture never has to satisfy a column grant of its own.
       await tx`select set_config('request.jwt.claims', ${claims}, true)`;
@@ -7250,6 +7269,11 @@ async function checkReportFunctionsExcludeTransfers() {
     delete process.env.HARNESS_USER_ID;
     delete process.env.HARNESS_USER_EMAIL;
 
+    // Settled once, at session scope rather than transaction-local: the six deletes
+    // below are separate statements outside any transaction, and each reads this
+    // same claim, so their audit rows name the reader as actor instead of nobody.
+    await sql`select set_config('request.jwt.claims', ${claims}, false)`;
+
     // Child before parent, and the splits ride the movements' cascade. No rollback undoes any of
     // this: the reads above could only see it because it was committed.
     await sql`delete from budgets where owner_user_id = ${reader}`;
@@ -7258,6 +7282,17 @@ async function checkReportFunctionsExcludeTransfers() {
     await sql`delete from accounts where owner_user_id = ${reader}`;
     await sql`delete from app_users where id = ${reader}`;
     await sql`delete from auth.users where id = ${reader}`;
+
+    // The trail those six deletes stamped: bounded to the reader's two columns,
+    // same shape as `purgeAuditTrail`, so this section's commit leaves nothing for
+    // RNF-14's purge to find later.
+    const [{ count }] = await sql<{ count: string }[]>`
+      with purged as (
+        delete from audit_log where actor_user_id = ${reader} or owner_user_id = ${reader}
+        returning 1
+      )
+      select count(*)::text as count from purged`;
+    auditPurged = count;
   }
 
   const [{ count: probeCount }] = await sql<{ count: string }[]>`
@@ -7267,7 +7302,7 @@ async function checkReportFunctionsExcludeTransfers() {
   assert(
     tailLabel,
     probeCount === "0" && userCount === "0",
-    `rows named 'rls report%' = ${probeCount}, the reader's own row = ${userCount}`,
+    `rows named 'rls report%' = ${probeCount}, the reader's own row = ${userCount}, its audit trail = ${auditPurged} purged`,
   );
 }
 
@@ -8791,6 +8826,7 @@ void (async () => {
     console.error("FAIL  the check aborted —", error);
     failed = true;
   } finally {
+    await closeRun(sql);
     await sql.end();
   }
 
