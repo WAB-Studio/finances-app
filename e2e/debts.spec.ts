@@ -408,7 +408,7 @@ async function dropAccounts(ids: string[]): Promise<void> {
   // the next run's purge can find again.
   await asHarnessUser(async (tx) => {
     await tx`delete from installment_plans where account_id in ${tx(ids)}`;
-    await tx`delete from debt_statements where account_id in ${tx(ids)}`;
+    await tx`delete from account_statements where account_id in ${tx(ids)}`;
     await tx`delete from debt_terms where account_id in ${tx(ids)}`;
     await tx`
       delete from transactions
@@ -812,8 +812,8 @@ test.describe("the detail route", () => {
     // Opening the detail is what cuts the past periods (RF-84), and the screen
     // reads back exactly the balances they froze.
     const stored = await fixtureSql<{ balance: string }[]>`
-      select statement_balance_cents::text as balance
-      from debt_statements where account_id = ${detailId}
+      select closing_balance_cents::text as balance
+      from account_statements where account_id = ${detailId}
       order by cut_off_date desc`;
     expect(stored.length).toBeGreaterThan(1);
 
@@ -851,8 +851,8 @@ test.describe("the detail route", () => {
 
     // And a snapshot is immutable: nothing rewrote the rows either (RF-84).
     const after = await fixtureSql<{ balance: string }[]>`
-      select statement_balance_cents::text as balance
-      from debt_statements where account_id = ${detailId}
+      select closing_balance_cents::text as balance
+      from account_statements where account_id = ${detailId}
       order by cut_off_date desc`;
     expect(after).toEqual(stored);
   });

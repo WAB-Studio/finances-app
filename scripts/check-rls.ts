@@ -181,7 +181,7 @@ async function main() {
   await checkDebtTermsPolicies();
   await checkInstallmentPolicies();
   await checkDebtDerivedFigures();
-  await checkDebtStatementPolicies();
+  await checkAccountStatementPolicies();
   await checkWebhookCredentialPolicies();
   await checkImpersonationBounds();
   await checkInviteClaimPolicies();
@@ -220,6 +220,7 @@ async function main() {
   await checkCurrencyPolicies();
   await checkCounterAmountWriteScope();
   await checkRecurringRuleGeneratorScope();
+  await checkAccountStatementShape();
 }
 
 // Assertions 9-26: the repivoted schema. A group holds accounts and categories a user XOR a group
@@ -2040,12 +2041,12 @@ async function checkDebtDerivedFigures() {
   );
 }
 
-// Assertions 81-85, 275 and 276: the debt_statements snapshots. The generator, replicated inline, freezes
+// Assertions 81-85, 275 and 276: the account_statements snapshots. The generator, replicated inline, freezes
 // the balance to the movements on or before a past cut-off; the unique key makes a re-run a no-op; and the
 // snapshot is immutable — no UPDATE and no DELETE grant, so not even its owner rewrites or erases it — and
 // gated by the account's scope, so an unrelated user can neither read nor mint one. Only the account's own
 // cascade takes a statement away. Every fixture is seeded through the app's own policies and rolled back.
-async function checkDebtStatementPolicies() {
+async function checkAccountStatementPolicies() {
   console.log("");
   const subject = randomUUID();
   const otherUser = randomUUID();
@@ -2058,7 +2059,7 @@ async function checkDebtStatementPolicies() {
     "275. the statement's own owner is refused the delete and the row survives it",
     "276. deleting the liability account still carries its statement off",
   ];
-  const tailLabel = "85. the rolled-back debt statement transaction leaves no trace";
+  const tailLabel = "85. the rolled-back account statement transaction leaves no trace";
 
   const forcedRollback = Symbol("forced rollback");
 
@@ -2120,23 +2121,23 @@ async function checkDebtStatementPolicies() {
         (${pending}, ${abroadCat}, 10000)`;
 
       // The statement generator, replicated inline: the balance is the opening figure plus the signed
-      // movement sum windowed to the cut-off, the minimum a percentage of it, the interest the effective
-      // estimate. Guarded by the unique key so a re-run inserts nothing (RF-84).
+      // movement sum windowed to the cut-off and the minimum a percentage of it. It records no interest —
+      // no issuer told it what was charged (RF-130). Guarded by the unique key so a re-run inserts
+      // nothing (RF-84).
       //
-      // `debt_statements.statement_balance_cents` is one integer with no currency beside it, so a statement
+      // `account_statements.closing_balance_cents` is one integer with no currency beside it, so a statement
       // can only be what the issuer bills: the card's settlement pocket, and never a sum across pockets
       // (RF-124). That is the settlement branch of `account_balances`, replicated here — a movement in the
       // card's own currency counts its amount; one in another currency counts its counter amount once
       // confirmed; and one still on estimate counts nothing, because it is the statement that settles it
       // (RF-123). Summing `amount_cents` alone would add dollars to pesos.
       const generate = () =>
-        tx<{ statement_balance_cents: string }[]>`
-          insert into debt_statements
-            (account_id, period_start, cut_off_date, payment_due_date, statement_balance_cents, minimum_payment_cents, interest_estimate_cents)
+        tx<{ closing_balance_cents: string }[]>`
+          insert into account_statements
+            (account_id, period_start, cut_off_date, payment_due_date, closing_balance_cents, minimum_payment_cents)
           select ${card}, ${dates.period_start}, ${dates.cut_off}, ${dates.payment_due},
             bal.statement_balance,
-            round(abs(bal.statement_balance) * dt.minimum_payment_pct)::bigint,
-            round(abs(bal.statement_balance) * (power(1 + dt.annual_rate, 1.0/12) - 1))::bigint
+            round(abs(bal.statement_balance) * dt.minimum_payment_pct)::bigint
           from debt_terms dt
           join accounts a on a.id = dt.account_id
           cross join lateral (
@@ -2157,28 +2158,28 @@ async function checkDebtStatementPolicies() {
           ) bal
           where dt.account_id = ${card}
           on conflict (account_id, cut_off_date) do nothing
-          returning statement_balance_cents`;
+          returning closing_balance_cents`;
 
       // 81: the windowed balance is −200000 + 30000 − 80000 = −250000. The post-cut −50000 purchase is
       // excluded by the window; the estimated USD 100 purchase by not having settled.
       const first = await generate();
       assert(
         labels[0],
-        first.length === 1 && first[0].statement_balance_cents === "-250000",
-        `inserted rows = ${first.length}, statement balance = ${first[0]?.statement_balance_cents} (expected -250000)`,
+        first.length === 1 && first[0].closing_balance_cents === "-250000",
+        `inserted rows = ${first.length}, closing balance = ${first[0]?.closing_balance_cents} (expected -250000)`,
       );
 
       // 82: the second run collides on (account_id, cut_off_date) and inserts nothing.
       const second = await generate();
       assert(labels[1], second.length === 0, `second-run inserted rows = ${second.length}`);
 
-      // 83: no UPDATE grant on debt_statements — a rewrite is refused outright (immutability).
+      // 83: no UPDATE grant on account_statements — a rewrite is refused outright (immutability).
       const [{ id: statementId }] = await tx<{ id: string }[]>`
-        select id from debt_statements where account_id = ${card} and cut_off_date = ${dates.cut_off}`;
+        select id from account_statements where account_id = ${card} and cut_off_date = ${dates.cut_off}`;
       let updateCode: string | undefined;
       await tx
         .savepoint(async (sp) => {
-          await sp`update debt_statements set statement_balance_cents = 0 where id = ${statementId}`;
+          await sp`update account_statements set closing_balance_cents = 0 where id = ${statementId}`;
         })
         .catch((error: unknown) => {
           updateCode = pgErrorCode(error);
@@ -2189,12 +2190,12 @@ async function checkDebtStatementPolicies() {
       // mint one there. The distinct cut-off keeps the unique key clear, so only the write policy can reject.
       await enterUserContext(tx, otherUser);
       const [{ count: otherSees }] = await tx<{ count: string }[]>`
-        select count(*)::text as count from debt_statements where id = ${statementId}`;
+        select count(*)::text as count from account_statements where id = ${statementId}`;
       let otherInsertCode: string | undefined;
       await tx
         .savepoint(async (sp) => {
-          await sp`insert into debt_statements
-            (account_id, period_start, cut_off_date, payment_due_date, statement_balance_cents, minimum_payment_cents, interest_estimate_cents)
+          await sp`insert into account_statements
+            (account_id, period_start, cut_off_date, payment_due_date, closing_balance_cents, minimum_payment_cents, interest_charged_cents)
             values (${card}, ${dates.period_start}, ${dates.before_cut}, ${dates.payment_due}, -100000, 5000, 2000)`;
         })
         .catch((error: unknown) => {
@@ -2212,13 +2213,13 @@ async function checkDebtStatementPolicies() {
       let deleteCode: string | undefined;
       await tx
         .savepoint(async (sp) => {
-          await sp`delete from debt_statements where id = ${statementId}`;
+          await sp`delete from account_statements where id = ${statementId}`;
         })
         .catch((error: unknown) => {
           deleteCode = pgErrorCode(error);
         });
       const [{ count: afterRefusal }] = await tx<{ count: string }[]>`
-        select count(*)::text as count from debt_statements where id = ${statementId}`;
+        select count(*)::text as count from account_statements where id = ${statementId}`;
       assert(
         labels[4],
         deleteCode === "42501" && afterRefusal === "1",
@@ -2231,13 +2232,13 @@ async function checkDebtStatementPolicies() {
       // both counts are read as `postgres`, so an unreadable row would show up as 0 before the delete.
       await tx`reset role`;
       const [{ count: beforeCascade }] = await tx<{ count: string }[]>`
-        select count(*)::text as count from debt_statements where id = ${statementId}`;
+        select count(*)::text as count from account_statements where id = ${statementId}`;
       await enterUserContext(tx, subject);
       await tx`delete from transactions where from_account_id = ${card} or to_account_id = ${card}`;
       await tx`delete from accounts where id = ${card}`;
       await tx`reset role`;
       const [{ count: afterCascade }] = await tx<{ count: string }[]>`
-        select count(*)::text as count from debt_statements where id = ${statementId}`;
+        select count(*)::text as count from account_statements where id = ${statementId}`;
       assert(
         labels[5],
         beforeCascade === "1" && afterCascade === "0",
@@ -4936,6 +4937,7 @@ function schemaTables(): { name: string; columns: string[] }[] {
 // and has to change this map on purpose. An empty array is a table whose every
 // column may be written; a table absent from the app's schema is a failure too.
 const INSERT_GRANT_GAPS: Record<string, string[]> = {
+  account_statements: ["closed_at", "id"],
   accounts: ["archived_at", "created_at", "id", "updated_at"],
   app_users: ["created_at", "updated_at"],
   audit_log: [
@@ -4952,11 +4954,25 @@ const INSERT_GRANT_GAPS: Record<string, string[]> = {
   ],
   budgets: ["archived_at", "created_at", "id", "updated_at"],
   categories: ["created_at", "id", "updated_at"],
-  debt_statements: ["closed_at", "id"],
   debt_terms: ["created_at", "updated_at"],
   goal_contributions: ["created_at", "id"],
   group_members: ["archived_at", "created_at", "id", "updated_at"],
   groups: ["created_at", "updated_at"],
+  // Every column, both here and in the UPDATE map: `private.remember_counterparty` is the
+  // sole writer, so a client cannot forge a state transition. Forgetting one is the DELETE.
+  ingest_counterparties: [
+    "candidate_account_id",
+    "created_at",
+    "id",
+    "owner_user_id",
+    "pattern_key",
+    "pattern_label",
+    "side",
+    "state",
+    "streak",
+    "trusted_account_id",
+    "updated_at",
+  ],
   ingest_deliveries: [
     "created_at",
     "id",
@@ -5033,6 +5049,22 @@ const INSERT_GRANT_GAPS: Record<string, string[]> = {
 // grant, so it is no gap here — the trigger alone writes it on the way in, which is why
 // the INSERT map above lists it.
 const UPDATE_GRANT_GAPS: Record<string, string[]> = {
+  account_statements: [
+    "account_id",
+    "closed_at",
+    "closing_balance_cents",
+    "credits_cents",
+    "cut_off_date",
+    "debits_cents",
+    "fees_charged_cents",
+    "id",
+    "interest_charged_cents",
+    "minimum_payment_cents",
+    "opening_balance_cents",
+    "payment_due_date",
+    "period_start",
+    "source",
+  ],
   accounts: ["created_at", "group_id", "id", "kind", "owner_user_id", "updated_at"],
   app_users: ["created_at", "id", "updated_at"],
   audit_log: [
@@ -5049,17 +5081,6 @@ const UPDATE_GRANT_GAPS: Record<string, string[]> = {
   ],
   budgets: ["category_id", "created_at", "group_id", "id", "owner_user_id", "updated_at"],
   categories: ["created_at", "group_id", "id", "kind", "owner_user_id", "updated_at"],
-  debt_statements: [
-    "account_id",
-    "closed_at",
-    "cut_off_date",
-    "id",
-    "interest_estimate_cents",
-    "minimum_payment_cents",
-    "payment_due_date",
-    "period_start",
-    "statement_balance_cents",
-  ],
   debt_terms: ["account_id", "created_at", "updated_at"],
   goal_contributions: ["amount_cents", "created_at", "goal_id", "id", "transaction_id"],
   group_members: [
@@ -5072,6 +5093,19 @@ const UPDATE_GRANT_GAPS: Record<string, string[]> = {
     "user_id",
   ],
   groups: ["created_at", "id", "updated_at"],
+  ingest_counterparties: [
+    "candidate_account_id",
+    "created_at",
+    "id",
+    "owner_user_id",
+    "pattern_key",
+    "pattern_label",
+    "side",
+    "state",
+    "streak",
+    "trusted_account_id",
+    "updated_at",
+  ],
   ingest_deliveries: [
     "category_source",
     "created_at",
@@ -5157,6 +5191,7 @@ const DELETE_GRANTS: string[] = [
   "debt_terms",
   "goal_contributions",
   "group_members",
+  "ingest_counterparties",
   "ingest_merchants",
   "ingest_shapes",
   "installment_lines",
@@ -8814,6 +8849,154 @@ async function checkRecurringRuleGeneratorScope() {
     tailLabel,
     afterUser === "postgres" && probeCount === "0",
     `current_user = ${afterUser}, rows named 'rls recurring scope%' = ${probeCount}`,
+  );
+}
+
+// Assertions 288-293: the period any account closes (RF-129, RF-130). The table no longer keeps an
+// invented interest estimate, an asset closes a period with neither a due date nor a minimum, the
+// bounds and the one-per-cut-off key still hold, the client roles hold only the column grants
+// `authenticated` writes through, and the trail names the table by its new name. Every fixture is
+// seeded through the app's own policies and rolled back.
+async function checkAccountStatementShape() {
+  console.log("");
+  const subject = randomUUID();
+
+  const labels = [
+    "288. account_statements carries no interest estimate and lets an asset leave the due date empty",
+    "289. an asset closes a period with no due date and no minimum",
+    "290. a due date before the cut-off is refused",
+    "291. a second statement on the same account and cut-off is refused",
+    "292. anon and service_role hold nothing on the table, and authenticated holds column grants only",
+    "293. the asset close left an audit_log row naming account_statements",
+  ];
+  const tailLabel = "294. the rolled-back account statement shape transaction leaves no trace";
+
+  const forcedRollback = Symbol("forced rollback");
+
+  // 288: read off the live catalogue, never off the migration.
+  const shape = await sql<{ column_name: string; is_nullable: string }[]>`
+    select column_name, is_nullable
+    from information_schema.columns
+    where table_schema = 'public' and table_name = 'account_statements'`;
+  const dueDate = shape.find((column) => column.column_name === "payment_due_date");
+  assert(
+    labels[0],
+    shape.length > 0 &&
+      !shape.some((column) => column.column_name === "interest_estimate_cents") &&
+      dueDate?.is_nullable === "YES",
+    `columns = ${shape.length}, interest_estimate_cents = ${
+      shape.some((column) => column.column_name === "interest_estimate_cents") ? "present" : "gone"
+    }, payment_due_date nullable = ${dueDate?.is_nullable ?? "no such column"}`,
+  );
+
+  // 292: a rename carries the old grants forward, so this reads both the table ACL and every column
+  // ACL. `authenticated` must hold nothing table-wide — the column form is the whole grant.
+  const tableAcl = await sql<{ role: string; priv: string }[]>`
+    select a.grantee::regrole::text as role, a.privilege_type as priv
+    from pg_class c
+    cross join lateral aclexplode(c.relacl) a
+    where c.oid = 'public.account_statements'::regclass
+      and a.grantee::regrole::text in ('anon', 'authenticated', 'service_role')
+    order by a.grantee::regrole::text, a.privilege_type`;
+  const columnAcl = await sql<{ role: string; priv: string }[]>`
+    select a.grantee::regrole::text as role, a.privilege_type as priv
+    from pg_attribute att
+    cross join lateral aclexplode(att.attacl) a
+    where att.attrelid = 'public.account_statements'::regclass
+      and att.attnum > 0 and not att.attisdropped
+      and a.grantee::regrole::text in ('anon', 'authenticated', 'service_role')
+    order by a.grantee::regrole::text, a.privilege_type`;
+  const strangers = [...tableAcl, ...columnAcl].filter((row) => row.role !== "authenticated");
+  const columnPrivileges = [...new Set(columnAcl.map((row) => row.priv))].sort();
+
+  await sql
+    .begin(async (tx) => {
+      await tx`insert into auth.users (id) values (${subject})`;
+      await tx`insert into app_users (id) values (${subject})`;
+      await enterUserContext(tx, subject);
+
+      const [{ id: savings }] = await tx<{ id: string }[]>`
+        insert into accounts (owner_user_id, name, kind, initial_balance_cents, initial_balance_on)
+        values (${subject}, 'rls account statement savings', 'asset', 1500000, (now() at time zone 'America/Bogota')::date) returning id`;
+
+      const [dates] = await tx<{ cut_off: string; period_start: string; before_cut: string }[]>`
+        select
+          to_char((date_trunc('month', now() at time zone 'America/Bogota') - interval '1 day'), 'YYYY-MM-DD') as cut_off,
+          to_char((date_trunc('month', now() at time zone 'America/Bogota') - interval '1 month'), 'YYYY-MM-DD') as period_start,
+          to_char((date_trunc('month', now() at time zone 'America/Bogota') - interval '10 days'), 'YYYY-MM-DD') as before_cut`;
+
+      // 289: a savings statement prints an opening and a closing figure and demands no payment. The
+      // trigger that used to refuse every account but a liability is gone (RF-129).
+      const closed = await tx<{ id: string; source: string }[]>`
+        insert into account_statements
+          (account_id, period_start, cut_off_date, opening_balance_cents, closing_balance_cents, credits_cents, debits_cents)
+        values (${savings}, ${dates.period_start}, ${dates.cut_off}, 1200000, 1500000, 400000, 100000)
+        returning id, source`;
+      assert(
+        labels[1],
+        closed.length === 1 && closed[0].source === "recorded",
+        `inserted rows = ${closed.length}, source = ${closed[0]?.source ?? "none"}`,
+      );
+
+      // 290: the due date is optional, but one that predates the cut-off is still a contradiction.
+      let dueCode: string | undefined;
+      await tx
+        .savepoint(async (sp) => {
+          await sp`insert into account_statements
+            (account_id, period_start, cut_off_date, payment_due_date, closing_balance_cents)
+            values (${savings}, ${dates.period_start}, ${dates.cut_off}, ${dates.before_cut}, 1500000)`;
+        })
+        .catch((error: unknown) => {
+          dueCode = pgErrorCode(error);
+        });
+      assert(labels[2], dueCode === "23514", `sqlstate ${dueCode ?? "none"}`);
+
+      // 291: the unique key survived the rename, so a period closes once.
+      let duplicateCode: string | undefined;
+      await tx
+        .savepoint(async (sp) => {
+          await sp`insert into account_statements
+            (account_id, period_start, cut_off_date, closing_balance_cents)
+            values (${savings}, ${dates.period_start}, ${dates.cut_off}, 1500000)`;
+        })
+        .catch((error: unknown) => {
+          duplicateCode = pgErrorCode(error);
+        });
+      assert(labels[3], duplicateCode === "23505", `sqlstate ${duplicateCode ?? "none"}`);
+
+      assert(
+        labels[4],
+        strangers.length === 0 &&
+          !tableAcl.some((row) => row.role === "authenticated") &&
+          columnPrivileges.join(",") === "INSERT,SELECT",
+        `anon and service_role hold [${
+          strangers.map((row) => `${row.role}:${row.priv}`).join(", ") || "nothing"
+        }], authenticated holds [${
+          tableAcl.map((row) => row.priv).join(", ") || "nothing"
+        }] table-wide and [${columnPrivileges.join(", ") || "nothing"}] by column`,
+      );
+
+      // 293: the trail names the table through `tg_table_name`, so the rename carried it. The row
+      // carries no owner — the table has no owner column — so it is counted as `postgres`.
+      await tx`reset role`;
+      const [{ count: trail }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from audit_log
+        where entity = 'account_statements' and record_id = ${closed[0].id} and action = 'INSERT'`;
+      assert(labels[5], trail === "1", `audit rows for the close = ${trail}`);
+
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  const [{ current_user: afterUser }] = await sql<{ current_user: string }[]>`select current_user`;
+  const [{ count: probeCount }] = await sql<{ count: string }[]>`
+    select count(*)::text as count from accounts where name like 'rls account statement%'`;
+  assert(
+    tailLabel,
+    afterUser === "postgres" && probeCount === "0",
+    `current_user = ${afterUser}, rows named 'rls account statement%' = ${probeCount}`,
   );
 }
 

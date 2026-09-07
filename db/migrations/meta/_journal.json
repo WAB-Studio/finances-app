@@ -281,6 +281,48 @@
       "when": 1788733024654,
       "tag": "0039_registrys_schema",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1788754616350,
+      "tag": "0040_aromatic_joystick",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1788755306001,
+      "tag": "0041_loose_carmella_unuscione",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1788757206397,
+      "tag": "0042_greedy_jazinda",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1788786355464,
+      "tag": "0043_cute_solo",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1788786771514,
+      "tag": "0044_any_account_closes_a_period",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1788790992488,
+      "tag": "0045_the_trail_names_the_table_that_exists",
+      "breakpoints": true
     }
   ]
 }

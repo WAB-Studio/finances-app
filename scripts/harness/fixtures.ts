@@ -63,7 +63,7 @@ const CLEANUP_ORDER = [
   ["transaction_splits", "transaction_id"],
   ["installment_lines", "id"],
   ["installment_plans", "id"],
-  ["debt_statements", "id"],
+  ["account_statements", "id"],
   ["debt_terms", "account_id"],
   ["budgets", "id"],
   ["planned_payments", "id"],
@@ -236,7 +236,8 @@ export async function purgeIdentity(userId: string): Promise<void> {
   await asOwner(userId, async (tx) => {
     await tx`delete from ingest_deliveries where owner_user_id = ${userId}`;
     await tx`delete from ingest_shapes where owner_user_id = ${userId}`;
-    await tx`delete from ingest_merchants where owner_user_id = ${userId}`;
+    // Neither learned-memory table is named: a trusted row rides the cascade from the
+    // category or the account it trusts (0043), and every other row rides `app_users`.
     // A contribution is named before its goal even though it cascades: an aporte
     // that outlived its goal would be a leak no later count could explain.
     await tx`
@@ -252,7 +253,7 @@ export async function purgeIdentity(userId: string): Promise<void> {
       delete from installment_plans
       where account_id in (select id from accounts where owner_user_id = ${userId})`;
     await tx`
-      delete from debt_statements
+      delete from account_statements
       where account_id in (select id from accounts where owner_user_id = ${userId})`;
     await tx`
       delete from debt_terms

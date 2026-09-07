@@ -48,7 +48,6 @@ import {
 import { createGroup } from "@/db/queries/create-group";
 import { getDebtDetail } from "@/db/queries/debt-detail";
 import { getDebtOverview } from "@/db/queries/debt-overview";
-import { listStatements } from "@/db/queries/debt-statements";
 import { getDebtTerms, upsertDebtTerms } from "@/db/queries/debt-terms";
 import { getDebtsScreenData } from "@/db/queries/debts-screen";
 import type { DebtsScreenData } from "@/db/queries/debts-screen";
@@ -126,7 +125,6 @@ import {
   addCivilMonths,
   currentMonthRange,
   lastSixMonthStarts,
-  priorCutOffDates,
   todayInBogota,
 } from "@/lib/dates";
 import { pgErrorCode } from "@/lib/db-error";
@@ -2257,39 +2255,6 @@ async function readSuite(
     },
   );
 
-  // RF-84: opening the detail cuts the periods that have passed since the account
-  // was opened, and opening it again rewrites none of them — same count, same rows.
-  await checkReadValue(
-    "getDebtDetail cuts every past period once and rewrites none",
-    async () => {
-      const first = await getDebtDetail(debt.unlimitedAccountId);
-      for (const statement of first?.statements ?? []) {
-        track("debt_statements", statement.id);
-      }
-
-      return { first, second: await getDebtDetail(debt.unlimitedAccountId) };
-    },
-    ({ first, second }) => {
-      const expected = priorCutOffDates(CUT_OFF_DAY, debt.openedOn, todayInBogota());
-      const cutOffs = (first?.statements ?? [])
-        .map((statement) => statement.cutOffDate)
-        .sort();
-      const ids = (rows: typeof first) =>
-        (rows?.statements ?? [])
-          .map((statement) => statement.id)
-          .sort()
-          .join(",");
-
-      return {
-        ok:
-          expected.length > 0 &&
-          cutOffs.join(",") === expected.join(",") &&
-          ids(first) === ids(second),
-        detail: `${cutOffs.length} statements cut of the ${expected.length} periods since ${debt.openedOn}, the same ${ids(first) === ids(second) ? "rows" : "rows no longer"} on the second read`,
-      };
-    },
-  );
-
   // The policies are the whole scope: a debt outside the caller's is absent, not
   // refused, and so is an account that is no liability.
   await checkReadValue(
@@ -2361,7 +2326,6 @@ async function readSuite(
 
   await checkRead("getDebtTerms", () => getDebtTerms(debtAccountId));
   await checkRead("listPlansForAccount", () => listPlansForAccount(debtAccountId));
-  await checkRead("listStatements", () => listStatements(debtAccountId));
   await checkRead("listAuditLog", () => listAuditLog({ limit: 20, offset: 0 }));
   await checkRead("getAuditFilterOptions", () => getAuditFilterOptions());
   await checkRead("listWebhookCredentials", () => listWebhookCredentials());

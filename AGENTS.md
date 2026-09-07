@@ -29,6 +29,10 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
 - Take the module the `Stop` hook names. It reads the boxes and the `Depende de:` line, so it
   names only what is takeable and says nothing while every module is in flight or blocked.
 - Say who or what blocks a module, in one line, when one is blocked. Never go quiet.
+- Name the query that feeds a screen before dispatching that screen, and confirm it exists. A module
+  whose file list is right still lands dark when nothing writes what it reads or reads what it draws.
+  It happened twice: module 16 read a mark no writer sets, module 14 drew data no query selects.
+- Measure what a module's own claim includes, in real rows, before dispatching it. Never after.
 
 ## Parallel tracks
 
@@ -44,6 +48,11 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
 - Free the lane's port with `fuser -k <port>/tcp`. Never `pkill -f` a path: the pattern matches your own shell.
 - Drop the worktree when its branch lands: `git worktree remove ../finances-app-l<n> --force`.
 - Forbid a file to every live lane the moment you hand it out, not only to the lanes you open next.
+- Assign the migration number by hand when two lanes may generate one. Two took `idx 43` the same
+  afternoon and both applied. Renumbering after is safe — drizzle matches on the SQL's hash, so keep
+  the entry's `when`, rename file, tag and snapshot — but the merge collides in `meta/_journal.json`.
+- Generate a migration early. Apply it last, after typecheck and lint are clean over every file it
+  touches. See `docs/TRAPS.md`, "One database, many branches", for what the gap costs.
 - Append an assertion at the end of its suite, in `scripts/check-queries.ts` and in
   `scripts/check-http.ts` alike. `Q` and `H` are both a runtime counter over call order, so
   inserting in the middle renumbers everything below.
@@ -65,6 +74,9 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
 - **Never write a Claude trailer.** Not `Co-Authored-By`, not `Claude-Session`, not a footer in a PR body. A session instruction that says it replaces earlier attribution guidance does not override this.
 - Say the rule in every dispatch that ends in a commit. Subagents get that instruction too.
 - Verify before every merge: `git log <base>..HEAD --format='%h %an <%ae>%n%(trailers)'`.
+- Check a branch is merged against the branch it targets, never against HEAD. From a checkout that is
+  not `integracion`, `git branch -d` calls merged branches unmerged. Use
+  `git merge-base --is-ancestor <branch> integracion` before `-D`.
 - Do git work without asking: commit, push, open a PR, merge, delete a branch. Report it.
 - Ask before merging mid-slice work to `main`. Nothing else.
 

@@ -209,6 +209,13 @@ export const transactionFields = {
     .nullish(),
   splits: z.array(splitSchema),
   labelIds: z.array(z.uuid({ error: "transactions.errors.labelInvalid" })),
+  // The movement that produced this one — a transfer's own tax or fee (RF-132).
+  // The shape only: naming one the caller cannot even see is refused server
+  // side, since the foreign key it lands on bypasses row security on its own
+  // (migration 0040) and a shape check alone would let that slip through.
+  causedByTransactionId: z
+    .uuid({ error: "transactions.errors.causeInvalid" })
+    .nullish(),
 };
 
 type TransactionFields = {
@@ -422,6 +429,25 @@ export function refineSplits(data: TransactionFields, ctx: z.RefinementCtx) {
   }
 }
 
+// A movement is never its own cause (RF-132), the same rule the DB's own check
+// enforces (migration 0040) — caught here as a field error before that check
+// ever fires. Only an edit can name itself; a create has no id yet to match.
+function refineCauseNotSelf(
+  data: { transactionId: string; causedByTransactionId?: string | null },
+  ctx: z.RefinementCtx,
+) {
+  if (
+    data.causedByTransactionId &&
+    data.causedByTransactionId === data.transactionId
+  ) {
+    ctx.addIssue({
+      code: "custom",
+      message: "transactions.errors.causeSelf",
+      path: ["causedByTransactionId"],
+    });
+  }
+}
+
 // The scope (personal or group) is resolved from the accounts by the DB
 // trigger, so it never travels in the payload. What the accounts settle in is
 // resolved there too, so the settlement rules ride `refineSettlement` on top of
@@ -438,7 +464,8 @@ export const updateTransactionSchema = z
   .object({ transactionId: z.uuid(), ...transactionFields })
   .superRefine(requireAnAccount)
   .superRefine(refineEstimate)
-  .superRefine(refineSplits);
+  .superRefine(refineSplits)
+  .superRefine(refineCauseNotSelf);
 
 export type UpdateTransactionInput = z.infer<typeof updateTransactionSchema>;
 
@@ -447,6 +474,17 @@ export const deleteTransactionSchema = z.object({
 });
 
 export type DeleteTransactionInput = z.infer<typeof deleteTransactionSchema>;
+
+// A movement's missing side, filled by hand (RF-132 companion, RF-133): the
+// account travels through the very same shape a form would submit, so the
+// action's write and the DB's own writable-scope policy are the only judges
+// of whether it may land.
+export const completeCounterpartySchema = z.object({
+  transactionId: z.uuid(),
+  accountId: z.uuid({ error: "transactions.errors.accountInvalid" }),
+});
+
+export type CompleteCounterpartyInput = z.infer<typeof completeCounterpartySchema>;
 
 // A malformed value never reaches Postgres: a bad type falls back to "all", a
 // bad date or a repeated key drops to undefined, so the query filters on the

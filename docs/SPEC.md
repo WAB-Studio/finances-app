@@ -58,7 +58,7 @@ accounting exports, native apps. None of this gets built or left
 - [x] **RF-114** — The accounts list shows each account's balance, derived from its opening balance and its movements and never stored.
 - [x] **RF-121** — An account, a group and a person each declare the currency they settle in; what a person declares is what a budget, a goal or a planned payment of their own falls back to when it names no account. A movement carries its own currency, so one account holds several at once — a card bills in pesos and buys in dollars — and a balance derives one figure per account and currency. Amounts are stored as an integer number of hundredths of their currency's major unit, the same scale for every currency; how many decimals a person writes and reads comes from the currency, so one with two decimal places accepts them.
 - [x] **RF-122** — A movement between two currencies carries both amounts, each an integer in the one stored scale, hundredths of its own currency's major unit, and a person confirms the second one before it is booked. The rate is their quotient: derived to be read, never stored and never multiplied back out. The app proposes an amount and never imposes one.
-- [x] **RF-123** — A card purchase in a foreign currency settles later. The movement books what was spent in the currency it was spent in, and carries the amount a person confirmed it is expected to cost in the account's settlement currency, marked as an estimate. What the issuer actually billed arrives with the statement (RF-84) and replaces the estimate; from then on the two amounts are both settled and the estimate is gone.
+- [x] **RF-123** — A card purchase in a foreign currency settles later. The movement books what was spent in the currency it was spent in, and carries the amount a person confirmed it is expected to cost in the account's settlement currency, marked as an estimate. What the issuer actually billed arrives with the statement (RF-129) and replaces the estimate; from then on the two amounts are both settled and the estimate is gone.
 - [x] **RF-124** — No surface sums two currencies. A balance, a total and a chart derive per currency and state which one they count.
 - [x] **RF-126** — Reading a written amount into the integer a column stores accepts up to two decimals for every currency alike, never capped at fewer because the currency's own convention shows none: a bank posts a savings account's interest, a 4x1000 debit or a settled foreign purchase in centavos whether or not the peso circulates a coin that small. The cap on a typed or imported amount is the column's own stored scale, not what a currency is usually written with; display keeps each currency's own convention (RF-121, RF-125).
 
@@ -70,7 +70,10 @@ accounting exports, native apps. None of this gets built or left
 - [x] **RF-80** — A revolving card exposes its available credit — its limit less its derived balance — its statement cut-off and payment due day, and its minimum payment for the period. Interest, when charged, is a real movement, so the balance stays derived.
 - [x] **RF-83** — Consolidated debt view: total owed across all debts, each card's available credit, the summed estimated monthly interest, and the next payment due — each debt's minimum.
 - [x] **RF-117** — The consolidated debt view shows the summed available credit across the liability accounts that carry a credit limit.
-- [x] **RF-84** — A liability account keeps a statement history: one record per statement period with its bounds, its payment due date and the balance, minimum and interest captured at the cut-off. A statement is an immutable historical snapshot, materialised for past periods, never rewritten.
+- [ ] **RF-129** — Every account, asset or liability, keeps a statement history: one immutable record per period with its bounds, the closing balance the statement printed and the opening balance, credits and debits it printed. The difference between that closing balance and the balance derived from the account's own movements, in its own settlement currency, is derived on read and shown, never stored.
+- [ ] **RF-130** — A liability's statement record also carries what the statement charged for that period: interest, fees and the minimum, as printed. A closed period's statement history shows this charged figure, or that none was recorded; it never estimates a closed period. This does not change how the app estimates the current, still-open period's interest (RF-79).
+- [ ] **RF-131** — A liability's next payment due derives from its latest statement's cut-off and due dates when one exists; the cut-off and due days on its terms are used only until a statement exists.
+- [ ] **RF-136** — A purchase may be deferred into a number of instalments. Its whole amount joins the balance the month it is billed, never fractioned; what the instalment fractions is that line's contribution to the minimum payment. A payment covering the balance extinguishes the plan without penalty, and the statement publishes it already extinguished. The app never concludes on its own that a purchase was deferred: it proposes it and a person confirms.
 
 #### Transactions
 
@@ -87,6 +90,8 @@ accounting exports, native apps. None of this gets built or left
 - [x] **RF-24** — Edit and delete transactions.
 - [x] **RF-25** — Every transaction records which user created it.
 - [x] **RF-69** — Every income or expense splits into one or more (category, amount_cents) rows summing to its amount; a single-category income or expense is one split. A transfer has no splits and no category.
+- [ ] **RF-132** — A movement may name the movement that caused it. A caused charge is shown with its cause and is removed with it.
+- [ ] **RF-133** — A movement whose counterparty is not known is recorded with the side that is known and waits for review; it counts in every balance, and a person completes it later by naming the other account.
 
 #### Categories
 
@@ -168,6 +173,8 @@ accounting exports, native apps. None of this gets built or left
 - [x] **RF-97** — An account may store its last four digits; webhook ingest proposes the uniquely matching account named by a bank message before falling back to the credential default, while an explicit account override still wins.
 - [x] **RF-98** — Webhook ingest proposes the date the bank message carries, written with a two- or four-digit year and interpreted in `America/Bogota`; a caller-supplied date still overrides it, and a message whose date is unreadable or later than the day of delivery falls back to that day.
 - [x] **RF-99** — A person sees the message shapes they have silenced, each with the message that silenced it, and returns one to the queue: later messages of that shape wait for review again, and every message of that shape the silence discarded on its own comes back to the queue with it, indistinguishable from one never silenced. A message a person discarded stays discarded.
+- [ ] **RF-134** — A movement keeps one source reference per account leg — the statement it came from, the reference that statement gave that leg, and the line within it — so a transfer read from either side's statement is recognised as the movement already recorded, and re-importing a statement replaces exactly that statement's rows.
+- [ ] **RF-135** — A counterparty is remembered per user: a description pattern earns an account and a side after two consecutive agreeing completions, and a completion naming a different account marks the pattern ambiguous, which no later agreement undoes. A remembered pattern prefills the missing side and never fills it on its own.
 
 The webhook (RF-90) reuses RF-22 (quick entry), RF-25 (created_by) and RF-45 (no write bypasses audit) unchanged: the same interpreter reads the payload text and the same insert path records the movement, so the created-by stamp and the audit hold as on any manual write. RF-52's idempotency shape is mirrored, not reused — RF-52 stays a spreadsheet-import requirement; the webhook applies the same stable-external-reference rule to its own deliveries. The review queue keeps that reuse: it runs RF-22's interpreter to propose rather than to decide, and RF-25 and RF-45 hold unchanged because an accepted proposal is still written through the same insert path.
 
@@ -195,6 +202,15 @@ The webhook (RF-90) reuses RF-22 (quick entry), RF-25 (created_by) and RF-45 (no
 
 Dead codes. The number stays burned and the tick stays as it was.
 
+- [x] **RF-84** — A liability account keeps a statement history: one record per statement period with its bounds, its payment due date and the balance, minimum and interest captured at the cut-off. A statement is an immutable historical snapshot, materialised for past periods, never rewritten. _Retired 2026-09-07. Successor: RF-129._
+
+  Retired because the built behaviour changed, not the wording. "Materialised for past periods" named
+  `materialiseDueStatements`, which read the cut-off **day** off the account's terms, walked the
+  calendar, and stored the balance derived from the person's own movements as the statement. So a
+  stored statement was the ledger under another name and could never disagree with it. RF-129 replaces
+  it with a record of what a statement printed, entered by a person, for an account of any kind — so
+  the difference between the printed figure and the derived one becomes a number worth reading.
+
 - [x] **RF-02** — A user can belong to several funds; they operate on one at a time and can switch. _Retired 2026-08-28. Successor: RF-55 (one optional group per user, no switching)._
 - [x] **RF-38** — The fund has a shared cash account, created along with the fund. _Retired 2026-08-28. Successor: RF-56 (configurable `cash_mode`)._
 - [ ] **RF-03** — Only the `owner` invites members, edits the fund and manages categories. _Retired 2026-08-28. Successor: RF-57 (group leader manages the group)._
@@ -218,7 +234,7 @@ Dead codes. The number stays burned and the tick stays as it was.
 - [ ] **RF-85** — A signed JSON webhook creates a movement from a payload: the request carries a bearer credential that resolves it to exactly one user; the quick-entry interpreter (RF-22) infers amount, category and description from the payload's text; the movement is written under that user's writable scope so the access policies and the audit apply as if the user had recorded it; and a stable external reference makes a re-delivery idempotent, updating nothing and duplicating nothing. _Retired 2026-08-31. Successor: RF-90 (a delivery is stored as a proposal a person accepts; the webhook never writes a movement)._
 - [ ] **RF-115** — A budget's spent and remaining derive for a chosen period, not only the current one; the period is browsable into the past and the derivation is unchanged. _Retired 2026-09-01. Successor: RF-72 (the browsable period was already built under RF-72; this code named it a second time, so nothing was dropped)._
 - [ ] **RF-116** — A category shows how many subcategories hang off it, and a label how many transactions and how many budgets use it; every count derives and is never stored. _Retired 2026-09-01. Successors: RF-63 and RF-70 (the category and label counts were already built under those codes; this code named them a second time, so nothing was dropped)._
-- [x] **RF-81** — A fixed-installment or BNPL debt carries a plan — principal, number of installments, frequency (monthly or fortnightly), interest, down payment, aval, start date and merchant — from which dated installment lines are generated. _Retired 2026-09-06. No successor: six credit-card statements publish no per-instalment due dates, only `n/36`, and carry not one line at instalment 2 or higher. A card's plan is observable only as the full purchase on the balance the month it bills it (RF-16, RF-80) and the minimum it sets (RF-78, RF-83)._
+- [x] **RF-81** — A fixed-installment or BNPL debt carries a plan — principal, number of installments, frequency (monthly or fortnightly), interest, down payment, aval, start date and merchant — from which dated installment lines are generated. _Retired 2026-09-06. Successor: RF-136 (a deferral fractions the minimum payment, never the debt). The six card statements publish no per-instalment due dates, only `n/36`, and carry not one line at instalment 2 or higher — but that is because the balance was paid in full every cycle, which extinguishes a plan, not because the card cannot defer. What the statements refute is RF-81's dated lines that add to total owed; the deferral itself is real and `1/36` is the card naming it._
 - [x] **RF-82** — A payment into a debt account is allocated to its unpaid installment lines oldest-first, marking a line paid only when the payment fully covers it and linking the paying movement; a partial remainder is left unallocated, and a plan's pending is its unpaid lines, always derived, never stored. _Retired 2026-09-06 with RF-81, whose lines it allocated against._
 - [x] **RF-95** — Quick entry accepts bank amounts written with comma or dot thousands separators and an optional zero-decimal suffix in either locale, without accepting fractional pesos. _Retired 2026-09-06. Successor: RF-128 (the same reading as the importer, up to the two decimals the column stores)._
 
@@ -252,6 +268,7 @@ erDiagram
     app_users ||--o{ ingest_deliveries : "owns"
     app_users ||--o{ ingest_shapes : "decides"
     app_users ||--o{ ingest_merchants : "learns"
+    app_users ||--o{ ingest_counterparties : "learns"
 
     accounts ||--o| webhook_credentials : "default"
     categories ||--o| webhook_credentials : "default"
@@ -259,9 +276,10 @@ erDiagram
     transactions ||--o| ingest_deliveries : "records (once accepted)"
     categories ||--o{ ingest_merchants : "remembers"
 
+    accounts ||--o{ ingest_counterparties : "remembers"
     accounts ||--o| debt_terms : "if liability"
     accounts ||--o{ installment_plans : "schedules"
-    accounts ||--o{ debt_statements : "closes"
+    accounts ||--o{ account_statements : "closes"
     installment_plans ||--o{ installment_lines : "generates"
     accounts ||--o{ transactions : "source"
     accounts ||--o{ transactions : "destination"
@@ -285,6 +303,7 @@ erDiagram
     transactions ||--o| planned_payments : "settles"
     transactions ||--o{ goal_contributions : "contributes"
     transactions ||--o{ installment_lines : "pays"
+    transactions ||--o{ transactions : "causes"
     labels ||--o{ transaction_labels : "tags"
 
     recurring_rules ||--o{ transactions : "generates"
@@ -375,15 +394,20 @@ erDiagram
         timestamptz created_at
     }
 
-    debt_statements {
+    account_statements {
         uuid id PK
         uuid account_id FK
         date period_start
         date cut_off_date
-        date payment_due_date
-        bigint statement_balance_cents "signed like the account"
-        bigint minimum_payment_cents
-        bigint interest_estimate_cents
+        date payment_due_date "nullable; an asset owes no payment"
+        bigint opening_balance_cents "nullable; as printed"
+        bigint closing_balance_cents "signed like the account"
+        bigint credits_cents "nullable; as printed"
+        bigint debits_cents "nullable; as printed"
+        bigint minimum_payment_cents "nullable; as printed"
+        bigint interest_charged_cents "nullable; as charged, never estimated"
+        bigint fees_charged_cents "nullable; as printed"
+        text source "recorded | imported"
         timestamptz closed_at
     }
 
@@ -414,7 +438,9 @@ erDiagram
         text description
         uuid recurring_rule_id FK "null if manual"
         timestamptz reviewed_at "null until a generated movement is reviewed"
+        boolean awaiting_counterparty "true until the ingest-unknown side is named"
         text external_ref "import reference"
+        uuid caused_by_transaction_id FK "null unless another movement caused this one"
         uuid created_by FK
     }
 
@@ -589,6 +615,20 @@ erDiagram
         timestamptz created_at
         timestamptz updated_at
     }
+
+    ingest_counterparties {
+        uuid id PK
+        uuid owner_user_id FK
+        text pattern_key "unique per owner and side"
+        text pattern_label
+        text side "from | to"
+        text state "learning | trusted | ambiguous"
+        uuid candidate_account_id FK
+        smallint streak "0..2"
+        uuid trusted_account_id FK "only while trusted"
+        timestamptz created_at
+        timestamptz updated_at
+    }
 ```
 
 ### Invariants
@@ -619,6 +659,8 @@ Rules the model must always guarantee, regardless of how they are implemented:
 - Every income or expense has at least one split, whose amounts sum to the
   transaction's amount and whose category shares the transaction's scope and
   kind. A transfer has no splits and no category.
+- A movement may name the movement that caused it; deleting the cause deletes
+  the charge, and a movement is never its own cause.
 - A category belongs to exactly one of a user or a group (XOR), mirroring an
   account's owner: a personal category names its `owner_user_id`, a group
   category names its `group_id`. Never both, never neither.
@@ -651,8 +693,12 @@ Rules the model must always guarantee, regardless of how they are implemented:
   oldest-first; a line is paid in full or not at all, and the paying movement is
   linked. A partial remainder is left unallocated.
 - A plan's pending derives from its unpaid lines and is never stored.
-- A debt statement is an immutable snapshot captured at its cut-off: the one
-  persisted balance figure, never kept in sync with later movements.
+- An account statement is an immutable snapshot captured at its cut-off: the one
+  persisted balance figure, never kept in sync with later movements. Every
+  printed figure but the closing balance is optional, and an absent one is not a
+  zero. The difference between a statement's printed closing balance and the
+  balance derived from movements, in the account's own settlement currency, is
+  computed on read and never stored.
 - A group's `cash_mode` is `shared` (a single group cash account) or
   `per_member` (one cash account per member).
 - Money is an integer number of cents.
@@ -679,6 +725,11 @@ Rules the model must always guarantee, regardless of how they are implemented:
 - A merchant's remembered category is earned by two consecutive agreeing
   approvals and lost for good on the first disagreement; only an explicit
   forget clears it.
+- A counterparty's remembered account and side are earned by two consecutive
+  agreeing completions and lost for good on the first disagreement; only an
+  explicit forget clears it.
+- A movement recorded with only the side an ingest could read is marked
+  awaiting its counterparty; naming the other account clears the mark.
 
 ---
 

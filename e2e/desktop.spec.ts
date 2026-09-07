@@ -218,9 +218,9 @@ test.beforeAll(async () => {
     const statementId = randomUUID();
     created.statementId = statementId;
     await tx`
-      insert into debt_statements (
+      insert into account_statements (
         id, account_id, period_start, cut_off_date, payment_due_date,
-        statement_balance_cents, minimum_payment_cents, interest_estimate_cents)
+        closing_balance_cents, minimum_payment_cents, interest_charged_cents)
       values (${statementId}, ${debtDetailAccountId}, ${today}, ${today}, ${today},
         -500000, 50000, 10000)`;
   });
@@ -260,7 +260,7 @@ test.afterAll(async () => {
   const statementIds = [created.statementId].filter(Boolean);
 
   await asHarnessUser(async (tx) => {
-    await tx`delete from debt_statements where id in ${tx(statementIds)}`;
+    await tx`delete from account_statements where id in ${tx(statementIds)}`;
     await tx`delete from installment_lines where plan_id in ${tx(planIds)}`;
     await tx`delete from installment_plans where id in ${tx(planIds)}`;
     await tx`delete from savings_goals where id in ${tx(created.goalIds)}`;

@@ -59,10 +59,56 @@ no current file hash, and four journal tags have no applied row — those SQL fi
 *after* being applied. Seven policies on `transaction_splits` and `transaction_labels` exist on
 the database and in no snapshot. **A rebuild from the migrations will not equal production.**
 
+### RNF-09 has one measurable shape, and it is not `next dev`
+
+`check-http.ts` refuses the RNF-09 verdict unless **two** preconditions hold, and it says which one
+failed rather than passing quietly: the measured user must own a year of movements, and
+`HARNESS_TARGET` must name what is being served. `dev` is accepted as a label but is documented in
+the file itself as **not the requirement's subject** — `next dev` compiles a route on demand, so the
+number measures the compiler as much as the query plan.
+
+**The first real verdict, 2026-09-07:** `npm run build`, `npm start`, then
+`HARNESS_TARGET=production npm run check:http` with no other lane running — **1118 ms median against
+the 2000 ms budget, over 4017 movements** (1098, 1103, 1118, 1131, 1152). 65 pass, 0 fail, 0 skip.
+
+For contrast, the same suite against `next dev` on the same tree and the same data read 1280-1296 ms
+with an outlier at 4121 ms. Dev is not merely slower; it is noisier, and the outlier is the compiler.
+
+**Two things that will waste a session if you do not know them:**
+
+- **The measured identity's ledger empties.** It read 4017 movements at one point in the session and
+  **2** an hour later, so the suite skipped on the other precondition. `npm run seed:year` is
+  resumable — it counts what is already there and writes only the difference — so re-running it is
+  cheap and always the right move when H63 skips.
+- **`seed:year` can die at `57014` mid-run** inside `private.set_transaction_currency()`. That is the
+  8 000 ms `statement_timeout` from `db/session.ts` hitting a slow moment on the remote pooler, not a
+  defect that grows with row count: the run that died at 3328 of 4015 resumed and finished the
+  remaining 687 in 41 s. Re-run before investigating.
+
 ### One database, many branches
 
 A migration applied from any branch is applied for everyone, immediately, including branches
 whose schema files know nothing about it. Never apply one to reach a proof.
+
+**What it costs, measured 2026-09-07.** A lane renaming `debt_statements` to `account_statements`
+applied its migration while it still had files to edit. For as long as that gap stayed open:
+
+- **13 e2e specs died on `relation "debt_statements" does not exist`** — 17 red out of 178 passed, in
+  a run that took 17,9 minutes and had to be thrown away whole. The suite was measuring a branch that
+  had not changed and was green an hour earlier.
+- **`scripts/harness/fixtures.ts#purgeIdentity` broke for every identity on the database**, on every
+  lane, because it names the old table. No lane could clean up after itself.
+- A validator on an unrelated branch spent part of its run root-causing the drift before it could
+  attribute its own failures.
+
+**So: generate the migration early, apply it last.** Finish every file the rename touches, get
+typecheck and lint clean, and only then apply — as the last act before the commit. The window in
+which the schema is ahead of the tree is a window in which no suite anywhere means anything.
+
+**And two lanes generating at once collide on the number.** Both took `idx 43` the same afternoon and
+both applied. Renumbering afterwards is safe — drizzle matches on the SQL's hash, so keep the entry's
+`when` untouched, rename the file, the tag and the snapshot, and the database still reads it as
+applied — but the merge conflicts in `meta/_journal.json` and someone has to notice before it does.
 
 ### An unscoped locator finds both bands at once
 
@@ -206,7 +252,7 @@ count, not a fact that sits still. Settle claims (`asOwner`/`asUser`) before eve
 ### A table with no `owner_user_id` can never own its own delete
 
 `transaction_splits`, `installment_lines`, `goal_contributions`, `group_members`, `groups`,
-`debt_terms`, `debt_statements`, `installment_plans`, `transaction_labels` and `app_users` all carry
+`debt_terms`, `account_statements`, `installment_plans`, `transaction_labels` and `app_users` all carry
 no `owner_user_id` column. Generalizes past `transaction_splits`: a child table without one produces
 an unattributable audit row on every delete that runs with no settled actor claim, no matter who
 owns the parent row it hangs off.
@@ -359,3 +405,81 @@ It did **not** reproduce inside the e2e suite's single persistent connection, an
 the identity Postgres sees. If a claim can outlive its connection, a policy test can pass under the
 wrong identity and prove nothing. Chase it with two scripts and one connection string before
 trusting any single-statement identity swap again.
+
+### A trusted-pointer check turns `on delete set null` into a refusal
+
+Found 2026-09-07, driving it on the shipped `ingest_merchants` and on the day-old
+`ingest_counterparties`. Both pair a nullable pointer with a check that ties it to a state:
+
+```
+trusted_category_id  references categories(id) on delete set null
+check ((state = 'trusted') = (trusted_category_id is not null))
+```
+
+Deleting the referenced row nulls the pointer while `state` stays `'trusted'`, so the check fires and
+**the delete is refused**, not cascaded:
+
+```
+delete from categories where id = <a trusted merchant's category>
+  -> 23514  ingest_merchants_trusted_category_matches_state
+```
+
+Measured the same way on `ingest_counterparties.trusted_account_id` against `accounts`. Use a
+transaction-free row to see it: an account or category with movements is refused first by
+`transactions_*_fk` (23503), which hides the real defect.
+
+**RF-63 promises category CRUD and RF-94 built the memory; the two collide and no suite caught it**
+because every test deleted an identity, never a single category a trusted pattern happened to name.
+
+`on delete set null` is only safe where nothing else asserts the column is non-null. Where a state
+column mirrors the pointer, the state has to move with it — cascade the row, or demote it in a
+trigger. Never pair the two and assume the FK wins.
+
+### One-sided is not "waiting for a counterparty"
+
+Found 2026-09-07 measuring Module 16 of `plan-modelo-real.md` before merging it. The plan asked to
+widen the ledger's `unreviewed` filter to "any movement waiting for a person", reading a null account
+leg as the signal. Counted on the real database:
+
+```
+reviewed_at null and recurring_rule_id not null   (before)  ->     3
+reviewed_at null and (generated or one-sided)     (after)   -> 8 277
+                                       total transactions   -> 8 462
+```
+
+**RF-17 makes every income and every expense one-sided by construction** — an income names only a
+destination, an expense only a source — so the predicate means "is not a transfer", and the review
+queue swallows 98 % of the ledger.
+
+`reviewed_at` does not separate them either: it is stamped only on generated movements, so every
+hand-recorded expense has carried a null there since the first one. `external_ref` does not separate
+them either — it is set on all 8 462 rows.
+
+**Nothing in the model distinguished "one-sided because it is an expense" from "one-sided because the
+reader could not tell."** That mark had to be added, not derived. Before widening any queue's
+predicate, count what it will hold afterwards on real rows; a predicate that reads correct in prose
+can still name almost everything.
+
+### An unreferenced `SELECT` CTE is free to never run
+
+Found 2026-09-07 building Module 13, by watching `ingest_counterparties` stay empty with no error
+raised. Postgres guarantees a **data-modifying** CTE executes whether or not anything reads it. It
+makes no such promise for a plain `SELECT` CTE: one nobody references may be pruned and never run.
+
+So this learns nothing, silently:
+
+```sql
+with updated as (update transactions set ... returning id),
+     learned as (select private.remember_counterparty(...) from updated)
+select id from updated          -- `learned` is never referenced, so it may never execute
+```
+
+and this does the work:
+
+```sql
+select updated.id from updated join learned on true
+```
+
+**A function call parked in a `SELECT` CTE for its side effect is not a write the planner has to
+respect.** Join it into the final select, or make it a data-modifying statement. The failure is
+silent — no error, no row, just a side effect that did not happen.

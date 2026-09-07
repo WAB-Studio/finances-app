@@ -318,7 +318,7 @@ async function purge(userId: string): Promise<void> {
       delete from installment_plans
       where account_id in (select id from accounts where owner_user_id = ${userId})`;
     await tx`
-      delete from debt_statements
+      delete from account_statements
       where account_id in (select id from accounts where owner_user_id = ${userId})`;
     await tx`
       delete from debt_terms

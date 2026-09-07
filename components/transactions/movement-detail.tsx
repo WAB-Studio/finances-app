@@ -3,7 +3,7 @@
 import { CheckIcon, ChevronLeftIcon, PencilIcon, Trash2Icon } from "lucide-react";
 import { useFormatter, useTranslations } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
-import { useState, type ReactNode } from "react";
+import { Fragment, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
 import { markMovementReviewedAction } from "@/app/actions/recurring-rules";
@@ -25,6 +25,7 @@ import {
   Heading,
   IconButton,
   Money,
+  MovementRow,
   Separator,
   Text,
   VisuallyHidden,
@@ -33,6 +34,7 @@ import type { MoneyTone } from "@/components/ui";
 import type { TransactionFormOptions } from "@/db/queries/transaction-form";
 import type { TransactionListRow } from "@/db/queries/transactions";
 import { Link as LocaleLink, useRouter } from "@/i18n/navigation";
+import type { CurrencyCode } from "@/lib/currency";
 import { civilDateToDate } from "@/lib/dates";
 import { deriveRate } from "@/lib/money";
 import { foreignSettlementCurrency } from "@/lib/validation/transaction";
@@ -50,6 +52,10 @@ const RATE_FORMAT = { maximumSignificantDigits: 6 } as const;
  * carries the undo toast. Money stays integer cents; the sign and the format are
  * display only.
  *
+ * What the movement caused rides beside it (RF-132): the charges it produced,
+ * each with its own figure, and its cause when it is itself a charge. One hop
+ * either way — a cause's own cause is never drawn.
+ *
  * From `md` up the two panes of `MovementDetailDesktop` are displayed instead of
  * this column, off the same props and with no read of their own.
  */
@@ -57,10 +63,17 @@ export function MovementDetail({
   movement,
   options,
   creatorName,
+  cause = null,
+  causedCharges = [],
 }: {
   movement: TransactionListRow;
   options: TransactionFormOptions;
   creatorName: string | null;
+  // The movement this one was caused by, already read by the caller; the picker
+  // in the edit form seeds from it too.
+  cause?: TransactionListRow | null;
+  // The charges this movement caused, newest first, as the caller ordered them.
+  causedCharges?: TransactionListRow[];
 }) {
   const t = useTranslations("transactions");
   const tKey = useTranslations();
@@ -150,6 +163,58 @@ export function MovementDetail({
     month: "long",
     year: "numeric",
   });
+
+  // What the movement really cost: itself plus the charges it caused, and only
+  // those in its own currency — a charge in another one is listed and totalled
+  // on a line of its own, since no figure sums two currencies (RF-124).
+  const combinedTotalCents =
+    movement.amountCents +
+    causedCharges.reduce(
+      (sum, charge) =>
+        charge.currency === movement.currency ? sum + charge.amountCents : sum,
+      0,
+    );
+
+  const otherCurrencyTotals = new Map<CurrencyCode, number>();
+  for (const charge of causedCharges) {
+    if (charge.currency === movement.currency) continue;
+    otherCurrencyTotals.set(
+      charge.currency,
+      (otherCurrencyTotals.get(charge.currency) ?? 0) + charge.amountCents,
+    );
+  }
+
+  // A row's own words, off the maps this detail already built: what a person
+  // wrote, or the category the split names, or the kind.
+  function rowTitle(row: TransactionListRow): string {
+    if (row.description) return row.description;
+    if (row.kind === "transfer") return t("kindTransfer");
+    const first = row.splits[0]?.categoryId;
+    return (
+      (first && categoryNames.get(first)) ||
+      (row.kind === "income" ? t("kindIncome") : t("kindExpense"))
+    );
+  }
+
+  // The union `Money` and `MovementRow` both accept, so one derivation of the
+  // kind serves the figure and the row it sits on (RF-18).
+  function rowTone(row: TransactionListRow): "income" | "transfer" | "expense" {
+    if (row.kind === "income") return "income";
+    if (row.kind === "transfer") return "transfer";
+    return "expense";
+  }
+
+  function rowTile(row: TransactionListRow) {
+    const first = row.kind === "transfer" ? null : row.splits[0]?.categoryId;
+    return <CategoryTile color={(first && categoryColors.get(first)) ?? null} />;
+  }
+
+  function rowDate(row: TransactionListRow): string {
+    return format.dateTime(civilDateToDate(row.occurredAt), {
+      day: "numeric",
+      month: "short",
+    });
+  }
 
   return (
     <>
@@ -258,6 +323,87 @@ export function MovementDetail({
           </Flex>
         </Card>
 
+        {/* The movement that produced this one, one hop back and no further
+            (RF-132): the card is the link. */}
+        {cause && (
+          <Flex direction="column" gap="2">
+            <Text size="2" color="gray">
+              {t("causeLabel")}
+            </Text>
+            <Card asChild>
+              <LocaleLink href={`/movements/${cause.id}`}>
+                <MovementRow
+                  tile={rowTile(cause)}
+                  title={rowTitle(cause)}
+                  subtitle={rowDate(cause)}
+                  amount={
+                    <Money
+                      minor={cause.amountCents}
+                      currency={cause.currency}
+                      tone={rowTone(cause)}
+                    />
+                  }
+                  tone={rowTone(cause)}
+                />
+              </LocaleLink>
+            </Card>
+          </Flex>
+        )}
+
+        {/* What this movement cost beyond itself (RF-132), each charge with its
+            own figure and the total the same currency makes with it. */}
+        {causedCharges.length > 0 && (
+          <Flex direction="column" gap="2">
+            <Text size="2" color="gray">
+              {t("causedTitle")}
+            </Text>
+            {causedCharges.map((charge) => (
+              <Card key={charge.id} asChild>
+                <LocaleLink href={`/movements/${charge.id}`}>
+                  <MovementRow
+                    tile={rowTile(charge)}
+                    title={rowTitle(charge)}
+                    subtitle={rowDate(charge)}
+                    amount={
+                      <Money
+                        minor={charge.amountCents}
+                        currency={charge.currency}
+                        tone={rowTone(charge)}
+                      />
+                    }
+                    tone={rowTone(charge)}
+                  />
+                </LocaleLink>
+              </Card>
+            ))}
+            <Card>
+              <Flex direction="column">
+                <DetailRow
+                  label={t("causedTotal")}
+                  value={
+                    <Money
+                      minor={combinedTotalCents}
+                      currency={movement.currency}
+                      tone={tone}
+                    />
+                  }
+                />
+                {[...otherCurrencyTotals].map(([code, cents]) => (
+                  <Fragment key={code}>
+                    <Separator size="4" my="3" />
+                    <DetailRow
+                      label={t("causedTotalOther", { currency: code })}
+                      value={
+                        <Money minor={cents} currency={code} signed={false} />
+                      }
+                    />
+                  </Fragment>
+                ))}
+              </Flex>
+            </Card>
+          </Flex>
+        )}
+
         {isUnreviewedGenerated && (
           <Button
             type="button"
@@ -307,6 +453,8 @@ export function MovementDetail({
                 mode="edit"
                 options={options}
                 movement={movement}
+                causedByTransactionId={cause?.id ?? null}
+                causeOptions={cause ? [cause] : []}
                 onDone={() => setEditOpen(false)}
               />
             )}

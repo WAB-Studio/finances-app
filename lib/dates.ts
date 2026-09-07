@@ -139,31 +139,6 @@ export function addCivilDays(reference: string, n: number): string {
   return dateToCivilDate(date);
 }
 
-// Every cut-off date (day-of-month `cutOffDay`, clamped) in the half-open-below
-// window `(fromExclusive, toInclusive]`, oldest first — the past periods a
-// statement run must materialise (RF-84).
-export function priorCutOffDates(
-  cutOffDay: number,
-  fromExclusive: string,
-  toInclusive: string,
-): string[] {
-  const from = civilDateToDate(fromExclusive);
-  const to = civilDateToDate(toInclusive);
-  const results: string[] = [];
-
-  // Walk month by month from the month `fromExclusive` sits in; the clamped day
-  // rises monotonically, so the first candidate past `toInclusive` ends the walk.
-  let anchor = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), 1, 12));
-  for (;;) {
-    const candidate = dayOfMonthClamped(anchor, cutOffDay);
-    if (candidate > to) break;
-    if (candidate > from) results.push(dateToCivilDate(candidate));
-    anchor = new Date(Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth() + 1, 1, 12));
-  }
-
-  return results;
-}
-
 // The half-open window a budget's period spans around `reference` (RF-72).
 export function periodRange(
   period: "monthly" | "weekly" | "yearly",

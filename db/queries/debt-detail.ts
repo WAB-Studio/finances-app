@@ -2,10 +2,11 @@ import "server-only";
 
 import { and, eq, sql } from "drizzle-orm";
 
+import { listAccountStatements } from "@/db/queries/account-statements";
+import type { AccountStatementRow } from "@/db/queries/account-statements";
 import {
   getCurrentStatement,
   listPendingSettlements,
-  listStatements,
 } from "@/db/queries/debt-statements";
 import type {
   CurrentStatement,
@@ -15,7 +16,7 @@ import { getUserGroup } from "@/db/queries/groups";
 import { listPlansForAccount } from "@/db/queries/installment-plans";
 import type { InstallmentPlanRow } from "@/db/queries/installment-plans";
 import { accounts, debtTerms } from "@/db/schema";
-import type { Account, DebtStatement, DebtTerms } from "@/db/schema";
+import type { Account, DebtTerms } from "@/db/schema";
 import { withUserDb } from "@/db/session";
 
 // One pocket of the account: the view derives a figure per currency and no
@@ -41,7 +42,7 @@ export type DebtDetailData = {
   account: DebtDetailAccount;
   terms: DebtTerms | null;
   plans: InstallmentPlanRow[];
-  statements: DebtStatement[];
+  statements: AccountStatementRow[];
   currentStatement: CurrentStatement | null;
   // The foreign-currency purchases the issuer has not billed yet (RF-123).
   pendingSettlements: PendingSettlement[];
@@ -143,8 +144,8 @@ async function readAccount(accountId: string): Promise<AccountRead> {
  * still waiting for a statement (RF-123), and the roster a payment is made from.
  * Six independent reads in ONE `Promise.all` — nothing chains.
  *
- * Opening the detail is when the past periods are cut: `listStatements` runs the
- * lazy materialisation (RF-84), which is a no-op for a caller who may only read.
+ * The statements are the closes a person recorded, each carrying the gap between
+ * what it printed and what the movements derive (RF-129). None is generated here.
  *
  * Null is one shape for three refusals — absent, not a liability, or outside the
  * caller's read scope — which a route turns into `notFound()`. Every figure
@@ -158,7 +159,7 @@ export async function getDebtDetail(
     await Promise.all([
       readAccount(accountId),
       listPlansForAccount(accountId),
-      listStatements(accountId),
+      listAccountStatements(accountId),
       getCurrentStatement(accountId),
       listPendingSettlements(accountId),
       getUserGroup(),

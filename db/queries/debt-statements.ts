@@ -1,142 +1,9 @@
 import "server-only";
 
-import { desc, eq, sql } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 
-import { debtStatements } from "@/db/schema";
-import type { DebtStatement } from "@/db/schema";
 import { withUserDb } from "@/db/session";
-import { nextDayOfMonthOnOrAfter, priorCutOffDates, todayInBogota } from "@/lib/dates";
-
-/**
- * Fills the past cut-offs the account has not yet snapshotted and returns how many
- * it inserted (RF-84). ONE `withUserDb`: read the terms, the account's last closed
- * statement and whether the caller may write the account, enumerate the cut-off
- * dates from there to today, then insert one snapshot per missing cut-off in a
- * single statement. Each snapshot freezes the balance to `initial_balance_cents +`
- * the signed movement sum windowed to `occurred_at <= cut_off_date` — the same
- * signed sum `account_balances` derives, never a stored running column. The unique
- * key makes a re-run or a concurrent run a no-op, so nothing is ever rewritten
- * (the snapshot is immutable).
- *
- * It writes under the caller's own session, so a member who may read the account
- * but not write it would take a 42501 for merely opening its history. The write
- * privilege rides the statement that already reads the terms — no round trip is
- * added — and the INSERT is never attempted when it is false.
- */
-export async function materialiseDueStatements(accountId: string): Promise<number> {
-  const today = todayInBogota();
-
-  return withUserDb(async (tx) => {
-    const [terms] = await tx.execute<{
-      statement_cut_off_day: number | null;
-      payment_due_day: number | null;
-      initial_balance_on: string;
-      last_cut_off: string | null;
-      may_write: boolean;
-    }>(sql`
-      select
-        dt.statement_cut_off_day,
-        dt.payment_due_day,
-        a.initial_balance_on,
-        (select max(s.cut_off_date) from debt_statements s where s.account_id = ${accountId}) as last_cut_off,
-        private.can_write_account(${accountId}::uuid) as may_write
-      from debt_terms dt
-      join accounts a on a.id = dt.account_id
-      where dt.account_id = ${accountId}
-    `);
-
-    // No terms, or no cut-off/due schedule: there is nothing to materialise.
-    if (!terms || terms.statement_cut_off_day === null || terms.payment_due_day === null) {
-      return 0;
-    }
-
-    // A reader who may not write the account gets the snapshots already stored,
-    // not a refusal for opening the history (RF-58).
-    if (!terms.may_write) return 0;
-
-    // The last stored cut-off anchors the walk; before any statement the opening date does.
-    const fromExclusive = terms.last_cut_off ?? terms.initial_balance_on;
-    const cutOffs = priorCutOffDates(terms.statement_cut_off_day, fromExclusive, today);
-    if (cutOffs.length === 0) return 0;
-
-    // A period starts the day after the previous cut-off; the first has none, so
-    // it opens on the opening date. The due date follows each cut-off's own day.
-    // One JSON parameter carries the three dates per period: drizzle expands a JS
-    // array in a template into a comma-separated list, which is a record and not
-    // an array, and the driver has no element type to bind one by itself.
-    const periods = JSON.stringify(
-      cutOffs.map((cutOff, index) => ({
-        cut_off: cutOff,
-        prev: index === 0 ? terms.last_cut_off : cutOffs[index - 1],
-        payment_due: nextDayOfMonthOnOrAfter(terms.payment_due_day as number, cutOff),
-      })),
-    );
-
-    const inserted = await tx.execute<{ id: string }>(sql`
-      insert into debt_statements
-        (account_id, period_start, cut_off_date, payment_due_date,
-         statement_balance_cents, minimum_payment_cents, interest_estimate_cents)
-      select
-        ${accountId},
-        coalesce(g.prev + 1, a.initial_balance_on),
-        g.cut_off,
-        g.payment_due,
-        bal.statement_balance,
-        case
-          when dt.minimum_payment_cents is not null then dt.minimum_payment_cents
-          when dt.minimum_payment_pct is not null
-            then round(abs(bal.statement_balance) * dt.minimum_payment_pct)::bigint
-          else 0
-        end,
-        round(abs(bal.statement_balance) * (power(1 + dt.annual_rate, 1.0/12) - 1))::bigint
-      from jsonb_to_recordset(${periods}::jsonb)
-        as g(cut_off date, prev date, payment_due date)
-      cross join debt_terms dt
-      join accounts a on a.id = dt.account_id
-      -- The cut is in the currency the card bills in, so each leg lands the way the
-      -- balances view lands it (RF-121, RF-124): its own amount while it was spent
-      -- in that currency, what the issuer billed once a confirmed second amount
-      -- says so, and nothing while that figure is still an estimate.
-      cross join lateral (
-        select a.initial_balance_cents
-          + coalesce((select sum(case
-                when t.currency = a.settlement_currency then t.amount_cents
-                when t.counter_amount_cents is not null and not t.counter_is_estimate
-                  then t.counter_amount_cents
-                else 0
-              end) from transactions t
-              where t.to_account_id = ${accountId} and t.occurred_at <= g.cut_off), 0)
-          - coalesce((select sum(case
-                when t.currency = a.settlement_currency then t.amount_cents
-                when t.counter_amount_cents is not null and not t.counter_is_estimate
-                  then t.counter_amount_cents
-                else 0
-              end) from transactions t
-              where t.from_account_id = ${accountId} and t.occurred_at <= g.cut_off), 0)
-          as statement_balance
-      ) bal
-      where dt.account_id = ${accountId}
-      on conflict (account_id, cut_off_date) do nothing
-      returning id
-    `);
-
-    return inserted.length;
-  });
-}
-
-// The statement history, newest first, read through the generator so a due but
-// unmaterialised period is present before the read (RF-84).
-export async function listStatements(accountId: string): Promise<DebtStatement[]> {
-  await materialiseDueStatements(accountId);
-
-  return withUserDb(async (tx) =>
-    tx
-      .select()
-      .from(debtStatements)
-      .where(eq(debtStatements.accountId, accountId))
-      .orderBy(desc(debtStatements.cutOffDate)),
-  );
-}
+import { nextDayOfMonthOnOrAfter, todayInBogota } from "@/lib/dates";
 
 export type CurrentStatement = {
   accountId: string;
@@ -169,7 +36,7 @@ export async function getCurrentStatement(
     }>(sql`
       select
         coalesce(
-          (select max(s.cut_off_date) + 1 from debt_statements s where s.account_id = ${accountId}),
+          (select max(s.cut_off_date) + 1 from account_statements s where s.account_id = ${accountId}),
           a.initial_balance_on
         ) as period_start,
         b.balance_cents,
@@ -255,7 +122,7 @@ export async function listPendingSettlements(
         on t.from_account_id = a.id or t.to_account_id = a.id
       left join lateral (
         select min(s.cut_off_date) as cut_off_date
-        from debt_statements s
+        from account_statements s
         where s.account_id = a.id and s.cut_off_date >= t.occurred_at
       ) p on true
       where a.id = ${accountId}
