@@ -260,6 +260,7 @@ erDiagram
     app_users ||--o{ ingest_deliveries : "owns"
     app_users ||--o{ ingest_shapes : "decides"
     app_users ||--o{ ingest_merchants : "learns"
+    app_users ||--o{ ingest_counterparties : "learns"
 
     accounts ||--o| webhook_credentials : "default"
     categories ||--o| webhook_credentials : "default"
@@ -267,6 +268,7 @@ erDiagram
     transactions ||--o| ingest_deliveries : "records (once accepted)"
     categories ||--o{ ingest_merchants : "remembers"
 
+    accounts ||--o{ ingest_counterparties : "remembers"
     accounts ||--o| debt_terms : "if liability"
     accounts ||--o{ installment_plans : "schedules"
     accounts ||--o{ debt_statements : "closes"
@@ -599,6 +601,20 @@ erDiagram
         timestamptz created_at
         timestamptz updated_at
     }
+
+    ingest_counterparties {
+        uuid id PK
+        uuid owner_user_id FK
+        text pattern_key "unique per owner and side"
+        text pattern_label
+        text side "from | to"
+        text state "learning | trusted | ambiguous"
+        uuid candidate_account_id FK
+        smallint streak "0..2"
+        uuid trusted_account_id FK "only while trusted"
+        timestamptz created_at
+        timestamptz updated_at
+    }
 ```
 
 ### Invariants
@@ -691,6 +707,9 @@ Rules the model must always guarantee, regardless of how they are implemented:
 - A merchant's remembered category is earned by two consecutive agreeing
   approvals and lost for good on the first disagreement; only an explicit
   forget clears it.
+- A counterparty's remembered account and side are earned by two consecutive
+  agreeing completions and lost for good on the first disagreement; only an
+  explicit forget clears it.
 
 ---
 
