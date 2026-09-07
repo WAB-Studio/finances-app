@@ -226,7 +226,7 @@ count, not a fact that sits still. Settle claims (`asOwner`/`asUser`) before eve
 ### A table with no `owner_user_id` can never own its own delete
 
 `transaction_splits`, `installment_lines`, `goal_contributions`, `group_members`, `groups`,
-`debt_terms`, `debt_statements`, `installment_plans`, `transaction_labels` and `app_users` all carry
+`debt_terms`, `account_statements`, `installment_plans`, `transaction_labels` and `app_users` all carry
 no `owner_user_id` column. Generalizes past `transaction_splits`: a child table without one produces
 an unattributable audit row on every delete that runs with no settled actor claim, no matter who
 owns the parent row it hangs off.

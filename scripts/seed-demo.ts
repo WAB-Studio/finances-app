@@ -806,8 +806,8 @@ const CENSUS_TABLES = {
     "select count(*) from installment_lines l join installment_plans p on p.id = l.plan_id join accounts a on a.id = p.account_id where a.owner_user_id = $1",
   debt_terms:
     "select count(*) from debt_terms d join accounts a on a.id = d.account_id where a.owner_user_id = $1",
-  debt_statements:
-    "select count(*) from debt_statements s join accounts a on a.id = s.account_id where a.owner_user_id = $1",
+  account_statements:
+    "select count(*) from account_statements s join accounts a on a.id = s.account_id where a.owner_user_id = $1",
   ingest_deliveries: "select count(*) from ingest_deliveries where owner_user_id = $1",
   audit_log: "select count(*) from audit_log where owner_user_id = $1",
 } as const;
@@ -1552,7 +1552,7 @@ async function drop(user: HarnessUser): Promise<void> {
 
     // The lines cascade off the plan.
     await tx`delete from installment_plans where account_id = any(${accountIds})`;
-    await tx`delete from debt_statements where account_id = any(${accountIds})`;
+    await tx`delete from account_statements where account_id = any(${accountIds})`;
     await tx`delete from debt_terms where account_id = any(${accountIds})`;
 
     // The splits and the label joins cascade off the movement.

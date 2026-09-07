@@ -309,6 +309,13 @@
       "when": 1788786355464,
       "tag": "0043_cute_solo",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1788786771514,
+      "tag": "0044_any_account_closes_a_period",
+      "breakpoints": true
     }
   ]
 }

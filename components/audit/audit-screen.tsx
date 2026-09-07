@@ -89,7 +89,7 @@ export function AuditScreen({
     debt_terms: t("entities.debt_terms"),
     installment_plans: t("entities.installment_plans"),
     installment_lines: t("entities.installment_lines"),
-    debt_statements: t("entities.debt_statements"),
+    account_statements: t("entities.account_statements"),
     webhook_credentials: t("entities.webhook_credentials"),
   };
 

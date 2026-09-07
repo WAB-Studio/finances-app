@@ -2264,7 +2264,7 @@ async function readSuite(
     async () => {
       const first = await getDebtDetail(debt.unlimitedAccountId);
       for (const statement of first?.statements ?? []) {
-        track("debt_statements", statement.id);
+        track("account_statements", statement.id);
       }
 
       return { first, second: await getDebtDetail(debt.unlimitedAccountId) };
