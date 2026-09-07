@@ -50,6 +50,15 @@ Light, the same design inverted:
 - Set a part-of-speech label at 11 px, 600, `letter-spacing: 0.12em`, uppercase, in the accent.
 - Set a headword at 34 px / 500 / `-0.02em`. Set a translation line at 21 px / 1.5.
 
+## Metadata labels
+
+- Set a metadata label — where a translation came from, what kind of answer this is — in the same
+  shape as a part-of-speech label (11 px, 600, `letter-spacing: 0.12em`, uppercase) but in **muted**,
+  never in the accent. The accent names a part of speech; a second accented label competes with it.
+- **Never a coloured badge.** A green chip for the device and a blue one for the network import two
+  hues this design does not have and read as a status pill from another app. The origin is metadata:
+  it sits under the translation as a quiet line, and the reader who does not care never notices it.
+
 ## What the data forces
 
 Measured over the built asset, 64,258 entries. Design for these, not for the rare case.
