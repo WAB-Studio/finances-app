@@ -148,7 +148,7 @@ jobs:
         if: always()
         run: |
           set +e
-          npm run harness:reap -w apps/finances -- --yes | tee /tmp/harness-reap.log
+          npm run harness:reap -w apps/finances -- --yes 2>&1 | tee /tmp/harness-reap.log
           status=${PIPESTATUS[0]}
           set -e
           if [ "$status" -eq 0 ]; then
