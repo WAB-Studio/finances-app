@@ -277,3 +277,23 @@ sql`update ...`` type-checks, lints clean, and sends nothing at all. Found on 20
 registry's 30-second heartbeat: `heartbeat_at` never advanced and the failure was silent in both
 directions — no error, no row change. `.catch(() => {})` is enough to dispatch it, and is what a
 fire-and-forget statement wants anyway.
+
+### Unconfirmed: claims may survive a connection through the pooler
+
+**Not reproduced in a real suite, and not root-caused. Written down so it is not lost, not so it is
+believed.** On 2026-09-06, three ad-hoc probe scripts — fresh connections, nothing open in
+`pg_stat_activity` — reproducibly saw a `DELETE`'s `auth.uid()` resolve to **whichever identity an
+earlier, unrelated script in the same shell had last settled claims for**, even though
+`current_setting('request.jwt.claims', true)` read back empty on the same connection immediately
+before the statement.
+
+Ruled out: an open transaction, a shared connection object, a stale import. **Leading suspect is
+Supavisor reusing a physical backend across logical connections in transaction pooling mode.**
+
+It did **not** reproduce inside the e2e suite's single persistent connection, and no proof in
+`private/reportes/datos-modulo-5.md` depended on it.
+
+**Why it matters if it is real:** «prove a policy by driving it» assumes the identity you settled is
+the identity Postgres sees. If a claim can outlive its connection, a policy test can pass under the
+wrong identity and prove nothing. Chase it with two scripts and one connection string before
+trusting any single-statement identity swap again.
