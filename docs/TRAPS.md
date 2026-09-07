@@ -542,3 +542,24 @@ still holds for lane 1 and `PORT` works everywhere else. Measured 2026-09-07: `P
 unset binds 3100.
 
 A lane's port belongs to the lane. A script that pins one takes it from whoever runs it next.
+
+### A dependency declared on a branch is not installed by merging it
+
+Module 3 added `fast-xml-parser` to `apps/reading/package.json` and to the lockfile. Nobody ran
+`npm install` in the main checkout afterwards, so the package was never on disk there. Merging the
+branch changed the manifest, not `node_modules`.
+
+`worktree.sh` hardlinks `node_modules` from the main checkout, so **every lane born after that
+inherits the same hole**. The lane whose worker happened to run `npm install` was green; the main
+checkout and every other lane were red with `TS2307: Cannot find module 'fast-xml-parser'`, plus a
+downstream `TS7006` implicit-any from the callback whose types went missing with it.
+
+The failure blames the wrong file. `scripts/build-dictionary.ts` typechecked clean in its own lane and
+under its own validation, then read as broken on `integracion` — so the module that landed it looks at
+fault when the checkout is what is stale.
+
+Run `npm install` at the root after merging a branch that adds a dependency, before opening a lane
+from it. `git status` stays clean when the lockfile was already correct, which is the tell that the
+manifest was never the problem.
+
+Measured 2026-09-07.
