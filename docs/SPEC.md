@@ -58,7 +58,7 @@ accounting exports, native apps. None of this gets built or left
 - [x] **RF-114** — The accounts list shows each account's balance, derived from its opening balance and its movements and never stored.
 - [x] **RF-121** — An account, a group and a person each declare the currency they settle in; what a person declares is what a budget, a goal or a planned payment of their own falls back to when it names no account. A movement carries its own currency, so one account holds several at once — a card bills in pesos and buys in dollars — and a balance derives one figure per account and currency. Amounts are stored as an integer number of hundredths of their currency's major unit, the same scale for every currency; how many decimals a person writes and reads comes from the currency, so one with two decimal places accepts them.
 - [x] **RF-122** — A movement between two currencies carries both amounts, each an integer in the one stored scale, hundredths of its own currency's major unit, and a person confirms the second one before it is booked. The rate is their quotient: derived to be read, never stored and never multiplied back out. The app proposes an amount and never imposes one.
-- [x] **RF-123** — A card purchase in a foreign currency settles later. The movement books what was spent in the currency it was spent in, and carries the amount a person confirmed it is expected to cost in the account's settlement currency, marked as an estimate. What the issuer actually billed arrives with the statement (RF-84) and replaces the estimate; from then on the two amounts are both settled and the estimate is gone.
+- [x] **RF-123** — A card purchase in a foreign currency settles later. The movement books what was spent in the currency it was spent in, and carries the amount a person confirmed it is expected to cost in the account's settlement currency, marked as an estimate. What the issuer actually billed arrives with the statement (RF-129) and replaces the estimate; from then on the two amounts are both settled and the estimate is gone.
 - [x] **RF-124** — No surface sums two currencies. A balance, a total and a chart derive per currency and state which one they count.
 - [x] **RF-126** — Reading a written amount into the integer a column stores accepts up to two decimals for every currency alike, never capped at fewer because the currency's own convention shows none: a bank posts a savings account's interest, a 4x1000 debit or a settled foreign purchase in centavos whether or not the peso circulates a coin that small. The cap on a typed or imported amount is the column's own stored scale, not what a currency is usually written with; display keeps each currency's own convention (RF-121, RF-125).
 
@@ -70,7 +70,6 @@ accounting exports, native apps. None of this gets built or left
 - [x] **RF-80** — A revolving card exposes its available credit — its limit less its derived balance — its statement cut-off and payment due day, and its minimum payment for the period. Interest, when charged, is a real movement, so the balance stays derived.
 - [x] **RF-83** — Consolidated debt view: total owed across all debts, each card's available credit, the summed estimated monthly interest, and the next payment due — each debt's minimum.
 - [x] **RF-117** — The consolidated debt view shows the summed available credit across the liability accounts that carry a credit limit.
-- [x] **RF-84** — A liability account keeps a statement history: one record per statement period with its bounds, its payment due date and the balance, minimum and interest captured at the cut-off. A statement is an immutable historical snapshot, materialised for past periods, never rewritten.
 - [ ] **RF-129** — Every account, asset or liability, keeps a statement history: one immutable record per period with its bounds, the closing balance the statement printed and the opening balance, credits and debits it printed. The difference between that closing balance and the balance derived from the account's own movements, in its own settlement currency, is derived on read and shown, never stored.
 - [ ] **RF-130** — A liability's statement record also carries what the statement charged for that period: interest, fees and the minimum, as printed. A closed period's statement history shows this charged figure, or that none was recorded; it never estimates a closed period. This does not change how the app estimates the current, still-open period's interest (RF-79).
 - [ ] **RF-131** — A liability's next payment due derives from its latest statement's cut-off and due dates when one exists; the cut-off and due days on its terms are used only until a statement exists.
@@ -202,6 +201,15 @@ The webhook (RF-90) reuses RF-22 (quick entry), RF-25 (created_by) and RF-45 (no
 ### Retired
 
 Dead codes. The number stays burned and the tick stays as it was.
+
+- [x] **RF-84** — A liability account keeps a statement history: one record per statement period with its bounds, its payment due date and the balance, minimum and interest captured at the cut-off. A statement is an immutable historical snapshot, materialised for past periods, never rewritten. _Retired 2026-09-07. Successor: RF-129._
+
+  Retired because the built behaviour changed, not the wording. "Materialised for past periods" named
+  `materialiseDueStatements`, which read the cut-off **day** off the account's terms, walked the
+  calendar, and stored the balance derived from the person's own movements as the statement. So a
+  stored statement was the ledger under another name and could never disagree with it. RF-129 replaces
+  it with a record of what a statement printed, entered by a person, for an account of any kind — so
+  the difference between the printed figure and the derived one becomes a number worth reading.
 
 - [x] **RF-02** — A user can belong to several funds; they operate on one at a time and can switch. _Retired 2026-08-28. Successor: RF-55 (one optional group per user, no switching)._
 - [x] **RF-38** — The fund has a shared cash account, created along with the fund. _Retired 2026-08-28. Successor: RF-56 (configurable `cash_mode`)._
