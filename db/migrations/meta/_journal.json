@@ -281,6 +281,13 @@
       "when": 1788733024654,
       "tag": "0039_registrys_schema",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1788754616350,
+      "tag": "0040_aromatic_joystick",
+      "breakpoints": true
     }
   ]
 }
