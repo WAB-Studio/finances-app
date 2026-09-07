@@ -335,7 +335,11 @@ export const completeCounterpartyAction = authActionClient
             set
               from_account_id = case when ${side} = 'from' then ${accountId} else from_account_id end,
               to_account_id = case when ${side} = 'to' then ${accountId} else to_account_id end,
-              reviewed_at = now()
+              reviewed_at = now(),
+              -- Naming the other account clears the mark, not only the review
+              -- stamp: the mark is the fact, and a later reader must not find
+              -- it still set on a movement that now names both sides.
+              awaiting_counterparty = false
             where id = ${transactionId}
               and (case when ${side} = 'from' then from_account_id else to_account_id end) is null
             returning id

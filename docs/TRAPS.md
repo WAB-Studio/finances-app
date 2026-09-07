@@ -413,3 +413,27 @@ them either — it is set on all 8 462 rows.
 reader could not tell."** That mark had to be added, not derived. Before widening any queue's
 predicate, count what it will hold afterwards on real rows; a predicate that reads correct in prose
 can still name almost everything.
+
+### An unreferenced `SELECT` CTE is free to never run
+
+Found 2026-09-07 building Module 13, by watching `ingest_counterparties` stay empty with no error
+raised. Postgres guarantees a **data-modifying** CTE executes whether or not anything reads it. It
+makes no such promise for a plain `SELECT` CTE: one nobody references may be pruned and never run.
+
+So this learns nothing, silently:
+
+```sql
+with updated as (update transactions set ... returning id),
+     learned as (select private.remember_counterparty(...) from updated)
+select id from updated          -- `learned` is never referenced, so it may never execute
+```
+
+and this does the work:
+
+```sql
+select updated.id from updated join learned on true
+```
+
+**A function call parked in a `SELECT` CTE for its side effect is not a write the planner has to
+respect.** Join it into the final select, or make it a data-modifying statement. The failure is
+silent — no error, no row, just a side effect that did not happen.
