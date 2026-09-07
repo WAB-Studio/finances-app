@@ -31,3 +31,5 @@ export { Text } from "./text";
 export { Headword } from "./headword";
 
 export { PosLabel } from "./label";
+
+export { MetaLabel } from "./meta-label";

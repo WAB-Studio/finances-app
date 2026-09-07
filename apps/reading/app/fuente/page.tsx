@@ -3,7 +3,7 @@ import { getTranslations } from "next-intl/server";
 
 import manifestJson from "@/public/dictionary/manifest.json";
 import { manifestSchema } from "@/lib/dictionary/format";
-import { Box, Flex, Heading, Link, Page, Separator, TapTarget, Text } from "@/components/ui";
+import { Box, Flex, Headword, Link, MetaLabel, Page, Separator, TapTarget, Text } from "@/components/ui";
 
 // Imported, not fetched: the manifest is on disk at build time, so this route
 // pays no request and needs no runtime data source (RL-15).
@@ -16,13 +16,13 @@ export default async function FuentePage() {
   return (
     <Page>
       <Flex direction="column" gap="5">
-        <Heading size="6">{t("title")}</Heading>
+        <Headword>{t("title")}</Headword>
 
         <Flex direction="column" gap="1">
-          <Text size="4" weight="bold">
+          <Text size="5" serif>
             {t("dictionary")}
           </Text>
-          <Text size="2" color="gray">
+          <Text size="2" muted>
             {source.edition}
           </Text>
         </Flex>
@@ -30,11 +30,13 @@ export default async function FuentePage() {
         <Separator size="4" />
 
         <Flex direction="column" gap="1">
-          <Text size="2" color="gray">
-            {t("licence")}
-          </Text>
+          <MetaLabel>{t("licence")}</MetaLabel>
           <Link href={source.licenceUrl} target="_blank" rel="noreferrer" aria-label={t("licenceLink")}>
-            <TapTarget align="center">{t("licenceName")}</TapTarget>
+            <TapTarget align="center">
+              <Text size="5" serif>
+                {t("licenceName")}
+              </Text>
+            </TapTarget>
           </Link>
         </Flex>
 
@@ -43,12 +45,12 @@ export default async function FuentePage() {
         </Link>
 
         <Box maxWidth="45ch">
-          <Text size="1" color="gray" as="p">
+          <Text size="1" muted as="p">
             {source.attribution}
           </Text>
         </Box>
 
-        <Text size="2" as="p">
+        <Text size="2" muted as="p">
           {t("modified")}
         </Text>
 

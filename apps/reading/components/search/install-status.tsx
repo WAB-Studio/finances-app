@@ -3,7 +3,7 @@
 import { useTranslations } from "next-intl";
 
 import type { InstallFailure, InstallProgress } from "@/lib/dictionary/install";
-import { Button, Flex, Progress, Spinner, Text } from "@/components/ui";
+import { Button, Flex, Progress, Separator, Spinner, Text } from "@/components/ui";
 
 // Structural, not imported: the worker's own status type only has to satisfy
 // this shape, so this file never depends on the module that produces it
@@ -34,7 +34,7 @@ export function InstallStatus({
     return (
       <Flex align="center" gap="2">
         <Spinner />
-        <Text size="2" color="gray">
+        <Text size="2" muted>
           {t("preparing")}
         </Text>
       </Flex>
@@ -48,7 +48,7 @@ export function InstallStatus({
       return (
         <Flex direction="column" gap="1">
           <Progress />
-          <Text size="2" color="gray">
+          <Text size="2" muted>
             {t("unknownSize")}
           </Text>
         </Flex>
@@ -60,16 +60,19 @@ export function InstallStatus({
     return (
       <Flex direction="column" gap="1">
         <Progress value={percent} />
-        <Text size="2" color="gray">
+        <Text size="2" muted>
           {t("progress", { percent })}
         </Text>
       </Flex>
     );
   }
 
+  // No red in this palette (docs/reading/DESIGN.md "Failure"): a hairline
+  // sets the break off, full-weight ink says it, the accent lives in retry.
   return (
-    <Flex direction="column" gap="2" align="start">
-      <Text size="2" color="red">
+    <Flex direction="column" gap="3" align="start">
+      <Separator size="4" />
+      <Text size="2" weight="bold">
         {t("failed")}
       </Text>
       <Button size="2" tap onClick={onRetry}>

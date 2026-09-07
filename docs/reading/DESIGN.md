@@ -79,6 +79,27 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   the app is designed for; the desktop is the case it must not look neglected in.
 - Never a sidebar, never a tab bar. The app is one box and one answer.
 
+## Failure
+
+- No error colour exists in this palette, and none should be added: a red pulled in from outside
+  reads as a different app's alarm, not this one's ink.
+- Mark a failure with what the design already has: a hairline above it to set it off from whatever
+  state came before, the failure line in full-weight **ink** (never muted, never the accent — a
+  failure is not metadata), and the retry action in the ordinary accent-coloured button. The accent
+  the reader already reads as "act here" carries the recovery; the weight and the hairline carry the
+  break.
+
+## The canvas, and which of its boards are stale
+
+- The approved direction is **Impreso**, in dark as the primary look. The tokens above are its warm
+  inversion, not a second design.
+- The five `Noche*.dc.html` boards on the canvas are the **losing** direction and contradict this
+  file: they set Archivo over Newsreader, a cool `#0E0F12` ground over the warm `#14130F`, and an
+  amber `#E0A458` accent over `#D9805F`, and they use cards this design forbids. They were not
+  approved. Read them as history.
+- When a board and this file disagree, **this file wins**. Do not restyle a screen from a `Noche`
+  board.
+
 ## Settled
 
 - **The English headword leads.** Decided by the user 2026-09-07, `Impreso · Palabra` over
