@@ -1,0 +1,70 @@
+import { normaliseHeadword } from "./format";
+import { groupFor, type DictionaryIndex, type SenseGroup } from "./index-build";
+import { lemmaCandidates, type InflectionRule } from "./inflect";
+
+export type InflectedHit = {
+  surface: string;
+  lemma: string;
+  rule: InflectionRule;
+  group: SenseGroup;
+};
+
+export type WordAnswer = {
+  query: string;
+  exact: SenseGroup | null;
+  viaInflection: readonly InflectedHit[];
+};
+
+const MAX_INFLECTED_HITS = 3;
+
+// Exact headword first, then every inflection candidate other than the
+// query's own normalised form that the index actually carries.
+export function lookupWord(index: DictionaryIndex, query: string): WordAnswer {
+  const normalised = normaliseHeadword(query);
+  if (normalised.length === 0) return { query, exact: null, viaInflection: [] };
+
+  const exact = groupFor(index, normalised);
+
+  const viaInflection: InflectedHit[] = [];
+  for (const candidate of lemmaCandidates(query)) {
+    if (candidate.lemma === normalised) continue;
+    const group = groupFor(index, candidate.lemma);
+    if (!group) continue;
+    viaInflection.push({ surface: normalised, lemma: candidate.lemma, rule: candidate.rule, group });
+    if (viaInflection.length === MAX_INFLECTED_HITS) break;
+  }
+
+  return { query, exact, viaInflection };
+}
+
+// Lowest index whose entry is not less than target, so a prefix's matches
+// sit in one contiguous run starting here.
+function lowerBound(sorted: readonly string[], target: string): number {
+  let lo = 0;
+  let hi = sorted.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (sorted[mid] < target) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+export function suggest(index: DictionaryIndex, prefix: string, limit: number): string[] {
+  const normalised = normaliseHeadword(prefix);
+  if (normalised.length === 0 || limit <= 0) return [];
+
+  const { sortedHeadwords } = index;
+  const results: string[] = [];
+  for (let i = lowerBound(sortedHeadwords, normalised); i < sortedHeadwords.length && results.length < limit; i++) {
+    const headword = sortedHeadwords[i];
+    if (!headword.startsWith(normalised)) break;
+    results.push(headword);
+  }
+  return results;
+}
+
+export function hasEntry(index: DictionaryIndex, text: string): boolean {
+  const answer = lookupWord(index, text);
+  return answer.exact !== null || answer.viaInflection.length > 0;
+}
