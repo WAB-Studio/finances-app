@@ -146,6 +146,7 @@ import es from "@/messages/es.json";
 import { assert, report, skip } from "./harness/assert";
 import type { FixtureTable, HarnessScope, HarnessUser } from "./harness/fixtures";
 import {
+  asOwner,
   asUser,
   cleanup,
   countOwnedMovements,
@@ -157,6 +158,7 @@ import {
   track,
   YEAR_OF_MOVEMENTS,
 } from "./harness/fixtures";
+import { openRun } from "./harness/registry";
 import { HARNESS_EMAIL } from "./harness/session";
 
 // The user the decisions note as already seeded. Read once for the transcript,
@@ -558,6 +560,11 @@ type WriteResults = {
   // reports never fold one into the other.
   usdAccountId: string | null;
   groupUsdAccountId: string | null;
+  // The RF-122 contribution: group-scoped (its to-account is the pot), so
+  // `purgeIdentity` never reaches it through `owner_user_id`, yet its
+  // from-account is `scope.assetAccountId`, personal. `readSuite` deletes it by
+  // hand once nothing reads it again — see the call site there.
+  contributionTransactionId: string | null;
   // The dollar expense's own category, distinct from `scope.categoryId`: the
   // foreign card purchase spends the latter, so the two dollar amounts land in
   // different category rows and neither assertion can pass by adding them.
@@ -754,7 +761,7 @@ async function writeSuite(
 
   const groupUsdAccountId = groupUsdAccount?.accountId ?? null;
 
-  await checkWrite(
+  const contribution = await checkWrite(
     "createTransaction confirms a contribution's dollar leg (RF-122)",
     () =>
       createTransaction({
@@ -1723,6 +1730,7 @@ async function writeSuite(
     withdrawalId: withdrawal?.transactionId ?? null,
     usdAccountId: usdAccount?.accountId ?? null,
     groupUsdAccountId: groupUsdAccount?.accountId ?? null,
+    contributionTransactionId: contribution?.transactionId ?? null,
     usdCategoryId: categoryId,
   };
 }
@@ -1848,6 +1856,21 @@ async function readSuite(
       };
     },
   );
+
+  // The contribution is group-scoped (its to-account is the pot), so
+  // `purgeIdentity(userId)` never reaches it through `owner_user_id` — it deletes
+  // `transactions` before it deletes `groups`, and only the group's cascade would
+  // otherwise take this row. Left in place, it still names `scope.assetAccountId`
+  // when `purgeIdentity` reaches that account, and the RESTRICT fires. Nothing
+  // below this line reads it, so it is dropped here, under the same claims
+  // `purgeAuditTrail([...dropped])` already reaches at the end of the run.
+  const contributionTransactionId = writes.contributionTransactionId;
+  if (contributionTransactionId) {
+    await asOwner(userId, async (tx) => {
+      await tx`delete from transactions where id = ${contributionTransactionId}`;
+    });
+  }
+
   // A pure reducer over two reads, not a round trip of its own.
   await checkReadValue(
     "netWorthByOwner answers one bucket per owner and currency",
@@ -2886,6 +2909,12 @@ async function timingSuite(): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  // Opened before the first identity, so a kill between the two still leaves a
+  // registry row a reaper can find dead: `createHarnessUser` would open the same
+  // run on its own, but only once it has something to register under it.
+  const run = await openRun("queries", fixtureSql);
+  console.log(`REPORT  run ${run} — see harness.runs for a dead one's trail.`);
+
   const userId = await createHarnessUser();
   console.log(`REPORT  harness user ${userId}, created for this run and dropped after it.`);
 
