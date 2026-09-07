@@ -40,11 +40,10 @@ jobs:
   # The 12-minute suite runs here so a laptop is not holding a dev server and a
   # Chromium for it. One at a time: every run drives the one remote Postgres, and
   # a second concurrent run would contend with it and with a lane running locally.
-  # Knowingly half-corrected: every path below is pre-monorepo — a root
-  # `.env.local`, a root `next typegen`, `private/playwright-results-9/` — and
-  # all three now live under `apps/finances`. The job is gated off by
-  # `vars.E2E_IN_CI`, so it never runs red on that; correcting it is not this
-  # slice's work.
+  # Every path below addresses `apps/finances`: the suite, its `.env.local`,
+  # its route types and its results directory all live there since the monorepo.
+  # `apps/reading` has no database, no identity and no harness, so nothing here
+  # touches it — its own browser suite runs without any of this.
   e2e:
     runs-on: ubuntu-latest
     # Off until the repository variable E2E_IN_CI is "true". The secrets do not
@@ -83,10 +82,13 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx next typegen
+        working-directory: apps/finances
 
       # The scripts read `.env.local` through `--env-file`, which has no fallback
       # to the process environment: without this file every one of them dies.
+      # It belongs beside the app that reads it, never at the repository root.
       - name: Write .env.local from the secrets
+        working-directory: apps/finances
         run: |
           missing=""
           for name in DATABASE_URL MIGRATION_DATABASE_URL NEXT_PUBLIC_SUPABASE_URL \
@@ -104,18 +106,18 @@ jobs:
       - run: npx playwright install --with-deps chromium
 
       # Lane 9's two identities and their token rows. Idempotent.
-      - run: npm run harness:token
+      - run: npm run harness:token -w apps/finances
 
       # No step here runs a migration — the database is remote and shared, and
       # whatever schema it carries came from a migration applied out of band.
       # This only reports the weight already on it, so a regression shows up
       # as a number in a diff of two logs (docs/TRAPS.md, "One database, many
       # branches").
-      - run: npm run harness:census
+      - run: npm run harness:census -w apps/finances
 
       - name: Start the dev server and wait for it to answer
         run: |
-          npm run dev > /tmp/next-dev.log 2>&1 &
+          npm run dev -w apps/finances > /tmp/next-dev.log 2>&1 &
           # Curl rather than a `wait-on` install: nothing outside SPEC.md §4 is
           # installed. Dev compiles a route on its first hit, so the wait is for
           # the first page to render, not for the port to open.
@@ -127,7 +129,7 @@ jobs:
           done
           echo "the dev server never answered"; tail -50 /tmp/next-dev.log; exit 1
 
-      - run: npm run check:e2e
+      - run: npm run check:e2e -w apps/finances
 
       # Runs whether check:e2e passed, failed or the job was cancelled — a
       # cancelled or failed run is exactly the one that leaves orphans behind.
@@ -146,7 +148,7 @@ jobs:
         if: always()
         run: |
           set +e
-          npm run harness:reap -- --yes | tee /tmp/harness-reap.log
+          npm run harness:reap -w apps/finances -- --yes | tee /tmp/harness-reap.log
           status=${PIPESTATUS[0]}
           set -e
           if [ "$status" -eq 0 ]; then
@@ -173,4 +175,4 @@ jobs:
         uses: actions/upload-artifact@v5
         with:
           name: playwright-results
-          path: private/playwright-results-9/
+          path: apps/finances/private/playwright-results-9/
