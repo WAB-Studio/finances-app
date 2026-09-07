@@ -10,3 +10,7 @@
 *.woff binary
 *.woff2 binary
 *.pdf binary
+
+# The dictionary asset and its manifest are generated, not authored: never
+# diff them, and never let a merge treat them as prose.
+apps/reading/public/dictionary/*.json -diff linguist-generated
