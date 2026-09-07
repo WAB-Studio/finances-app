@@ -38,7 +38,10 @@ export const ingestMerchants = pgTable(
     // The category the current run of approvals is on; the streak counts that run.
     candidateCategoryId: uuid().references(() => categories.id, { onDelete: "set null" }),
     streak: smallint().notNull().default(0),
-    trustedCategoryId: uuid().references(() => categories.id, { onDelete: "set null" }),
+    // Cascade, because trust IS the category: nulling this column while `state` stayed 'trusted'
+    // is what `ingest_merchants_trusted_category_matches_state` refuses, and the category's
+    // deletion was refused with it (RF-63).
+    trustedCategoryId: uuid().references(() => categories.id, { onDelete: "cascade" }),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   },

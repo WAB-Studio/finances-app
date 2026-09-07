@@ -46,7 +46,10 @@ export const ingestCounterparties = pgTable(
     // The account the current run of completions is on; the streak counts that run.
     candidateAccountId: uuid().references(() => accounts.id, { onDelete: "set null" }),
     streak: smallint().notNull().default(0),
-    trustedAccountId: uuid().references(() => accounts.id, { onDelete: "set null" }),
+    // Cascade, because trust IS the account: nulling this column while `state` stayed 'trusted'
+    // is what `ingest_counterparties_trusted_account_matches_state` refuses, and the account's
+    // deletion was refused with it (RF-63).
+    trustedAccountId: uuid().references(() => accounts.id, { onDelete: "cascade" }),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   },
