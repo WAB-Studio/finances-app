@@ -26,6 +26,7 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
 - `docs/`, `private/`, `.claude/` and `scripts/worktree.sh` govern every app and stay at the root.
 - `node_modules` hoists to the root. A script that names a binary by path reaches it as `../../node_modules/...`.
 - Promote nothing to `packages/` until a second app asks for it.
+- `apps/reading` is the reading dictionary. Its contract is `docs/reading/SPEC.md`; its `RL` and `RNL` codes share no number with the finances `RF`/`RNF` series.
 
 ## Parallel tracks`.
 - Start the dev server on :3000 yourself and keep it running. Restart it when you must.
