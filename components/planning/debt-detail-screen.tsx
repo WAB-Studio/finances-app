@@ -43,7 +43,7 @@ import type {
   InstallmentPlanLine,
   InstallmentPlanRow,
 } from "@/db/queries/installment-plans";
-import type { DebtStatement } from "@/db/schema";
+import type { AccountStatement } from "@/db/schema";
 import { Link as LocaleLink } from "@/i18n/navigation";
 import { minorUnitExponent, type CurrencyCode } from "@/lib/currency";
 import { civilDateToDate } from "@/lib/dates";
@@ -590,7 +590,7 @@ function StatementsTable({
   currency,
   hasCutOffDay,
 }: {
-  statements: DebtStatement[];
+  statements: AccountStatement[];
   // A statement is cut in the currency the card bills in (RF-84, RF-121).
   currency: CurrencyCode;
   hasCutOffDay: boolean;
@@ -605,7 +605,7 @@ function StatementsTable({
     });
   }
 
-  const columns: DataColumn<DebtStatement>[] = [
+  const columns: DataColumn<AccountStatement>[] = [
     {
       key: "period",
       header: t("statementPeriod"),
@@ -632,11 +632,13 @@ function StatementsTable({
       header: t("statementDueDate"),
       width: STATEMENT_WIDTHS.dueDate,
       numeric: true,
-      cell: (statement) => (
-        <Text size="2" color="gray">
-          {shortDate(statement.paymentDueDate)}
-        </Text>
-      ),
+      // An asset's statement demands no payment, so it prints no due date (RF-129).
+      cell: (statement) =>
+        statement.paymentDueDate === null ? null : (
+          <Text size="2" color="gray">
+            {shortDate(statement.paymentDueDate)}
+          </Text>
+        ),
     },
     {
       key: "balance",
@@ -646,7 +648,7 @@ function StatementsTable({
       numeric: true,
       cell: (statement) => (
         <Money
-          minor={Math.abs(statement.statementBalanceCents)}
+          minor={Math.abs(statement.closingBalanceCents)}
           currency={currency}
           signed={false}
         />
@@ -658,15 +660,16 @@ function StatementsTable({
       width: STATEMENT_WIDTHS.minimum,
       align: "end",
       numeric: true,
-      cell: (statement) => (
-        <Text color="gray">
-          <Money
-            minor={statement.minimumPaymentCents}
-            currency={currency}
-            signed={false}
-          />
-        </Text>
-      ),
+      cell: (statement) =>
+        statement.minimumPaymentCents === null ? null : (
+          <Text color="gray">
+            <Money
+              minor={statement.minimumPaymentCents}
+              currency={currency}
+              signed={false}
+            />
+          </Text>
+        ),
     },
     {
       key: "interest",
@@ -674,15 +677,18 @@ function StatementsTable({
       width: STATEMENT_WIDTHS.interest,
       align: "end",
       numeric: true,
-      cell: (statement) => (
-        <Text color="gray">
-          <Money
-            minor={statement.interestEstimateCents}
-            currency={currency}
-            signed={false}
-          />
-        </Text>
-      ),
+      // What the statement charged, or an empty cell where it recorded none: a zero
+      // here would read as "the issuer charged no interest" (RF-130).
+      cell: (statement) =>
+        statement.interestChargedCents === null ? null : (
+          <Text color="gray">
+            <Money
+              minor={statement.interestChargedCents}
+              currency={currency}
+              signed={false}
+            />
+          </Text>
+        ),
     },
   ];
 

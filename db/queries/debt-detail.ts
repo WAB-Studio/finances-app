@@ -15,7 +15,7 @@ import { getUserGroup } from "@/db/queries/groups";
 import { listPlansForAccount } from "@/db/queries/installment-plans";
 import type { InstallmentPlanRow } from "@/db/queries/installment-plans";
 import { accounts, debtTerms } from "@/db/schema";
-import type { Account, DebtStatement, DebtTerms } from "@/db/schema";
+import type { Account, AccountStatement, DebtTerms } from "@/db/schema";
 import { withUserDb } from "@/db/session";
 
 // One pocket of the account: the view derives a figure per currency and no
@@ -41,7 +41,7 @@ export type DebtDetailData = {
   account: DebtDetailAccount;
   terms: DebtTerms | null;
   plans: InstallmentPlanRow[];
-  statements: DebtStatement[];
+  statements: AccountStatement[];
   currentStatement: CurrentStatement | null;
   // The foreign-currency purchases the issuer has not billed yet (RF-123).
   pendingSettlements: PendingSettlement[];

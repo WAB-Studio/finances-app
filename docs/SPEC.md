@@ -271,7 +271,7 @@ erDiagram
     accounts ||--o{ ingest_counterparties : "remembers"
     accounts ||--o| debt_terms : "if liability"
     accounts ||--o{ installment_plans : "schedules"
-    accounts ||--o{ debt_statements : "closes"
+    accounts ||--o{ account_statements : "closes"
     installment_plans ||--o{ installment_lines : "generates"
     accounts ||--o{ transactions : "source"
     accounts ||--o{ transactions : "destination"
@@ -386,15 +386,20 @@ erDiagram
         timestamptz created_at
     }
 
-    debt_statements {
+    account_statements {
         uuid id PK
         uuid account_id FK
         date period_start
         date cut_off_date
-        date payment_due_date
-        bigint statement_balance_cents "signed like the account"
-        bigint minimum_payment_cents
-        bigint interest_estimate_cents
+        date payment_due_date "nullable; an asset owes no payment"
+        bigint opening_balance_cents "nullable; as printed"
+        bigint closing_balance_cents "signed like the account"
+        bigint credits_cents "nullable; as printed"
+        bigint debits_cents "nullable; as printed"
+        bigint minimum_payment_cents "nullable; as printed"
+        bigint interest_charged_cents "nullable; as charged, never estimated"
+        bigint fees_charged_cents "nullable; as printed"
+        text source "recorded | imported"
         timestamptz closed_at
     }
 
@@ -680,8 +685,12 @@ Rules the model must always guarantee, regardless of how they are implemented:
   oldest-first; a line is paid in full or not at all, and the paying movement is
   linked. A partial remainder is left unallocated.
 - A plan's pending derives from its unpaid lines and is never stored.
-- A debt statement is an immutable snapshot captured at its cut-off: the one
-  persisted balance figure, never kept in sync with later movements.
+- An account statement is an immutable snapshot captured at its cut-off: the one
+  persisted balance figure, never kept in sync with later movements. Every
+  printed figure but the closing balance is optional, and an absent one is not a
+  zero. The difference between a statement's printed closing balance and the
+  balance derived from movements, in the account's own settlement currency, is
+  computed on read and never stored.
 - A group's `cash_mode` is `shared` (a single group cash account) or
   `per_member` (one cash account per member).
 - Money is an integer number of cents.

@@ -207,7 +207,7 @@
       "debt_terms": "Condiciones de deuda",
       "installment_plans": "Planes a cuotas",
       "installment_lines": "Cuotas",
-      "debt_statements": "Extractos",
+      "account_statements": "Extractos",
       "webhook_credentials": "Credenciales de webhook"
     }
   },

@@ -63,7 +63,7 @@ const CLEANUP_ORDER = [
   ["transaction_splits", "transaction_id"],
   ["installment_lines", "id"],
   ["installment_plans", "id"],
-  ["debt_statements", "id"],
+  ["account_statements", "id"],
   ["debt_terms", "account_id"],
   ["budgets", "id"],
   ["planned_payments", "id"],
@@ -253,7 +253,7 @@ export async function purgeIdentity(userId: string): Promise<void> {
       delete from installment_plans
       where account_id in (select id from accounts where owner_user_id = ${userId})`;
     await tx`
-      delete from debt_statements
+      delete from account_statements
       where account_id in (select id from accounts where owner_user_id = ${userId})`;
     await tx`
       delete from debt_terms

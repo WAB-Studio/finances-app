@@ -2,8 +2,8 @@ import "server-only";
 
 import { desc, eq, sql } from "drizzle-orm";
 
-import { debtStatements } from "@/db/schema";
-import type { DebtStatement } from "@/db/schema";
+import { accountStatements } from "@/db/schema";
+import type { AccountStatement } from "@/db/schema";
 import { withUserDb } from "@/db/session";
 import { nextDayOfMonthOnOrAfter, priorCutOffDates, todayInBogota } from "@/lib/dates";
 
@@ -17,6 +17,9 @@ import { nextDayOfMonthOnOrAfter, priorCutOffDates, todayInBogota } from "@/lib/
  * signed sum `account_balances` derives, never a stored running column. The unique
  * key makes a re-run or a concurrent run a no-op, so nothing is ever rewritten
  * (the snapshot is immutable).
+ *
+ * It writes no interest: the generator cuts a period out of movements and no issuer
+ * told it what was charged, so `interest_charged_cents` stays null (RF-130).
  *
  * It writes under the caller's own session, so a member who may read the account
  * but not write it would take a 42501 for merely opening its history. The write
@@ -38,7 +41,7 @@ export async function materialiseDueStatements(accountId: string): Promise<numbe
         dt.statement_cut_off_day,
         dt.payment_due_day,
         a.initial_balance_on,
-        (select max(s.cut_off_date) from debt_statements s where s.account_id = ${accountId}) as last_cut_off,
+        (select max(s.cut_off_date) from account_statements s where s.account_id = ${accountId}) as last_cut_off,
         private.can_write_account(${accountId}::uuid) as may_write
       from debt_terms dt
       join accounts a on a.id = dt.account_id
@@ -73,9 +76,9 @@ export async function materialiseDueStatements(accountId: string): Promise<numbe
     );
 
     const inserted = await tx.execute<{ id: string }>(sql`
-      insert into debt_statements
+      insert into account_statements
         (account_id, period_start, cut_off_date, payment_due_date,
-         statement_balance_cents, minimum_payment_cents, interest_estimate_cents)
+         closing_balance_cents, minimum_payment_cents)
       select
         ${accountId},
         coalesce(g.prev + 1, a.initial_balance_on),
@@ -87,8 +90,7 @@ export async function materialiseDueStatements(accountId: string): Promise<numbe
           when dt.minimum_payment_pct is not null
             then round(abs(bal.statement_balance) * dt.minimum_payment_pct)::bigint
           else 0
-        end,
-        round(abs(bal.statement_balance) * (power(1 + dt.annual_rate, 1.0/12) - 1))::bigint
+        end
       from jsonb_to_recordset(${periods}::jsonb)
         as g(cut_off date, prev date, payment_due date)
       cross join debt_terms dt
@@ -126,15 +128,15 @@ export async function materialiseDueStatements(accountId: string): Promise<numbe
 
 // The statement history, newest first, read through the generator so a due but
 // unmaterialised period is present before the read (RF-84).
-export async function listStatements(accountId: string): Promise<DebtStatement[]> {
+export async function listStatements(accountId: string): Promise<AccountStatement[]> {
   await materialiseDueStatements(accountId);
 
   return withUserDb(async (tx) =>
     tx
       .select()
-      .from(debtStatements)
-      .where(eq(debtStatements.accountId, accountId))
-      .orderBy(desc(debtStatements.cutOffDate)),
+      .from(accountStatements)
+      .where(eq(accountStatements.accountId, accountId))
+      .orderBy(desc(accountStatements.cutOffDate)),
   );
 }
 
@@ -169,7 +171,7 @@ export async function getCurrentStatement(
     }>(sql`
       select
         coalesce(
-          (select max(s.cut_off_date) + 1 from debt_statements s where s.account_id = ${accountId}),
+          (select max(s.cut_off_date) + 1 from account_statements s where s.account_id = ${accountId}),
           a.initial_balance_on
         ) as period_start,
         b.balance_cents,
@@ -255,7 +257,7 @@ export async function listPendingSettlements(
         on t.from_account_id = a.id or t.to_account_id = a.id
       left join lateral (
         select min(s.cut_off_date) as cut_off_date
-        from debt_statements s
+        from account_statements s
         where s.account_id = a.id and s.cut_off_date >= t.occurred_at
       ) p on true
       where a.id = ${accountId}

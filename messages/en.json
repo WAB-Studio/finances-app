@@ -207,7 +207,7 @@
       "debt_terms": "Debt terms",
       "installment_plans": "Installment plans",
       "installment_lines": "Installments",
-      "debt_statements": "Statements",
+      "account_statements": "Statements",
       "webhook_credentials": "Webhook credentials"
     }
   },
