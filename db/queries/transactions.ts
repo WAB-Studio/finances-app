@@ -15,10 +15,17 @@ import {
 import type { SQL } from "drizzle-orm";
 
 import { insertRow } from "@/db/insert-row";
-import { accounts, transactionLabels, transactionSplits, transactions } from "@/db/schema";
+import {
+  accounts,
+  ingestCounterparties,
+  transactionLabels,
+  transactionSplits,
+  transactions,
+} from "@/db/schema";
 import type { Transaction } from "@/db/session";
 import { withUserDb } from "@/db/session";
 import type { CurrencyCode } from "@/lib/currency";
+import { counterpartyPatternKey } from "@/lib/ingest/counterparty-pattern";
 import type { SettlementCurrencies } from "@/lib/validation/transaction";
 
 export type TransactionSplitInput = { categoryId: string; amountCents: number };
@@ -316,10 +323,20 @@ export async function listTransactions(
   }
   if (filters.kind) conditions.push(eq(transactions.kind, filters.kind));
   if (filters.unreviewed) {
+    // "Waiting for a person" (RF-133): a generated movement not yet confirmed,
+    // or one `awaiting_counterparty` — never every one-sided movement. Income
+    // and expense are one-sided BY DESIGN (RF-17): naming only one account is
+    // the ordinary shape of most movements, not a sign anything is missing, so
+    // `from_account_id is null or to_account_id is null` cannot stand in for
+    // this on its own (measured against the live database: 8 462 of 8 462
+    // movements are one-sided). `awaiting_counterparty` is the fact itself.
     conditions.push(
       and(
-        isNotNull(transactions.recurringRuleId),
         isNull(transactions.reviewedAt),
+        or(
+          isNotNull(transactions.recurringRuleId),
+          eq(transactions.awaitingCounterparty, true),
+        ),
       ) as SQL,
     );
   }
@@ -433,4 +450,135 @@ export async function getTransactionById(
 ): Promise<TransactionListRow | null> {
   const [row] = await listTransactions({ id }, { limit: 1 });
   return row ?? null;
+}
+
+export type AwaitingCounterpartyFilters = {
+  accountId?: string;
+  memberUserId?: string;
+};
+
+export type AwaitingCounterpartyRow = {
+  id: string;
+  kind: string;
+  amountCents: number;
+  currency: CurrencyCode;
+  occurredAt: string;
+  description: string | null;
+  fromAccountId: string | null;
+  toAccountId: string | null;
+  createdBy: string;
+  // Which leg is missing — the side a remembered pattern would fill (RF-135).
+  missingSide: "from" | "to";
+  patternKey: string;
+  // The remembered proposal for that key and side, account id and label — set
+  // only when the pattern is `trusted`; `learning` and `ambiguous` propose
+  // nothing (RF-135).
+  proposedAccountId: string | null;
+  proposedAccountLabel: string | null;
+};
+
+type TrustedPattern = {
+  patternKey: string;
+  side: "from" | "to";
+  accountId: string;
+  accountLabel: string;
+};
+
+/**
+ * Movements waiting for a person (RF-133): `awaiting_counterparty` and
+ * `reviewed_at is null`. Naming only one account is NOT this condition on its
+ * own — every income and every expense is one-sided by design (RF-17), so that
+ * shape alone would catch nearly the whole ledger; `awaiting_counterparty` is
+ * the one column that says which one-sided movements actually are missing a
+ * side an ingest reader could not tell (migration 0042).
+ *
+ * `counterpartyPatternKey` (Module 12) is a TypeScript function, not a SQL
+ * one, so it cannot run inside the WHERE clause without a second, SQL-only
+ * copy of its normalisation — a copy that could silently drift from what
+ * `private.remember_counterparty` was taught with (RF-135) and poison a
+ * proposal nobody could then explain. Instead, the caller's own `trusted`
+ * patterns ride along in the SAME round trip as a small side-set, one row's
+ * worth of JSON regardless of how many movements match (`state = 'trusted'` is
+ * a bounded, per-user table); the match against each movement's own key happens
+ * here, in JS, against that one function's own output — never one lookup per
+ * row, and never two implementations of the same rule.
+ */
+export async function listAwaitingCounterparty(
+  filters: AwaitingCounterpartyFilters = {},
+): Promise<AwaitingCounterpartyRow[]> {
+  const conditions: SQL[] = [
+    eq(transactions.awaitingCounterparty, true),
+    isNull(transactions.reviewedAt),
+  ];
+
+  if (filters.accountId) {
+    conditions.push(
+      or(
+        eq(transactions.fromAccountId, filters.accountId),
+        eq(transactions.toAccountId, filters.accountId),
+      ) as SQL,
+    );
+  }
+  if (filters.memberUserId) {
+    conditions.push(eq(transactions.createdBy, filters.memberUserId));
+  }
+
+  // Trusted only: `learning` and `ambiguous` propose nothing (RF-135). RLS
+  // already scopes `ingest_counterparties` and `accounts` to the caller, so
+  // this needs no owner predicate of its own — the same shape `listSilencedShapes`
+  // already leans on for a subquery over an RLS-scoped table.
+  const trustedPatternsJson = sql<TrustedPattern[]>`coalesce((
+    select jsonb_agg(jsonb_build_object(
+      'patternKey', c.pattern_key,
+      'side', c.side,
+      'accountId', c.trusted_account_id,
+      'accountLabel', a.name
+    ))
+    from ${ingestCounterparties} c
+    join ${accounts} a on a.id = c.trusted_account_id
+    where c.state = 'trusted'
+  ), '[]'::jsonb)`;
+
+  const rows = await withUserDb((tx) =>
+    tx
+      .select({
+        id: transactions.id,
+        kind: sql<string>`${transactions.kind}`,
+        amountCents: transactions.amountCents,
+        currency: transactions.currency,
+        occurredAt: transactions.occurredAt,
+        description: transactions.description,
+        fromAccountId: transactions.fromAccountId,
+        toAccountId: transactions.toAccountId,
+        createdBy: transactions.createdBy,
+        trustedPatterns: trustedPatternsJson,
+      })
+      .from(transactions)
+      .where(and(...conditions))
+      .orderBy(desc(transactions.occurredAt), desc(transactions.createdAt)),
+  );
+
+  return rows.map((row) => {
+    const missingSide: "from" | "to" = row.fromAccountId === null ? "from" : "to";
+    const patternKey = counterpartyPatternKey(row.description ?? "");
+    const proposal = row.trustedPatterns.find(
+      (pattern) => pattern.side === missingSide && pattern.patternKey === patternKey,
+    );
+
+    return {
+      id: row.id,
+      kind: row.kind,
+      amountCents: row.amountCents,
+      currency: row.currency,
+      occurredAt: row.occurredAt,
+      description: row.description,
+      fromAccountId: row.fromAccountId,
+      toAccountId: row.toAccountId,
+      createdBy: row.createdBy,
+      missingSide,
+      patternKey,
+      proposedAccountId: proposal?.accountId ?? null,
+      proposedAccountLabel: proposal?.accountLabel ?? null,
+    };
+  });
 }
