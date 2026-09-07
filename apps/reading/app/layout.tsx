@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { Metadata, Viewport } from "next";
+import { IBM_Plex_Sans, Newsreader } from "next/font/google";
 import { NextIntlClientProvider } from "next-intl";
 import { getTranslations } from "next-intl/server";
 
@@ -7,6 +8,23 @@ import { RegisterServiceWorker } from "@/components/register-service-worker";
 import { AppTheme, Flex } from "@/components/ui";
 import "@radix-ui/themes/styles.css";
 import "./theme.css";
+
+// Labels, metadata, controls and interface copy (docs/reading/DESIGN.md "Type").
+const sans = IBM_Plex_Sans({
+  variable: "--font-sans",
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  fallback: ["system-ui", "sans-serif"],
+  display: "swap",
+});
+
+// Headwords, translations and definitions (docs/reading/DESIGN.md "Type").
+const serif = Newsreader({
+  variable: "--font-serif",
+  subsets: ["latin"],
+  fallback: ["Georgia", "serif"],
+  display: "swap",
+});
 
 // Lets env(safe-area-inset-*) resolve instead of 0 on a notched phone.
 export const viewport: Viewport = {
@@ -33,7 +51,7 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="es">
+    <html lang="es" className={`${sans.variable} ${serif.variable}`}>
       <body>
         <NextIntlClientProvider>
           <AppTheme>

@@ -56,7 +56,7 @@ export function PhraseAnswer({
 
       {state.kind === "done" && (
         <Flex direction="column" gap="1">
-          <Text size="4">{state.result.text}</Text>
+          <Text variant="translation">{state.result.text}</Text>
           <Text size="2" color="gray">
             {source}
           </Text>
