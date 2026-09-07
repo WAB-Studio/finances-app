@@ -19,7 +19,11 @@ jobs:
           cache: npm
       - run: npm ci
       # PageProps and LayoutProps live in generated, gitignored route types.
+      # One app at a time: typegen reads the app's own `app/` directory.
       - run: npx next typegen
+        working-directory: apps/finances
+      - run: npx next typegen
+        working-directory: apps/reading
       - run: npm run typecheck
 
   lint:
@@ -36,6 +40,11 @@ jobs:
   # The 12-minute suite runs here so a laptop is not holding a dev server and a
   # Chromium for it. One at a time: every run drives the one remote Postgres, and
   # a second concurrent run would contend with it and with a lane running locally.
+  # Knowingly half-corrected: every path below is pre-monorepo — a root
+  # `.env.local`, a root `next typegen`, `private/playwright-results-9/` — and
+  # all three now live under `apps/finances`. The job is gated off by
+  # `vars.E2E_IN_CI`, so it never runs red on that; correcting it is not this
+  # slice's work.
   e2e:
     runs-on: ubuntu-latest
     # Off until the repository variable E2E_IN_CI is "true". The secrets do not

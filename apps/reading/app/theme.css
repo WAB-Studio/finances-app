@@ -1,0 +1,13 @@
+/* Radix Themes scopes its reset to `.radix-themes`; the document itself still
+   needs to fill the viewport and lose the user-agent's default body margin. */
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+/* The app is one column read at arm's length: the theme fills the viewport so a
+   short answer still sits against a full page rather than a white band. */
+.radix-themes {
+  min-height: 100%;
+}
