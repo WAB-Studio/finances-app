@@ -40,39 +40,39 @@ this gets built, and no schema, table or column is "prepared for" it.
 #### The box
 
 - [ ] **RL-01** — The app opens on one search box. It has focus, it sits in the thumb's reach, and it answers as the person types.
-- [ ] **RL-02** — The box takes a word or a whole sentence. The person never picks a mode and never sees one.
-- [ ] **RL-03** — The typed string is looked up whole in the local dictionary first, so a multi-word entry such as `give up` answers as a word. It is treated as a sentence only when that lookup misses **and** the string has more than one token.
+- [x] **RL-02** — The box takes a word or a whole sentence. The person never picks a mode and never sees one.
+- [x] **RL-03** — The typed string is looked up whole in the local dictionary first, so a multi-word entry such as `give up` answers as a word. It is treated as a sentence only when that lookup misses **and** the string has more than one token.
 
 #### The word
 
 - [ ] **RL-04** — A headword's answer shows every sense the dictionary carries for it, grouped by part of speech, each with its IPA when one exists and all of its Spanish translations.
 - [ ] **RL-05** — While the string is being treated as a word, up to ten headwords that begin with it are offered. Choosing one answers it.
-- [ ] **RL-06** — An inflected form resolves to its headword, and the answer names both the form typed and the headword reached: `left` finds `leave`, `went` finds `go`, `children` finds `child`, `studies` finds `study`.
+- [x] **RL-06** — An inflected form resolves to its headword, and the answer names both the form typed and the headword reached: `left` finds `leave`, `went` finds `go`, `children` finds `child`, `studies` finds `study`.
   - Measured 2026-09-07 by `apps/voyager/scripts/check-dictionary.ts` (D9), over a sample of 2,345 regular surface forms generated from 301 stride-sampled single-word letter headwords by applying the regular suffix rules, plus all 386 `IRREGULAR_FORMS` surfaces: the real coverage figure is the **irregular-only rate, 367/386 = 95.1%**, the only non-circular signal since those surfaces come from a hand-written table no rule can reach. The generated forms resolve at 2345/2345 = 100.0%, a closed loop that proves the resolver inverts its own suffix rules, not real coverage. Blended (generated + irregular together, the number that includes the closed loop): 2712/2731 = 99.3%.
 - [ ] **RL-07** — Autocomplete appears only while the string is being treated as a word. A sentence never raises it.
 
 #### The sentence
 
 - [ ] **RL-08** — A sentence is translated by the device's own translator when the browser offers one and it is ready. Whether it does is asked of the browser at runtime, on every open, and never inferred from the browser's name or version.
-- [ ] **RL-09** — When the device offers no translator, the sentence is translated over the network, and the answer says the translation came from the network. *This is the app's only server surface and the single exception to "no backend": one route handler that holds the provider's identity and any key it needs off the client and makes the provider a one-file change. Nothing on the word path passes through it, ever.*
+- [x] **RL-09** — When the device offers no translator, the sentence is translated over the network, and the answer says the translation came from the network. *This is the app's only server surface and the single exception to "no backend": one route handler that holds the provider's identity and any key it needs off the client and makes the provider a one-file change. Nothing on the word path passes through it, ever.*
 - [ ] **RL-10** — While the device's translator is downloading what it needs, the interface says so and the box stays usable.
-- [ ] **RL-11** — When the device has a translator that is not yet installed, that sentence is translated over the network and a single control offers to install the translator. Activating that control is what starts the download; every sentence after it is translated on the device. A person who never activates it keeps getting network translations and is never blocked.
+- [x] **RL-11** — When the device has a translator that is not yet installed, that sentence is translated over the network and a single control offers to install the translator. Activating that control is what starts the download; every sentence after it is translated on the device. A person who never activates it keeps getting network translations and is never blocked.
 
 #### The payload
 
 - [ ] **RL-12** — The dictionary is fetched once, as a static asset, and installed onto the device. Its progress is shown and the box stays typeable throughout.
-- [ ] **RL-13** — An interrupted install leaves no partial dictionary. The next open finds the dictionary whole or absent, never in between, and starts it again from zero.
-- [ ] **RL-14** — Once installed, looking a word up touches the network in no way, on no keystroke.
-- [ ] **RL-15** — The dictionary's source, its edition and its CC BY-SA 3.0 licence are named in the interface, one tap from the box, linking to the source and to the licence text, and stating that what the app ships is a reformatted extract distributed under the same licence.
+- [x] **RL-13** — An interrupted install leaves no partial dictionary. The next open finds the dictionary whole or absent, never in between, and starts it again from zero.
+- [x] **RL-14** — Once installed, looking a word up touches the network in no way, on no keystroke.
+- [x] **RL-15** — The dictionary's source, its edition and its CC BY-SA 3.0 licence are named in the interface, one tap from the box, linking to the source and to the licence text, and stating that what the app ships is a reformatted extract distributed under the same licence.
 
 #### The shell
 
 - [ ] **RL-16** — The app opens with no connection and shows its box, and it can be launched from the phone's home screen without a browser around it. This holds from the second time it is opened onwards: the first open needs the network to deliver the app itself.
-- [ ] **RL-17** — Every lookup a reader settles on is recorded on the device, from the app's first day: what was typed, whether it was answered as a word or a sentence, the headword it actually reached when an inflected form was typed, whether it found anything at all, and when. The record is append-only and nothing in the interface shows it.
+- [x] **RL-17** — Every lookup a reader settles on is recorded on the device, from the app's first day: what was typed, whether it was answered as a word or a sentence, the headword it actually reached when an inflected form was typed, whether it found anything at all, and when. The record is append-only and nothing in the interface shows it.
 
 ### Non-functional requirements
 
-- [ ] **RNL-01** — A word lookup answers in under 10 ms with the dictionary installed.
+- [x] **RNL-01** — A word lookup answers in under 10 ms with the dictionary installed.
   - **What the 10 ms measures, settled 2026-09-07 before module 22 was written:** the lookup itself —
     the worker round trip, from the message posted to the answer received. Measured that way against
     the live app: p50 0,10 ms, p95 0,30 ms, max 1,30 ms over 200 sequential lookups.
@@ -83,9 +83,9 @@ this gets built, and no schema, table or column is "prepared for" it.
 - [ ] **RNL-02** — Every string a person reads comes from the message catalogue. The interface is Spanish.
 - [ ] **RNL-03** — The app holds at a 360 px viewport: no horizontal overflow, no overlapping control, no tap target under 32 px on its shorter side. It is used one-handed, standing, holding a book. It also holds at a wide viewport: the reading column keeps a maximum measure and centres, so at 1440 px the box and the answer read as a column rather than stretching the full width. The phone is the case the app is designed for; the desktop is the case it must not look neglected in.
   - Widened 2026-09-07 from the 360 px case alone. The code was unticked and nothing had been verified against it, so no tick is invalidated; the alternative was retiring it for a successor, which buys nothing here.
-- [ ] **RNL-04** — The dictionary asset is built from its source by a script kept in the repository, and the build records the source URL, the edition, the licence and the entry counts beside the asset.
-- [ ] **RNL-05** — The sentence path never fires on a keystroke: it waits for the typing to settle, does not fire below a minimum number of tokens, never fires twice for the same text, and cancels a request already in flight when the text changes. The word path is never throttled and never delayed.
-- [ ] **RNL-06** — Recording a lookup never delays, blocks or fails a lookup. The write is never awaited on the path that produces an answer, a failure to write is swallowed, and the log's storage is a separate database from the dictionary's, so a write can never contend with a read of the payload.
+- [x] **RNL-04** — The dictionary asset is built from its source by a script kept in the repository, and the build records the source URL, the edition, the licence and the entry counts beside the asset.
+- [x] **RNL-05** — The sentence path never fires on a keystroke: it waits for the typing to settle, does not fire below a minimum number of tokens, never fires twice for the same text, and cancels a request already in flight when the text changes. The word path is never throttled and never delayed.
+- [x] **RNL-06** — Recording a lookup never delays, blocks or fails a lookup. The write is never awaited on the path that produces an answer, a failure to write is swallowed, and the log's storage is a separate database from the dictionary's, so a write can never contend with a read of the payload.
 - [ ] **RNL-07** — The reader chooses light or dark, and the choice is remembered on the device. The app opens in the system's mode until a choice is made. Dark is the design's primary look; light is the same design inverted, and both carry the palettes in `docs/voyager/DESIGN.md`.
 
 ### Retired
