@@ -529,8 +529,8 @@ global was only reached by a bare, un-mocked call, which timed out.
 
 ### An explicit `--port` in a `dev` script silently ignores `PORT`
 
-`apps/reading`'s `dev` script read `next dev --port 3100`. A flag on the command line beats the `PORT`
-environment variable, so `PORT=3103 npm run dev -w apps/reading` bound **3100** — lane 1's port — and
+`apps/voyager`'s `dev` script read `next dev --port 3100`. A flag on the command line beats the `PORT`
+environment variable, so `PORT=3103 npm run dev -w apps/voyager` bound **3100** — lane 1's port — and
 said so only in a line nobody reads. Two lanes hit it the same afternoon; one bound another lane's
 port and had to kill the process it did not own.
 
@@ -545,7 +545,7 @@ A lane's port belongs to the lane. A script that pins one takes it from whoever 
 
 ### A dependency declared on a branch is not installed by merging it
 
-Module 3 added `fast-xml-parser` to `apps/reading/package.json` and to the lockfile. Nobody ran
+Module 3 added `fast-xml-parser` to `apps/voyager/package.json` and to the lockfile. Nobody ran
 `npm install` in the main checkout afterwards, so the package was never on disk there. Merging the
 branch changed the manifest, not `node_modules`.
 

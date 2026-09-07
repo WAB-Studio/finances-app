@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # One parallel track: a worktree, its own lane, its own port.
 #
-#   scripts/worktree.sh 2 mi-rama [base] [--app finances]
+#   scripts/worktree.sh 2 mi-rama [base] [--app orbit]
 #
 # Lane N lands beside this checkout as <checkout>-lN on its app's port base plus
 # N-1, with its own Playwright artefacts. A lane's app decides whether it has a
@@ -14,11 +14,11 @@ set -euo pipefail
 
 # app       port base  .env.local  harness identities
 APPS=(
-  "finances 3000       yes         yes"
-  "reading  3100       no          no"
+  "orbit    3000       yes         yes"
+  "voyager  3100       no          no"
 )
 
-APP_NAME=finances
+APP_NAME=orbit
 ARGS=()
 while (($#)); do
   case $1 in
@@ -94,7 +94,7 @@ if [[ $HAS_HARNESS == yes ]]; then
 fi
 
 case $APP_NAME in
-  finances)
+  orbit)
     COMMANDS="  cd $APP
   PORT=$PORT npm run dev
   HARNESS_LANE=$LANE HARNESS_BASE_URL=http://localhost:$PORT npm run check:e2e" ;;
