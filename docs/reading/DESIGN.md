@@ -79,6 +79,16 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   the app is designed for; the desktop is the case it must not look neglected in.
 - Never a sidebar, never a tab bar. The app is one box and one answer.
 
+## Failure
+
+- No error colour exists in this palette, and none should be added: a red pulled in from outside
+  reads as a different app's alarm, not this one's ink.
+- Mark a failure with what the design already has: a hairline above it to set it off from whatever
+  state came before, the failure line in full-weight **ink** (never muted, never the accent — a
+  failure is not metadata), and the retry action in the ordinary accent-coloured button. The accent
+  the reader already reads as "act here" carries the recovery; the weight and the hairline carry the
+  break.
+
 ## Settled
 
 - **The English headword leads.** Decided by the user 2026-09-07, `Impreso · Palabra` over
