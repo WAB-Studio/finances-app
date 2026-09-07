@@ -44,8 +44,9 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
 - Free the lane's port with `fuser -k <port>/tcp`. Never `pkill -f` a path: the pattern matches your own shell.
 - Drop the worktree when its branch lands: `git worktree remove ../finances-app-l<n> --force`.
 - Forbid a file to every live lane the moment you hand it out, not only to the lanes you open next.
-- Append a `Q` assertion at the end of its suite in `scripts/check-queries.ts`. The identifiers are a
-  runtime counter over call order, so inserting in the middle renumbers everything below.
+- Append an assertion at the end of its suite, in `scripts/check-queries.ts` and in
+  `scripts/check-http.ts` alike. `Q` and `H` are both a runtime counter over call order, so
+  inserting in the middle renumbers everything below.
 
 ## Harness lanes
 
