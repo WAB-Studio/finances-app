@@ -5,7 +5,7 @@
 import { randomUUID } from "node:crypto";
 
 import postgres from "postgres";
-import type { TransactionSql } from "postgres";
+import type { Sql, TransactionSql } from "postgres";
 
 import { TIME_ZONE } from "@/lib/locales";
 
@@ -358,15 +358,61 @@ export async function seedHarnessScope(userId: string): Promise<HarnessScope> {
 }
 
 /**
+ * The email `session.ts` mints for this lane's leader identity, by the same
+ * formula as its `HARNESS_EMAIL` — not imported from there: `session.ts` imports
+ * `fixtureSql` from this file, so importing it back would close a cycle (the
+ * same reason `registry.ts`'s `harnessLane()` duplicates rather than imports).
+ * Deterministic, not a guess: this process already knows its own lane from
+ * `HARNESS_LANE`, the same fact every other harness pool names itself by.
+ */
+function laneSharedEmail(): string {
+  const lane = process.env.HARNESS_LANE?.trim() ?? "";
+  if (lane !== "" && lane !== "1" && !/^[1-9][0-9]*$/.test(lane)) {
+    throw new Error(`HARNESS_LANE must be a positive integer, not "${lane}"`);
+  }
+
+  return `harness${lane === "" || lane === "1" ? "" : `-${lane}`}@example.invalid`;
+}
+
+// The tracked-id deletes, run under whichever `sql` the caller hands in — bare
+// `fixtureSql` or a transaction already carrying a settled `auth.uid()`.
+async function deleteTracked(sql: Sql | TransactionSql): Promise<void> {
+  for (const [table, idColumn] of CLEANUP_ORDER) {
+    const ids = tracked.get(table);
+    if (ids === undefined || ids.length === 0) continue;
+
+    await sql`
+      delete from ${sql(table)}
+      where ${sql(idColumn)} in ${sql(ids)}`;
+  }
+}
+
+/**
  * Drops every ephemeral identity this run registered — everything it owns, then
  * the identity itself — then whatever the tracked-id path still names (a shared
  * identity's rows, which are never owned by dropping the identity), then the
  * trail all of that stamped, then closes the run.
  *
+ * The tracked-id path never reads `registeredIdentities(sql, "shared")`: that
+ * set is global across every lane — a shared row hangs off no run by its own
+ * CHECK — so filtering the purge by it would delete another lane's live audit
+ * trail the moment more than one lane's identity is shared
+ * (`private/planes/plan-datos-de-prueba.md`, «Two answers module 3 forced»).
+ * Instead the deletes run under `laneSharedEmail`, this lane's own identity and
+ * nothing broader, so the rows they touch stamp that identity as actor and
+ * `purgeAuditTrail` can find them again — never both-null. A run that tracked
+ * nothing never looks the identity up at all.
+ *
  * Each identity gets its own try/catch: one identity's undeletable row no longer
  * costs every later identity its cleanup. Every failure is recorded and the
  * function still throws at the end, naming every id it could not drop — the
  * leak is now visible instead of silent.
+ *
+ * `closeRun` runs only when nothing failed. A partial cleanup must keep looking
+ * unfinished: its `unref()`ed heartbeat stops with this process, the run ages
+ * past 30 minutes, and module 10's reaper — keyed on `finished_at is null` plus
+ * a stale heartbeat — takes the identity this call could not. A run that
+ * dropped everything still closes normally.
  */
 export async function cleanup(): Promise<void> {
   const tripsBefore = statements;
@@ -374,7 +420,6 @@ export async function cleanup(): Promise<void> {
 
   try {
     const ephemeralIds = await registeredIdentities(fixtureSql, "ephemeral");
-    const sharedIds = await registeredIdentities(fixtureSql, "shared");
     const dropped: string[] = [];
 
     for (const userId of ephemeralIds) {
@@ -391,17 +436,18 @@ export async function cleanup(): Promise<void> {
       }
     }
 
-    // The shared path: never the identity, only what this run tracked by id.
-    for (const [table, idColumn] of CLEANUP_ORDER) {
-      const ids = tracked.get(table);
-      if (ids === undefined || ids.length === 0) continue;
+    const hasTrackedRows = [...tracked.values()].some((ids) => ids.length > 0);
+    const laneUser = hasTrackedRows
+      ? await findUserByEmail(laneSharedEmail())
+      : null;
 
-      await fixtureSql`
-        delete from ${fixtureSql(table)}
-        where ${fixtureSql(idColumn)} in ${fixtureSql(ids)}`;
+    if (laneUser) {
+      await asOwner(laneUser.id, deleteTracked);
+    } else {
+      await deleteTracked(fixtureSql);
     }
 
-    await purgeAuditTrail([...dropped, ...sharedIds]);
+    await purgeAuditTrail(laneUser ? [...dropped, laneUser.id] : dropped);
 
     if (dropped.length > 0) {
       // No foreign key ties this row to `auth.users` (migration 0039), so it
@@ -409,7 +455,9 @@ export async function cleanup(): Promise<void> {
       await fixtureSql`delete from harness.identities where user_id in ${fixtureSql(dropped)}`;
     }
 
-    await closeRun(fixtureSql);
+    if (failed.length === 0) {
+      await closeRun(fixtureSql);
+    }
 
     if (failed.length > 0) {
       throw new Error(
