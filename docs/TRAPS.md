@@ -59,6 +59,32 @@ no current file hash, and four journal tags have no applied row — those SQL fi
 *after* being applied. Seven policies on `transaction_splits` and `transaction_labels` exist on
 the database and in no snapshot. **A rebuild from the migrations will not equal production.**
 
+### RNF-09 has one measurable shape, and it is not `next dev`
+
+`check-http.ts` refuses the RNF-09 verdict unless **two** preconditions hold, and it says which one
+failed rather than passing quietly: the measured user must own a year of movements, and
+`HARNESS_TARGET` must name what is being served. `dev` is accepted as a label but is documented in
+the file itself as **not the requirement's subject** — `next dev` compiles a route on demand, so the
+number measures the compiler as much as the query plan.
+
+**The first real verdict, 2026-09-07:** `npm run build`, `npm start`, then
+`HARNESS_TARGET=production npm run check:http` with no other lane running — **1118 ms median against
+the 2000 ms budget, over 4017 movements** (1098, 1103, 1118, 1131, 1152). 65 pass, 0 fail, 0 skip.
+
+For contrast, the same suite against `next dev` on the same tree and the same data read 1280-1296 ms
+with an outlier at 4121 ms. Dev is not merely slower; it is noisier, and the outlier is the compiler.
+
+**Two things that will waste a session if you do not know them:**
+
+- **The measured identity's ledger empties.** It read 4017 movements at one point in the session and
+  **2** an hour later, so the suite skipped on the other precondition. `npm run seed:year` is
+  resumable — it counts what is already there and writes only the difference — so re-running it is
+  cheap and always the right move when H63 skips.
+- **`seed:year` can die at `57014` mid-run** inside `private.set_transaction_currency()`. That is the
+  8 000 ms `statement_timeout` from `db/session.ts` hitting a slow moment on the remote pooler, not a
+  defect that grows with row count: the run that died at 3328 of 4015 resumed and finished the
+  remaining 687 in 41 s. Re-run before investigating.
+
 ### One database, many branches
 
 A migration applied from any branch is applied for everyone, immediately, including branches
