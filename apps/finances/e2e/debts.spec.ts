@@ -696,6 +696,59 @@ const DETAIL_LINE_CENTS = 10_000_000;
 const DETAIL_OWED_CENTS = PLAN_LINES * DETAIL_LINE_CENTS;
 const DETAIL_PAID_CENTS = PLAN_PAID_LINES * DETAIL_LINE_CENTS;
 const AFTER_CUT_OFF_CENTS = 30_000_000;
+const DETAIL_MINIMUM_CENTS = 5_000_000;
+const DETAIL_CUT_OFF_DAY = 15;
+const DETAIL_DUE_DAY = 5;
+
+// What the issuer printed at each past cut-off, oldest first. Three figures that
+// differ, so a column read below speaks about each row and not about one number
+// repeated down it. They are the statement's own and not the ledger's: RF-129
+// stores what was printed and derives its distance from the movements on read.
+const DETAIL_STATEMENT_CENTS = [-240_000_000, -200_000_000, -150_000_000];
+
+// Day `day` of the civil month `back` months before today, as a YYYY-MM-DD string.
+// `addCivilMonths` is asked only for the month it lands in.
+function dayOfMonthBack(back: number, day: number): string {
+  const [year, month] = addCivilMonths(todayInBogota(), -back).split("-");
+  return `${year}-${month}-${String(day).padStart(2, "0")}`;
+}
+
+/**
+ * The closes a person recorded (RF-129). Nothing in the app cuts a period any
+ * more — the fabricator that invented one per day-of-month is gone — so a history
+ * the screen can read has to be written here: one row per past cut-off, each
+ * period opening the day after the one before it closed.
+ */
+async function seedStatements({
+  accountId,
+  openedOn,
+  balances,
+}: {
+  accountId: string;
+  openedOn: string;
+  balances: number[];
+}): Promise<void> {
+  await asHarnessUser(async (tx) => {
+    let periodStart = openedOn;
+
+    for (const [at, balance] of balances.entries()) {
+      const cutOff = dayOfMonthBack(balances.length - at, DETAIL_CUT_OFF_DAY);
+      // The due day falls in the month after the cut-off, the only side of it
+      // `account_statements_due_after_cut_off` allows.
+      const dueDate = dayOfMonthBack(balances.length - at - 1, DETAIL_DUE_DAY);
+
+      await tx`
+        insert into account_statements (
+          account_id, period_start, cut_off_date, payment_due_date,
+          closing_balance_cents, minimum_payment_cents)
+        values (
+          ${accountId}, ${periodStart}, ${cutOff}, ${dueDate},
+          ${balance}, ${DETAIL_MINIMUM_CENTS})`;
+
+      periodStart = addCivilDays(cutOff, 1);
+    }
+  });
+}
 
 test.describe("the detail route", () => {
   const detailId = randomUUID();
@@ -721,11 +774,16 @@ test.describe("the detail route", () => {
       terms: {
         debtKind: "revolving",
         annualRate: ANNUAL_RATE,
-        minimumPaymentCents: 5_000_000,
+        minimumPaymentCents: DETAIL_MINIMUM_CENTS,
         creditLimitCents: 400_000_000,
-        cutOffDay: 15,
-        dueDay: 5,
+        cutOffDay: DETAIL_CUT_OFF_DAY,
+        dueDay: DETAIL_DUE_DAY,
       },
+    });
+    await seedStatements({
+      accountId: detailId,
+      openedOn,
+      balances: DETAIL_STATEMENT_CENTS,
     });
     paymentId = await seedPayment({
       fromId: payerId,
@@ -809,13 +867,13 @@ test.describe("the detail route", () => {
     });
     await expect(history).toBeVisible();
 
-    // Opening the detail is what cuts the past periods (RF-84), and the screen
-    // reads back exactly the balances they froze.
+    // The screen reads back the closes that were recorded, and exactly the
+    // balances they printed (RF-129). It generates none of them itself.
     const stored = await fixtureSql<{ balance: string }[]>`
       select closing_balance_cents::text as balance
       from account_statements where account_id = ${detailId}
       order by cut_off_date desc`;
-    expect(stored.length).toBeGreaterThan(1);
+    expect(stored.length).toBe(DETAIL_STATEMENT_CENTS.length);
 
     // The column headers ride a row of their own, so the history is drawn once
     // the table carries one row more than it has periods. Read only then: a
@@ -826,9 +884,9 @@ test.describe("the detail route", () => {
     expect(shown.map(digitsIn)).toEqual(
       stored.map((row) => pesos(Math.abs(Number(row.balance)))),
     );
-    // Two of them differ, so "unchanged" below is a statement about each row and
-    // not about one figure repeated down the column.
-    expect(new Set(shown).size).toBeGreaterThan(1);
+    // They differ, so "unchanged" below is a statement about each row and not
+    // about one figure repeated down the column.
+    expect(new Set(shown).size).toBe(DETAIL_STATEMENT_CENTS.length);
 
     const openBefore = await digitsOf(openPeriodBalance(page));
 
@@ -849,7 +907,7 @@ test.describe("the detail route", () => {
       openBefore - pesos(AFTER_CUT_OFF_CENTS),
     );
 
-    // And a snapshot is immutable: nothing rewrote the rows either (RF-84).
+    // And a snapshot is immutable: nothing rewrote the rows either (RF-129).
     const after = await fixtureSql<{ balance: string }[]>`
       select closing_balance_cents::text as balance
       from account_statements where account_id = ${detailId}
