@@ -70,7 +70,8 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   the app is designed for; the desktop is the case it must not look neglected in.
 - Never a sidebar, never a tab bar. The app is one box and one answer.
 
-## Still open
+## Settled
 
-- Whether the Spanish translation leads over the English headword. See `Mixto · Palabra` on the
-  canvas against `Impreso · Palabra`. Until decided, the English headword leads.
+- **The English headword leads.** Decided by the user 2026-09-07, `Impreso · Palabra` over
+  `Mixto · Palabra`. The headword anchors the answer in the text the reader was reading; the Spanish
+  translation sits under it at 21 px. Nothing on this screen is open any more.
