@@ -4,6 +4,7 @@ import {
   boolean,
   check,
   date,
+  foreignKey,
   index,
   pgPolicy,
   pgTable,
@@ -54,6 +55,9 @@ export const transactions = pgTable(
     // Set once a generated movement has been reviewed; null until then (RF-31).
     reviewedAt: timestamp({ withTimezone: true }),
     externalRef: text(),
+    // The movement that produced this one — a tax or a fee a transfer generated (RF-132). Self-
+    // referencing, so the foreign key is declared below, one hop only: nothing here reads a chain.
+    causedByTransactionId: uuid(),
     createdBy: uuid()
       .notNull()
       .references(() => appUsers.id, { onDelete: "restrict" }),
@@ -93,6 +97,15 @@ export const transactions = pgTable(
     ),
     check("transactions_description_length", sql`length(${table.description}) <= 200`),
     check("transactions_external_ref_length", sql`length(${table.externalRef}) <= 200`),
+    foreignKey({
+      columns: [table.causedByTransactionId],
+      foreignColumns: [table.id],
+    }).onDelete("cascade"),
+    // A movement is never its own cause (RF-132).
+    check(
+      "transactions_caused_by_not_self",
+      sql`${table.causedByTransactionId} is null or ${table.causedByTransactionId} <> ${table.id}`,
+    ),
     index("transactions_occurred_at_idx").on(table.occurredAt),
     // `account_balances` sums each side of an account with no scope column in the
     // predicate, so the scope-leading composites below cannot serve it; without
@@ -105,6 +118,9 @@ export const transactions = pgTable(
       .where(sql`to_account_id is not null`),
     index("transactions_created_by_idx").on(table.createdBy),
     index("transactions_recurring_rule_id_idx").on(table.recurringRuleId),
+    index("transactions_caused_by_idx")
+      .on(table.causedByTransactionId)
+      .where(sql`${table.causedByTransactionId} is not null`),
     index("transactions_owner_user_id_idx")
       .on(table.ownerUserId)
       .where(sql`${table.ownerUserId} is not null`),

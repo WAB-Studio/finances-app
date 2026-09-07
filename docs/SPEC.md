@@ -292,6 +292,7 @@ erDiagram
     transactions ||--o| planned_payments : "settles"
     transactions ||--o{ goal_contributions : "contributes"
     transactions ||--o{ installment_lines : "pays"
+    transactions ||--o{ transactions : "causes"
     labels ||--o{ transaction_labels : "tags"
 
     recurring_rules ||--o{ transactions : "generates"
@@ -422,6 +423,7 @@ erDiagram
         uuid recurring_rule_id FK "null if manual"
         timestamptz reviewed_at "null until a generated movement is reviewed"
         text external_ref "import reference"
+        uuid caused_by_transaction_id FK "null unless another movement caused this one"
         uuid created_by FK
     }
 
@@ -626,6 +628,8 @@ Rules the model must always guarantee, regardless of how they are implemented:
 - Every income or expense has at least one split, whose amounts sum to the
   transaction's amount and whose category shares the transaction's scope and
   kind. A transfer has no splits and no category.
+- A movement may name the movement that caused it; deleting the cause deletes
+  the charge, and a movement is never its own cause.
 - A category belongs to exactly one of a user or a group (XOR), mirroring an
   account's owner: a personal category names its `owner_user_id`, a group
   category names its `group_id`. Never both, never neither.
