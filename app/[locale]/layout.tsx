@@ -28,6 +28,17 @@ export function generateStaticParams() {
 // Lets env(safe-area-inset-*) resolve instead of 0 on a notched phone.
 export const viewport: Viewport = {
   viewportFit: "cover",
+  /**
+   * The browser chrome and the iOS status bar paint with this, so it carries the
+   * page's own background rather than the manifest's accent: anything else draws
+   * a seam across the top of the screen. The theme is a device choice the
+   * pre-paint script reads from storage, but a meta tag can only follow the
+   * system preference, which is what that choice defaults to.
+   */
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f5f3ef" },
+    { media: "(prefers-color-scheme: dark)", color: "#141310" },
+  ],
 };
 
 export async function generateMetadata(
@@ -37,11 +48,27 @@ export async function generateMetadata(
   if (!hasLocale(routing.locales, locale)) notFound();
 
   // Metadata resolves before the layout runs, so the locale travels explicitly.
-  const t = await getTranslations({ locale, namespace: "metadata" });
+  const [t, common] = await Promise.all([
+    getTranslations({ locale, namespace: "metadata" }),
+    getTranslations({ locale, namespace: "common" }),
+  ]);
 
   return {
     title: t("title"),
     description: t("description"),
+    /**
+     * What lands the app on an iPhone home screen (RNF-08): iOS reads none of
+     * the manifest, so the launch title comes from here and the icon from the
+     * `apple-icon` file convention. `default` keeps the status bar opaque and
+     * legible over the light theme; `black-translucent` would force white text
+     * onto the off-white background.
+     */
+    appleWebApp: {
+      capable: true,
+      // Short enough for the home screen to write it under the icon whole.
+      title: common("fund"),
+      statusBarStyle: "default",
+    },
   };
 }
 
