@@ -34,12 +34,20 @@
  * source carries instead produces an 11.7 MB asset, comfortably over the 9 MB
  * budget; this narrower reading lands at 8.0 MiB (8.4 MB).
  *
+ * About 223 `<pron>` values also trail a source annotation stored as literal,
+ * entity-escaped angle brackets rather than as its own element — e.g.
+ * `/ænˈtiːɡʌn/<ref:<<name:OED>>>` for a dialect note the TEI's own tooling
+ * would otherwise render separately. `stripPronunciationArtifact` cuts each
+ * `ipa` at its first `<`, since the transcription always comes first; the
+ * 223 count is entries whose chosen (first) `<pron>` needed the cut.
+ *
  * Counts measured against this reading: 64 258 entries (matches), 16 112
- * multi-word headwords (matches), 36 359 entries with an `ipa` (36 320 was
- * quoted; the 39-entry gap is entries whose only `<pron>` is a bare
- * dialect-boundary fragment such as `/-toʊx-/` or a stray `;` left in the
- * source — this script counts "carries a non-empty `<pron>`", the simplest
- * reading, rather than guess at an unstated finer filter).
+ * multi-word headwords (matches), 36 359 entries with an `ipa` — 39 short of
+ * the 36 320 quoted. That gap is unreconciled: no filter tried here (bare
+ * punctuation prons, dash-bounded fragments, ASCII-only transcriptions, the
+ * 447 entries with no `<pos>`) lands on exactly 36 320, so this script counts
+ * the plain fact — "carries a non-empty `<pron>`" — rather than assert a
+ * cause it cannot show.
  */
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -208,6 +216,15 @@ function firstSentence(value: string): string {
   return match ? match[0] : value;
 }
 
+// A `<pron>` can trail a source annotation the TEI stores as literal,
+// entity-escaped angle brackets rather than as its own element — e.g.
+// `/ænˈtiːɡʌn/<ref:<<name:OED>>>`. The phonetic transcription always comes
+// first, so the first `<` marks where it ends.
+function stripPronunciationArtifact(value: string): string {
+  const index = value.indexOf("<");
+  return index === -1 ? value : value.slice(0, index).trim();
+}
+
 function parseTeiEntries(xml: string): TeiNode[] {
   const parser = new XMLParser({
     ignoreAttributes: false,
@@ -242,7 +259,8 @@ function buildRawEntries(teiEntries: TeiNode[]): RawEntry[] {
 
     const prons = asArray(form?.pron as unknown[])
       .map(text)
-      .filter((value): value is string => Boolean(value));
+      .filter((value): value is string => Boolean(value))
+      .map(stripPronunciationArtifact);
     const ipa = prons.length > 0 ? prons[0] : null;
 
     const topSenses = asArray(entry.sense as TeiNode | TeiNode[]);
@@ -320,13 +338,16 @@ XML and extracted, per entry carrying a Spanish translation, its headword,
 part of speech, IPA, Spanish translations and definition into a JSON array.
 It dropped every entry without a Spanish translation. Of the extracted
 fields: IPA is the entry's first pronunciation where the source lists more
-than one; definition is the first sentence of the entry's first sense, and
-is left empty for entries with more than one sense, so distinct meanings are
-never run together into one string; part of speech is folded onto the six
-values apps/reading/lib/dictionary/format.ts declares, mapping the source's
-thirteen further categories and its unlabelled entries onto the closest of
-the six. It changed nothing else: no headword, translation or definition
-text was altered beyond that first-sentence cut.
+than one, with a trailing source annotation cut from about 223 of those
+pronunciations where the source stored one as literal text following the
+transcription (for example "/ænˈtiːɡʌn/<ref:<<name:OED>>>" becomes
+"/ænˈtiːɡʌn/"); definition is the first sentence of the entry's first sense,
+and is left empty for entries with more than one sense, so distinct meanings
+are never run together into one string; part of speech is folded onto the
+six values apps/reading/lib/dictionary/format.ts declares, mapping the
+source's thirteen further categories and its unlabelled entries onto the
+closest of the six. It changed nothing else: no headword, translation or
+definition text was altered beyond those two cuts.
 `;
 }
 
