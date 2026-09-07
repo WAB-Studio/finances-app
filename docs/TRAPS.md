@@ -579,3 +579,34 @@ next start`, never against `next dev`. Reading it in dev invents a leak that is 
 a real one behind a number you have already talked yourself out of.
 
 Measured 2026-09-07 while validating the dictionary worker.
+
+### Regenerating a lockfile on one machine drops every other platform's packages
+
+Renaming the two app directories left four stale workspace keys in `package-lock.json`. Deleting the
+file and re-running `npm install` fixed them and quietly took **153 packages** with it: 799 entries
+before, 646 after. What goes is the optional, platform-specific set — the `@next/swc-*` and
+`@esbuild/*` builds for every OS that is not the one you ran the install on. `npm ci` still passes on
+that machine and on a CI runner of the same platform, so nothing looks wrong until someone else's
+`npm ci` fails on a package the lockfile no longer names.
+
+Rename the entries in place instead. There were six lines: two `"apps/<name>"` keys, two `"name"`
+fields and two `node_modules/<pkg>` keys with their `"resolved"` paths. Editing them kept all 799
+packages and turned a 14,775-line diff into 16 lines. Then prove it with `npm ci`, which is what CI
+runs.
+
+Never regenerate a lockfile to fix a path. `--package-lock-only` does not save you either: it adds
+the new keys and leaves the old ones behind.
+
+Measured 2026-09-07 renaming `apps/finances` and `apps/reading`.
+
+### `worktree.sh` derives a suite's base-URL variable from the app's name
+
+The lane script prints an app's commands with `${APP_NAME^^}_BASE_URL`. Rename the app and the
+variable it prints renames itself, while the `playwright.config.ts` that reads it does not. After
+`reading` became `voyager` the script suggested `VOYAGER_BASE_URL` and the config still read
+`READING_BASE_URL`: the command runs, silently ignores the port you gave it and drives the default.
+Nothing errors — the suite just points somewhere else.
+
+Grep for `_BASE_URL` when an app is renamed, and rename the variable with it.
+
+Measured 2026-09-07.
