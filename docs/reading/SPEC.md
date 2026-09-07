@@ -74,7 +74,8 @@ this gets built, and no schema, table or column is "prepared for" it.
 
 - [ ] **RNL-01** — A word lookup answers in under 10 ms with the dictionary installed.
 - [ ] **RNL-02** — Every string a person reads comes from the message catalogue. The interface is Spanish.
-- [ ] **RNL-03** — The app holds at a 360 px viewport: no horizontal overflow, no overlapping control, no tap target under 32 px on its shorter side. It is used one-handed, standing, holding a book.
+- [ ] **RNL-03** — The app holds at a 360 px viewport: no horizontal overflow, no overlapping control, no tap target under 32 px on its shorter side. It is used one-handed, standing, holding a book. It also holds at a wide viewport: the reading column keeps a maximum measure and centres, so at 1440 px the box and the answer read as a column rather than stretching the full width. The phone is the case the app is designed for; the desktop is the case it must not look neglected in.
+  - Widened 2026-09-07 from the 360 px case alone. The code was unticked and nothing had been verified against it, so no tick is invalidated; the alternative was retiring it for a successor, which buys nothing here.
 - [ ] **RNL-04** — The dictionary asset is built from its source by a script kept in the repository, and the build records the source URL, the edition, the licence and the entry counts beside the asset.
 - [ ] **RNL-05** — The sentence path never fires on a keystroke: it waits for the typing to settle, does not fire below a minimum number of tokens, never fires twice for the same text, and cancels a request already in flight when the text changes. The word path is never throttled and never delayed.
 - [ ] **RNL-06** — Recording a lookup never delays, blocks or fails a lookup. The write is never awaited on the path that produces an answer, a failure to write is swallowed, and the log's storage is a separate database from the dictionary's, so a write can never contend with a read of the payload.
