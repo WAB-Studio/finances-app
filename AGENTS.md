@@ -45,9 +45,14 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
 
 ## Parallel tracks
 
-- Five lanes exist. Lane 1 is this checkout on :3000; lanes 2 to 5 are worktrees at `../finances-app-l<n>` on :300<n-1>.
+- Five lanes exist. Lane 1 is this checkout; lanes 2 to 5 are worktrees at `../<checkout>-l<n>`.
+- A lane's port comes from its app: finances on :300<n-1>, reading on :310<n-1>. They never collide.
 - Run an app's npm scripts from its own directory, `apps/finances`, or from the root with `-w apps/finances`.
-- Open a lane: `scripts/worktree.sh <lane> <branch> [base]`. It costs 4 seconds.
+- Open a lane: `scripts/worktree.sh <lane> <branch> [base] [--app <name>]`. It costs 4 seconds.
+- `--app` defaults to `finances`. An app with no database copies no `.env.local` and mints no
+  identity, so its lane opens with the database unreachable. An unknown name refuses, never guesses.
+- The app must already be committed on the base branch. A lane for an app that is not there yet
+  is opened by hand: `git worktree add -b <branch> ../<checkout>-l<n> <base> && cp -al node_modules ...`.
 - `private/` is gitignored. `worktree.sh` copies the plans into the lane at birth; a plan you edit after that is stale there. Re-copy before you dispatch, and carry the report back by hand.
 - Give every track its own lane. Never two tracks on one lane.
 - Split the work before you start it. A track per defect, per module, per screen.
