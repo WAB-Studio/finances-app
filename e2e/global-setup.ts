@@ -28,6 +28,7 @@ import type { TransactionSql } from "postgres";
 import { TIME_ZONE } from "@/lib/locales";
 
 import { fixtureSql } from "../scripts/harness/fixtures";
+import { closeRun, openRun } from "../scripts/harness/registry";
 import {
   HARNESS_BASE_URL,
   HARNESS_EMAIL,
@@ -185,9 +186,11 @@ export async function seedQueue(rows: SeedDelivery[]): Promise<string[]> {
 export async function clearQueue(): Promise<void> {
   const { userId } = readScope();
 
-  await fixtureSql`delete from ingest_deliveries where owner_user_id = ${userId}`;
-  await fixtureSql`delete from ingest_shapes where owner_user_id = ${userId}`;
-  await fixtureSql`delete from ingest_merchants where owner_user_id = ${userId}`;
+  await asUser(userId, async (tx) => {
+    await tx`delete from ingest_deliveries where owner_user_id = ${userId}`;
+    await tx`delete from ingest_shapes where owner_user_id = ${userId}`;
+    await tx`delete from ingest_merchants where owner_user_id = ${userId}`;
+  });
 }
 
 // The roster the members specs read: the harness user leads, the second identity
@@ -298,8 +301,8 @@ export async function seedUnreviewedMovement(): Promise<void> {
 async function purge(userId: string): Promise<void> {
   await asUser(userId, async (tx) => {
     await tx`delete from ingest_deliveries where owner_user_id = ${userId}`;
-    await tx`delete from ingest_shapes where owner_user_id = ${userId}`;
     await tx`delete from ingest_merchants where owner_user_id = ${userId}`;
+    await tx`delete from ingest_shapes where owner_user_id = ${userId}`;
     // A contribution is named before its goal even though it cascades: an aporte
     // that outlived its goal would be a leak no later count could explain.
     await tx`
@@ -415,6 +418,10 @@ async function signIn(email: string, storageState: string): Promise<void> {
 }
 
 export default async function globalSetup(): Promise<() => Promise<void>> {
+  // Before either `harnessSession` call, so the heartbeat this starts covers the
+  // whole run — both calls register their identity `shared` on the way in.
+  await openRun("e2e", fixtureSql);
+
   const [session, memberSession] = await Promise.all([
     harnessSession(),
     harnessSession(HARNESS_MEMBER_EMAIL),
@@ -445,6 +452,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
       await clearGroup();
       await purge(userId);
       await purgeAuditTrail([userId, memberUserId]);
+      await closeRun(fixtureSql);
     } finally {
       await fixtureSql.end();
     }
