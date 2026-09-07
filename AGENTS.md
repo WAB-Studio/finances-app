@@ -19,16 +19,7 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
 - Run the `orchestrator` skill to develop. It dispatches `planner`, `worker` and `validator`.
 - Keep plans in `private/`.
 - Ship one slice at a time.
-- Work five tracks at once, one per lane. See `## Monorepo
-
-- `apps/` holds the apps, `packages/` the code two of them share. npm workspaces, one lockfile at the root.
-- `apps/finances` is the app that was this whole repo. Its `.env.local` lives there, not at the root.
-- `docs/`, `private/`, `.claude/` and `scripts/worktree.sh` govern every app and stay at the root.
-- `node_modules` hoists to the root. A script that names a binary by path reaches it as `../../node_modules/...`.
-- Promote nothing to `packages/` until a second app asks for it.
-- `apps/reading` is the reading dictionary. Its contract is `docs/reading/SPEC.md`; its `RL` and `RNL` codes share no number with the finances `RF`/`RNF` series.
-
-## Parallel tracks`.
+- Work five tracks at once, one per lane. See `## Parallel tracks`.
 - Start the dev server on :3000 yourself and keep it running. Restart it when you must.
 - Run one instance per worktree. Take `Another next dev server is already running` as: one is up, use it.
 - Never ask whether to keep going or close the handoff. The `Stop` hook says when the window is full.
@@ -42,6 +33,15 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
   whose file list is right still lands dark when nothing writes what it reads or reads what it draws.
   It happened twice: module 16 read a mark no writer sets, module 14 drew data no query selects.
 - Measure what a module's own claim includes, in real rows, before dispatching it. Never after.
+
+## Monorepo
+
+- `apps/` holds the apps, `packages/` the code two of them share. npm workspaces, one lockfile at the root.
+- `apps/finances` is the app that was this whole repo. Its `.env.local` lives there, not at the root.
+- `docs/`, `private/`, `.claude/` and `scripts/worktree.sh` govern every app and stay at the root.
+- `node_modules` hoists to the root. A script that names a binary by path reaches it as `../../node_modules/...`.
+- Promote nothing to `packages/` until a second app asks for it.
+- `apps/reading` is the reading dictionary. Its contract is `docs/reading/SPEC.md`; its `RL` and `RNL` codes share no number with the finances `RF`/`RNF` series.
 
 ## Parallel tracks
 
