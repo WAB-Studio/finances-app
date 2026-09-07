@@ -48,6 +48,7 @@ this gets built, and no schema, table or column is "prepared for" it.
 - [ ] **RL-04** — A headword's answer shows every sense the dictionary carries for it, grouped by part of speech, each with its IPA when one exists and all of its Spanish translations.
 - [ ] **RL-05** — While the string is being treated as a word, up to ten headwords that begin with it are offered. Choosing one answers it.
 - [ ] **RL-06** — An inflected form resolves to its headword, and the answer names both the form typed and the headword reached: `left` finds `leave`, `went` finds `go`, `children` finds `child`, `studies` finds `study`.
+  - Measured 2026-09-07 by `apps/reading/scripts/check-dictionary.ts` (D9): 2712/2731 = 99.3% resolved, over a sample of 2,345 regular surface forms generated from 301 stride-sampled single-word letter headwords by applying the regular suffix rules, unioned with all 386 `IRREGULAR_FORMS` surfaces.
 - [ ] **RL-07** — Autocomplete appears only while the string is being treated as a word. A sentence never raises it.
 
 #### The sentence
