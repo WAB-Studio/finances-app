@@ -94,12 +94,21 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
 
 - The approved direction is **Impreso**, in dark as the primary look. The tokens above are its warm
   inversion, not a second design.
-- The five `Noche*.dc.html` boards on the canvas are the **losing** direction and contradict this
-  file: they set Archivo over Newsreader, a cool `#0E0F12` ground over the warm `#14130F`, and an
-  amber `#E0A458` accent over `#D9805F`, and they use cards this design forbids. They were not
-  approved. Read them as history.
-- When a board and this file disagree, **this file wins**. Do not restyle a screen from a `Noche`
-  board.
+- **The five `Noche*.dc.html` boards are gone.** They were the losing direction — Archivo over
+  Newsreader, a cool `#0E0F12` ground over the warm `#14130F`, an amber `#E0A458` accent over
+  `#D9805F`, and cards this design forbids — and the canvas dropped them when it was rebuilt on
+  2026-09-07. Checked 2026-09-08: the published canvas contains the string `Noche` zero times.
+  Nothing on it contradicts this file any more.
+- When a board and this file disagree, **this file wins**.
+- **The canvas designs the half of the app that looks a word up, and none of the half that keeps
+  it.** Its 39 boards are Inicio, Palabra, Frase, FraseOferta, Flexión, SinResultado, Sugerencias,
+  Instalando, Fuente and Fallo. There is no board for `/registro`, for exporting, for an account, for
+  syncing, or for devices — and this file names none of them either. A screen for any of those is
+  designed from scratch, not derived from a board.
+- **`Main.dc.html` is Palabra · dark · mobile.** It carries no `Palabra` in its name because it is
+  the canvas entry file, so a search for `PalabraOscuroMovil` finds nothing and the set looks short
+  by one. It is not: all four of light/dark × desktop/mobile exist for every state. Grep the boards
+  for a token with a case-insensitive match — they are written lowercase (`#14130f`).
 
 ## Settled
 

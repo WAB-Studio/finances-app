@@ -732,3 +732,53 @@ diff: `gh run view <id>` prints them, and a cancelled-by-priority run names itse
 
 Land one thing at a time when the group is busy, and prefer cancelling a redundant run
 (`gh run cancel <id>`) over adding another.
+
+### A lane born for one app cannot typecheck the other until typegen runs there
+
+`worktree.sh --app voyager` copies voyager's `.env.local` and nothing of orbit's. The lane is
+therefore complete for voyager and cold for orbit: `.next/types` was never generated there, so
+`npm run typecheck` at the root fails on `apps/orbit` with 39 errors of the shape
+`TS2304: Cannot find name 'PageProps'` and `LayoutProps`. Not one of them names a file the lane
+changed.
+
+It reads as a branch that broke orbit. It is a lane that never built orbit. `npx next typegen` in
+`apps/orbit` clears all 39, and the artefact is gitignored, so nothing about the branch changes.
+
+Typecheck the app the lane was opened for. Before calling the other app's errors a regression, run
+`next typegen` there once and look again — and never with that app's dev server up, which is the
+separate race two sections above.
+
+Measured 2026-09-08 validating the voyager lane module in a lane opened `--app voyager`.
+
+### `git diff main` moves under a verification when someone merges
+
+A validator comparing its branch against `main` had a file appear in its diff that its branch never
+touched. Nothing was wrong with the branch: `main` advanced mid-verification, because the
+orchestrator merged an unrelated PR while four lanes were being checked. A two-dot `git diff main`
+asks "how do these two commits differ *now*", so every commit that lands on the base while an agent
+works enters its diff and reads as scope the assignment did not have.
+
+Use `git diff $(git merge-base main HEAD) HEAD` for a scope check, or the three-dot `git diff main...HEAD`,
+which means the same thing. Both ask "what did this branch add since it forked", and the answer stops
+depending on what anyone else merges.
+
+The same applies to `git log`: `git log main..HEAD` is already fork-relative and stays correct, which
+is why the authorship check never showed this and the scope check did.
+
+Measured 2026-09-08, with PR #40 landing while three validators ran.
+
+### `server-only` resolves under Next and nowhere else
+
+Nothing declares `server-only` and `node_modules/server-only` does not exist, yet `lib/supabase/server.ts`,
+`packages/supabase-auth/src/claims.ts` and voyager's `lib/session.ts` all import it and every build is
+green. Next ships it at `node_modules/next/dist/compiled/server-only` and aliases the bare specifier
+itself.
+
+So it works in the app and fails in anything that loads one of those files under plain Node — a `tsx`
+harness, a one-off probe, a script outside `next dev`. The error names a missing package and invites
+the wrong fix.
+
+Stub it in the harness. Never add it to a `package.json` to make a probe run: the app does not need it
+and the declaration would outlive the probe.
+
+Measured 2026-09-08, driving voyager's `lib/session.ts` from a scratchpad harness.
