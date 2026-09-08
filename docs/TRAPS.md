@@ -782,3 +782,33 @@ Stub it in the harness. Never add it to a `package.json` to make a probe run: th
 and the declaration would outlive the probe.
 
 Measured 2026-09-08, driving voyager's `lib/session.ts` from a scratchpad harness.
+
+### `db:check-rls` cannot see a change to the settle statement's search_path
+
+A validator mutated `searchPath: "finances, public"` to `"public"` in both call sites of
+`apps/orbit/db/session.ts` and ran `db:check-rls` to prove the check discriminated. It stayed green
+past assertion 107.
+
+`scripts/check-rls.ts` sets `search_path` on its own Postgres connection config. It never goes
+through `db/session.ts`, so nothing it asserts depends on what `settleSessionSql` puts on the wire.
+A suite that drives the app does: the same mutation turned `check:queries` solidly red with
+`42P01 — relation "..." does not exist` at `Q8`, `Q10`, `Q19`, `Q22`–`Q24`, `Q30`–`Q34`, `Q81`–`Q97`.
+
+Prove a change to the session statement with `check:queries` or `check:http`, never with
+`db:check-rls` alone. And when a mutation fails to turn a suite red, say so — the suite may simply
+not touch the code you changed.
+
+Measured 2026-09-08 validating orbit's move onto the shared auth package.
+
+### One build failure hides the next
+
+voyager's Vercel build failed on `TS2307` for undeclared dependencies. Declaring them fixed it,
+proven both ways in isolated trees. Production stayed red: behind it sat a second failure the first
+had masked — five environment variables the app had made **required** (`z.url()`, not `.optional()`)
+that the Vercel project did not carry. The build had been dying before it ever reached env validation.
+
+Fixing the first failure proves the build gets further, not that the app deploys. Read the new log
+rather than assuming the same cause, and check the deployment itself went green before saying a
+build is repaired.
+
+Measured 2026-09-08, on voyager's `reading` project.
