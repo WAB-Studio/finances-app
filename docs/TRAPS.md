@@ -711,3 +711,24 @@ chasing a timeout on a diff that cannot explain it, count what else is driving t
 green but for one write-path timeout is the shape of contention, not of a defect.
 
 `AGENTS.md` allows three suites at once. Three is what produced both of these.
+
+### Every push enters the one-slot group, not just every PR
+
+The entry above and `AGENTS.md` both frame `e2e-remote-db` as something a second **PR** disturbs. It
+is wider than that: **any** push that triggers the workflow takes a place in the queue.
+
+Measured 2026-09-08. Fast-forwarding `integracion` to `main` — a branch update carrying commits
+`main` had already tested green — queued a run that evicted PR #37's `e2e` after 8m12s of waiting.
+The job's own annotation names it exactly:
+
+    Canceling since a higher priority waiting request for e2e-remote-db exists
+
+`cancel-in-progress: false` does not save you. It stops a new arrival from killing what is *running*;
+it does not stop a third arrival from evicting what is *queued*. GitHub keeps one running and one
+waiting, and the newest request wins the waiting slot.
+
+The eviction reads as a plain red `e2e` on the PR page. Check the run's ANNOTATIONS before chasing a
+diff: `gh run view <id>` prints them, and a cancelled-by-priority run names itself.
+
+Land one thing at a time when the group is busy, and prefer cancelling a redundant run
+(`gh run cancel <id>`) over adding another.
