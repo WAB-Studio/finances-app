@@ -13,10 +13,11 @@ export default async function manifest(): Promise<MetadataRoute.Manifest> {
     description: t("description"),
     start_url: "/",
     display: "standalone",
-    // Matches app/theme.css: the document's own light background and the
-    // indigo accent set on <AppTheme>.
-    background_color: "#ffffff",
-    theme_color: "#3e63dd",
+    // Matches app/theme.css: dark is the primary look (docs/voyager/DESIGN.md
+    // "Tokens"), so the launch splash and the status bar read the same warm
+    // near-black ground and terracotta accent as the app itself.
+    background_color: "#14130f",
+    theme_color: "#d9805f",
     lang: "es",
     icons: [
       {
