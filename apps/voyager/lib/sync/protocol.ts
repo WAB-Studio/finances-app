@@ -5,8 +5,9 @@ import { z } from "zod";
 // exactly the shape the handler parses — one schema, not two hand-kept in
 // sync (the pattern is app/api/translate/route.ts's `translateRequestSchema`).
 
-// ~141 KB per request at 289 bytes/row, measured. A 10,003-row log uploads in
-// 21 requests of this size.
+// ~155 KB per request at ~310 bytes/row typical (424 B/row worst case admits
+// 212 KB), up from 289 B/row measured before `translation`. Both stay well
+// under a megabyte, so splitting the batch would only double the requests.
 export const SYNC_BATCH = 500;
 
 // One row of the reader's log, as it travels off the device that wrote it.
@@ -23,6 +24,7 @@ export const syncRowSchema = z.object({
   headword: z.string().max(500).nullable(),
   rule: z.string().max(100).nullable(),
   senses: z.int().min(0),
+  translation: z.string().max(120).nullable(),
   dictionaryReady: z.boolean(),
   origin: z.enum(["device", "network"]).nullable(),
   recordSchema: z.int().positive(),
