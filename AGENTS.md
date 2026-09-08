@@ -59,6 +59,12 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
 - Give every track its own lane. Never two tracks on one lane.
 - Split the work before you start it. A track per defect, per module, per screen.
 - Cut a lane's branch from the branch it serves, never from `integracion` by inertia.
+- Use `integracion` only when a merge is too risky to take straight to `main`: many live branches at
+  once, or a conflict that has to be resolved somewhere first. Merge them there, prove them, then
+  take one merge to `main`.
+- Send a branch that lands clean straight to `main`. Most do.
+- Fast-forward `integracion` to `main` before using it. It trails whenever it is idle — 31 commits
+  behind on 2026-09-08, with nothing of its own.
 - Run at most three suites at once. Nine GB of RAM holds three dev servers and three Chromiums.
 - Run the RNF-09 timing alone: it lives in `check:http` and `check:queries`, and a second lane inflates it.
 - Copy the lane's report out before you drop it: `cp ../finances-app-l<n>/private/reportes/*.md private/reportes/`.
