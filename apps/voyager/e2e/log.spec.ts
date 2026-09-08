@@ -147,7 +147,7 @@ test("every lookup is recorded, a fat log costs nothing, and a lost log costs no
   await page.evaluate(
     () =>
       new Promise<void>((resolve, reject) => {
-        const request = indexedDB.open("reading-log", 1);
+        const request = indexedDB.open("reading-log");
         request.onsuccess = () => {
           const db = request.result;
           const tx = db.transaction("lookups", "readwrite");
