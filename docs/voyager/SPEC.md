@@ -70,11 +70,33 @@ this gets built, and no schema, table or column is "prepared for" it.
 #### The shell
 
 - [ ] **RL-16** — The app opens with no connection and shows its box, and it can be launched from the phone's home screen without a browser around it. This holds from the second time it is opened onwards: the first open needs the network to deliver the app itself.
-- [x] **RL-19** — Every lookup a reader settles on is recorded on the device, from the app's first
+- [ ] **RL-21** — Every lookup a reader settles on is recorded on the device, from the app's first
   day: what was typed, whether it was answered as a word or a sentence, the headword it actually
   reached when an inflected form was typed, whether it found anything at all, and when. The record
-  is append-only. It is read back only where the reader asks for it — to carry the words they looked
-  up into practice, or to take them off the device — and never on the path that answers a lookup.
+  only ever gains rows: nothing edits or deletes one. No screen on the read path shows it. It is read
+  to take it off the device — to a file, or to the copy held by the reader's account — and to bring
+  back what the same reader's other devices recorded; never on the path that answers a lookup.
+- [ ] **RL-22** — A reader can keep their record in an account of their own: they sign in through a
+  link sent to their address and, from then on, what this device records is copied to that account
+  and what their other devices recorded comes down to this one **and stays in its local record,
+  beside its own**. It is a copy: a lookup is still answered from the device, with an account or
+  without one, online or offline.
+- [ ] **RL-23** — Turning the copy on in a device sends up the record already there and brings down
+  what the reader's other devices recorded. The reader knows both figures before anything happens:
+  they are told how many searches will go up and how many will come down, and turning it on is what
+  authorises it.
+- [ ] **RL-24** — The copy never edits a row. A row names the device that recorded it and the number
+  it carried there, so copying it twice does not duplicate it, going up or coming down, and what one
+  device copies never overwrites what another wrote. An interrupted merge leaves the record whole in
+  every sense that matters: what came down is valid, what did not comes down next time.
+
+  The only thing it deletes is retiring a device, and it deletes exactly this: the searches that
+  device had copied leave the copy, and that device stops syncing. **What had already come down to
+  another device stays on that device**, and leaves it by clearing the app's data in that browser.
+  The app says this before confirming and promises no more.
+- [ ] **RL-25** — The reader sees the list of devices that have copied to their account: which one is
+  in their hand, when each was last seen, and how many searches it has copied. They can retire any of
+  them, their own included.
 - [x] **RL-20** — The log can be exported from the app as a single file the reader saves onto their
   device: every recorded search, with its date and the headword it reached, in a documented and
   versioned shape. The export is deliberate: it is reached from outside the search screen and
@@ -100,11 +122,24 @@ this gets built, and no schema, table or column is "prepared for" it.
 - [x] **RNL-08** — Exporting never touches the read path: building the file happens on a screen that
   is not the box, mounts no dictionary Worker, and with the export never opened the app behaves
   exactly as before.
+- [ ] **RNL-09** — The copy is never on the read path: **with no account turned on the app opens not
+  one connection, and the box still opens, focuses and answers the same**; with the box in view not
+  one request leaves while typing; the copy fires only when the tab is hidden or when the reader asks
+  for it; and a lookup answers in the same time with a ten-thousand-row merge in flight as without
+  one.
+- [ ] **RNL-10** — A reader's record is read and written by that reader alone. The access policies in
+  the database decide it, not the query, and they are proved by driving them. No service path evades
+  them.
 
 ### Retired
 
 Dead codes. The number stays burned and the tick stays as it was.
 
+- [x] **RL-19** — Every lookup a reader settles on is recorded on the device, from the app's first
+  day: what was typed, whether it was answered as a word or a sentence, the headword it actually
+  reached when an inflected form was typed, whether it found anything at all, and when. The record
+  is append-only. It is read back only where the reader asks for it — to carry the words they looked
+  up into practice, or to take them off the device — and never on the path that answers a lookup. _Retired 2026-09-08. Successor: RL-21._
 - [ ] **RL-05** — While the string is being treated as a word, up to ten headwords that begin with
   it are offered. Choosing one answers it. _Retired 2026-09-07. Successor: RL-18._
 - [x] **RL-17** — Every lookup a reader settles on is recorded on the device, from the app's first
@@ -148,6 +183,8 @@ Rules the model must always guarantee, regardless of how they are implemented:
 - The interface never asserts a browser capability it has not asked for at
   runtime.
 - The device holds exactly one copy of the payload.
+- The record only ever gains rows, on the device and in the copy alike. A row is identified by the
+  device that wrote it and the number it carried there.
 
 ---
 
@@ -157,11 +194,12 @@ A Next.js application whose data lives on the device.
 
 Principles, not recipes:
 
-- **There is no backend of our own.** No database, no authentication, no session. The app ships a
-  static asset and reads it locally, and the reader's own record — what they looked up and when —
-  is stored on their device and nowhere else. Text leaves the device only down a path the reader
-  took deliberately, and every such path names the third party it reaches: the sentence
-  translation (RL-09) today. The word path never leaves the device, on no keystroke (RL-14).
+- **The read path has no backend.** The dictionary ships as a static asset and is read locally;
+  looking a word up touches the network on no keystroke (RL-14). The app has two server surfaces and
+  neither is on that path: the sentence translation (RL-09), and the copy of the reader's record
+  (RL-22), which runs on the same Supabase as `apps/orbit`, in a schema of its own, and only once the
+  reader opened an account on purpose. With no account, nothing of the reader's leaves the device
+  (RNL-09).
 - **One route handler is the single exception**, `app/api/translate/route.ts`,
   and it exists for the sentence path alone (RL-09). It is justified by two
   things a client cannot do: keep the translation provider's identity and key
@@ -191,6 +229,9 @@ Principles, not recipes:
 | Types | **TypeScript**, with **@typescript/native-preview** | `tsgo` checks the project in seconds. |
 | Lint | **eslint**, with **eslint-config-next** | The rules the framework's own conventions need. |
 | Browser verification | **Playwright** | Drives a real browser for the facts no server-side check reaches: the offline open, the install progress, the 360 px viewport and the tap targets. |
+| Postgres | **postgres 3 + drizzle-orm 0.45** | The copy of the record over the Supabase orbit already has, with the same client and the same ORM. |
+| Migrations | **drizzle-kit 0.31** (dev) | The `reading` schema versioned in the repository, with a migration journal of its own. |
+| Auth | **@supabase/ssr 0.12** | The cookie session and the magic link, with the same claim verification orbit uses. |
 | TEI parse | **fast-xml-parser** | Streams the source TEI into the payload; the build script's only dependency. |
 
 Playwright and `fast-xml-parser` are development dependencies. `fast-xml-parser`
