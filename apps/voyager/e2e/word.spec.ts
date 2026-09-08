@@ -29,6 +29,10 @@ async function exposeDictionaryWorker(page: Page): Promise<void> {
   });
 }
 
+// `search-screen.tsx`'s own constant, not exported: how long autocomplete
+// stays up after the last keystroke before it withdraws (RL-18).
+const SUGGESTIONS_SETTLE_MS = 900;
+
 type WorkerRequestShape = Extract<WorkerRequest, { kind: "lookup" }>;
 // The one response kind this probe listens for; `status` carries no `id`
 // and every other kind belongs to the hook's own outstanding requests.
@@ -117,4 +121,35 @@ test("an installed dictionary answers offline, fast, and within a thumb's reach"
       .filter((entry) => entry.shorter < 32);
   });
   expect(undersized).toEqual([]);
+});
+
+test("RL-18: autocomplete withdraws once typing settles, and never delays the word answer", async ({ page }) => {
+  await deleteTranslator(page);
+
+  const assetResponse = page.waitForResponse(
+    (response) => response.url().includes(manifest.asset.path) && response.ok(),
+  );
+  await page.goto("/");
+  await assetResponse;
+  await page.waitForTimeout(1000);
+
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+  const suggestionsLabel = page.getByText(messages.word.suggestions);
+  const heading = page.getByRole("heading", { name: "throughout" });
+
+  await searchBox.fill("throughout");
+
+  // RNL-05: the answer and the offer both land on the same keystroke, well
+  // inside the pause the offer itself is about to wait out.
+  await expect(heading).toBeVisible({ timeout: SUGGESTIONS_SETTLE_MS - 400 });
+  await expect(suggestionsLabel).toBeVisible({ timeout: SUGGESTIONS_SETTLE_MS - 400 });
+
+  // Past the pause, untouched: the offer withdraws, the answer does not.
+  await page.waitForTimeout(SUGGESTIONS_SETTLE_MS + 200);
+  await expect(suggestionsLabel).toHaveCount(0);
+  await expect(heading).toBeVisible();
+
+  // A fresh keystroke brings the offer straight back.
+  await searchBox.fill("throughou");
+  await expect(suggestionsLabel).toBeVisible();
 });

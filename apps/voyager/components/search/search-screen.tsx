@@ -25,6 +25,10 @@ import { Suggestions } from "./suggestions";
 // worth asking about at all.
 const PHRASE_DEBOUNCE_MS = 600;
 
+// RL-18: how long autocomplete stays up after the last keystroke before it
+// withdraws. The word answer itself is never held for this — only the list.
+const SUGGESTIONS_SETTLE_MS = 900;
+
 // RNL-05, rule 3: how many translated sentences stay free to revisit.
 const PHRASE_CACHE_LIMIT = 20;
 
@@ -83,6 +87,9 @@ export function SearchScreen() {
   const [kind, setKind] = useState<QueryKind>({ kind: "empty" });
   const [wordAnswer, setWordAnswer] = useState<WordAnswer | null>(null);
   const [suggestions, setSuggestions] = useState<string[]>([]);
+  // RL-18: the list is withdrawn once typing settles; the data behind it
+  // stays put so a fresh keystroke can bring it straight back.
+  const [suggestionsWithdrawn, setSuggestionsWithdrawn] = useState(false);
   const [phraseState, setPhraseState] = useState<PhraseState>({ kind: "idle" });
   const [deviceOffer, setDeviceOffer] = useState<DeviceOffer>({ kind: "hidden" });
   const [logPayload, setLogPayload] = useState<LogPayload | null>(null);
@@ -91,6 +98,7 @@ export function SearchScreen() {
   // anything else was superseded before it arrived, and is dropped.
   const latestTextRef = useRef("");
   const phraseDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const suggestionsSettleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const phraseAbortRef = useRef<AbortController | null>(null);
   const phraseCacheRef = useRef(new Map<string, TranslationResult>());
   // Read once per open (RL-08); routing for every phrase after that reads
@@ -103,6 +111,12 @@ export function SearchScreen() {
   useEffect(() => {
     if (logPayload) recordLookup(logPayload);
   }, [logPayload]);
+
+  useEffect(() => {
+    return () => {
+      if (suggestionsSettleRef.current) clearTimeout(suggestionsSettleRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -235,6 +249,17 @@ export function SearchScreen() {
     phraseAbortRef.current?.abort();
     phraseAbortRef.current = null;
 
+    // RL-18: a keystroke brings a withdrawn list straight back, and restarts
+    // the pause the list is waiting out.
+    if (suggestionsSettleRef.current) {
+      clearTimeout(suggestionsSettleRef.current);
+    }
+    setSuggestionsWithdrawn(false);
+    suggestionsSettleRef.current = setTimeout(() => {
+      suggestionsSettleRef.current = null;
+      setSuggestionsWithdrawn(true);
+    }, SUGGESTIONS_SETTLE_MS);
+
     void runQuery(nextText, dictionaryReady);
   }
 
@@ -270,7 +295,7 @@ export function SearchScreen() {
 
       {kind.kind === "word" && (
         <Flex direction="column" gap="4">
-          <Suggestions items={suggestions} onPick={handleTextChange} />
+          <Suggestions items={suggestionsWithdrawn ? [] : suggestions} onPick={handleTextChange} />
           {wordAnswer && <SenseList answer={wordAnswer} />}
         </Flex>
       )}
