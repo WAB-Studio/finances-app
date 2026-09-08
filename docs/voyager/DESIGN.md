@@ -114,11 +114,11 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   2026-09-07. Checked 2026-09-08: the published canvas contains the string `Noche` zero times.
   Nothing on it contradicts this file any more.
 - When a board and this file disagree, **this file wins**.
-- **The canvas designs the half of the app that looks a word up, and none of the half that keeps
-  it.** Its 39 boards are Inicio, Palabra, Frase, FraseOferta, Flexión, SinResultado, Sugerencias,
-  Instalando, Fuente and Fallo. There is no board for `/registro`, for exporting, for an account, for
-  syncing, or for devices — and this file names none of them either. A screen for any of those is
-  designed from scratch, not derived from a board.
+- **The canvas is 60 boards**, counted 2026-09-08 from the published file: Inicio, Palabra, Frase,
+  FraseOferta, Flexión, SinResultado, Sugerencias, Instalando, Fuente, Fallo, Registro,
+  RegistroVacío, Cuenta, CuentaDentro and Dispositivos, each in light/dark × desktop/mobile.
+- **Nothing is drawn for exporting or for syncing**, and this file names neither. A screen for
+  either is designed from scratch, not derived from a board.
 - **`Main.dc.html` is Palabra · dark · mobile.** It carries no `Palabra` in its name because it is
   the canvas entry file, so a search for `PalabraOscuroMovil` finds nothing and the set looks short
   by one. It is not: all four of light/dark × desktop/mobile exist for every state. Grep the boards
@@ -140,3 +140,12 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
 - **The English headword leads.** Decided by the user 2026-09-07, `Impreso · Palabra` over
   `Mixto · Palabra`. The headword anchors the answer in the text the reader was reading; the Spanish
   translation sits under it at 21 px. Nothing on this screen is open any more.
+
+- **The record is read inside the app, not only counted and downloaded.** Decided by the user
+  2026-09-08, against the alternative of leaving `/registro` as a number and a download button.
+  A row carries three things and no more: the word, its translation, and how the answer was reached
+  — Exacta, Flexionada, Traducida or Sin resultado. The boards are `Registro` and `RegistroVacío`,
+  in all four of light/dark × desktop/mobile.
+- **This reopens `/registro`, which shipped as neither.** `app/registro/page.tsx` mounts
+  `ExportPanel`, and that renders `t("count")` and a download button — it lists nothing. The list is
+  a screen nobody has built, and it belongs to no module in any plan.
