@@ -1,7 +1,7 @@
 // Hand-written, no build step (RL-16). Bump this by hand on every change: it
 // names the one cache the app is allowed to hold, and `activate` deletes any
 // other cache it finds under this origin.
-const CACHE_NAME = "reading-shell-v1";
+const CACHE_NAME = "reading-shell-v2";
 
 // How long a navigation waits for the network before it falls back to the
 // cached shell. Short enough that a dead connection does not stall the box.
@@ -34,16 +34,20 @@ function rejectAfter(ms) {
   });
 }
 
-// One cache entry, keyed "/", stands for the whole shell: whatever navigation
-// last reached the network is what an offline navigation gets back.
+// Keyed by the request itself (its own URL), one entry per route: a hard
+// load of "/fuente" must never overwrite the cached "/" shell, or an offline
+// open of "/" would serve the source page instead of the search box. The
+// route set is the two pages this app has ("/" and "/fuente", SPEC §page
+// list) — fixed and tiny, so this never grows into an unbounded cache that
+// needs pruning.
 async function navigate(request) {
   const cache = await caches.open(CACHE_NAME);
   try {
     const response = await Promise.race([fetch(request), rejectAfter(NAVIGATION_TIMEOUT_MS)]);
-    cache.put("/", response.clone());
+    cache.put(request, response.clone());
     return response;
   } catch {
-    const shell = await cache.match("/");
+    const shell = await cache.match(request);
     if (shell) return shell;
     throw new Error("offline, no cached shell");
   }
