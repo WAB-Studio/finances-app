@@ -886,3 +886,30 @@ The two rules pull against each other: one PR at a time protects the CI queue an
 quota. When a day's work is many small landings, batch what can be batched — a docs change and a
 trap entry are one PR, not two — and check the URL of a failing Vercel check before believing it:
 `upgradeToPro=build-rate-limit` in it means quota, never code.
+
+### Voyager's browser suite reads three false reds against `next dev`
+
+`apps/voyager/playwright.config.ts` carries no `webServer` block: it drives whatever answers on
+`VOYAGER_BASE_URL`, defaulting to `:3100`. The port a developer keeps up all day is `npm run dev`,
+and the suite is written against `next build && next start` — its own comment says so, and CI's
+`voyager-e2e` job builds before it starts the server.
+
+Point it at the dev server and **`install.spec.ts:15`, `url.spec.ts:84` and `url.spec.ts:99` fail**,
+31 passed / 3 failed. They fail on any tree, so `git stash` and a re-run on `main` reproduces them
+exactly — which reads like proof that `main` is red. It is not. The same commit's `voyager-e2e` ran
+the whole suite against a production build and passed in 3 m 20 s.
+
+The three are the states dev cannot produce: the service worker's precache on the install path, and
+the history entries the `/?q=` route writes. React's StrictMode double-effect is the same family of
+difference and already cost a measurement once — see "StrictMode doubles a Worker count".
+
+Build first, on a port of its own, and leave the dev server alone:
+
+```
+npm run build -w apps/voyager
+npm run start -w apps/voyager -- --port 3110 &
+VOYAGER_BASE_URL=http://localhost:3110 npm run check:e2e -w apps/voyager
+```
+
+Never read a local red on this suite as a red on `main` until it has run against a build. Measured
+2026-09-08, on module 26.
