@@ -7,10 +7,13 @@ const CACHE_NAME = "reading-shell-v3";
 // cached shell. Short enough that a dead connection does not stall the box.
 const NAVIGATION_TIMEOUT_MS = 3000;
 
-// The three pages this app has (SPEC §page list). Precached at install so
-// each opens offline on its own, never only as a side effect of having been
-// visited online first — "/registro" is where the device's own record
-// lives, and that is exactly the page that must not depend on it.
+// This app has four pages (SPEC §page list): "/", "/fuente", "/registro" and
+// "/cuenta". Only these three are precached at install so each opens offline
+// on its own, never only as a side effect of having been visited online first
+// — "/registro" is where the device's own record lives, and that is exactly
+// the page that must not depend on it. "/cuenta" is left out on purpose:
+// `navigate` already caches by request URL, so it lands in cache the first
+// time it is visited online, the same way "/fuente" and "/registro" do.
 const SHELL_ROUTES = ["/", "/fuente", "/registro"];
 
 self.addEventListener("install", (event) => {
@@ -86,6 +89,14 @@ self.addEventListener("fetch", (event) => {
   // The app's only server surface. A stale translation is worse than none, so
   // this route is never intercepted, cached, or answered while offline.
   if (url.pathname === "/api/translate") return;
+
+  // Uploads a batch of already-synced rows. A cached response here would
+  // replay rows the server already has, never send the ones it does not.
+  if (url.pathname === "/api/log/sync") return;
+
+  // Lands the magic link and sets the session cookie. A cached response
+  // sets no cookie, so the sign-in would silently fail.
+  if (url.pathname.startsWith("/auth/")) return;
 
   if (event.request.mode === "navigate") {
     event.respondWith(navigate(event.request));
