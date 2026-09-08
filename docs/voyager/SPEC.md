@@ -49,7 +49,7 @@ this gets built, and no schema, table or column is "prepared for" it.
 - [x] **RL-06** — An inflected form resolves to its headword, and the answer names both the form typed and the headword reached: `left` finds `leave`, `went` finds `go`, `children` finds `child`, `studies` finds `study`.
   - Measured 2026-09-07 by `apps/voyager/scripts/check-dictionary.ts` (D9), over a sample of 2,345 regular surface forms generated from 301 stride-sampled single-word letter headwords by applying the regular suffix rules, plus all 386 `IRREGULAR_FORMS` surfaces: the real coverage figure is the **irregular-only rate, 367/386 = 95.1%**, the only non-circular signal since those surfaces come from a hand-written table no rule can reach. The generated forms resolve at 2345/2345 = 100.0%, a closed loop that proves the resolver inverts its own suffix rules, not real coverage. Blended (generated + irregular together, the number that includes the closed loop): 2712/2731 = 99.3%.
 - [ ] **RL-07** — Autocomplete appears only while the string is being treated as a word. A sentence never raises it.
-- [ ] **RL-26** — A headword's answer can be heard. The device speaks it with the voice the browser
+- [x] **RL-26** — A headword's answer can be heard. The device speaks it with the voice the browser
   already carries, so a headword with no IPA is spoken exactly like one that has it. Decided by the
   user 2026-09-08: **27,938 of the 64,258 entries carry no IPA at all** (36,320 do), and written
   transcription therefore answers barely half of them. Nothing is downloaded and nothing is
@@ -106,6 +106,9 @@ this gets built, and no schema, table or column is "prepared for" it.
   device: every recorded search, with its date and the headword it reached, in a documented and
   versioned shape. The export is deliberate: it is reached from outside the search screen and
   nothing triggers it on its own.
+- [ ] **RL-27** — A local server, which the reader starts on their own machine, offers the exported
+  file to an MCP client: the most looked-up words, the most recent ones, and the full history of one
+  word. It only ever reads the file; no tool modifies it. The server is not part of the deployed app.
 
 ### Non-functional requirements
 
@@ -210,6 +213,11 @@ Principles, not recipes:
   things a client cannot do: keep the translation provider's identity and key
   off the client, and make swapping the provider a one-file change. The word
   path never passes through it.
+- **A local MCP server (RL-27) is not part of the deployed app.** It is a
+  script the reader runs on their own machine, over the file `/registro`
+  exported (RL-20), never over the deployed app's network. It does not
+  contradict "there is no backend": nothing about it ships, runs on Vercel,
+  or answers a request from a browser.
 - **IndexedDB is the durable payload cache.** It is the only store with the
   volume for 8.2 MB and the transaction boundary RL-13 needs to make the install
   whole-or-nothing.

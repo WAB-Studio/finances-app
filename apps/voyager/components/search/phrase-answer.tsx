@@ -3,7 +3,7 @@
 import { useTranslations } from "next-intl";
 
 import type { TranslationResult } from "@/lib/translate/types";
-import { Button, Flex, MetaLabel, Progress, Spinner, Text } from "@/components/ui";
+import { Button, Flex, MetaLabel, Progress, Separator, Spinner, Text } from "@/components/ui";
 
 // What stage a sentence lookup is at. The composing module owns the debounce,
 // the token floor and the request itself; this only draws the stage it lands
@@ -67,8 +67,12 @@ export function PhraseAnswer({
       )}
 
       {state.kind === "failed" && (
-        <Flex direction="column" gap="2" align="start">
-          <Text size="2" color="red">
+        // No red in this palette (docs/voyager/DESIGN.md "Failure"): a
+        // hairline sets the break off, full-weight ink says it, the accent
+        // lives in retry — the same treatment as install-status.tsx.
+        <Flex direction="column" gap="3" align="start">
+          <Separator size="4" />
+          <Text size="2" weight="bold">
             {t("failed")}
           </Text>
           <Button size="2" tap onClick={onRetry}>

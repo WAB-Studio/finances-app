@@ -16,7 +16,8 @@
     "check:e2e": "node ../../node_modules/@playwright/test/cli.js test",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node --env-file=.env.local ../../node_modules/drizzle-kit/bin.cjs migrate",
-    "check:sync": "node --import tsx --env-file=.env.local scripts/check-sync.ts"
+    "check:sync": "node --import tsx --env-file=.env.local scripts/check-sync.ts",
+    "mcp:serve": "node --import tsx scripts/mcp/server.ts"
   },
   "dependencies": {
     "@radix-ui/themes": "^3.3.0",
