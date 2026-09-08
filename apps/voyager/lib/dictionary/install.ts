@@ -83,7 +83,12 @@ export async function install(options: {
     throw fail("network", "La respuesta del diccionario no trae contenido.");
   }
 
-  const total = readContentLength(assetResponse);
+  // The server answers this asset gzipped and chunked, so `content-length`
+  // is never present (RL-12's honest edge). The manifest already carries
+  // the uncompressed size, and `fetch` hands the reader decoded bytes, so
+  // `received` grows on the same basis as `manifest.asset.bytes` throughout
+  // — the fallback is exact, not an estimate.
+  const total = readContentLength(assetResponse) ?? manifest.asset.bytes;
   const reader = assetResponse.body.getReader();
   const chunks: Uint8Array[] = [];
   let received = 0;
