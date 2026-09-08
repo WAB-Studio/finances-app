@@ -20,11 +20,22 @@ export type InstallStatusValue = {
 export function InstallStatus({
   status,
   onRetry,
+  query,
 }: {
   status: InstallStatusValue;
   onRetry: () => void;
+  // What the box holds right now — read only to say what will happen to it.
+  // Nothing here re-sends a query: the worker's own queue is what answers
+  // it once the install lands (`use-dictionary.ts`).
+  query: string;
 }) {
   const t = useTranslations("install");
+  const typed = query.trim().length > 0;
+  const pending = typed && (
+    <Text size="2" muted>
+      {t("pending", { query })}
+    </Text>
+  );
 
   if (status.state === "ready") {
     return null;
@@ -32,11 +43,14 @@ export function InstallStatus({
 
   if (status.state === "booting") {
     return (
-      <Flex align="center" gap="2">
-        <Spinner />
-        <Text size="2" muted>
-          {t("preparing")}
-        </Text>
+      <Flex direction="column" gap="1">
+        <Flex align="center" gap="2">
+          <Spinner />
+          <Text size="2" muted>
+            {t("preparing")}
+          </Text>
+        </Flex>
+        {pending}
       </Flex>
     );
   }
@@ -51,18 +65,23 @@ export function InstallStatus({
           <Text size="2" muted>
             {t("unknownSize")}
           </Text>
+          {pending}
         </Flex>
       );
     }
 
     const { received, total } = status.progress;
-    const percent = Math.round((received / total) * 100);
+    // `received` and `total` are both decoded bytes (`install.ts`), so this
+    // reaches exactly 100 the instant the transfer completes — never before,
+    // never short of it — whatever the wire's own compression ratio was.
+    const percent = Math.min(100, Math.round((received / total) * 100));
     return (
       <Flex direction="column" gap="1">
         <Progress value={percent} />
         <Text size="2" muted>
           {t("progress", { percent })}
         </Text>
+        {pending}
       </Flex>
     );
   }
@@ -75,6 +94,11 @@ export function InstallStatus({
       <Text size="2" weight="bold">
         {t("failed")}
       </Text>
+      {typed && (
+        <Text size="2" muted>
+          {t("failedPending", { query })}
+        </Text>
+      )}
       <Button size="2" tap onClick={onRetry}>
         {t("retry")}
       </Button>

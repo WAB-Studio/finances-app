@@ -303,7 +303,7 @@ export function SearchScreen() {
     <Flex direction="column" gap="5">
       <Flex direction="column" gap="2">
         <SearchBox value={text} onChange={handleTextChange} />
-        <InstallStatus status={status} onRetry={retry} />
+        <InstallStatus status={status} onRetry={retry} query={text} />
       </Flex>
 
       {kind.kind === "empty" && (
