@@ -79,6 +79,7 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   the app is designed for; the desktop is the case it must not look neglected in.
 - **A bottom bar carries the sections, at every width.** Buscar, Registro, Cuenta — three, and it
   never holds an action, a filter or a count. Decided by the user 2026-09-08, over a sidebar.
+  It ships with two of the three first; see `## Settled` for which and why.
 - **The 620 px cap is a reading measure, not a page width.** It governs the screens that are prose —
   Palabra, Frase, Flexión, Sin resultado, Inicio, Instalando, Fallo, Sugerencias, Fuente. Registro,
   Cuenta and Dispositivos are a list and a set of controls: they take the width they need. Applying
@@ -152,3 +153,23 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
 - **This reopens `/registro`, which shipped as neither.** `app/registro/page.tsx` mounts
   `ExportPanel`, and that renders `t("count")` and a download button — it lists nothing. The list is
   a screen nobody has built, and it belongs to no module in any plan.
+
+- **Two English words the dictionary has no entry for get a screen, not silence.** Decided by the
+  user 2026-09-08. Today anything of two tokens that is not a headword — and anything over sixty —
+  parks in `waiting` and renders nothing at all: `PHRASE_MIN_TOKENS` is 3 (`lib/query/classify.ts:10`),
+  `search-screen.tsx:182` parks there, and `phrase-answer.tsx:42` returns `null` for it. Nothing ever
+  leaves that state. The screen names what was not found and offers the word answer for each word
+  under it. It is chosen over lowering the phrase floor because it answers **offline**, where the
+  network path cannot, and over one line of copy because the dictionary holds both words.
+- **A lookup has a URL.** Decided by the user 2026-09-08. `/?q=book`, written on settle. Back walks
+  the reader's own lookups instead of leaving the app — which is what it does today, since `/` is the
+  only history entry there has ever been, and on a home-screen install that gesture closes the
+  dictionary. It also ends the retype that every trip to `/fuente` or `/registro` costs. RL-14 is
+  untouched: the answer still comes from IndexedDB and no keystroke reaches the network. Known price,
+  and the user was told it: a reader's queries enter browser history, which on a shared phone is a
+  real change.
+- **The bottom bar ships with two items first — Buscar and Registro — and gains Cuenta with the
+  account slice.** The user left the count to this file on 2026-09-08. Three is what the bar is for
+  and what every board draws; `/cuenta` is a route that does not exist, and a permanent tab onto a
+  dead end is worse than a bar that grows. The reason to build it now is that `/registro` is
+  currently reachable only through a link labelled «Ver origen», behind the credits page.
