@@ -59,7 +59,7 @@ async function seedRows(page: Page, count: number): Promise<void> {
   await page.evaluate(
     (count) =>
       new Promise<void>((resolve, reject) => {
-        const request = indexedDB.open("reading-log", 1);
+        const request = indexedDB.open("reading-log");
         request.onupgradeneeded = () => {
           const store = request.result.createObjectStore("lookups", { keyPath: "id", autoIncrement: true });
           store.createIndex("at", "at");
