@@ -176,3 +176,84 @@ jobs:
         with:
           name: playwright-results
           path: apps/orbit/private/playwright-results-9/
+
+  # `apps/voyager`'s own browser suite. It ran nowhere until 2026-09-08, and
+  # that is how two seeded specs sat red on `main` unnoticed: they opened
+  # `reading-log` pinned at version 1 after module 6 raised the store to 2.
+  #
+  # Deliberately NOT in the `e2e-remote-db` group. This app has no database, no
+  # identity and no harness, so it contends with nothing — putting it in that
+  # one-slot queue would only make the queue evict more (docs/TRAPS.md, "Every
+  # push enters the one-slot group").
+  voyager-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # The build validates these through `lib/env.ts`, where module 8 made all
+      # five required. The suite itself reaches none of them: the word path is
+      # IndexedDB and the sync copy is never turned on in a spec.
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      MIGRATION_DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
+      NEXT_PUBLIC_SITE_URL: ${{ secrets.NEXT_PUBLIC_SITE_URL }}
+      VOYAGER_BASE_URL: http://localhost:3100
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx next typegen
+        working-directory: apps/voyager
+
+      - name: Write .env.local from the secrets
+        working-directory: apps/voyager
+        run: |
+          missing=""
+          for name in DATABASE_URL MIGRATION_DATABASE_URL NEXT_PUBLIC_SUPABASE_URL \
+                      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY NEXT_PUBLIC_SITE_URL; do
+            [ -n "${!name}" ] || missing="$missing $name"
+            printf '%s=%s\n' "$name" "${!name}" >> .env.local
+          done
+          # Named here, or it surfaces later as `Invalid URL` on an empty string
+          # and reads like the suite broke.
+          if [ -n "$missing" ]; then
+            echo "::error::missing repository secrets:$missing"
+            exit 1
+          fi
+
+      - run: npx playwright install --with-deps chromium
+
+      # Production, not dev: the config says so, and module 22's counting
+      # assertions need the single effect run production gives
+      # (docs/TRAPS.md, "StrictMode doubles a Worker count").
+      - run: npm run build -w apps/voyager
+
+      - name: Start the app and wait for it to answer
+        run: |
+          npm run start -w apps/voyager > /tmp/voyager.log 2>&1 &
+          for _ in $(seq 1 60); do
+            if curl -sf -o /dev/null http://localhost:3100/; then
+              echo "up after ${SECONDS}s"; exit 0
+            fi
+            sleep 2
+          done
+          echo "the server never answered"; tail -50 /tmp/voyager.log; exit 1
+
+      - run: npm run check:e2e -w apps/voyager
+
+      - name: Upload the server log
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: voyager-log
+          path: /tmp/voyager.log
+
+      - name: Upload the Playwright artefacts
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: voyager-playwright-results
+          path: apps/voyager/private/playwright-results
