@@ -913,3 +913,41 @@ VOYAGER_BASE_URL=http://localhost:3110 npm run check:e2e -w apps/voyager
 
 Never read a local red on this suite as a red on `main` until it has run against a build. Measured
 2026-09-08, on module 26.
+
+### `harness:census` is blind to anything that is not `harness%@example.invalid`
+
+Module 14's worker drove `signInWithOtp` against the shared Supabase project while verifying that the
+sign-in link answers the same for a registered and an unregistered address. Two real `auth.users`
+rows survived, as plus-addressed gmail addresses.
+
+`npm run harness:census` did not move: `ephemeral: 25`, `shared: 16`, 141 MB, the same numbers before
+and after. It counts `harness%@example.invalid` and null-email rows and nothing else, so a row whose
+email does not match that shape is invisible to it — and `harness:reap` cannot prune what the
+registry never saw. **`apps/voyager` has no `scripts/harness/registry.ts` at all**, so every probe
+there is in that position by default.
+
+Until voyager has a registry: a probe that touches `auth` from voyager deletes its own rows in the
+same script, or it does not run. Do not trust the census to catch it.
+
+The count in a report is not a measurement either. That worker reported **seven** leaked rows — five
+of them were the rate-limit test's addresses, and the 429 fired before Supabase ever created them.
+The real number was **two**, found only by querying the table.
+
+Measured 2026-09-08.
+
+### Grepping a leaked secret writes it back into the usage log
+
+`.claude/usage-log.tsv` records every tool call, the command line included. Searching the disk for a
+leaked API key therefore logs the search — with the key inside it. The first redaction pass removed
+the value and left two fresh copies behind, inside the `grep` and `sed` commands that had just hunted
+for it.
+
+Redact on a short anchor (the first six characters plus a greedy tail), never on the full literal, and
+verify with `grep -r --no-ignore`: the plain sweep skips gitignored files, which is exactly where the
+log lives.
+
+What cannot be cleaned this way: `~/.claude/history.jsonl` and the session's own `.jsonl` transcript.
+Rewriting a transcript to hide one's own mistake falsifies the record — leave them and rotate the
+credential instead. A secret that reached a chat is rotated, not scrubbed.
+
+Measured 2026-09-08.
