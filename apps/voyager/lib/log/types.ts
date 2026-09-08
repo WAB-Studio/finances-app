@@ -32,7 +32,7 @@ export type LookupRecord = {
 export type SyncState = {
   deviceId: string; // minted once with crypto.randomUUID(), never rewritten
   pushedThroughLocalId: number | null; // highest local `id` already pushed
-  pulledThroughIso: string | null; // server cursor already merged in
+  pulledThroughCursor: string | null; // opaque server cursor already merged in, not a bare timestamp
   lastSyncedAt: number | null; // Date.now(), epoch ms
   enabled: boolean;
 };

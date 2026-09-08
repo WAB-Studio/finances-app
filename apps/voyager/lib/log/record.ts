@@ -180,7 +180,7 @@ function defaultSyncState(): SyncState {
   return {
     deviceId: crypto.randomUUID(),
     pushedThroughLocalId: null,
-    pulledThroughIso: null,
+    pulledThroughCursor: null,
     lastSyncedAt: null,
     enabled: false,
   };

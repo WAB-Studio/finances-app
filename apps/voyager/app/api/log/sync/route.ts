@@ -104,29 +104,65 @@ type DownloadedRow = {
   received_at: string;
 };
 
-// Stands in for "no cursor yet": always less than any real `received_at`
-// (`receivedAt` defaults to `now()`, always after 1970), so a first-ever sync
-// downloads everything without a second shape of the query. Not Postgres's own
-// `-infinity` literal — postgres.js's Bind step serializes a `timestamptz`
-// parameter through `new Date(x).toISOString()`, and `new Date("-infinity")`
-// is an Invalid Date, so that special value never survives the round trip.
-const NO_CURSOR = "1970-01-01T00:00:00.000Z";
+// The tuple a cursor names: the last downloaded row's own clock plus the
+// `(deviceId, localId)` that makes it unique. `received_at` alone repeats
+// across an entire upload batch (one INSERT stamps every row with the same
+// `now()`), so a scalar cursor either replays or drops whatever else shares
+// that instant at a page boundary.
+type Cursor = { receivedAt: string; deviceId: string; localId: number };
 
-// Downloads what other devices copied since `since`, newest last so the last
-// row's own clock is the next cursor to send back (RL-22).
+// Opaque past this file: neither `protocol.ts` nor the driver reads what is
+// inside. "|" never appears in an ISO timestamp or a UUID, so a plain split
+// is enough.
+function encodeCursor(cursor: Cursor): string {
+  return `${cursor.receivedAt}|${cursor.deviceId}|${cursor.localId}`;
+}
+
+// A cursor this route cannot parse is treated as none: nobody has one stored
+// yet, so there is nothing to migrate, only a full resync to fall back to.
+function decodeCursor(raw: string): Cursor | null {
+  const parts = raw.split("|");
+  if (parts.length !== 3) return null;
+  const [receivedAt, deviceId, localIdText] = parts;
+  const localId = Number(localIdText);
+  if (!receivedAt || !deviceId || !Number.isInteger(localId)) return null;
+  return { receivedAt, deviceId, localId };
+}
+
+// Downloads what other devices copied since `since`, ordered by the same
+// tuple the comparison names, so the last row's own clock and identity are
+// the next cursor to send back (RL-22). No cursor at all — a first-ever sync
+// — filters on `user_id` alone: there is no sentinel value less than every
+// real `received_at` to bind instead, and none is needed.
 async function downloadRows(
   tx: Transaction,
   since: string | null,
 ): Promise<DownloadedRow[]> {
+  const cursor = since ? decodeCursor(since) : null;
+
+  // Never `${cursor.receivedAt}::timestamptz` alone: Postgres would then
+  // describe that parameter as `timestamptz` (OID 1184), and postgres.js
+  // serializes a bound value for that OID through `new Date(x).toISOString()`
+  // — dropping the stored microseconds, so the cursor lands on the wrong side
+  // of the very row it named and a tied upload batch either replays forever
+  // or is silently dropped at the boundary (RL-24, both measured 2026-09-08).
+  // Casting from text keeps the parameter's own OID at `text` (25): the value
+  // crosses the wire unchanged, and Postgres parses it back server-side.
+  const boundary = cursor
+    ? sql`(received_at, device_id, local_id) > (${cursor.receivedAt}::text::timestamptz, ${cursor.deviceId}::uuid, ${cursor.localId}::integer)`
+    : sql`true`;
+
   return tx.execute<DownloadedRow>(sql`
     select device_id, local_id, to_json(timezone('utc', "at")) as "at", text, normalised,
            kind, outcome, headword, rule, senses, translation, dictionary_ready, origin,
            record_schema, to_json(timezone('utc', received_at)) as received_at
     from reading.lookups
-    where user_id = auth.uid() and received_at > ${since ?? NO_CURSOR}::timestamptz
+    where user_id = auth.uid() and ${boundary}
     -- Table-qualified: the output column of the same name is the to_json
     -- alias above, and json carries no ordering operator (42883) on its own.
-    order by reading.lookups.received_at asc
+    -- The full tuple, in the comparison's own order: received_at alone ties
+    -- within a batch, and a tie resumes wrong without its tiebreakers ordered too.
+    order by reading.lookups.received_at asc, reading.lookups.device_id asc, reading.lookups.local_id asc
     limit ${SYNC_BATCH}
   `);
 }
@@ -177,7 +213,10 @@ export async function POST(request: Request): Promise<Response> {
   });
 
   const wireRows = downloaded.map(toWireRow);
-  const cursor = wireRows.length > 0 ? wireRows[wireRows.length - 1]!.receivedAt : since;
+  const last = wireRows[wireRows.length - 1];
+  const cursor = last
+    ? encodeCursor({ receivedAt: last.receivedAt, deviceId: last.deviceId, localId: last.localId })
+    : since;
 
   const response: SyncResponse = { accepted, rows: wireRows, cursor };
   return json(response, 200);

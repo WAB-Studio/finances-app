@@ -34,19 +34,27 @@ export const syncRowSchema = z.object({
 // what it last pulled. The two cursors are never the same value: the upload
 // cursor tracks this device's own log, the download cursor tracks the
 // account's `received_at` — a device's own clock never orders the other one.
+//
+// `since`/`cursor` are opaque strings, not `z.iso.datetime()`: a single upload
+// is one INSERT, so its rows share `received_at` to the microsecond, and a
+// scalar timestamp cursor either repeats or drops the rest of that group at a
+// page boundary. The route that mints and reads this string is the only file
+// that knows it also carries the tied row's `(deviceId, localId)`.
 export const syncRequestSchema = z.object({
   rows: z.array(syncRowSchema).max(SYNC_BATCH),
-  since: z.iso.datetime().nullable(),
+  since: z.string().min(1).nullable(),
 });
 
 // What the server answers: how many of the uploaded rows it accepted, the
 // rows other devices copied since `since`, and the cursor to send back next
-// time. `receivedAt` is the server's clock, stamped once per row on arrival —
-// it is what makes the download cursor monotonic when `at` is not.
+// time. Each row's own `receivedAt` is the server's clock, stamped once per
+// row on arrival; `cursor` folds the last row's `receivedAt` together with its
+// `(deviceId, localId)` so a tied group never repeats or drops at the page
+// boundary (RL-24).
 export const syncResponseSchema = z.object({
   accepted: z.int(),
   rows: z.array(syncRowSchema.extend({ receivedAt: z.iso.datetime() })),
-  cursor: z.iso.datetime().nullable(),
+  cursor: z.string().min(1).nullable(),
 });
 
 export type SyncRow = z.infer<typeof syncRowSchema>;
