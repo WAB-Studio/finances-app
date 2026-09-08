@@ -77,8 +77,22 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
 - Hold a 32 px floor on every tap target's shorter side. `TapTarget` owns it for a link.
 - Centre the reading column above ~660 px and cap its measure at **620 px**. The phone is the case
   the app is designed for; the desktop is the case it must not look neglected in.
-- Never a sidebar. A tab bar carries the sections and nothing else: it never holds an action, a
-  filter or a count. Inside Lectura the screen is still one box and one answer.
+- **A bottom bar carries the sections, at every width.** Buscar, Registro, Cuenta — three, and it
+  never holds an action, a filter or a count. Decided by the user 2026-09-08, over a sidebar.
+- **The 620 px cap is a reading measure, not a page width.** It governs the screens that are prose —
+  Palabra, Frase, Flexión, Sin resultado, Inicio, Instalando, Fallo, Sugerencias, Fuente. Registro,
+  Cuenta and Dispositivos are a list and a set of controls: they take the width they need. Applying
+  the reading measure to them wasted half the desktop and made the list harder to read, which is
+  what this line exists to prevent.
+- **Fuente is not a section.** RL-15 asks for the source, the edition and the licence **one tap from
+  the box** — nothing more. It rides as a quiet muted link on the screens that carry the box, never
+  as a fourth item in the bar: a credits page read once does not deserve the weight of Buscar.
+- **What was here before, and why it was wrong.** This line used to read «Never a sidebar. A tab bar
+  carries the sections… Inside Lectura the screen is still one box and one answer.» It arrived
+  2026-09-07 in the commit that renamed the two apps — a rename, not a design decision. It forbade a
+  sidebar, prescribed a tab bar **nobody ever built**, and named a section «Lectura» that exists in
+  neither app. It was written as the negation of orbit's `docs/DESIGN.md:32`, which is the same
+  cross-app borrowing `AGENTS.md` forbids, in reverse.
 
 ## Failure
 
