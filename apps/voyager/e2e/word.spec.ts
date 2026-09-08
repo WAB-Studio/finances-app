@@ -95,7 +95,7 @@ test("an installed dictionary answers offline, fast, and within a thumb's reach"
   await expect(page.getByRole("heading", { name: "throughout" })).toBeVisible({ timeout: 5000 });
 
   await searchBox.fill("left");
-  await expect(page.getByText("leave", { exact: false })).toBeVisible({ timeout: 5000 });
+  await expect(page.getByRole("heading", { name: "leave" })).toBeVisible({ timeout: 5000 });
 
   const durations = await measureWorkerRoundTrips(page, 200, "throughout");
   expect(durations).toHaveLength(200);
@@ -152,4 +152,28 @@ test("RL-18: autocomplete withdraws once typing settles, and never delays the wo
   // A fresh keystroke brings the offer straight back.
   await searchBox.fill("throughou");
   await expect(suggestionsLabel).toBeVisible();
+});
+
+test("RNL-03: an 85-character headword with no space to break on never scrolls the page sideways", async ({
+  page,
+}) => {
+  await deleteTranslator(page);
+
+  const assetResponse = page.waitForResponse(
+    (response) => response.url().includes(manifest.asset.path) && response.ok(),
+  );
+  await page.goto("/");
+  await assetResponse;
+  await page.waitForTimeout(1000);
+
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+  // The dictionary's own longest headword, no space anywhere in it, paired
+  // with the longest IPA it carries — the exact case that broke the page.
+  const headword = "Taumatawhakatangihangakoauauotamateaturipukakapikimaungahoronukupokaiwhenuakitanatahu";
+  await searchBox.fill(headword);
+  await expect(page.getByRole("heading", { name: headword })).toBeVisible({ timeout: 5000 });
+
+  const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
+  const clientWidth = await page.evaluate(() => document.documentElement.clientWidth);
+  expect(scrollWidth).toBe(clientWidth);
 });
