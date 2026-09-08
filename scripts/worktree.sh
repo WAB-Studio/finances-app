@@ -15,7 +15,7 @@ set -euo pipefail
 # app       port base  .env.local  harness identities
 APPS=(
   "orbit    3000       yes         yes"
-  "voyager  3100       no          no"
+  "voyager  3100       yes         no"
 )
 
 APP_NAME=orbit
