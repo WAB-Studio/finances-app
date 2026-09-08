@@ -1,6 +1,5 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "crons": [{ "path": "/api/cron/keepalive", "schedule": "0 11 * * *" }],
   "git": {
     "deploymentEnabled": {
       "*": false,

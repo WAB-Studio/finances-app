@@ -132,11 +132,23 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
   base with `gh pr view <n> --json baseRefName`, then
   `git merge-base --is-ancestor <branch> <base>` before `-D`.
 - Do git work without asking: commit, push, open a PR, merge, delete a branch. Report it.
+- Ride a docs-only change along with the work that produced it. A trap a module taught you belongs in
+  that module's PR. It earns its own PR only when no work produced it.
+  Measured 2026-09-08: 4 of the day's 17 PRs were docs alone, three of them one Markdown file, and
+  each cost two Vercel deployments per push and a place in the one-slot `e2e` queue.
 - Ask before merging mid-slice work to `main`. Nothing else.
 
 ## Verification
 
 - Verify once at the end of a slice. Never after a micro-edit.
+- **Orbit's `e2e` is informative, not blocking.** No check is required by `main`'s ruleset — verified
+  2026-09-08. It runs on a pull request only when the change reaches `apps/orbit`, `packages/` or the
+  lockfile, and always on the push to `main`. Merge on `typecheck`, `lint` and `voyager-e2e`; read a
+  red on `main` and fix forward. Waiting on it by choice is what cost this session its afternoon, not
+  the suite.
+- The suite is 17 minutes and **1043 of its 1099 seconds are the suite itself** — setup is 48. There
+  is nothing to shave there. Make it run less, or shard it across harness lanes. Never micro-optimise
+  the install.
 - `npm run typecheck` is tsgo, `npm run lint` is eslint cached. Both are seconds. Run them freely.
 - Run `next build` at a milestone. Never per step.
 - The database is remote: every query pays the round trip. Count round trips, not queries.
