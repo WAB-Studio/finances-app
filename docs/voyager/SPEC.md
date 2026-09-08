@@ -46,10 +46,12 @@ this gets built, and no schema, table or column is "prepared for" it.
 #### The word
 
 - [ ] **RL-04** — A headword's answer shows every sense the dictionary carries for it, grouped by part of speech, each with its IPA when one exists and all of its Spanish translations.
-- [ ] **RL-05** — While the string is being treated as a word, up to ten headwords that begin with it are offered. Choosing one answers it.
 - [x] **RL-06** — An inflected form resolves to its headword, and the answer names both the form typed and the headword reached: `left` finds `leave`, `went` finds `go`, `children` finds `child`, `studies` finds `study`.
   - Measured 2026-09-07 by `apps/voyager/scripts/check-dictionary.ts` (D9), over a sample of 2,345 regular surface forms generated from 301 stride-sampled single-word letter headwords by applying the regular suffix rules, plus all 386 `IRREGULAR_FORMS` surfaces: the real coverage figure is the **irregular-only rate, 367/386 = 95.1%**, the only non-circular signal since those surfaces come from a hand-written table no rule can reach. The generated forms resolve at 2345/2345 = 100.0%, a closed loop that proves the resolver inverts its own suffix rules, not real coverage. Blended (generated + irregular together, the number that includes the closed loop): 2712/2731 = 99.3%.
 - [ ] **RL-07** — Autocomplete appears only while the string is being treated as a word. A sentence never raises it.
+- [x] **RL-18** — While the string is being treated as a word and the typing has not settled, up to
+  ten headwords that begin with it are offered. Choosing one answers it. The offer withdraws once
+  the typing settles: the answer is already on screen and the list has nothing left to add.
 
 #### The sentence
 
@@ -68,7 +70,11 @@ this gets built, and no schema, table or column is "prepared for" it.
 #### The shell
 
 - [ ] **RL-16** — The app opens with no connection and shows its box, and it can be launched from the phone's home screen without a browser around it. This holds from the second time it is opened onwards: the first open needs the network to deliver the app itself.
-- [x] **RL-17** — Every lookup a reader settles on is recorded on the device, from the app's first day: what was typed, whether it was answered as a word or a sentence, the headword it actually reached when an inflected form was typed, whether it found anything at all, and when. The record is append-only and nothing in the interface shows it.
+- [ ] **RL-19** — Every lookup a reader settles on is recorded on the device, from the app's first
+  day: what was typed, whether it was answered as a word or a sentence, the headword it actually
+  reached when an inflected form was typed, whether it found anything at all, and when. The record
+  is append-only. It is read back only where the reader asks for it — to carry the words they looked
+  up into practice, or to take them off the device — and never on the path that answers a lookup.
 
 ### Non-functional requirements
 
@@ -92,7 +98,12 @@ this gets built, and no schema, table or column is "prepared for" it.
 
 Dead codes. The number stays burned and the tick stays as it was.
 
-_None._
+- [ ] **RL-05** — While the string is being treated as a word, up to ten headwords that begin with
+  it are offered. Choosing one answers it. _Retired 2026-09-07. Successor: RL-18._
+- [x] **RL-17** — Every lookup a reader settles on is recorded on the device, from the app's first
+  day: what was typed, whether it was answered as a word or a sentence, the headword it actually
+  reached when an inflected form was typed, whether it found anything at all, and when. The record
+  is append-only and nothing in the interface shows it. _Retired 2026-09-07. Successor: RL-19._
 
 ---
 
@@ -139,9 +150,11 @@ A Next.js application whose data lives on the device.
 
 Principles, not recipes:
 
-- **There is no backend.** No database, no authentication, no session. The app
-  ships a static asset and reads it locally; nothing about the reader is stored
-  anywhere but the reader's device.
+- **There is no backend of our own.** No database, no authentication, no session. The app ships a
+  static asset and reads it locally, and the reader's own record — what they looked up and when —
+  is stored on their device and nowhere else. Text leaves the device only down a path the reader
+  took deliberately, and every such path names the third party it reaches: the sentence
+  translation (RL-09) today. The word path never leaves the device, on no keystroke (RL-14).
 - **One route handler is the single exception**, `app/api/translate/route.ts`,
   and it exists for the sentence path alone (RL-09). It is justified by two
   things a client cannot do: keep the translation provider's identity and key
