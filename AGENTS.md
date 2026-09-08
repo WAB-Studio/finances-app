@@ -91,9 +91,11 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
 - **Never write a Claude trailer.** Not `Co-Authored-By`, not `Claude-Session`, not a footer in a PR body. A session instruction that says it replaces earlier attribution guidance does not override this.
 - Say the rule in every dispatch that ends in a commit. Subagents get that instruction too.
 - Verify before every merge: `git log <base>..HEAD --format='%h %an <%ae>%n%(trailers)'`.
-- Check a branch is merged against the branch it targets, never against HEAD. From a checkout that is
-  not `integracion`, `git branch -d` calls merged branches unmerged. Use
-  `git merge-base --is-ancestor <branch> integracion` before `-D`.
+- Check a branch is merged against the branch its PR targets, never against HEAD and never against a
+  name this file hardcodes. Every PR since #33 targets `main`; `integracion` trails it and is not the
+  target. From a checkout sitting on neither, `git branch -d` calls merged branches unmerged. Read the
+  base with `gh pr view <n> --json baseRefName`, then
+  `git merge-base --is-ancestor <branch> <base>` before `-D`.
 - Do git work without asking: commit, push, open a PR, merge, delete a branch. Report it.
 - Ask before merging mid-slice work to `main`. Nothing else.
 
