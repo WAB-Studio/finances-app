@@ -41,6 +41,9 @@ export const lookups = reading.table(
     headword: text(),
     rule: text(),
     senses: integer().notNull().default(0),
+    // The translation taught to the reader, so `/registro` draws a row without
+    // reopening the dictionary (RL-36). Bounded at 120: see module 23.
+    translation: text(),
     dictionaryReady: boolean().notNull(),
     // A sentence lookup only; a word lookup never touches the network and carries none.
     origin: text({ enum: ["device", "network"] }),
@@ -52,6 +55,7 @@ export const lookups = reading.table(
     index("lookups_user_id_received_at_idx").on(t.userId, t.receivedAt),
     check("lookups_local_id_positive", sql`${t.localId} > 0`),
     check("lookups_senses_non_negative", sql`${t.senses} >= 0`),
+    check("lookups_translation_length", sql`length(${t.translation}) <= 120`),
     // `authUid` is `(select auth.uid())`: evaluated once per query, not once per row.
     pgPolicy("lookups_select_self", {
       for: "select",
