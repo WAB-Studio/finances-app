@@ -116,7 +116,9 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
 - Run `npm run harness:census` before and after a session that runs suites. The two numbers are the
   session's own footprint.
 - Register every `auth.users` row a script creates through `scripts/harness/registry.ts`. An ad-hoc
-  probe that does not is a leak nothing can prune — four such users exist today.
+  probe that does not is a leak nothing can prune. `npm run harness:census` counts them; the
+  number moves, so read it rather than trusting one written here — it said seven, then four, then
+  zero inside one day.
 - `npm run harness:reap` is safe beside a running lane. It never touches a lane identity.
 
 ## What a session spends
