@@ -6,7 +6,7 @@ import { useTranslations } from "next-intl";
 import type { Sense } from "@/lib/dictionary/index-build";
 import type { WordAnswer } from "@/lib/dictionary/lookup";
 import { speak, speechSupported } from "@/lib/speech/speak";
-import { Flex, Headword, IconButton, PosLabel, Separator, Text } from "@/components/ui";
+import { Flex, Grid, Headword, IconButton, PosLabel, Separator, Text } from "@/components/ui";
 
 // The glyph docs/voyager/DESIGN.md "Settled" fixes exactly: a play triangle
 // and two sound arcs, 1.75px strokes, round caps and joins. Drawn here
@@ -79,9 +79,18 @@ function SenseCard({ sense, t }: { sense: Sense; t: ReturnType<typeof useTransla
       <Flex align="center" gap="2">
         <PosLabel>{t(`pos.${sense.pos}`)}</PosLabel>
         {sense.ipa !== null && (
-          <Text size="2" color="gray">
-            {sense.ipa}
-          </Text>
+          // IPA runs past 120 characters with no space to break on, and it is
+          // metadata beside the headword, not the headword itself — one
+          // clamped line reads better than four wrapped ones. `PosLabel` has
+          // no intrinsic width limit of its own, so the row's flex-shrink
+          // alone would starve it too; the clamp has to come from `Grid`,
+          // whose `minmax(0, 1fr)` governs the item regardless
+          // (docs/voyager/DESIGN.md "What the data forces").
+          <Grid flexGrow="1" minWidth="0">
+            <Text size="2" color="gray" truncate>
+              {sense.ipa}
+            </Text>
+          </Grid>
         )}
       </Flex>
       <Flex direction="column" gap="1">
@@ -162,9 +171,16 @@ export function SenseList({ answer }: { answer: WordAnswer }) {
       {answer.viaInflection.map((hit) => (
         <Flex direction="column" gap="3" key={`${hit.surface}-${hit.lemma}`}>
           <Separator size="4" />
-          <Text size="2" color="gray">
-            {t("viaInflection", { surface: hit.surface, lemma: hit.lemma })}
-          </Text>
+          {/* "Lead with the English headword" (docs/voyager/DESIGN.md "The
+              direction: Impreso") holds for a lemma reached through an
+              inflection too — the form line explains it, it does not replace
+              it. */}
+          <Flex direction="column" gap="1">
+            <Headword>{hit.lemma}</Headword>
+            <Text size="1" color="gray">
+              {t("viaInflection", { surface: hit.surface, lemma: hit.lemma })}
+            </Text>
+          </Flex>
           <SenseGroup senses={hit.group.senses} t={t} />
         </Flex>
       ))}
