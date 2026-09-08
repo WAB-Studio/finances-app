@@ -22,8 +22,12 @@ import { SourceNote } from "./source-note";
 import { Suggestions } from "./suggestions";
 
 // RNL-05, rule 1: how long the box waits for a pause before a sentence is
-// worth asking about at all.
+// worth asking about at all. The URL settle below rides the same pause, so
+// the reader sees one rhythm, not two.
 const PHRASE_DEBOUNCE_MS = 600;
+
+// The query string's own name: `/?q=book`.
+const QUERY_PARAM = "q";
 
 // RL-18: how long autocomplete stays up after the last keystroke before it
 // withdraws. The word answer itself is never held for this — only the list.
@@ -98,11 +102,25 @@ function trimPhraseCache(cache: Map<string, TranslationResult>): void {
   }
 }
 
-export function SearchScreen() {
+// The address bar outranks the server prop whenever both exist: a trip to
+// `/fuente` and back can hand this component a page shell Next served from
+// its own route cache, still carrying the query the reader typed before
+// that trip left, while `window.location` already reads the real one.
+// `searchParams` only ever wins during the window-less server render itself.
+function resolveInitialQuery(prop: string | undefined): string {
+  if (typeof window === "undefined") return prop ?? "";
+  return new URLSearchParams(window.location.search).get(QUERY_PARAM) ?? (prop ?? "");
+}
+
+export function SearchScreen({ initialQuery }: { initialQuery?: string }) {
   const tSearch = useTranslations("search");
   const { status, lookup, suggest, has, retry } = useDictionary();
 
-  const [text, setText] = useState("");
+  // Read once, at the first render this instance ever gets — including a
+  // remount Next hands back a stale shell for.
+  const resolvedQuery = resolveInitialQuery(initialQuery);
+
+  const [text, setText] = useState(resolvedQuery);
   const [kind, setKind] = useState<QueryKind>({ kind: "empty" });
   const [wordAnswer, setWordAnswer] = useState<WordAnswer | null>(null);
   const [suggestions, setSuggestions] = useState<string[]>([]);
@@ -125,6 +143,18 @@ export function SearchScreen() {
   const initialDeviceStateRef = useRef<TranslatorState | null>(null);
   const deviceReadyRef = useRef(false);
 
+  // The query this lookup's own history entry already carries — read once
+  // from the URL at mount, then updated only where the URL itself is
+  // written, so a settle never repeats an entry that already matches it.
+  const committedTextRef = useRef(resolvedQuery);
+  // True from an empty box up to the next settled text: that settle opens a
+  // fresh history entry (`pushState`). Every settle after it, until the box
+  // empties again, refines that same entry (`replaceState`) instead of
+  // piling one up per pause mid-word — RNL-05's rhythm, one lookup at a time.
+  const boundaryRef = useRef(resolvedQuery === "");
+  const urlSettleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const initialQueryRanRef = useRef(false);
+
   // The call site the log's fields are true to: an effect fires after React
   // has already committed the answer, never inside the path that produced it.
   useEffect(() => {
@@ -134,8 +164,55 @@ export function SearchScreen() {
   useEffect(() => {
     return () => {
       if (suggestionsSettleRef.current) clearTimeout(suggestionsSettleRef.current);
+      if (urlSettleRef.current) clearTimeout(urlSettleRef.current);
     };
   }, []);
+
+  // Opening `/?q=book` cold answers `book` with no typing: the lookup this
+  // effect fires runs once, client-side, against whatever `status` reads at
+  // that first tick — the worker still queues it if the dictionary is not
+  // built yet (mirrors a keystroke landing mid-install).
+  useEffect(() => {
+    if (initialQueryRanRef.current || !resolvedQuery) return;
+    initialQueryRanRef.current = true;
+    latestTextRef.current = resolvedQuery;
+    void runQuery(resolvedQuery, status.state === "ready");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // The browser's own back and forward across this screen's own history
+  // entries: nothing else updates the box or re-asks the dictionary when
+  // the URL changes out from under a mounted `SearchScreen` (RNL-05's rule
+  // 4 extended to a navigation, not only to a keystroke).
+  useEffect(() => {
+    function handlePopState(): void {
+      const nextText = new URLSearchParams(window.location.search).get(QUERY_PARAM) ?? "";
+      committedTextRef.current = nextText;
+      boundaryRef.current = nextText === "";
+      applyText(nextText, { schedule: false });
+    }
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status.state]);
+
+  // Writes `/?q=<text>` once a lookup settles — never on the keystroke that
+  // produced it. A text already sitting in the URL, or an empty box, writes
+  // nothing: RL-14 owes the network no request either way, and the price the
+  // reader was told about is one entry per lookup, not one per pause.
+  function commitUrl(committedText: string): void {
+    if (committedText === "" || committedText === committedTextRef.current) return;
+    const params = new URLSearchParams(window.location.search);
+    params.set(QUERY_PARAM, committedText);
+    const url = `?${params.toString()}`;
+    if (boundaryRef.current) {
+      window.history.pushState(null, "", url);
+      boundaryRef.current = false;
+    } else {
+      window.history.replaceState(null, "", url);
+    }
+    committedTextRef.current = committedText;
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -254,7 +331,11 @@ export function SearchScreen() {
     schedulePhrase(queryText, nextKind.tokens, dictionaryReady);
   }
 
-  function handleTextChange(nextText: string): void {
+  // Shared by a keystroke and by the browser walking this screen's own
+  // history: everything a text change resets, whichever one produced it.
+  // Only a keystroke owes the URL a write, so a history-driven call passes
+  // `schedule: false` and leaves `commitUrl` untouched.
+  function applyText(nextText: string, options: { schedule: boolean }): void {
     setText(nextText);
     latestTextRef.current = nextText;
     const dictionaryReady = status.state === "ready";
@@ -279,7 +360,26 @@ export function SearchScreen() {
       setSuggestionsWithdrawn(true);
     }, SUGGESTIONS_SETTLE_MS);
 
+    if (urlSettleRef.current) {
+      clearTimeout(urlSettleRef.current);
+      urlSettleRef.current = null;
+    }
+    if (options.schedule) {
+      urlSettleRef.current = setTimeout(() => {
+        urlSettleRef.current = null;
+        commitUrl(nextText);
+      }, PHRASE_DEBOUNCE_MS);
+    }
+
     void runQuery(nextText, dictionaryReady);
+  }
+
+  function handleTextChange(nextText: string): void {
+    // An empty box is the boundary between one lookup and the next: it
+    // writes nothing itself (no entry for "nothing found"), but the word
+    // that follows it opens a fresh entry rather than replacing the last one.
+    if (nextText === "") boundaryRef.current = true;
+    applyText(nextText, { schedule: true });
   }
 
   async function handleEnableDevice(): Promise<void> {
