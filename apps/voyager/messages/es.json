@@ -58,6 +58,18 @@
     "modified": "Esta app distribuye un extracto reformateado del diccionario, bajo la misma licencia.",
     "back": "Volver al buscador"
   },
+  "log": {
+    "title": "Registro de búsquedas",
+    "openLink": "Ver el registro de búsquedas",
+    "counting": "Contando las búsquedas registradas",
+    "count": "Hay {count} búsquedas registradas en este dispositivo",
+    "countFailed": "No se pudo leer el registro",
+    "export": "Exportar el registro",
+    "exporting": "Exportando…",
+    "exported": "Registro exportado",
+    "exportFailed": "No se pudo exportar el registro",
+    "back": "Volver al buscador"
+  },
   "offline": {
     "notice": "Estás usando la app instalada en el dispositivo, sin conexión"
   },

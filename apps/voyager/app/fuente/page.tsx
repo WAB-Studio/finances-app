@@ -11,6 +11,7 @@ const manifest = manifestSchema.parse(manifestJson);
 
 export default async function FuentePage() {
   const t = await getTranslations("source");
+  const tLog = await getTranslations("log");
   const { source } = manifest;
 
   return (
@@ -53,6 +54,14 @@ export default async function FuentePage() {
         <Text size="2" muted as="p">
           {t("modified")}
         </Text>
+
+        <Separator size="4" />
+
+        <Link asChild>
+          <NextLink href="/registro">
+            <TapTarget align="center">{tLog("openLink")}</TapTarget>
+          </NextLink>
+        </Link>
 
         <Link asChild>
           <NextLink href="/">
