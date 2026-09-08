@@ -132,6 +132,10 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
   base with `gh pr view <n> --json baseRefName`, then
   `git merge-base --is-ancestor <branch> <base>` before `-D`.
 - Do git work without asking: commit, push, open a PR, merge, delete a branch. Report it.
+- Ride a docs-only change along with the work that produced it. A trap a module taught you belongs in
+  that module's PR. It earns its own PR only when no work produced it.
+  Measured 2026-09-08: 4 of the day's 17 PRs were docs alone, three of them one Markdown file, and
+  each cost two Vercel deployments per push and a place in the one-slot `e2e` queue.
 - Ask before merging mid-slice work to `main`. Nothing else.
 
 ## Verification
