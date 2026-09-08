@@ -207,26 +207,33 @@ function putSyncRow(database: IDBDatabase, state: SyncState): Promise<void> {
   });
 }
 
-// Cached once read or written, so two calls in the same tab never race two
-// mints of `deviceId` against the same key.
-let cachedSyncState: SyncState | null = null;
+async function readSyncStateFresh(): Promise<SyncState> {
+  const database = await openDatabase();
+  const existing = await getSyncRow(database);
+  if (existing) return existing;
+  const state = defaultSyncState();
+  await putSyncRow(database, state);
+  return state;
+}
+
+// Caches the promise, not the value — the same trick `openDatabase` plays
+// with `databasePromise` above. Two calls issued before the first resolves
+// share this one pending mint of `deviceId`, instead of each finding no row,
+// each minting its own, and the second `put` discarding the first in
+// silence. Reset on failure so the next call retries instead of caching it.
+let syncStatePromise: Promise<SyncState> | null = null;
 
 /** The device's sync row, minting `deviceId` the first time it is read. */
 export async function readSyncState(): Promise<SyncState> {
-  if (cachedSyncState) return cachedSyncState;
+  if (!syncStatePromise) {
+    syncStatePromise = readSyncStateFresh();
+    syncStatePromise.catch(() => {
+      syncStatePromise = null;
+    });
+  }
   try {
-    const database = await openDatabase();
-    const existing = await getSyncRow(database);
-    if (existing) {
-      cachedSyncState = existing;
-      return existing;
-    }
-    const state = defaultSyncState();
-    await putSyncRow(database, state);
-    cachedSyncState = state;
-    return state;
+    return await syncStatePromise;
   } catch {
-    databasePromise = null;
     return defaultSyncState();
   }
 }
@@ -235,12 +242,11 @@ export async function readSyncState(): Promise<SyncState> {
 export async function writeSyncState(next: Partial<SyncState>): Promise<void> {
   try {
     const database = await openDatabase();
-    const current = cachedSyncState ?? (await getSyncRow(database)) ?? defaultSyncState();
+    const current = await readSyncState();
     const merged: SyncState = { ...current, ...next };
     await putSyncRow(database, merged);
-    cachedSyncState = merged;
+    syncStatePromise = Promise.resolve(merged);
   } catch {
     databasePromise = null;
-    cachedSyncState = { ...(cachedSyncState ?? defaultSyncState()), ...next, enabled: false };
   }
 }
