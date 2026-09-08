@@ -610,3 +610,104 @@ Nothing errors — the suite just points somewhere else.
 Grep for `_BASE_URL` when an app is renamed, and rename the variable with it.
 
 Measured 2026-09-07.
+
+### A pipe carries stdout, and a guard that greps a `tee` log never sees stderr
+
+`.github/workflows/ci.yml` captured the reaper's output with `| tee` and then ran
+`grep -q '^BLOCKED'` over the file to tell an interlock apart from a real failure. But
+`scripts/harness/reap.ts:63` writes `BLOCKED` with `console.error`, and a pipe carries stdout only.
+The marker never reached the file, so **every** block fell through to
+`::error::… for a reason other than a live run blocking it` — naming the one reason it was not.
+
+The guard had been in the workflow since it was written and **had never once executed**. Nothing
+errored; the branch just read as broken whenever another lane held the slot.
+
+Redirect with `2>&1` before the pipe when a guard reads a log. Fixed in `55c7eff`.
+
+Measured 2026-09-07.
+
+### `e2e-remote-db` is a one-slot concurrency group for the whole repository
+
+GitHub holds one run in progress and **one** in the queue per concurrency group. A third arrival
+does not queue behind the second: it **cancels** it. Opening a second PR while a first one's `e2e`
+is still running therefore kills the first one's queued run, and the PR reads as failed for a
+reason that has nothing to do with its diff.
+
+It happened with #30 and #31 on 2026-09-07. Land one PR's `e2e` before opening the next when both
+touch the group, or expect to re-run by hand.
+
+### "Keep a retired code's tick" means leave it as it was, not tick it
+
+`AGENTS.md` says to keep a retired code's tick. RL-05 was retired on 2026-09-07 and a decision
+document in `private/` said to retire it "keeping its `[x]`". **RL-05 had never been ticked.**
+Writing the tick in would have claimed built behaviour that was never built.
+
+The rule preserves the state, whichever state it is. A paper in `private/` is a plan, not a
+measurement: check the real one with `git show <base>:docs/SPEC.md`, never against the plan that
+sent you.
+
+### A service worker that caches every navigation under a literal key overwrites itself
+
+`apps/voyager/public/sw.js` stored every navigation response under the key `"/"`. A hard load of
+`/fuente` therefore replaced the cached shell of `/`, and the next offline visit to `/` served the
+wrong page. The existing spec stayed green throughout — it only ever exercises `/`.
+
+Key the cache by the request URL, and bump `CACHE_NAME` so an already-installed client drops the
+stale entry. Fixed 2026-09-07, v1→v2.
+
+### A Vercel project's Root Directory does not follow a folder rename
+
+Renaming `apps/finances` to `apps/orbit` and `apps/reading` to `apps/voyager` left both Vercel
+projects pointing at paths that no longer exist. The build fails in **2 seconds**, before install,
+with `The specified Root Directory "apps/finances" does not exist`, and the commit status reads
+only `Deployment has failed` — the reason is visible solely in the build log
+(`npx vercel inspect <dpl_id> --logs`).
+
+Production kept serving the last good deploy, so the app looked healthy while `main` had not
+deployed since the rename.
+
+Two more things that do not follow the repo: the **Vercel project name** and its **production
+URL**. `our-piggy-bank.vercel.app` (orbit) and `reading-neon.vercel.app` (voyager) are the live
+hosts; `orbit.vercel.app` and `finances-app.vercel.app` are 404s.
+
+Update Root Directory in Project Settings for every app in the monorepo when one is renamed.
+
+Measured 2026-09-08.
+
+### Renaming an app leaves its build output behind, invisible to `git status`
+
+`git mv` moves what git tracks. `.next/`, `tsconfig.tsbuildinfo`, `.eslintcache` and `next-env.d.ts`
+are gitignored, so renaming `apps/finances` to `apps/orbit` left **192 MB** under the old path — and
+because `git status` does not list ignored files, the tree read as clean for a day. Only the
+checkout that predates the rename carries it; worktrees born afterwards are clean, which is why it
+survives unnoticed in the one place you work in most.
+
+Stale `.next/types` under a dead path is also a candidate source of typecheck errors for files that
+no longer exist there.
+
+After renaming an app, delete the old directory outright — `git status --ignored` is what shows it.
+
+Measured 2026-09-08: `apps/finances/` held only `.next/`, `tsconfig.tsbuildinfo`, `.eslintcache` and
+`next-env.d.ts`, with `git ls-files` returning nothing for that path.
+
+### Concurrent lanes share one remote database, and the flake lands on someone else's branch
+
+Lanes get their own harness identities and seeded rows, so they never fight over data. They do not
+get their own Postgres. Every lane, plus CI, pays the same pooler, and load is the one thing lane
+isolation does not isolate.
+
+Measured twice on 2026-09-08, with three agents driving the base at once:
+
+- CI's `e2e` on a branch whose diff was **only `.md` files** went red at
+  `e2e/destructive.spec.ts:231`: the confirm dialog stayed visible after the delete was clicked,
+  `expect(locator).toBeHidden()` timing out at 5000 ms. 215 passed, 1 failed. `main` had closed the
+  same suite green fifteen minutes earlier.
+- `check:queries` failed `Q89 listAuditLog` with `sqlstate 57014, canceling statement due to
+  statement timeout`. The immediate rerun came back 116/0/0.
+
+Neither red named its cause, and both landed on a branch that could not have caused them. Before
+chasing a timeout on a diff that cannot explain it, count what else is driving the base:
+`npm run harness:census` lists live runs, `gh run list` shows CI. A suite whose assertions are all
+green but for one write-path timeout is the shape of contention, not of a defect.
+
+`AGENTS.md` allows three suites at once. Three is what produced both of these.

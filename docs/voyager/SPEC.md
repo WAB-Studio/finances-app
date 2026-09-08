@@ -70,12 +70,12 @@ this gets built, and no schema, table or column is "prepared for" it.
 #### The shell
 
 - [ ] **RL-16** — The app opens with no connection and shows its box, and it can be launched from the phone's home screen without a browser around it. This holds from the second time it is opened onwards: the first open needs the network to deliver the app itself.
-- [ ] **RL-19** — Every lookup a reader settles on is recorded on the device, from the app's first
+- [x] **RL-19** — Every lookup a reader settles on is recorded on the device, from the app's first
   day: what was typed, whether it was answered as a word or a sentence, the headword it actually
   reached when an inflected form was typed, whether it found anything at all, and when. The record
   is append-only. It is read back only where the reader asks for it — to carry the words they looked
   up into practice, or to take them off the device — and never on the path that answers a lookup.
-- [ ] **RL-20** — The log can be exported from the app as a single file the reader saves onto their
+- [x] **RL-20** — The log can be exported from the app as a single file the reader saves onto their
   device: every recorded search, with its date and the headword it reached, in a documented and
   versioned shape. The export is deliberate: it is reached from outside the search screen and
   nothing triggers it on its own.
@@ -97,7 +97,7 @@ this gets built, and no schema, table or column is "prepared for" it.
 - [x] **RNL-05** — The sentence path never fires on a keystroke: it waits for the typing to settle, does not fire below a minimum number of tokens, never fires twice for the same text, and cancels a request already in flight when the text changes. The word path is never throttled and never delayed.
 - [x] **RNL-06** — Recording a lookup never delays, blocks or fails a lookup. The write is never awaited on the path that produces an answer, a failure to write is swallowed, and the log's storage is a separate database from the dictionary's, so a write can never contend with a read of the payload.
 - [ ] **RNL-07** — The reader chooses light or dark, and the choice is remembered on the device. The app opens in the system's mode until a choice is made. Dark is the design's primary look; light is the same design inverted, and both carry the palettes in `docs/voyager/DESIGN.md`.
-- [ ] **RNL-08** — Exporting never touches the read path: building the file happens on a screen that
+- [x] **RNL-08** — Exporting never touches the read path: building the file happens on a screen that
   is not the box, mounts no dictionary Worker, and with the export never opened the app behaves
   exactly as before.
 
