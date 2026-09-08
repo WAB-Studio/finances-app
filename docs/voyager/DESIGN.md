@@ -77,7 +77,8 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
 - Hold a 32 px floor on every tap target's shorter side. `TapTarget` owns it for a link.
 - Centre the reading column above ~660 px and cap its measure at **620 px**. The phone is the case
   the app is designed for; the desktop is the case it must not look neglected in.
-- Never a sidebar, never a tab bar. The app is one box and one answer.
+- Never a sidebar. A tab bar carries the sections and nothing else: it never holds an action, a
+  filter or a count. Inside Lectura the screen is still one box and one answer.
 
 ## Failure
 
