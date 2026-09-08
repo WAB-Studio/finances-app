@@ -74,7 +74,7 @@ export async function syncNow(): Promise<SyncOutcome> {
   if (!state.enabled) return { kind: "off" };
 
   let pushedThroughLocalId = state.pushedThroughLocalId;
-  let pulledThroughIso = state.pulledThroughIso;
+  let pulledThroughCursor = state.pulledThroughCursor;
   let pushed = 0;
   let pulled = 0;
 
@@ -84,16 +84,16 @@ export async function syncNow(): Promise<SyncOutcome> {
       if (localRows.length === 0) break;
 
       const rows = localRows.map((row) => toSyncRow(row, state.deviceId));
-      const response = await postBatch(rows, pulledThroughIso);
+      const response = await postBatch(rows, pulledThroughCursor);
 
       // The merge is awaited in full before either cursor moves: a batch
       // that only half lands must be read again next time, not skipped.
       pulled += await mergeForeign(response.rows.map(toForeignRow));
 
       pushedThroughLocalId = localRows[localRows.length - 1].id!;
-      pulledThroughIso = response.cursor;
+      pulledThroughCursor = response.cursor;
       pushed += localRows.length;
-      await writeSyncState({ pushedThroughLocalId, pulledThroughIso, lastSyncedAt: Date.now() });
+      await writeSyncState({ pushedThroughLocalId, pulledThroughCursor, lastSyncedAt: Date.now() });
 
       if (localRows.length < SYNC_BATCH) break;
     }
