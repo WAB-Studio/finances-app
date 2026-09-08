@@ -17,4 +17,13 @@
     margin-inline: auto;
     width: 100%;
   }
+
+  /* docs/voyager/DESIGN.md "Viewport": Registro, Cuenta and Dispositivos are
+     a list and a set of controls, not prose — the reading cap wastes half
+     the desktop on them, so `measure="full"` drops it. Two classes to
+     outrank the single-class `.page` rule above. */
+  .page.full {
+    max-width: none;
+    margin-inline: 0;
+  }
 }
