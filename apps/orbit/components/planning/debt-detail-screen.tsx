@@ -13,6 +13,7 @@ import { recordBilledAmountAction } from "@/app/actions/debt-settlement";
 import { deleteInstallmentPlanAction } from "@/app/actions/installment-plans";
 import { DebtPaymentDialog } from "@/components/planning/debt-payment-dialog";
 import { InstallmentPlanDialog } from "@/components/planning/installment-plan-dialog";
+import { StatementsSection } from "@/components/planning/statements-section";
 import {
   Badge,
   Button,
@@ -43,10 +44,9 @@ import type {
   InstallmentPlanLine,
   InstallmentPlanRow,
 } from "@/db/queries/installment-plans";
-import type { AccountStatement } from "@/db/schema";
 import { Link as LocaleLink } from "@/i18n/navigation";
 import { minorUnitExponent, type CurrencyCode } from "@/lib/currency";
-import { civilDateToDate } from "@/lib/dates";
+import { civilDateToDate, todayInBogota } from "@/lib/dates";
 import { deriveRate, formatMoney, parseAmount } from "@/lib/money";
 import { useActionErrorToast } from "@/lib/use-action-toast";
 import {
@@ -72,17 +72,8 @@ function amountInputMode(currency: CurrencyCode): "decimal" | "numeric" {
   return minorUnitExponent(currency) > 0 ? "decimal" : "numeric";
 }
 
-const STATEMENT_WIDTHS = {
-  period: "minmax(0, 1fr)",
-  cutOff: "110px",
-  dueDate: "110px",
-  balance: "140px",
-  minimum: "130px",
-  interest: "130px",
-} as const;
-
 /**
- * One liability read in full (RF-16, RF-81, RF-82, RF-84): its derived saldo over
+ * One liability read in full (RF-16, RF-81, RF-82, RF-129): its derived saldo over
  * the four figures it owes against, a table per installment plan with the dated
  * lines and the movement that settled each, and its statement history under the
  * open period. Every figure arrives derived from the server — the stored
@@ -304,14 +295,8 @@ export function DebtDetailScreen({ data }: { data: DebtDetailData }) {
         canWrite={canWrite}
       />
 
-      <Flex direction="column" px={{ initial: "0", md: "6" }}>
-        <Heading as="h2" size="3">
-          {t("statementsTitle")}
-        </Heading>
-      </Flex>
-
       {/* The period nobody has cut yet: live figures, and never one of the
-          snapshots below (RF-84). */}
+          snapshots below (RF-129). */}
       {currentStatement !== null && (
         <Flex direction="column" px={{ initial: "0", md: "6" }}>
           <Panel title={t("currentPeriod")}>
@@ -367,10 +352,16 @@ export function DebtDetailScreen({ data }: { data: DebtDetailData }) {
         </Flex>
       )}
 
-      <StatementsTable
-        statements={statements}
+      <StatementsSection
+        account={{
+          id: account.id,
+          name: account.name,
+          kind: "liability",
+          nextPeriodStart: currentStatement?.periodStart ?? todayInBogota(),
+        }}
         currency={currency}
-        hasCutOffDay={terms?.statementCutOffDay != null}
+        statements={statements}
+        canWrite={canWrite}
       />
 
       {dialog === "pay" && (
@@ -577,136 +568,6 @@ function PlanTable({
           signed={false}
         />,
       ]}
-    />
-  );
-}
-
-/**
- * The closed periods, newest first (RF-84). Every figure is the snapshot frozen
- * at that cut-off, read as stored and never recomputed against later movements.
- */
-function StatementsTable({
-  statements,
-  currency,
-  hasCutOffDay,
-}: {
-  statements: AccountStatement[];
-  // A statement is cut in the currency the card bills in (RF-84, RF-121).
-  currency: CurrencyCode;
-  hasCutOffDay: boolean;
-}) {
-  const t = useTranslations("installments");
-  const format = useFormatter();
-
-  function shortDate(date: string): string {
-    return format.dateTime(civilDateToDate(date), {
-      day: "numeric",
-      month: "short",
-    });
-  }
-
-  const columns: DataColumn<AccountStatement>[] = [
-    {
-      key: "period",
-      header: t("statementPeriod"),
-      width: STATEMENT_WIDTHS.period,
-      numeric: true,
-      // The day the period opened; the column beside it closes the period.
-      cell: (statement) => (
-        <Text size="2">{shortDate(statement.periodStart)}</Text>
-      ),
-    },
-    {
-      key: "cutOff",
-      header: t("statementCutOff"),
-      width: STATEMENT_WIDTHS.cutOff,
-      numeric: true,
-      cell: (statement) => (
-        <Text size="2" color="gray">
-          {shortDate(statement.cutOffDate)}
-        </Text>
-      ),
-    },
-    {
-      key: "dueDate",
-      header: t("statementDueDate"),
-      width: STATEMENT_WIDTHS.dueDate,
-      numeric: true,
-      // An asset's statement demands no payment, so it prints no due date (RF-129).
-      cell: (statement) =>
-        statement.paymentDueDate === null ? null : (
-          <Text size="2" color="gray">
-            {shortDate(statement.paymentDueDate)}
-          </Text>
-        ),
-    },
-    {
-      key: "balance",
-      header: t("statementBalance"),
-      width: STATEMENT_WIDTHS.balance,
-      align: "end",
-      numeric: true,
-      cell: (statement) => (
-        <Money
-          minor={Math.abs(statement.closingBalanceCents)}
-          currency={currency}
-          signed={false}
-        />
-      ),
-    },
-    {
-      key: "minimum",
-      header: t("statementMinimum"),
-      width: STATEMENT_WIDTHS.minimum,
-      align: "end",
-      numeric: true,
-      cell: (statement) =>
-        statement.minimumPaymentCents === null ? null : (
-          <Text color="gray">
-            <Money
-              minor={statement.minimumPaymentCents}
-              currency={currency}
-              signed={false}
-            />
-          </Text>
-        ),
-    },
-    {
-      key: "interest",
-      header: t("statementInterest"),
-      width: STATEMENT_WIDTHS.interest,
-      align: "end",
-      numeric: true,
-      // What the statement charged, or an empty cell where it recorded none: a zero
-      // here would read as "the issuer charged no interest" (RF-130).
-      cell: (statement) =>
-        statement.interestChargedCents === null ? null : (
-          <Text color="gray">
-            <Money
-              minor={statement.interestChargedCents}
-              currency={currency}
-              signed={false}
-            />
-          </Text>
-        ),
-    },
-  ];
-
-  return (
-    <DataTable
-      label={t("statementsTitle")}
-      columns={columns}
-      rows={statements}
-      rowKey={(statement) => statement.id}
-      empty={
-        <EmptyState
-          variant="filtered"
-          title={t("statementsEmpty")}
-          // Nothing is filtered here: a debt with no cut-off day has no period
-          // to close, and that is the one thing to do about it (RF-84).
-          description={hasCutOffDay ? undefined : t("statementsEmptyCutOff")}
-        />
-      }
     />
   );
 }
