@@ -194,6 +194,65 @@ join a `BitmapOr` with the other two branches, so Postgres dropped the *entire* 
 per-row function recheck on the group branch is not, and is a plan away, not a size away, if the
 group-scoped share of the table keeps growing.**
 
+### A bound parameter Postgres calls `timestamptz` is floored to milliseconds
+
+`postgres.js` resolves a parameter's wire type from what Postgres describes it as, then serializes
+any value bound to OID 1184 through `date.serialize = x => (x instanceof Date ? x : new Date(x))
+.toISOString()` (`node_modules/postgres/src/types.js:31`). A JS `Date` holds milliseconds, so the
+microseconds Postgres stored are gone before the value ever reaches the wire — string parameters
+included, because the string is re-parsed through `Date` on the way in.
+
+```
+bound as $1::timestamptz  ->  2026-09-08 22:13:28.721+00     (the value was .721169)
+bound as $1::text::timestamptz -> 2026-09-08 22:13:28.721169+00
+```
+
+A row compared against its own `received_at` read back this way tests as **greater than itself**.
+`ts = $1` returns false for an identical instant; `ts::text = $1` returns true.
+
+Cast from text inside the SQL — `$1::text::timestamptz` — so the parameter travels as OID 25 and
+Postgres parses the literal at full precision. Comparing `::text` on both sides works too, and is
+what `apps/voyager/scripts/check-sync.ts` does.
+
+Three agents hit this independently the same day, in three different shapes: a row greater than
+itself, a `created_at` serialised wrong on the way out, and the download cursor below.
+
+Measured 2026-09-08.
+
+### `now()` is the transaction's clock, so one INSERT stamps every row identically
+
+`now()` is the transaction start time, not the statement's. A batch insert is one statement in one
+transaction, so **every row it writes shares one timestamp to the microsecond**. A cursor of the form
+`where stamp > $since order by stamp limit N` cannot resume inside that tie, and a batch larger than
+the page is a tie that straddles the page boundary.
+
+Measured on `reading.lookups`: 300 rows at T1 and 500 at T2 uploaded as two batches.
+
+- Page 1 returns 500 — the 300 of T1 and **200** of T2. The cursor becomes T2.
+- Compared as text, page 2 returns **0**: the remaining **300 rows of T2 never download**.
+- Compared through a bound `::timestamptz` the cursor floors below T2 (the trap above), page 2
+  returns the **same 500 rows**, and it does so forever — 42 identical pages, with 10 rows uploaded
+  afterwards still never reached.
+
+The two are one defect wearing two faces, and which one you get depends on how the cursor is bound:
+
+- **Bound below the tie — infinite duplication.** The `::timestamptz` truncation rounds *down*, so the
+  cursor sits strictly under the tied group and `>` re-admits all of it, every page, forever.
+- **Bound exactly on the tie — silent loss.** Compared as untruncated text, the cursor *equals* the
+  group's timestamp, and a strict `>` on an equal value drops the rest of the tie permanently.
+
+Fixing only the truncation converts the first into the second. Both need the tiebreaker.
+
+Both edges are real and neither is a corner case: any log past one page ties at every batch boundary.
+Order and compare on a tuple that is unique — `(received_at, device_id, local_id)` — not on the
+timestamp alone. A sequence column looks cleaner and is not free here: `bigserial` needs `USAGE` on
+the sequence for the inserting role, and the schema revokes ALL on sequences on purpose.
+
+Neither defect is visible in a test that uploads fewer rows than one page.
+
+Measured 2026-09-08.
+
+
 ## Next
 
 ### A `loading.tsx` makes every `notFound()` under it answer 200

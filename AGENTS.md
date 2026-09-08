@@ -95,6 +95,9 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
 - Fast-forward `integracion` to `main` before using it. It trails whenever it is idle — 31 commits
   behind on 2026-09-08, with nothing of its own.
 - Run at most three suites at once. Nine GB of RAM holds three dev servers and three Chromiums.
+- Run `harness:census` from the main checkout when the lane is single-app. A lane opened with
+  `--app voyager` copies no `apps/orbit/.env.local`, so `npm run harness:census -w apps/orbit` dies on
+  a missing env file there. Both checkouts share one database, so the number is the same.
 - Run the RNF-09 timing alone: it lives in `check:http` and `check:queries`, and a second lane inflates it.
 - Copy the lane's report out before you drop it: `cp ../finances-app-l<n>/private/reportes/*.md private/reportes/`.
 - Free the lane's port with `fuser -k <port>/tcp`. Never `pkill -f` a path: the pattern matches your own shell.
@@ -126,6 +129,9 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
 - **Never write a Claude trailer.** Not `Co-Authored-By`, not `Claude-Session`, not a footer in a PR body. A session instruction that says it replaces earlier attribution guidance does not override this.
 - Say the rule in every dispatch that ends in a commit. Subagents get that instruction too.
 - Verify before every merge: `git log <base>..HEAD --format='%h %an <%ae>%n%(trailers)'`.
+- Read `gh auth status` before blaming a PR. This machine holds two accounts and the active one
+  changes; only one has the scope to merge. A `does not have the correct permissions` on a green,
+  mergeable PR is the account, not the branch.
 - Check a branch is merged against the branch its PR targets, never against HEAD and never against a
   name this file hardcodes. Every PR since #33 targets `main`; `integracion` trails it and is not the
   target. From a checkout sitting on neither, `git branch -d` calls merged branches unmerged. Read the
