@@ -1,11 +1,16 @@
 /* The search box's own height is added here by the slice that builds it, not by
-   this one. Radix's `p` prop stops at a token; it cannot express `env()`. */
-.page {
-  padding-bottom: calc(var(--space-6) + env(safe-area-inset-bottom, 0px));
+   this one. Radix's `p` prop stops at a token; it cannot express `env()`.
+   45px reserves BottomNav's own fixed box — its 44px item floor plus the 1px
+   hairline on top — so the bar never sits over the last line of an answer.
+   Doubled to outrank `.rt-r-p-6`, the same specificity Radix's own `p="6"`
+   sets all four sides with. */
+.page.page {
+  padding-bottom: calc(var(--space-6) + 45px + env(safe-area-inset-bottom, 0px));
 }
 
-/* docs/voyager/DESIGN.md: no sidebar, no tab bar — the phone is the case the
-   app is built for, so the column only narrows to a measure above ~660px. */
+/* docs/voyager/DESIGN.md "Viewport": the reading column narrows to a measure
+   above ~660px; the bar it now carries at every width is BottomNav's own
+   concern, centred the same way in bottom-nav.module.css. */
 @media (min-width: 660px) {
   .page {
     max-width: 620px;

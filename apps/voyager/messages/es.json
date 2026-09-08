@@ -4,6 +4,11 @@
     "description": "Diccionario inglés-español que funciona sin conexión.",
     "shortTitle": "Diccionario"
   },
+  "nav": {
+    "label": "Secciones",
+    "search": "Buscar",
+    "log": "Registro"
+  },
   "search": {
     "placeholder": "Escribe una palabra o una frase",
     "label": "Buscar",
