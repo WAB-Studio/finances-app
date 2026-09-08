@@ -15,11 +15,13 @@ export type CurrentStatement = {
 };
 
 /**
- * The open period's live figures, computed on the fly and never persisted (RF-84):
- * the period opens the day after the last closed cut-off (the opening date before
+ * The open period's live figures, computed on the fly and never persisted: the
+ * period opens the day after the last closed cut-off (the opening date before
  * any statement), the balance is the current derived one from `account_balances`,
- * and the minimum is derived on it. The next cut-off and due dates come from the
- * stored days. Null when the account carries no terms.
+ * and the minimum is derived on it (RF-79). The next cut-off and due dates come
+ * from the latest statement's own printed dates when one exists; the stored
+ * terms days answer only until a statement exists (RF-131). Null when the
+ * account carries no terms.
  */
 export async function getCurrentStatement(
   accountId: string,
@@ -33,12 +35,11 @@ export async function getCurrentStatement(
       minimum_payment_cents: string;
       statement_cut_off_day: number | null;
       payment_due_day: number | null;
+      latest_cut_off_date: string | null;
+      latest_payment_due_date: string | null;
     }>(sql`
       select
-        coalesce(
-          (select max(s.cut_off_date) + 1 from account_statements s where s.account_id = ${accountId}),
-          a.initial_balance_on
-        ) as period_start,
+        coalesce(ls.cut_off_date + 1, a.initial_balance_on) as period_start,
         b.balance_cents,
         case
           when dt.minimum_payment_cents is not null then dt.minimum_payment_cents
@@ -47,13 +48,24 @@ export async function getCurrentStatement(
           else 0
         end as minimum_payment_cents,
         dt.statement_cut_off_day,
-        dt.payment_due_day
+        dt.payment_due_day,
+        ls.cut_off_date as latest_cut_off_date,
+        ls.payment_due_date as latest_payment_due_date
       from debt_terms dt
       join accounts a on a.id = dt.account_id
       -- One balance row per account AND currency: the open period is cut in the
       -- currency the card bills in, and no figure here ever sums two (RF-124).
       join account_balances b
         on b.id = dt.account_id and b.currency = a.settlement_currency
+      -- The latest closed statement, if any: the same row answers the period's
+      -- opening date and, below, the cut-off and due dates the bank printed.
+      left join lateral (
+        select s.cut_off_date, s.payment_due_date
+        from account_statements s
+        where s.account_id = dt.account_id
+        order by s.cut_off_date desc
+        limit 1
+      ) ls on true
       where dt.account_id = ${accountId}
     `);
 
@@ -66,13 +78,17 @@ export async function getCurrentStatement(
       balanceCents: Number(row.balance_cents),
       minimumPaymentCents: Number(row.minimum_payment_cents),
       nextCutOffDate:
-        row.statement_cut_off_day === null
-          ? null
-          : nextDayOfMonthOnOrAfter(row.statement_cut_off_day, today),
+        row.latest_cut_off_date !== null
+          ? row.latest_cut_off_date
+          : row.statement_cut_off_day === null
+            ? null
+            : nextDayOfMonthOnOrAfter(row.statement_cut_off_day, today),
       nextDueDate:
-        row.payment_due_day === null
-          ? null
-          : nextDayOfMonthOnOrAfter(row.payment_due_day, today),
+        row.latest_payment_due_date !== null
+          ? row.latest_payment_due_date
+          : row.payment_due_day === null
+            ? null
+            : nextDayOfMonthOnOrAfter(row.payment_due_day, today),
     };
   });
 }
