@@ -106,6 +106,9 @@ this gets built, and no schema, table or column is "prepared for" it.
   device: every recorded search, with its date and the headword it reached, in a documented and
   versioned shape. The export is deliberate: it is reached from outside the search screen and
   nothing triggers it on its own.
+- [ ] **RL-27** — A local server, which the reader starts on their own machine, offers the exported
+  file to an MCP client: the most looked-up words, the most recent ones, and the full history of one
+  word. It only ever reads the file; no tool modifies it. The server is not part of the deployed app.
 
 ### Non-functional requirements
 
@@ -210,6 +213,11 @@ Principles, not recipes:
   things a client cannot do: keep the translation provider's identity and key
   off the client, and make swapping the provider a one-file change. The word
   path never passes through it.
+- **A local MCP server (RL-27) is not part of the deployed app.** It is a
+  script the reader runs on their own machine, over the file `/registro`
+  exported (RL-20), never over the deployed app's network. It does not
+  contradict "there is no backend": nothing about it ships, runs on Vercel,
+  or answers a request from a browser.
 - **IndexedDB is the durable payload cache.** It is the only store with the
   volume for 8.2 MB and the transaction boundary RL-13 needs to make the install
   whole-or-nothing.
