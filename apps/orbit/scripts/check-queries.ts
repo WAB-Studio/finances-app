@@ -22,6 +22,11 @@ import {
   recordDebtPaymentAction,
 } from "@/app/actions/installment-plans";
 import { getAccountBalances } from "@/db/queries/account-balances";
+import {
+  getAccountStatementHistory,
+  listAccountStatements,
+  recordAccountStatement,
+} from "@/db/queries/account-statements";
 import { getShellSummary } from "@/db/queries/app-shell";
 import {
   archiveAccount,
@@ -48,6 +53,7 @@ import {
 import { createGroup } from "@/db/queries/create-group";
 import { getDebtDetail } from "@/db/queries/debt-detail";
 import { getDebtOverview } from "@/db/queries/debt-overview";
+import { getCurrentStatement } from "@/db/queries/debt-statements";
 import { getDebtTerms, upsertDebtTerms } from "@/db/queries/debt-terms";
 import { getDebtsScreenData } from "@/db/queries/debts-screen";
 import type { DebtsScreenData } from "@/db/queries/debts-screen";
@@ -2792,6 +2798,174 @@ async function invariantSuite(
   );
 }
 
+// Fixed and far in the past: what `nextDayOfMonthOnOrAfter` computes off today
+// always falls in a different year, so a `nextCutOffDate` that matches this one
+// exactly can only have been read off the statement, never rolled from the term.
+const STATEMENT_PERIOD_START = "2021-05-18";
+const STATEMENT_CUT_OFF_DATE = "2021-06-18";
+const STATEMENT_DUE_DATE = "2021-07-05";
+const STATEMENT_CLOSING_MAGNITUDE_CENTS = 850000;
+
+const ASSET_STATEMENT_PERIOD_START = "2021-05-01";
+const ASSET_STATEMENT_CUT_OFF_DATE = "2021-05-31";
+const ASSET_STATEMENT_CLOSING_MAGNITUDE_CENTS = 620000;
+
+/**
+ * RF-129, RF-130, RF-131: the write no suite above exercised, and the two reads
+ * RF-131 retargeted onto it. Its own suite, run after every other identity has
+ * settled, so the one statement it cuts on the fixture debt cannot shift a
+ * round-trip count or a balance an earlier Q already asserted on.
+ */
+async function statementSuite(
+  debt: DebtFixture,
+  scope: HarnessScope,
+): Promise<void> {
+  const debtSigned = next(
+    "recordAccountStatement signs a liability's magnitude negative",
+  );
+  const debtStatement = await recordAccountStatement({
+    accountId: debt.unlimitedAccountId,
+    periodStart: STATEMENT_PERIOD_START,
+    cutOffDate: STATEMENT_CUT_OFF_DATE,
+    paymentDueDate: STATEMENT_DUE_DATE,
+    openingBalanceCents: null,
+    closingBalanceCents: STATEMENT_CLOSING_MAGNITUDE_CENTS,
+    creditsCents: null,
+    debitsCents: null,
+    minimumPaymentCents: null,
+    interestChargedCents: null,
+    feesChargedCents: null,
+  });
+  if (debtStatement === null) {
+    skip(debtSigned, "recordAccountStatement was refused, so no row was written");
+  } else {
+    keep("account_statements", debtStatement.id);
+    // The row itself, not the function's return: the sign is resolved in SQL,
+    // and reading the return would only prove the payload round-tripped.
+    const closing = await readColumn<string>(
+      "account_statements",
+      "id",
+      debtStatement.id,
+      "closing_balance_cents",
+    );
+    assert(
+      debtSigned,
+      closing === String(-STATEMENT_CLOSING_MAGNITUDE_CENTS),
+      `a magnitude of ${STATEMENT_CLOSING_MAGNITUDE_CENTS} on a liability stored closing_balance_cents = ${closing}`,
+    );
+  }
+
+  const assetSigned = next(
+    "recordAccountStatement signs an asset's magnitude positive",
+  );
+  const assetStatement = await recordAccountStatement({
+    accountId: scope.assetAccountId,
+    periodStart: ASSET_STATEMENT_PERIOD_START,
+    cutOffDate: ASSET_STATEMENT_CUT_OFF_DATE,
+    paymentDueDate: null,
+    openingBalanceCents: null,
+    closingBalanceCents: ASSET_STATEMENT_CLOSING_MAGNITUDE_CENTS,
+    creditsCents: null,
+    debitsCents: null,
+    minimumPaymentCents: null,
+    interestChargedCents: null,
+    feesChargedCents: null,
+  });
+  if (assetStatement === null) {
+    skip(assetSigned, "recordAccountStatement was refused, so no row was written");
+  } else {
+    keep("account_statements", assetStatement.id);
+    const closing = await readColumn<string>(
+      "account_statements",
+      "id",
+      assetStatement.id,
+      "closing_balance_cents",
+    );
+    assert(
+      assetSigned,
+      closing === String(ASSET_STATEMENT_CLOSING_MAGNITUDE_CENTS),
+      `a magnitude of ${ASSET_STATEMENT_CLOSING_MAGNITUDE_CENTS} on an asset stored closing_balance_cents = ${closing}`,
+    );
+  }
+
+  const nextDatesFromStatement = next(
+    "getCurrentStatement and getDebtOverview both read the next dates off the statement",
+  );
+  if (debtStatement === null) {
+    skip(nextDatesFromStatement, "no statement landed on the debt to read the dates off");
+  } else {
+    const [current, overview] = await Promise.all([
+      getCurrentStatement(debt.unlimitedAccountId),
+      getDebtOverview(),
+    ]);
+    const overviewRow = overview.find(
+      (row) => row.accountId === debt.unlimitedAccountId,
+    );
+    assert(
+      nextDatesFromStatement,
+      current?.nextCutOffDate === STATEMENT_CUT_OFF_DATE &&
+        current.nextDueDate === STATEMENT_DUE_DATE &&
+        overviewRow?.nextDueDate === current.nextDueDate,
+      `getCurrentStatement names ${current?.nextCutOffDate ?? "no"} cut-off and ${current?.nextDueDate ?? "no"} due, getDebtOverview names ${overviewRow?.nextDueDate ?? "no"} due for the same debt`,
+    );
+  }
+
+  const historyCost = next(
+    "getAccountStatementHistory costs two round trips, one per Promise.all read",
+  );
+  if (debtStatement === null) {
+    skip(historyCost, "no statement landed on the debt to read the history of");
+  } else {
+    // The first call is unmeasured on purpose, the same reason
+    // `getDebtsScreenData costs one round trip per fanned-out read` skips it:
+    // the driver counts the statements that open a connection too.
+    await listAccountStatements(debt.unlimitedAccountId);
+    const unitBefore = roundTrips();
+    await listAccountStatements(debt.unlimitedAccountId);
+    const unit = roundTrips() - unitBefore;
+
+    const before = roundTrips();
+    const history = await getAccountStatementHistory(debt.unlimitedAccountId);
+    const trips = roundTrips() - before;
+
+    // The same formula `account-statements.ts` runs, written again here so the
+    // gap it reports is checked against a figure this suite derived on its own,
+    // never against the code under test.
+    const [rawGap] = await fixtureSql<{ derived_cents: string }[]>`
+      select
+        a.initial_balance_cents
+          + coalesce((
+              select sum(case
+                when t.currency = a.settlement_currency then t.amount_cents
+                when t.counter_amount_cents is not null and not t.counter_is_estimate
+                  then t.counter_amount_cents
+                else 0
+              end)
+              from transactions t
+              where t.to_account_id = a.id and t.occurred_at <= ${STATEMENT_CUT_OFF_DATE}
+            ), 0)
+          - coalesce((
+              select sum(case
+                when t.currency = a.settlement_currency then t.amount_cents
+                when t.counter_amount_cents is not null and not t.counter_is_estimate
+                  then t.counter_amount_cents
+                else 0
+              end)
+              from transactions t
+              where t.from_account_id = a.id and t.occurred_at <= ${STATEMENT_CUT_OFF_DATE}
+            ), 0) as derived_cents
+      from accounts a where a.id = ${debt.unlimitedAccountId}`;
+    const expectedGap = -STATEMENT_CLOSING_MAGNITUDE_CENTS - Number(rawGap.derived_cents);
+    const row = history?.statements.find((entry) => entry.id === debtStatement.id);
+
+    assert(
+      historyCost,
+      trips === unit * 2 && row?.reconciliationGapCents === expectedGap,
+      `${trips} round trips for the history, ${unit} for a single read of it; the gap read ${row?.reconciliationGapCents ?? "no"} cents against ${expectedGap} computed apart in raw SQL`,
+    );
+  }
+}
+
 /**
  * Suite Q-timing: what each screen-level read costs, in wall time and in round
  * trips counted at the driver. It PRINTS and asserts nothing — RNF-09 is a budget
@@ -2922,6 +3096,8 @@ async function main(): Promise<void> {
   await readSuite(userId, scope, writes, silenced, debt, groupless, fellow);
   console.log("");
   await invariantSuite(writes, silenced.restored);
+  console.log("");
+  await statementSuite(debt, scope);
   console.log("");
   await timingSuite();
 }
