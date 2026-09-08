@@ -732,3 +732,83 @@ diff: `gh run view <id>` prints them, and a cancelled-by-priority run names itse
 
 Land one thing at a time when the group is busy, and prefer cancelling a redundant run
 (`gh run cancel <id>`) over adding another.
+
+### A lane born for one app cannot typecheck the other until typegen runs there
+
+`worktree.sh --app voyager` copies voyager's `.env.local` and nothing of orbit's. The lane is
+therefore complete for voyager and cold for orbit: `.next/types` was never generated there, so
+`npm run typecheck` at the root fails on `apps/orbit` with 39 errors of the shape
+`TS2304: Cannot find name 'PageProps'` and `LayoutProps`. Not one of them names a file the lane
+changed.
+
+It reads as a branch that broke orbit. It is a lane that never built orbit. `npx next typegen` in
+`apps/orbit` clears all 39, and the artefact is gitignored, so nothing about the branch changes.
+
+Typecheck the app the lane was opened for. Before calling the other app's errors a regression, run
+`next typegen` there once and look again — and never with that app's dev server up, which is the
+separate race two sections above.
+
+Measured 2026-09-08 validating the voyager lane module in a lane opened `--app voyager`.
+
+### `git diff main` moves under a verification when someone merges
+
+A validator comparing its branch against `main` had a file appear in its diff that its branch never
+touched. Nothing was wrong with the branch: `main` advanced mid-verification, because the
+orchestrator merged an unrelated PR while four lanes were being checked. A two-dot `git diff main`
+asks "how do these two commits differ *now*", so every commit that lands on the base while an agent
+works enters its diff and reads as scope the assignment did not have.
+
+Use `git diff $(git merge-base main HEAD) HEAD` for a scope check, or the three-dot `git diff main...HEAD`,
+which means the same thing. Both ask "what did this branch add since it forked", and the answer stops
+depending on what anyone else merges.
+
+The same applies to `git log`: `git log main..HEAD` is already fork-relative and stays correct, which
+is why the authorship check never showed this and the scope check did.
+
+Measured 2026-09-08, with PR #40 landing while three validators ran.
+
+### `server-only` resolves under Next and nowhere else
+
+Nothing declares `server-only` and `node_modules/server-only` does not exist, yet `lib/supabase/server.ts`,
+`packages/supabase-auth/src/claims.ts` and voyager's `lib/session.ts` all import it and every build is
+green. Next ships it at `node_modules/next/dist/compiled/server-only` and aliases the bare specifier
+itself.
+
+So it works in the app and fails in anything that loads one of those files under plain Node — a `tsx`
+harness, a one-off probe, a script outside `next dev`. The error names a missing package and invites
+the wrong fix.
+
+Stub it in the harness. Never add it to a `package.json` to make a probe run: the app does not need it
+and the declaration would outlive the probe.
+
+Measured 2026-09-08, driving voyager's `lib/session.ts` from a scratchpad harness.
+
+### `db:check-rls` cannot see a change to the settle statement's search_path
+
+A validator mutated `searchPath: "finances, public"` to `"public"` in both call sites of
+`apps/orbit/db/session.ts` and ran `db:check-rls` to prove the check discriminated. It stayed green
+past assertion 107.
+
+`scripts/check-rls.ts` sets `search_path` on its own Postgres connection config. It never goes
+through `db/session.ts`, so nothing it asserts depends on what `settleSessionSql` puts on the wire.
+A suite that drives the app does: the same mutation turned `check:queries` solidly red with
+`42P01 — relation "..." does not exist` at `Q8`, `Q10`, `Q19`, `Q22`–`Q24`, `Q30`–`Q34`, `Q81`–`Q97`.
+
+Prove a change to the session statement with `check:queries` or `check:http`, never with
+`db:check-rls` alone. And when a mutation fails to turn a suite red, say so — the suite may simply
+not touch the code you changed.
+
+Measured 2026-09-08 validating orbit's move onto the shared auth package.
+
+### One build failure hides the next
+
+voyager's Vercel build failed on `TS2307` for undeclared dependencies. Declaring them fixed it,
+proven both ways in isolated trees. Production stayed red: behind it sat a second failure the first
+had masked — five environment variables the app had made **required** (`z.url()`, not `.optional()`)
+that the Vercel project did not carry. The build had been dying before it ever reached env validation.
+
+Fixing the first failure proves the build gets further, not that the app deploys. Read the new log
+rather than assuming the same cause, and check the deployment itself went green before saying a
+build is repaired.
+
+Measured 2026-09-08, on voyager's `reading` project.

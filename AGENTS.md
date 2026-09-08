@@ -45,6 +45,31 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
 - Give every app its own design. `docs/DESIGN.md` governs `apps/orbit` alone; `docs/voyager/DESIGN.md`
   governs `apps/voyager`. Never carry a pattern across because it exists next door.
 
+## Design
+
+- Draw a screen on its app's canvas before any worker writes it. The canvas is the artifact; the
+  `DESIGN.md` is the law it obeys.
+- Put the board in front of the user and take their answer before dispatching. A screen the user
+  first sees as code is a screen they review too late to change cheaply.
+- Draw every state the screen really has — empty, loading, failed, full — not the happy one.
+- Draw light and dark, desktop and mobile. A board missing one of the four is a hole a worker fills
+  by guessing.
+- Name the board in the dispatch. A module that draws a screen cites its board or it is not ready.
+- Write the decision into the app's `DESIGN.md` the moment the user takes it, with its date. The
+  canvas shows what was drawn; only `DESIGN.md` says what was chosen.
+- When a board and its `DESIGN.md` disagree, the file wins.
+- Update the canvas in place, at its own URL. Never publish a second canvas for the same app.
+- Say in `DESIGN.md` which boards do not exist. A gap nobody wrote down reads as a gap nobody noticed.
+- This applies to a new screen, a new state of one, and a change a person can see. It does not apply
+  to work behind the screen.
+
+### The canvases
+
+- `apps/voyager` — «Diccionario de lectura», https://claude.ai/code/artifact/92f7291c-d0f3-4134-b652-be4affe98521
+- `apps/orbit` — **none yet.** Its screens were built before this rule. The next orbit screen opens
+  one and names it here.
+- Add the URL here the day a canvas is created. A canvas nobody can find is a canvas nobody uses.
+
 ## Parallel tracks
 
 - Five lanes exist. Lane 1 is this checkout; lanes 2 to 5 are worktrees at `../<checkout>-l<n>`.

@@ -1,6 +1,6 @@
 import "server-only";
 
-import { sql } from "drizzle-orm";
+import { settleSessionSql, type SessionUser } from "@repo/supabase-auth";
 import { getLocale } from "next-intl/server";
 import { cache } from "react";
 
@@ -8,13 +8,16 @@ import { db } from "@/db/client";
 import { redirect } from "@/i18n/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
-export type SessionUser = { id: string; email: string };
+export type { SessionUser };
 
 export type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 // The verified JWT payload. It never leaves this module: callers get the two
 // fields below, so no policy decision can ever be made from a claim we control.
 // Deduplicated per request: the layout, every guard and every query ask for the same session.
+// Reads the client through `@/lib/supabase/server` rather than calling the
+// package's `verifiedClaims`, because that seam is the one the harness stub
+// replaces and the harness renders no request for `cookies()` to read.
 const getVerifiedClaims = cache(async function getVerifiedClaims() {
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase.auth.getClaims();
@@ -60,16 +63,11 @@ export async function withUserDb<T>(
   const claims = JSON.stringify(session.claims);
 
   return db.transaction(async (tx) => {
-    // One statement, not four: a round trip to the pooler costs more than the
-    // query it precedes, and no statement runs between the claims and the role.
     // `search_path` is what lets raw SQL keep naming a table unqualified now
     // that the tables live in `finances` rather than `public`.
-    // `true` is `is_local`: the pooler hands this connection on at commit.
-    await tx.execute(sql`select
-      set_config('request.jwt.claims', ${claims}, true),
-      set_config('statement_timeout', '8000', true),
-      set_config('search_path', 'finances, public', true),
-      set_config('role', 'authenticated', true)`);
+    await tx.execute(
+      settleSessionSql({ claims, searchPath: "finances, public" }),
+    );
 
     return fn(tx);
   });
@@ -99,11 +97,9 @@ export async function withImpersonatedDb<T>(
   });
 
   return db.transaction(async (tx) => {
-    await tx.execute(sql`select
-      set_config('request.jwt.claims', ${claims}, true),
-      set_config('statement_timeout', '8000', true),
-      set_config('search_path', 'finances, public', true),
-      set_config('role', 'authenticated', true)`);
+    await tx.execute(
+      settleSessionSql({ claims, searchPath: "finances, public" }),
+    );
 
     return fn(tx);
   });

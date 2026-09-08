@@ -77,8 +77,22 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
 - Hold a 32 px floor on every tap target's shorter side. `TapTarget` owns it for a link.
 - Centre the reading column above ~660 px and cap its measure at **620 px**. The phone is the case
   the app is designed for; the desktop is the case it must not look neglected in.
-- Never a sidebar. A tab bar carries the sections and nothing else: it never holds an action, a
-  filter or a count. Inside Lectura the screen is still one box and one answer.
+- **A bottom bar carries the sections, at every width.** Buscar, Registro, Cuenta — three, and it
+  never holds an action, a filter or a count. Decided by the user 2026-09-08, over a sidebar.
+- **The 620 px cap is a reading measure, not a page width.** It governs the screens that are prose —
+  Palabra, Frase, Flexión, Sin resultado, Inicio, Instalando, Fallo, Sugerencias, Fuente. Registro,
+  Cuenta and Dispositivos are a list and a set of controls: they take the width they need. Applying
+  the reading measure to them wasted half the desktop and made the list harder to read, which is
+  what this line exists to prevent.
+- **Fuente is not a section.** RL-15 asks for the source, the edition and the licence **one tap from
+  the box** — nothing more. It rides as a quiet muted link on the screens that carry the box, never
+  as a fourth item in the bar: a credits page read once does not deserve the weight of Buscar.
+- **What was here before, and why it was wrong.** This line used to read «Never a sidebar. A tab bar
+  carries the sections… Inside Lectura the screen is still one box and one answer.» It arrived
+  2026-09-07 in the commit that renamed the two apps — a rename, not a design decision. It forbade a
+  sidebar, prescribed a tab bar **nobody ever built**, and named a section «Lectura» that exists in
+  neither app. It was written as the negation of orbit's `docs/DESIGN.md:32`, which is the same
+  cross-app borrowing `AGENTS.md` forbids, in reverse.
 
 ## Failure
 
@@ -94,14 +108,34 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
 
 - The approved direction is **Impreso**, in dark as the primary look. The tokens above are its warm
   inversion, not a second design.
-- The five `Noche*.dc.html` boards on the canvas are the **losing** direction and contradict this
-  file: they set Archivo over Newsreader, a cool `#0E0F12` ground over the warm `#14130F`, and an
-  amber `#E0A458` accent over `#D9805F`, and they use cards this design forbids. They were not
-  approved. Read them as history.
-- When a board and this file disagree, **this file wins**. Do not restyle a screen from a `Noche`
-  board.
+- **The five `Noche*.dc.html` boards are gone.** They were the losing direction — Archivo over
+  Newsreader, a cool `#0E0F12` ground over the warm `#14130F`, an amber `#E0A458` accent over
+  `#D9805F`, and cards this design forbids — and the canvas dropped them when it was rebuilt on
+  2026-09-07. Checked 2026-09-08: the published canvas contains the string `Noche` zero times.
+  Nothing on it contradicts this file any more.
+- When a board and this file disagree, **this file wins**.
+- **The canvas designs the half of the app that looks a word up, and none of the half that keeps
+  it.** Its 39 boards are Inicio, Palabra, Frase, FraseOferta, Flexión, SinResultado, Sugerencias,
+  Instalando, Fuente and Fallo. There is no board for `/registro`, for exporting, for an account, for
+  syncing, or for devices — and this file names none of them either. A screen for any of those is
+  designed from scratch, not derived from a board.
+- **`Main.dc.html` is Palabra · dark · mobile.** It carries no `Palabra` in its name because it is
+  the canvas entry file, so a search for `PalabraOscuroMovil` finds nothing and the set looks short
+  by one. It is not: all four of light/dark × desktop/mobile exist for every state. Grep the boards
+  for a token with a case-insensitive match — they are written lowercase (`#14130f`).
 
 ## Settled
+
+- **A headword can be heard, in the browser's own voice.** Decided by the user 2026-09-08 over
+  recorded audio and over doing nothing, and written as RL-26. It is the option that serves the
+  **27,938 entries with no IPA** exactly as well as the 36,320 that have one, and it adds nothing to
+  the 8.2 MB the dictionary already costs. Known price, and it is not small: the system voice varies
+  a lot between devices and is poor on some.
+- **The speak control has no board yet, and RL-26 is not built until it does.** It sits on the
+  Palabra screen, which is the one screen this file calls settled — so drawing it means reopening a
+  settled screen, deliberately, on the canvas. It is an icon-sized control beside the headword, never
+  a labelled button competing with the headword's weight, and it does not become a second accent: the
+  accent already names the part of speech there.
 
 - **The English headword leads.** Decided by the user 2026-09-07, `Impreso · Palabra` over
   `Mixto · Palabra`. The headword anchors the answer in the text the reader was reading; the Spanish
