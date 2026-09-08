@@ -43,6 +43,11 @@ const settlement = messages.debts.settlement;
 // credit limit shows instead of a cupo of zero (RF-117).
 const NO_VALUE = "\u2014";
 
+// The minus `Money` prints on a signed figure below zero (SPEC-A3), read back
+// here to tell a negative gap from a positive one without importing the
+// component that draws it.
+const MINUS = "\u2212";
+
 const scope = readScope();
 const stamp = randomUUID().slice(0, 8);
 
@@ -750,6 +755,33 @@ async function seedStatements({
   });
 }
 
+// What the account's own movements say it stood at, up to and including a
+// cut-off — independent of `account-statements.ts:71`, which is the figure a
+// test naming the same source it asserts against could never catch drifting.
+// Every movement this fixture writes settles in the account's own settlement
+// currency, so the walk is the plain sum a statement's gap is measured against.
+async function derivedBalanceCents(
+  accountId: string,
+  cutOffDate: string,
+): Promise<number> {
+  const [row] = await fixtureSql<{ derived: string }[]>`
+    select (
+      a.initial_balance_cents
+        + coalesce((
+            select sum(t.amount_cents) from transactions t
+            where t.to_account_id = a.id and t.occurred_at <= ${cutOffDate}::date
+          ), 0)
+        - coalesce((
+            select sum(t.amount_cents) from transactions t
+            where t.from_account_id = a.id and t.occurred_at <= ${cutOffDate}::date
+          ), 0)
+    )::text as derived
+    from accounts a
+    where a.id = ${accountId}`;
+
+  return Number(row.derived);
+}
+
 test.describe("the detail route", () => {
   const detailId = randomUUID();
   const detailName = `Deuda con extractos ${stamp}`;
@@ -880,7 +912,7 @@ test.describe("the detail route", () => {
     // column read is a snapshot and does not wait for the render behind it.
     await expect(history.getByRole("row")).toHaveCount(stored.length + 1);
 
-    const shown = await readColumn(history, 3, 6);
+    const shown = await readColumn(history, 3, 8);
     expect(shown.map(digitsIn)).toEqual(
       stored.map((row) => pesos(Math.abs(Number(row.balance)))),
     );
@@ -900,7 +932,7 @@ test.describe("the detail route", () => {
     await page.reload();
     await expect(history.getByRole("row")).toHaveCount(stored.length + 1);
 
-    expect((await readColumn(history, 3, 6)).map(digitsIn)).toEqual(
+    expect((await readColumn(history, 3, 8)).map(digitsIn)).toEqual(
       shown.map(digitsIn),
     );
     expect(await digitsOf(openPeriodBalance(page))).toBe(
@@ -913,6 +945,124 @@ test.describe("the detail route", () => {
       from account_statements where account_id = ${detailId}
       order by cut_off_date desc`;
     expect(after).toEqual(stored);
+  });
+
+  test("records what a person types into the dialog, and shows the row with the gap the base derives", async ({
+    page,
+  }) => {
+    // After the last seeded cut-off and short of it — a period the earlier
+    // closes leave open (RF-129).
+    const periodStart = addCivilDays(dayOfMonthBack(1, DETAIL_CUT_OFF_DAY), 1);
+    const cutOffDate = todayInBogota();
+    const closingMajor = "2150000";
+
+    await page.goto(`/es/planning/debts/${detailId}`);
+
+    await page
+      .getByRole("button", { name: installments.statementRecord, exact: true })
+      .click();
+
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+
+    // A date input carries no textbox role, so it is reached by its label.
+    await dialog
+      .getByLabel(installments.statementPeriodStartLabel)
+      .fill(periodStart);
+    await dialog.getByLabel(installments.statementCutOffLabel).fill(cutOffDate);
+    await dialog
+      .getByRole("textbox", { name: installments.statementClosingLabel })
+      .fill(closingMajor);
+    await dialog
+      .getByRole("button", { name: installments.statementRecordSave, exact: true })
+      .click();
+
+    await expect(
+      page.getByText(installments.statementRecorded, { exact: true }),
+    ).toBeVisible();
+
+    const history = page.getByRole("table", {
+      name: installments.statementsTitle,
+    });
+    await expect(history.getByRole("row")).toHaveCount(
+      DETAIL_STATEMENT_CENTS.length + 2,
+    );
+
+    const [stored] = await fixtureSql<{ closing: string }[]>`
+      select closing_balance_cents::text as closing
+      from account_statements
+      where account_id = ${detailId} and cut_off_date = ${cutOffDate}::date`;
+    const closingCents = Number(stored.closing);
+    // The magnitude a person typed lands negative on a liability (RF-129): the
+    // sign is resolved in SQL from the account's own kind, never carried in
+    // the payload the dialog sent.
+    expect(closingCents).toBe(-Number(closingMajor) * 100);
+
+    // The gap this test compares against is measured straight off the
+    // movements, not by calling the query the screen itself reads (RF-129).
+    const derived = await derivedBalanceCents(detailId, cutOffDate);
+    const gapCents = closingCents - derived;
+
+    // Cut off most recently, so the row this test wrote sorts first.
+    const gapShown = (await readColumn(history, 7, 8))[0];
+    expect(digitsIn(gapShown)).toBe(pesos(Math.abs(gapCents)));
+    expect(gapShown.includes(MINUS)).toBe(gapCents < 0);
+  });
+
+  test("leaves interest and fees blank, and the recorded row shows empty cells rather than a zero", async ({
+    page,
+  }) => {
+    const periodStart = addCivilDays(dayOfMonthBack(1, DETAIL_CUT_OFF_DAY), 1);
+    const cutOffDate = todayInBogota();
+    const closingMajor = "1800000";
+
+    await page.goto(`/es/planning/debts/${detailId}`);
+
+    await page
+      .getByRole("button", { name: installments.statementRecord, exact: true })
+      .click();
+
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+
+    await dialog
+      .getByLabel(installments.statementPeriodStartLabel)
+      .fill(periodStart);
+    await dialog.getByLabel(installments.statementCutOffLabel).fill(cutOffDate);
+    await dialog
+      .getByRole("textbox", { name: installments.statementClosingLabel })
+      .fill(closingMajor);
+    // Interest and fees stay untouched: a blank field is what "the statement
+    // never printed it" means, and typing a zero would claim the issuer
+    // charged nothing (RF-130).
+    await dialog
+      .getByRole("button", { name: installments.statementRecordSave, exact: true })
+      .click();
+
+    await expect(
+      page.getByText(installments.statementRecorded, { exact: true }),
+    ).toBeVisible();
+
+    const history = page.getByRole("table", {
+      name: installments.statementsTitle,
+    });
+    await expect(history.getByRole("row")).toHaveCount(
+      DETAIL_STATEMENT_CENTS.length + 2,
+    );
+
+    // Both cells are drawn empty, not the digit "0" a blank charge would read
+    // as if the column ever fell back to zero.
+    expect((await readColumn(history, 5, 8))[0]).toBe("");
+    expect((await readColumn(history, 6, 8))[0]).toBe("");
+
+    const [stored] = await fixtureSql<
+      { interest: number | null; fees: number | null }[]
+    >`
+      select interest_charged_cents as interest, fees_charged_cents as fees
+      from account_statements
+      where account_id = ${detailId} and cut_off_date = ${cutOffDate}::date`;
+    expect(stored.interest).toBeNull();
+    expect(stored.fees).toBeNull();
   });
 
   test("names every line the delete drops, and keeps the movement it unlinks", async ({
