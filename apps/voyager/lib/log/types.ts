@@ -22,4 +22,16 @@ export type LookupRecord = {
   senses: number; // how many senses the group carried; 0 on a miss
   dictionaryReady: boolean; // was the dictionary installed when the query was typed
   origin: "device" | "network" | null; // a sentence only
+  device?: string | null; // the device that recorded it; absent means this one
+  deviceSeq?: number | null; // its `id` there; absent means its own `id`
+};
+
+// The sync store's one row, keyed "state". A row this shape never existed
+// under schema version 1: it is minted, not migrated.
+export type SyncState = {
+  deviceId: string; // minted once with crypto.randomUUID(), never rewritten
+  pushedThroughLocalId: number | null; // highest local `id` already pushed
+  pulledThroughIso: string | null; // server cursor already merged in
+  lastSyncedAt: number | null; // Date.now(), epoch ms
+  enabled: boolean;
 };
