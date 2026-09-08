@@ -1,8 +1,7 @@
 import "server-only";
 
-import { settleSessionSql, type SessionUser } from "@repo/supabase-auth";
+import { settleSessionSql, verifiedClaims, type SessionUser } from "@repo/supabase-auth";
 import { getLocale } from "next-intl/server";
-import { cache } from "react";
 
 import { db } from "@/db/client";
 import { redirect } from "@/i18n/navigation";
@@ -14,23 +13,15 @@ export type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 // The verified JWT payload. It never leaves this module: callers get the two
 // fields below, so no policy decision can ever be made from a claim we control.
-// Deduplicated per request: the layout, every guard and every query ask for the same session.
-// Reads the client through `@/lib/supabase/server` rather than calling the
-// package's `verifiedClaims`, because that seam is the one the harness stub
-// replaces and the harness renders no request for `cookies()` to read.
-const getVerifiedClaims = cache(async function getVerifiedClaims() {
-  const supabase = await createSupabaseServerClient();
-  const { data, error } = await supabase.auth.getClaims();
-
-  if (error || !data) return null;
-  // An anonymous sign-in also carries the `authenticated` role.
-  if (data.claims.is_anonymous) return null;
-
-  const { sub, email } = data.claims;
-  if (!sub || !email) return null;
-
-  return { claims: data.claims, user: { id: sub, email } satisfies SessionUser };
-});
+// Deduplicated per request: the layout, every guard and every query ask for the
+// same session. Passes `createSupabaseServerClient` itself — a stable, module-level
+// reference, not a freshly built client — so the package's `cache()` keeps
+// hitting one entry across every call in the request. That reference is also
+// the one the harness stub replaces, so the harness renders no request for
+// `cookies()` to read.
+function getVerifiedClaims() {
+  return verifiedClaims(createSupabaseServerClient);
+}
 
 export async function getSessionUser(): Promise<SessionUser | null> {
   return (await getVerifiedClaims())?.user ?? null;
