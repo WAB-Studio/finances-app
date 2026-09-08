@@ -115,6 +115,23 @@
       "emailInvalid": "Escribe un correo válido",
       "sendFailed": "No se pudo enviar el enlace",
       "linkInvalid": "El enlace no es válido o venció"
+    },
+    "devices": {
+      "title": "Dispositivos",
+      "thisDevice": "Este dispositivo",
+      "lastSeen": "Visto por última vez: {date}",
+      "neverSeen": "Nunca visto",
+      "lookups": "{count, plural, one {# búsqueda copiada} other {# búsquedas copiadas}}",
+      "retire": "Retirar",
+      "retiring": "Retirando…",
+      "retireFailed": "No se pudo completar la operación con los dispositivos",
+      "retry": "Reintentar",
+      "cancel": "Cancelar",
+      "confirm": "Retirar dispositivo",
+      "loading": "Cargando los dispositivos…",
+      "empty": "Todavía no hay ningún dispositivo copiando tu registro",
+      "confirmBody": "Sus búsquedas salen de tu copia y este dispositivo deja de sincronizar. Lo que ya se copió a tus otros dispositivos sigue en ellos.",
+      "confirmBodyOwn": "Además, la copia se apaga en este dispositivo: tu registro local se queda completo aquí, y si la activas de nuevo se sube todo desde cero."
     }
   },
   "offline": {
