@@ -234,6 +234,15 @@ Measured on `reading.lookups`: 300 rows at T1 and 500 at T2 uploaded as two batc
   returns the **same 500 rows**, and it does so forever — 42 identical pages, with 10 rows uploaded
   afterwards still never reached.
 
+The two are one defect wearing two faces, and which one you get depends on how the cursor is bound:
+
+- **Bound below the tie — infinite duplication.** The `::timestamptz` truncation rounds *down*, so the
+  cursor sits strictly under the tied group and `>` re-admits all of it, every page, forever.
+- **Bound exactly on the tie — silent loss.** Compared as untruncated text, the cursor *equals* the
+  group's timestamp, and a strict `>` on an equal value drops the rest of the tie permanently.
+
+Fixing only the truncation converts the first into the second. Both need the tiebreaker.
+
 Both edges are real and neither is a corner case: any log past one page ties at every batch boundary.
 Order and compare on a tuple that is unique — `(received_at, device_id, local_id)` — not on the
 timestamp alone. A sequence column looks cleaner and is not free here: `bigserial` needs `USAGE` on
