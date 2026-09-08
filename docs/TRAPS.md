@@ -776,6 +776,32 @@ is why the authorship check never showed this and the scope check did.
 
 Measured 2026-09-08, with PR #40 landing while three validators ran.
 
+### A green check belongs to a SHA, not to a branch
+
+The same mistake as the entry above, one layer out. `gh pr checks <n>` prints a bucket per check
+name, and says nothing about *which commit* produced it. Merge `main` into a branch — or push any
+fix — and the old run's verdict keeps showing as the PR's status until the new one reports.
+
+Measured 2026-09-08, twice in one afternoon:
+
+- PR #47's `voyager-e2e` was red, and the branch was green locally. The red belonged to the commit
+  before `main` was merged in; the merge was what fixed it. Nothing was wrong with the code.
+- PR #50's `voyager-e2e` reported `pass` on `9be9ec5`. The branch head was `dad10ea`, whose run was
+  still `pending`. Merging on that green would have landed a commit nothing had tested.
+
+Read the SHA, never the bucket alone:
+
+    gh pr checks <n> --json name,link --jq '.[]|select(.name=="<job>")|.link'
+    gh api repos/<owner>/<repo>/actions/runs/<id> --jq '.head_sha, .status, .conclusion'
+
+and compare it against `git rev-parse HEAD`. The same habit that fixes the entry above — compare
+against a commit, never against a name — is what fixes this one.
+
+**And verify a push landed.** `git push -q` on a branch with no upstream prints its complaint and
+`-q` swallows it. That is how PR #47's stale SHA got there: the merge commit never reached the
+remote, and CI dutifully tested what was there. `git push -u origin <branch>`, then compare
+`git rev-parse HEAD` against `git ls-remote --heads origin <branch>`.
+
 ### `server-only` resolves under Next and nowhere else
 
 Nothing declares `server-only` and `node_modules/server-only` does not exist, yet `lib/supabase/server.ts`,
