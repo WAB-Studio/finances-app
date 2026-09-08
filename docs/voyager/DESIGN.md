@@ -112,6 +112,17 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
 
 ## Settled
 
+- **A headword can be heard, in the browser's own voice.** Decided by the user 2026-09-08 over
+  recorded audio and over doing nothing, and written as RL-26. It is the option that serves the
+  **27,938 entries with no IPA** exactly as well as the 36,320 that have one, and it adds nothing to
+  the 8.2 MB the dictionary already costs. Known price, and it is not small: the system voice varies
+  a lot between devices and is poor on some.
+- **The speak control has no board yet, and RL-26 is not built until it does.** It sits on the
+  Palabra screen, which is the one screen this file calls settled — so drawing it means reopening a
+  settled screen, deliberately, on the canvas. It is an icon-sized control beside the headword, never
+  a labelled button competing with the headword's weight, and it does not become a second accent: the
+  accent already names the part of speech there.
+
 - **The English headword leads.** Decided by the user 2026-09-07, `Impreso · Palabra` over
   `Mixto · Palabra`. The headword anchors the answer in the text the reader was reading; the Spanish
   translation sits under it at 21 px. Nothing on this screen is open any more.
