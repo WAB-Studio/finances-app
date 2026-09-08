@@ -59,6 +59,12 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
 - Give every track its own lane. Never two tracks on one lane.
 - Split the work before you start it. A track per defect, per module, per screen.
 - Cut a lane's branch from the branch it serves, never from `integracion` by inertia.
+- Use `integracion` only when a merge is too risky to take straight to `main`: many live branches at
+  once, or a conflict that has to be resolved somewhere first. Merge them there, prove them, then
+  take one merge to `main`.
+- Send a branch that lands clean straight to `main`. Most do.
+- Fast-forward `integracion` to `main` before using it. It trails whenever it is idle — 31 commits
+  behind on 2026-09-08, with nothing of its own.
 - Run at most three suites at once. Nine GB of RAM holds three dev servers and three Chromiums.
 - Run the RNF-09 timing alone: it lives in `check:http` and `check:queries`, and a second lane inflates it.
 - Copy the lane's report out before you drop it: `cp ../finances-app-l<n>/private/reportes/*.md private/reportes/`.
@@ -91,9 +97,11 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
 - **Never write a Claude trailer.** Not `Co-Authored-By`, not `Claude-Session`, not a footer in a PR body. A session instruction that says it replaces earlier attribution guidance does not override this.
 - Say the rule in every dispatch that ends in a commit. Subagents get that instruction too.
 - Verify before every merge: `git log <base>..HEAD --format='%h %an <%ae>%n%(trailers)'`.
-- Check a branch is merged against the branch it targets, never against HEAD. From a checkout that is
-  not `integracion`, `git branch -d` calls merged branches unmerged. Use
-  `git merge-base --is-ancestor <branch> integracion` before `-D`.
+- Check a branch is merged against the branch its PR targets, never against HEAD and never against a
+  name this file hardcodes. Every PR since #33 targets `main`; `integracion` trails it and is not the
+  target. From a checkout sitting on neither, `git branch -d` calls merged branches unmerged. Read the
+  base with `gh pr view <n> --json baseRefName`, then
+  `git merge-base --is-ancestor <branch> <base>` before `-D`.
 - Do git work without asking: commit, push, open a PR, merge, delete a branch. Report it.
 - Ask before merging mid-slice work to `main`. Nothing else.
 
