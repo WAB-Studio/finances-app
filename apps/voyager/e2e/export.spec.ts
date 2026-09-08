@@ -128,8 +128,10 @@ test("10,003 rows export whole, and the file round-trips through JSON exactly", 
   expect(rawRows).toHaveLength(10_003);
 
   const exported = await downloadExport(page);
+  // The envelope stays at 1 and the row schema moves with the store: a reader
+  // that only knows version 1 still parses the file (plan, decision 10).
   expect(exported.exportSchema).toBe(1);
-  expect(exported.recordSchema).toBe(1);
+  expect(exported.recordSchema).toBe(2);
   expect(typeof exported.exportedAt).toBe("number");
   expect(exported.rows).toHaveLength(10_003);
   expect(exported.rows).toEqual(rawRows);
