@@ -1,11 +1,16 @@
-import { LOOKUP_SCHEMA, type LookupRecord } from "./types";
+import { LOOKUP_SCHEMA, type LookupRecord, type SyncState } from "./types";
 
 // A separate database from `reading-dictionary`: an IndexedDB transaction is
 // scoped to one database, so a write here never queues behind a read of the
 // 8.2 MB payload (RNL-06).
 const DATABASE_NAME = "reading-log";
-const DATABASE_VERSION = 1;
+export const DATABASE_VERSION = 2;
 const STORE_NAME = "lookups";
+const SYNC_STORE_NAME = "sync";
+const SYNC_KEY = "state";
+
+// The sync store's single row, keyed for `keyPath: "key"`.
+type SyncRow = SyncState & { key: typeof SYNC_KEY };
 
 // The box is quiet this long before a query counts as settled, and a settled
 // row waits no longer than this before it is written even if the chain keeps
@@ -22,13 +27,26 @@ function openDatabase(): Promise<IDBDatabase> {
   if (databasePromise) return databasePromise;
   databasePromise = new Promise((resolve, reject) => {
     const request = indexedDB.open(DATABASE_NAME, DATABASE_VERSION);
-    request.onupgradeneeded = () => {
-      const store = request.result.createObjectStore(STORE_NAME, {
-        keyPath: "id",
-        autoIncrement: true,
-      });
-      store.createIndex("at", "at");
-      store.createIndex("normalised", "normalised");
+    // No branch here ever reads, writes or deletes a row: version 1 to 2
+    // adds a store and an index, nothing more, so an upgrade cannot lose one.
+    request.onupgradeneeded = (event) => {
+      const database = request.result;
+      if (event.oldVersion < 1) {
+        const store = database.createObjectStore(STORE_NAME, {
+          keyPath: "id",
+          autoIncrement: true,
+        });
+        store.createIndex("at", "at");
+        store.createIndex("normalised", "normalised");
+      }
+      if (event.oldVersion < 2) {
+        database.createObjectStore(SYNC_STORE_NAME, { keyPath: "key" });
+        // `undefined` on either component is not a valid key, so this index
+        // only ever covers a foreign row: a local one never names a device.
+        request.transaction!
+          .objectStore(STORE_NAME)
+          .createIndex("foreign", ["device", "deviceSeq"], { unique: true });
+      }
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
@@ -151,4 +169,84 @@ export async function readAll(): Promise<LookupRecord[]> {
     request.onsuccess = () => resolve(request.result as LookupRecord[]);
     request.onerror = () => reject(request.error);
   });
+}
+
+/** The open connection, for the merge module's transactions on `lookups`. */
+export function openLogDatabase(): Promise<IDBDatabase> {
+  return openDatabase();
+}
+
+function defaultSyncState(): SyncState {
+  return {
+    deviceId: crypto.randomUUID(),
+    pushedThroughLocalId: null,
+    pulledThroughIso: null,
+    lastSyncedAt: null,
+    enabled: false,
+  };
+}
+
+function getSyncRow(database: IDBDatabase): Promise<SyncRow | undefined> {
+  return new Promise((resolve, reject) => {
+    const request = database
+      .transaction(SYNC_STORE_NAME, "readonly")
+      .objectStore(SYNC_STORE_NAME)
+      .get(SYNC_KEY);
+    request.onsuccess = () => resolve(request.result as SyncRow | undefined);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+function putSyncRow(database: IDBDatabase, state: SyncState): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const transaction = database.transaction(SYNC_STORE_NAME, "readwrite");
+    transaction.objectStore(SYNC_STORE_NAME).put({ ...state, key: SYNC_KEY } satisfies SyncRow);
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
+  });
+}
+
+async function readSyncStateFresh(): Promise<SyncState> {
+  const database = await openDatabase();
+  const existing = await getSyncRow(database);
+  if (existing) return existing;
+  const state = defaultSyncState();
+  await putSyncRow(database, state);
+  return state;
+}
+
+// Caches the promise, not the value — the same trick `openDatabase` plays
+// with `databasePromise` above. Two calls issued before the first resolves
+// share this one pending mint of `deviceId`, instead of each finding no row,
+// each minting its own, and the second `put` discarding the first in
+// silence. Reset on failure so the next call retries instead of caching it.
+let syncStatePromise: Promise<SyncState> | null = null;
+
+/** The device's sync row, minting `deviceId` the first time it is read. */
+export async function readSyncState(): Promise<SyncState> {
+  if (!syncStatePromise) {
+    syncStatePromise = readSyncStateFresh();
+    syncStatePromise.catch(() => {
+      syncStatePromise = null;
+    });
+  }
+  try {
+    return await syncStatePromise;
+  } catch {
+    return defaultSyncState();
+  }
+}
+
+/** Merges `next` into the persisted state. A failure disables the copy. */
+export async function writeSyncState(next: Partial<SyncState>): Promise<void> {
+  try {
+    const database = await openDatabase();
+    const current = await readSyncState();
+    const merged: SyncState = { ...current, ...next };
+    await putSyncRow(database, merged);
+    syncStatePromise = Promise.resolve(merged);
+  } catch {
+    databasePromise = null;
+  }
 }
