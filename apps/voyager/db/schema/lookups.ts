@@ -5,7 +5,6 @@ import {
   index,
   integer,
   pgPolicy,
-  pgSchema,
   primaryKey,
   smallint,
   text,
@@ -14,9 +13,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { authenticatedRole, authUid, authUsers } from "drizzle-orm/supabase";
 
-// The schema voyager's tables live in — orbit's own live in `finances`
-// (apps/orbit/db/schema/_schema.ts). Same database, two schemas, no name clash.
-const reading = pgSchema("reading");
+import { reading } from "./_schema";
 
 // A search a reader stopped on, copied up from a device's own IndexedDB record
 // (apps/voyager/lib/log/types.ts). Never rewritten: a merge only inserts, which

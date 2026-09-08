@@ -1,8 +1,8 @@
 import { sql } from "drizzle-orm";
-import { check, pgPolicy, pgSchema, primaryKey, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { check, pgPolicy, primaryKey, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { authenticatedRole, authUid, authUsers } from "drizzle-orm/supabase";
 
-const reading = pgSchema("reading");
+import { reading } from "./_schema";
 
 // A device that has copied to this reader's account. Exists so the list can be
 // drawn and so a label survives a device with no rows yet — a `group by` on
