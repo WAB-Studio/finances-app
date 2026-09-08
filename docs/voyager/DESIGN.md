@@ -105,9 +105,10 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   Instalando, Fuente and Fallo. There is no board for `/registro`, for exporting, for an account, for
   syncing, or for devices — and this file names none of them either. A screen for any of those is
   designed from scratch, not derived from a board.
-- **`PalabraOscuroMovil` is missing.** Every other state has all four of light/dark × desktop/mobile;
-  Palabra has three. A word, at night, on a phone is the app's most likely single moment, and it is
-  the one board nobody drew.
+- **`Main.dc.html` is Palabra · dark · mobile.** It carries no `Palabra` in its name because it is
+  the canvas entry file, so a search for `PalabraOscuroMovil` finds nothing and the set looks short
+  by one. It is not: all four of light/dark × desktop/mobile exist for every state. Grep the boards
+  for a token with a case-insensitive match — they are written lowercase (`#14130f`).
 
 ## Settled
 
