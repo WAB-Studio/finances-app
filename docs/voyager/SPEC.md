@@ -49,7 +49,7 @@ this gets built, and no schema, table or column is "prepared for" it.
 - [x] **RL-06** — An inflected form resolves to its headword, and the answer names both the form typed and the headword reached: `left` finds `leave`, `went` finds `go`, `children` finds `child`, `studies` finds `study`.
   - Measured 2026-09-07 by `apps/voyager/scripts/check-dictionary.ts` (D9), over a sample of 2,345 regular surface forms generated from 301 stride-sampled single-word letter headwords by applying the regular suffix rules, plus all 386 `IRREGULAR_FORMS` surfaces: the real coverage figure is the **irregular-only rate, 367/386 = 95.1%**, the only non-circular signal since those surfaces come from a hand-written table no rule can reach. The generated forms resolve at 2345/2345 = 100.0%, a closed loop that proves the resolver inverts its own suffix rules, not real coverage. Blended (generated + irregular together, the number that includes the closed loop): 2712/2731 = 99.3%.
 - [ ] **RL-07** — Autocomplete appears only while the string is being treated as a word. A sentence never raises it.
-- [ ] **RL-18** — While the string is being treated as a word and the typing has not settled, up to
+- [x] **RL-18** — While the string is being treated as a word and the typing has not settled, up to
   ten headwords that begin with it are offered. Choosing one answers it. The offer withdraws once
   the typing settles: the answer is already on screen and the list has nothing left to add.
 
