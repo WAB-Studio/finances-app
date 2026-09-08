@@ -231,9 +231,13 @@ jobs:
       # (docs/TRAPS.md, "StrictMode doubles a Worker count").
       - run: npm run build -w apps/voyager
 
+      # `--port` explicitly: the `start` script is a bare `next start`, which
+      # defaults to 3000 — only `dev` carries `--port ${PORT:-3100}`. Without
+      # this the server comes up on the wrong port and the wait below times out
+      # against a healthy app.
       - name: Start the app and wait for it to answer
         run: |
-          npm run start -w apps/voyager > /tmp/voyager.log 2>&1 &
+          npm run start -w apps/voyager -- --port 3100 > /tmp/voyager.log 2>&1 &
           for _ in $(seq 1 60); do
             if curl -sf -o /dev/null http://localhost:3100/; then
               echo "up after ${SECONDS}s"; exit 0
