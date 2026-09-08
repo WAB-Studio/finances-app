@@ -39,3 +39,46 @@ test("the app opens with no connection, from its own cache, never the browser's"
   });
   expect(dictionaryCacheEntries).toEqual([]);
 });
+
+// Reads every cache the worker owns, never a hardcoded cache name: the
+// version string in sw.js is free to change without this test coupling to it.
+async function isCached(page: import("@playwright/test").Page, path: string) {
+  return page.evaluate(async (p) => {
+    const names = await caches.keys();
+    for (const name of names) {
+      const cache = await caches.open(name);
+      if (await cache.match(new URL(p, location.origin).toString())) return true;
+    }
+    return false;
+  }, path);
+}
+
+test("a hard load of /fuente does not overwrite the cached / shell", async ({ page, context }) => {
+  await page.addInitScript(() => {
+    delete (window as unknown as { Translator?: unknown }).Translator;
+  });
+
+  await page.goto("/");
+  await page.evaluate(() => navigator.serviceWorker.ready);
+  await page.waitForFunction(() => navigator.serviceWorker.controller !== null);
+
+  // A hard load of the other route, still online — this used to be the
+  // navigation that stomped the single "/" cache entry.
+  await page.goto("/fuente");
+  await expect.poll(() => isCached(page, "/fuente")).toBe(true);
+
+  await context.setOffline(true);
+
+  // Offline "/": the search box, not the source page the last hard load left
+  // in the browser's history.
+  await page.goto("/");
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+  await expect(searchBox).toBeVisible();
+  await expect(searchBox).toBeEditable();
+
+  // Offline "/fuente": its own cached page, still reachable — a per-route
+  // cache key must not have traded one route's offline support for the
+  // other's.
+  await page.goto("/fuente");
+  await expect(page.getByRole("heading", { name: messages.source.title })).toBeVisible();
+});
