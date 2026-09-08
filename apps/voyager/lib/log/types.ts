@@ -1,6 +1,6 @@
 // Persisted shape only. No IO here: `record.ts` owns the database.
 
-export const LOOKUP_SCHEMA = 1;
+export const LOOKUP_SCHEMA = 2;
 
 export type LookupOutcome =
   | "exact" // the string was a headword
@@ -11,7 +11,7 @@ export type LookupOutcome =
 
 export type LookupRecord = {
   id?: number; // autoIncrement, assigned by the store
-  schema: typeof LOOKUP_SCHEMA; // on the row, not the database: rows outlive versions
+  schema: number; // on the row, not the database: rows outlive versions — the store holds schema 1 and 2 at once
   at: number; // Date.now(), epoch ms
   text: string; // as typed, trimmed and whitespace-collapsed, case preserved
   normalised: string; // normaliseHeadword(text) — the join key a deck is built on
@@ -20,6 +20,7 @@ export type LookupRecord = {
   headword: string | null; // the headword actually reached; the lemma when inflected
   rule: string | null; // the InflectionRule value that reached it, as a plain string
   senses: number; // how many senses the group carried; 0 on a miss
+  translation: string | null; // the answer's own translation text, joined and cut to 120 chars; null on miss/untranslated
   dictionaryReady: boolean; // was the dictionary installed when the query was typed
   origin: "device" | "network" | null; // a sentence only
   device?: string | null; // the device that recorded it; absent means this one

@@ -34,9 +34,25 @@ const PHRASE_CACHE_LIMIT = 20;
 
 type LogPayload = Omit<LookupRecord, "id" | "schema">;
 
+// Cut, never truncated silently past the point RL-36's list can hold — the
+// module 27 wire schema and the row this fills both agree on the same 120.
+const TRANSLATION_MAX_CHARS = 120;
+const TRANSLATION_MAX_SENSES = 3;
+
+function cutTranslation(text: string): string {
+  return text.slice(0, TRANSLATION_MAX_CHARS);
+}
+
+// The first sense of the same group `headword` already comes from — at most
+// its first three translations, joined the way `SenseCard` lists them.
+function formatSenseTranslations(translations: readonly string[]): string {
+  return cutTranslation(translations.slice(0, TRANSLATION_MAX_SENSES).join(", "));
+}
+
 function wordLogPayload(text: string, answer: WordAnswer, dictionaryReady: boolean): LogPayload {
   const hit = answer.viaInflection[0] ?? null;
   const outcome: LookupOutcome = answer.exact ? "exact" : hit ? "inflected" : "miss";
+  const group = answer.exact ?? hit?.group ?? null;
   return {
     at: Date.now(),
     text,
@@ -45,7 +61,8 @@ function wordLogPayload(text: string, answer: WordAnswer, dictionaryReady: boole
     outcome,
     headword: answer.exact ? answer.exact.headword : (hit?.group.headword ?? null),
     rule: hit ? hit.rule : null,
-    senses: answer.exact ? answer.exact.senses.length : (hit?.group.senses.length ?? 0),
+    senses: group?.senses.length ?? 0,
+    translation: group ? formatSenseTranslations(group.senses[0]?.translations ?? []) : null,
     dictionaryReady,
     origin: null,
   };
@@ -56,6 +73,7 @@ function phraseLogPayload(
   dictionaryReady: boolean,
   outcome: Extract<LookupOutcome, "translated" | "untranslated">,
   origin: TranslationResult["origin"] | null,
+  translation: string | null,
 ): LogPayload {
   return {
     at: Date.now(),
@@ -66,6 +84,7 @@ function phraseLogPayload(
     headword: null,
     rule: null,
     senses: 0,
+    translation: translation === null ? null : cutTranslation(translation),
     dictionaryReady,
     origin,
   };
@@ -167,11 +186,11 @@ export function SearchScreen() {
       phraseCacheRef.current.set(normaliseHeadword(phraseText), result);
       trimPhraseCache(phraseCacheRef.current);
       setPhraseState({ kind: "done", result });
-      setLogPayload(phraseLogPayload(phraseText, dictionaryReady, "translated", result.origin));
+      setLogPayload(phraseLogPayload(phraseText, dictionaryReady, "translated", result.origin, result.text));
     } catch {
       if (controller.signal.aborted) return;
       setPhraseState({ kind: "failed" });
-      setLogPayload(phraseLogPayload(phraseText, dictionaryReady, "untranslated", null));
+      setLogPayload(phraseLogPayload(phraseText, dictionaryReady, "untranslated", null, null));
     } finally {
       if (phraseAbortRef.current === controller) phraseAbortRef.current = null;
     }
@@ -188,7 +207,7 @@ export function SearchScreen() {
     const cached = phraseCacheRef.current.get(normaliseHeadword(phraseText));
     if (cached) {
       setPhraseState({ kind: "done", result: cached });
-      setLogPayload(phraseLogPayload(phraseText, dictionaryReady, "translated", cached.origin));
+      setLogPayload(phraseLogPayload(phraseText, dictionaryReady, "translated", cached.origin, cached.text));
       return;
     }
 
