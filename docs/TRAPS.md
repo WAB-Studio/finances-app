@@ -766,3 +766,19 @@ The same applies to `git log`: `git log main..HEAD` is already fork-relative and
 is why the authorship check never showed this and the scope check did.
 
 Measured 2026-09-08, with PR #40 landing while three validators ran.
+
+### `server-only` resolves under Next and nowhere else
+
+Nothing declares `server-only` and `node_modules/server-only` does not exist, yet `lib/supabase/server.ts`,
+`packages/supabase-auth/src/claims.ts` and voyager's `lib/session.ts` all import it and every build is
+green. Next ships it at `node_modules/next/dist/compiled/server-only` and aliases the bare specifier
+itself.
+
+So it works in the app and fails in anything that loads one of those files under plain Node — a `tsx`
+harness, a one-off probe, a script outside `next dev`. The error names a missing package and invites
+the wrong fix.
+
+Stub it in the harness. Never add it to a `package.json` to make a probe run: the app does not need it
+and the declaration would outlive the probe.
+
+Measured 2026-09-08, driving voyager's `lib/session.ts` from a scratchpad harness.
