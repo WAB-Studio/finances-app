@@ -6,6 +6,11 @@ import messages from "../messages/es.json";
 import manifest from "../public/dictionary/manifest.json";
 import type { LookupRecord } from "../lib/log/types";
 import type { LogExport } from "../lib/log/export";
+// A plain number, safe to import at Node runtime — `record.ts` guards every
+// call that touches `indexedDB` or `window` behind a `typeof` check, and this
+// constant sits outside all of them. Sourcing it here, instead of a second
+// literal `2`, keeps the seeder below in lockstep with the schema it mirrors.
+import { DATABASE_VERSION } from "../lib/log/record";
 
 // Chromium's built-in `Translator` hangs `availability()` forever
 // (docs/TRAPS.md); the word path here must never reach it.
@@ -52,18 +57,32 @@ async function readRawRows(page: Page): Promise<LookupRecord[]> {
   );
 }
 
-// Mirrors `lib/log/record.ts`'s own `onupgradeneeded`: this may race the
-// app's mount effect for who creates `reading-log` first, so it stays able
-// to create the store itself rather than assume the app already did.
+// Mirrors `lib/log/record.ts`'s own `onupgradeneeded`, version pin included:
+// this may race the app's mount effect for who creates `reading-log` first,
+// so it stays able to build the store itself rather than assume the app
+// already did. Opening at a fixed, imported version — not versionless, the
+// fix that applies to a reader — is what a schema's own creator does; a
+// version this call wins the race at is a version the app's own later open
+// must find already there, or its `onupgradeneeded` tries to recreate the
+// sync store and aborts.
 async function seedRows(page: Page, count: number): Promise<void> {
   await page.evaluate(
-    (count) =>
+    ({ count, version }) =>
       new Promise<void>((resolve, reject) => {
-        const request = indexedDB.open("reading-log");
-        request.onupgradeneeded = () => {
-          const store = request.result.createObjectStore("lookups", { keyPath: "id", autoIncrement: true });
-          store.createIndex("at", "at");
-          store.createIndex("normalised", "normalised");
+        const request = indexedDB.open("reading-log", version);
+        request.onupgradeneeded = (event) => {
+          const database = request.result;
+          if (event.oldVersion < 1) {
+            const store = database.createObjectStore("lookups", { keyPath: "id", autoIncrement: true });
+            store.createIndex("at", "at");
+            store.createIndex("normalised", "normalised");
+          }
+          if (event.oldVersion < 2) {
+            database.createObjectStore("sync", { keyPath: "key" });
+            request.transaction!
+              .objectStore("lookups")
+              .createIndex("foreign", ["device", "deviceSeq"], { unique: true });
+          }
         };
         request.onsuccess = () => {
           const db = request.result;
@@ -92,7 +111,7 @@ async function seedRows(page: Page, count: number): Promise<void> {
         };
         request.onerror = () => reject(request.error);
       }),
-    count,
+    { count, version: DATABASE_VERSION },
   );
 }
 
