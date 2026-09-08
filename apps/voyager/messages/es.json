@@ -76,7 +76,46 @@
     "exporting": "Exportando…",
     "exported": "Registro exportado",
     "exportFailed": "No se pudo exportar el registro",
+    "accountLink": "Copiar el registro en una cuenta",
+    "outcome": {
+      "exact": "Exacta",
+      "inflected": "Flexionada",
+      "translated": "Traducida",
+      "miss": "Sin resultado"
+    },
+    "more": "Ver más búsquedas",
+    "listFailed": "No se pudo cargar el registro",
+    "retry": "Reintentar",
+    "empty": "Todavía no hay búsquedas registradas",
+    "emptyAction": "Buscar una palabra",
     "back": "Volver al buscador"
+  },
+  "account": {
+    "title": "Tu cuenta",
+    "openLink": "Ver tu cuenta",
+    "signedOutLead": "Crea una cuenta y tu registro deja de vivir sólo en este teléfono",
+    "emailLabel": "Correo electrónico",
+    "send": "Enviar enlace de acceso",
+    "sending": "Enviando…",
+    "sent": "Revisa tu correo y abre el enlace que te mandamos",
+    "signedInAs": "Sesión iniciada como {email}",
+    "enable": "Copiar mi registro",
+    "enableWithRows": "Copiar mi registro: suben {count} búsquedas",
+    "enabled": "Copia activada",
+    "disable": "Dejar de copiar",
+    "disabled": "Copia desactivada",
+    "lastSynced": "Última copia: {date}",
+    "neverSynced": "Todavía no se copió nada",
+    "syncNow": "Copiar ahora",
+    "syncing": "Copiando…",
+    "syncFailed": "No se pudo copiar el registro",
+    "signOut": "Cerrar sesión",
+    "back": "Volver al buscador",
+    "errors": {
+      "emailInvalid": "Escribe un correo válido",
+      "sendFailed": "No se pudo enviar el enlace",
+      "linkInvalid": "El enlace no es válido o venció"
+    }
   },
   "offline": {
     "notice": "Estás usando la app instalada en el dispositivo, sin conexión"
