@@ -1,0 +1,8 @@
+/* docs/voyager/DESIGN.md: 34px / 500 / -0.02em, none of which is a Radix step.
+   Doubled to outrank `.rt-Heading:where(.rt-r-size-N)`. */
+.headword.headword {
+  font-family: var(--font-serif);
+  font-size: 34px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}

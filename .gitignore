@@ -56,4 +56,4 @@ private/
 .claude/usage-log.tsv
 
 # the dictionary build's downloaded tarball and extracted TEI source
-apps/reading/.cache/
+apps/voyager/.cache/

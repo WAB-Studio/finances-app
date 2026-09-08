@@ -529,8 +529,8 @@ global was only reached by a bare, un-mocked call, which timed out.
 
 ### An explicit `--port` in a `dev` script silently ignores `PORT`
 
-`apps/reading`'s `dev` script read `next dev --port 3100`. A flag on the command line beats the `PORT`
-environment variable, so `PORT=3103 npm run dev -w apps/reading` bound **3100** — lane 1's port — and
+`apps/voyager`'s `dev` script read `next dev --port 3100`. A flag on the command line beats the `PORT`
+environment variable, so `PORT=3103 npm run dev -w apps/voyager` bound **3100** — lane 1's port — and
 said so only in a line nobody reads. Two lanes hit it the same afternoon; one bound another lane's
 port and had to kill the process it did not own.
 
@@ -545,7 +545,7 @@ A lane's port belongs to the lane. A script that pins one takes it from whoever 
 
 ### A dependency declared on a branch is not installed by merging it
 
-Module 3 added `fast-xml-parser` to `apps/reading/package.json` and to the lockfile. Nobody ran
+Module 3 added `fast-xml-parser` to `apps/voyager/package.json` and to the lockfile. Nobody ran
 `npm install` in the main checkout afterwards, so the package was never on disk there. Merging the
 branch changed the manifest, not `node_modules`.
 
@@ -579,3 +579,34 @@ next start`, never against `next dev`. Reading it in dev invents a leak that is 
 a real one behind a number you have already talked yourself out of.
 
 Measured 2026-09-07 while validating the dictionary worker.
+
+### Regenerating a lockfile on one machine drops every other platform's packages
+
+Renaming the two app directories left four stale workspace keys in `package-lock.json`. Deleting the
+file and re-running `npm install` fixed them and quietly took **153 packages** with it: 799 entries
+before, 646 after. What goes is the optional, platform-specific set — the `@next/swc-*` and
+`@esbuild/*` builds for every OS that is not the one you ran the install on. `npm ci` still passes on
+that machine and on a CI runner of the same platform, so nothing looks wrong until someone else's
+`npm ci` fails on a package the lockfile no longer names.
+
+Rename the entries in place instead. There were six lines: two `"apps/<name>"` keys, two `"name"`
+fields and two `node_modules/<pkg>` keys with their `"resolved"` paths. Editing them kept all 799
+packages and turned a 14,775-line diff into 16 lines. Then prove it with `npm ci`, which is what CI
+runs.
+
+Never regenerate a lockfile to fix a path. `--package-lock-only` does not save you either: it adds
+the new keys and leaves the old ones behind.
+
+Measured 2026-09-07 renaming `apps/finances` and `apps/reading`.
+
+### `worktree.sh` derives a suite's base-URL variable from the app's name
+
+The lane script prints an app's commands with `${APP_NAME^^}_BASE_URL`. Rename the app and the
+variable it prints renames itself, while the `playwright.config.ts` that reads it does not. After
+`reading` became `voyager` the script suggested `VOYAGER_BASE_URL` and the config still read
+`READING_BASE_URL`: the command runs, silently ignores the port you gave it and drives the default.
+Nothing errors — the suite just points somewhere else.
+
+Grep for `_BASE_URL` when an app is renamed, and rename the variable with it.
+
+Measured 2026-09-07.

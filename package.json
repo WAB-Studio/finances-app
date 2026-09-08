@@ -9,12 +9,12 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "npm run dev -w apps/finances",
-    "dev:reading": "npm run dev -w apps/reading",
-    "build": "npm run build -w apps/finances",
-    "build:reading": "npm run build -w apps/reading",
+    "dev": "npm run dev -w apps/orbit",
+    "dev:voyager": "npm run dev -w apps/voyager",
+    "build": "npm run build -w apps/orbit",
+    "build:voyager": "npm run build -w apps/voyager",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
-    "check": "npm run check -w apps/finances"
+    "check": "npm run check -w apps/orbit"
   }
 }

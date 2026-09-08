@@ -1,0 +1,15 @@
+/* The search box's own height is added here by the slice that builds it, not by
+   this one. Radix's `p` prop stops at a token; it cannot express `env()`. */
+.page {
+  padding-bottom: calc(var(--space-6) + env(safe-area-inset-bottom, 0px));
+}
+
+/* docs/voyager/DESIGN.md: no sidebar, no tab bar — the phone is the case the
+   app is built for, so the column only narrows to a measure above ~660px. */
+@media (min-width: 660px) {
+  .page {
+    max-width: 620px;
+    margin-inline: auto;
+    width: 100%;
+  }
+}
