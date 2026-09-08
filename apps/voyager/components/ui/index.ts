@@ -22,6 +22,8 @@ export { AppTheme } from "./theme";
 
 export { Page } from "./page";
 
+export { BottomNav } from "./bottom-nav";
+
 export { TapTarget } from "./tap-target";
 
 export { Button, IconButton } from "./button";
