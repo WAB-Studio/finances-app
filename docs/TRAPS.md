@@ -673,3 +673,19 @@ hosts; `orbit.vercel.app` and `finances-app.vercel.app` are 404s.
 Update Root Directory in Project Settings for every app in the monorepo when one is renamed.
 
 Measured 2026-09-08.
+
+### Renaming an app leaves its build output behind, invisible to `git status`
+
+`git mv` moves what git tracks. `.next/`, `tsconfig.tsbuildinfo`, `.eslintcache` and `next-env.d.ts`
+are gitignored, so renaming `apps/finances` to `apps/orbit` left **192 MB** under the old path — and
+because `git status` does not list ignored files, the tree read as clean for a day. Only the
+checkout that predates the rename carries it; worktrees born afterwards are clean, which is why it
+survives unnoticed in the one place you work in most.
+
+Stale `.next/types` under a dead path is also a candidate source of typecheck errors for files that
+no longer exist there.
+
+After renaming an app, delete the old directory outright — `git status --ignored` is what shows it.
+
+Measured 2026-09-08: `apps/finances/` held only `.next/`, `tsconfig.tsbuildinfo`, `.eslintcache` and
+`next-env.d.ts`, with `git ls-files` returning nothing for that path.
