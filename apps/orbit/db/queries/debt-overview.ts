@@ -71,8 +71,14 @@ function nextDayOfMonthOnOrAfterSql(dayCol: SQL, today: string): SQL {
  * a rate of its own so the screen states the percentage without dividing
  * anything; the minimum is the fixed amount, or a percentage
  * of the owed, or null; and due installments sum the unpaid lines falling on or
- * before the next due date. No figure is re-summed from a stored balance, and the
- * CALLER folds these rows into the totals — this adds no round trip for them.
+ * before the next due date. The cut-off and due dates come from the latest
+ * statement's own printed dates when one exists, and from the terms' fixed days
+ * otherwise (RF-131) — the same reading `getCurrentStatement` takes, so the list
+ * and the detail screen never name different dates for the same debt; due
+ * installments still bound themselves to the terms-derived date, since a
+ * statement's due date can be missing. No figure is re-summed from a stored
+ * balance, and the CALLER folds these rows into the totals — this adds no round
+ * trip for them.
  *
  * The view answers one row per account AND currency since `0032`, so every
  * figure above names the settlement currency in its join: unbounded, the join
@@ -141,8 +147,8 @@ export async function getDebtOverview(): Promise<DebtOverviewRow[]> {
             then round(abs(b.settlement_cents) * dt.minimum_payment_pct)::bigint
           else null
         end as minimum_payment_cents,
-        nc.next_cut_off as next_cut_off_date,
-        nd.next_due as next_due_date,
+        coalesce(s.cut_off_date, nc.next_cut_off) as next_cut_off_date,
+        coalesce(s.payment_due_date, nd.next_due) as next_due_date,
         coalesce((
           select sum(l.amount_cents)
           from installment_lines l
@@ -156,6 +162,16 @@ export async function getDebtOverview(): Promise<DebtOverviewRow[]> {
       from debt_terms dt
       join accounts a on a.id = dt.account_id and a.kind = 'liability'
       join pockets b on b.id = dt.account_id
+      -- The latest closed statement's own printed dates, when one exists
+      -- (RF-131): the same row getCurrentStatement reads, so the overview and
+      -- the detail screen never name different dates for the same debt.
+      left join lateral (
+        select s.cut_off_date, s.payment_due_date
+        from account_statements s
+        where s.account_id = dt.account_id
+        order by s.cut_off_date desc
+        limit 1
+      ) s on true
       cross join lateral (select ${nextCutOff} as next_cut_off) nc
       cross join lateral (select ${nextDue} as next_due) nd
       -- One expression for both readings, so the figure and its rate can never
