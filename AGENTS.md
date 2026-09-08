@@ -150,7 +150,9 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
   is nothing to shave there. Make it run less, or shard it across harness lanes. Never micro-optimise
   the install.
 - `npm run typecheck` is tsgo, `npm run lint` is eslint cached. Both are seconds. Run them freely.
-- Run `next build` at a milestone. Never per step.
+- Run `next build` at a milestone. Never per step. CI builds both apps on every pull request that
+  reaches them — orbit in `build-orbit`, voyager inside `voyager-e2e`. Preview deployments are off,
+  so those two jobs are the only place a broken build is caught before production.
 - The database is remote: every query pays the round trip. Count round trips, not queries.
 - Prove a policy by driving it. Never assert it from the migration.
 - Read `docs/TRAPS.md` before writing a query, a migration or a spec.
