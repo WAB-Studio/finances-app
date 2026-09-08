@@ -689,3 +689,25 @@ After renaming an app, delete the old directory outright — `git status --ignor
 
 Measured 2026-09-08: `apps/finances/` held only `.next/`, `tsconfig.tsbuildinfo`, `.eslintcache` and
 `next-env.d.ts`, with `git ls-files` returning nothing for that path.
+
+### Concurrent lanes share one remote database, and the flake lands on someone else's branch
+
+Lanes get their own harness identities and seeded rows, so they never fight over data. They do not
+get their own Postgres. Every lane, plus CI, pays the same pooler, and load is the one thing lane
+isolation does not isolate.
+
+Measured twice on 2026-09-08, with three agents driving the base at once:
+
+- CI's `e2e` on a branch whose diff was **only `.md` files** went red at
+  `e2e/destructive.spec.ts:231`: the confirm dialog stayed visible after the delete was clicked,
+  `expect(locator).toBeHidden()` timing out at 5000 ms. 215 passed, 1 failed. `main` had closed the
+  same suite green fifteen minutes earlier.
+- `check:queries` failed `Q89 listAuditLog` with `sqlstate 57014, canceling statement due to
+  statement timeout`. The immediate rerun came back 116/0/0.
+
+Neither red named its cause, and both landed on a branch that could not have caused them. Before
+chasing a timeout on a diff that cannot explain it, count what else is driving the base:
+`npm run harness:census` lists live runs, `gh run list` shows CI. A suite whose assertions are all
+green but for one write-path timeout is the shape of contention, not of a defect.
+
+`AGENTS.md` allows three suites at once. Three is what produced both of these.
