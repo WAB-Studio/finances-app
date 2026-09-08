@@ -72,6 +72,55 @@ jobs:
             echo "orbit=true" >> "$GITHUB_OUTPUT"
           fi
 
+  # `next build` for orbit runs nowhere else since #57 turned off preview
+  # deployments. Without this job the first compile of a merged change happens in
+  # the production deployment, and a broken build there hides the next one
+  # (docs/TRAPS.md, "One build failure hides the next").
+  #
+  # `@t3-oss/env-nextjs` validates all six variables at build time and inlines the
+  # three public ones, so this job needs the same secrets the suite does — and the
+  # same fork guard, because GitHub hands a fork none of them.
+  build-orbit:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+       needs.changes.outputs.orbit == 'true')
+    timeout-minutes: 15
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      MIGRATION_DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
+      NEXT_PUBLIC_SITE_URL: ${{ secrets.NEXT_PUBLIC_SITE_URL }}
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      # Named here, or an empty secret surfaces inside the build as a Zod error on
+      # a variable nobody set and reads like the schema broke.
+      - name: Name any secret the build needs and does not have
+        run: |
+          missing=""
+          for name in DATABASE_URL MIGRATION_DATABASE_URL NEXT_PUBLIC_SUPABASE_URL \
+                      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY NEXT_PUBLIC_SITE_URL CRON_SECRET; do
+            [ -n "${!name}" ] || missing="$missing $name"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::missing repository secrets:$missing"
+            exit 1
+          fi
+
+      # No database is reached: the build compiles and prerenders, and every route
+      # that queries is dynamic. It is the compile that has to be proven here.
+      - run: npm run build -w apps/orbit
+
   e2e:
     runs-on: ubuntu-latest
     needs: changes
