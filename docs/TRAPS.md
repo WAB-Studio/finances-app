@@ -847,3 +847,30 @@ rather than assuming the same cause, and check the deployment itself went green 
 build is repaired.
 
 Measured 2026-09-08, on voyager's `reading` project.
+
+### Landing one thing at a time burns the Vercel deployment quota
+
+`e2e-remote-db` says to land one PR at a time, because the group holds one running and one waiting.
+Obeying that means many small PRs. Vercel's free tier caps **deployments per day**, and this repo has
+**two** projects — orbit and reading — so every push to every branch costs two.
+
+Measured 2026-09-08. Fifteen PRs in an afternoon, each pushed two or three times, each merge a
+production deploy on both projects. Both projects hit the cap and every check went red with:
+
+    Deployment rate limited — retry in 24 hours.
+
+**It is not a build failure and nothing is broken.** The limit blocks *new* deployments; what is
+already published keeps serving. Verified at the time: both production URLs answered `200` in under
+a second while every PR check was red.
+
+What it does cost is real and lasts a day:
+
+- Nothing merged after the cap reaches production until the window resets. `main` moves; the live
+  site does not.
+- Both Vercel checks are red on every PR for 24 hours and carry no signal at all. Do not chase them,
+  and do not let them mask a genuine red — read `typecheck`, `lint` and the two `e2e` jobs instead.
+
+The two rules pull against each other: one PR at a time protects the CI queue and spends the deploy
+quota. When a day's work is many small landings, batch what can be batched — a docs change and a
+trap entry are one PR, not two — and check the URL of a failing Vercel check before believing it:
+`upgradeToPro=build-rate-limit` in it means quota, never code.
