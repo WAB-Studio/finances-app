@@ -733,6 +733,15 @@ diff: `gh run view <id>` prints them, and a cancelled-by-priority run names itse
 Land one thing at a time when the group is busy, and prefer cancelling a redundant run
 (`gh run cancel <id>`) over adding another.
 
+**The redundant run is usually your own `integracion` fast-forward.** `AGENTS.md` says to
+fast-forward it *before using it*; doing it after every merge instead queues a run over a SHA `main`
+has already tested, and that run is what evicts the PR waiting behind it. Measured again 2026-09-08:
+three fast-forwards in an afternoon, each one a push run on a SHA identical to `main`'s, and the last
+of them held the slot while PR #48 — the only PR of the day that actually needed orbit's `e2e` —
+waited in the queue behind it.
+
+Fast-forward `integracion` when you are about to merge into it. Not after every merge to `main`.
+
 ### A lane born for one app cannot typecheck the other until typegen runs there
 
 `worktree.sh --app voyager` copies voyager's `.env.local` and nothing of orbit's. The lane is
