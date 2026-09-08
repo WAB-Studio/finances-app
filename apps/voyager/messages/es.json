@@ -26,6 +26,7 @@
     "translations": "Traducciones",
     "definition": "Definición",
     "suggestions": "Sugerencias",
+    "listen": "Escuchar «{headword}»",
     "pos": {
       "n": "sustantivo",
       "adj": "adjetivo",
