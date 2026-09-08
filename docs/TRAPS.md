@@ -870,6 +870,18 @@ What it does cost is real and lasts a day:
 - Both Vercel checks are red on every PR for 24 hours and carry no signal at all. Do not chase them,
   and do not let them mask a genuine red — read `typecheck`, `lint` and the two `e2e` jobs instead.
 
+**The fix, and what it costs.** `git.deploymentEnabled` in each app's `vercel.json` takes minimatch
+keys, and a branch matching several rules deploys if any one of them is `true`:
+
+    "git": { "deploymentEnabled": { "*": false, "main": true } }
+
+That drops every branch's preview and leaves only the merge to `main`. **It also removes the only
+place `next build` runs for orbit.** CI builds `apps/voyager` (`ci.yml:232`) and nothing else: the
+orbit `e2e` job starts `npm run dev`, `typecheck` is tsgo and `lint` is eslint. With previews off, an
+orbit build breaks at the production deploy, after the merge — which is exactly the shape of the
+failure that cost hours on 2026-09-08, where one broken build hid the next. **Add `next build` for
+orbit to CI before trusting this.**
+
 The two rules pull against each other: one PR at a time protects the CI queue and spends the deploy
 quota. When a day's work is many small landings, batch what can be batched — a docs change and a
 trap entry are one PR, not two — and check the URL of a failing Vercel check before believing it:
