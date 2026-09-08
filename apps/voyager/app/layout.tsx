@@ -5,6 +5,7 @@ import { NextIntlClientProvider } from "next-intl";
 import { getTranslations } from "next-intl/server";
 
 import { RegisterServiceWorker } from "@/components/register-service-worker";
+import { SyncOnHide } from "@/components/sync/sync-on-hide";
 import { AppTheme, Flex } from "@/components/ui";
 import "@radix-ui/themes/styles.css";
 import "./theme.css";
@@ -60,6 +61,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             </Flex>
           </AppTheme>
           <RegisterServiceWorker />
+          <SyncOnHide />
         </NextIntlClientProvider>
       </body>
     </html>
