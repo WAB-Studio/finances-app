@@ -1,6 +1,7 @@
 import "server-only";
 
 import { sql } from "drizzle-orm";
+import { z } from "zod";
 
 import { getReader, withReaderDb, type Transaction } from "@/lib/session";
 import { syncRequestSchema, SYNC_BATCH, type SyncResponse, type SyncRow } from "@/lib/sync/protocol";
@@ -42,6 +43,64 @@ const INSERT_COLUMNS = sql.join(
   sql`, `,
 );
 
+// Coarse on purpose (`db/schema/devices.ts`'s own comment on `label`):
+// browser family and platform, nothing that adds entropy a fingerprint would.
+// A pattern this loose over-matches on purpose — a wrong guess still reads
+// as "some browser", never as an error.
+function browserFamily(userAgent: string): string {
+  if (/Edg\//.test(userAgent)) return "Edge";
+  if (/OPR\/|Opera/.test(userAgent)) return "Opera";
+  if (/Firefox\//.test(userAgent)) return "Firefox";
+  if (/Chrome\/|CriOS\//.test(userAgent)) return "Chrome";
+  if (/Safari\//.test(userAgent)) return "Safari";
+  return "Browser";
+}
+
+function platformName(userAgent: string): string {
+  if (/Android/.test(userAgent)) return "Android";
+  if (/iPhone|iPad|iPod/.test(userAgent)) return "iOS";
+  if (/Windows/.test(userAgent)) return "Windows";
+  if (/Mac OS X/.test(userAgent)) return "macOS";
+  if (/Linux/.test(userAgent)) return "Linux";
+  return "device";
+}
+
+// The label the server derives instead of asking the client for one (the
+// module 31 decision, 2026-09-08): a modified client cannot write whatever it
+// wants onto its own account screen. Sliced to the 60 characters
+// `devices_label_length` admits; a missing header falls back rather than
+// failing the whole copy over a label.
+const DEFAULT_LABEL = "Unknown device";
+
+function deviceLabel(userAgent: string | null): string {
+  if (!userAgent) return DEFAULT_LABEL;
+  return `${browserFamily(userAgent)} on ${platformName(userAgent)}`.slice(0, 60);
+}
+
+// The three columns `authenticated` may insert into `devices`
+// (migration:89): `created_at` and `last_seen_at` are left to their defaults.
+const DEVICE_INSERT_COLUMNS = sql.join(
+  ["user_id", "device_id", "label"].map((column) => sql.identifier(column)),
+  sql`, `,
+);
+
+// A batch with no rows carries no `SyncRow` to read a device id off — the
+// only other place one can travel is a top-level field of its own, read
+// straight off the raw body rather than through `syncRequestSchema`: that
+// schema is the shared wire contract this file does not touch. Optional and
+// additive, so today's driver (which never sends it) parses exactly as
+// before.
+const emptyBatchDevice = z.object({ deviceId: z.uuid() });
+
+// The device a request speaks for. A non-empty batch already carries it on
+// every row (`protocol.ts`: "deviceId + localId is the row's identity"); an
+// empty one — a download-only round, RL-22 — has nothing else to ask.
+function callingDeviceId(rows: SyncRow[], raw: unknown): string | null {
+  if (rows.length > 0) return rows[0].deviceId;
+  const parsed = emptyBatchDevice.safeParse(raw);
+  return parsed.success ? parsed.data.deviceId : null;
+}
+
 function uploadedRow(userId: string, row: SyncRow) {
   // A string, not a `Date`: postgres.js's Bind step serializes a bound
   // parameter by the OID Postgres describes back, and an ISO string reaches
@@ -54,19 +113,44 @@ function uploadedRow(userId: string, row: SyncRow) {
     ${row.origin}, ${row.recordSchema})`;
 }
 
-// Inserts the device's own batch, `on conflict … do nothing` so a retried batch
-// after a crash never duplicates (RL-24). One statement for every row in it.
-async function uploadRows(
+// Seals `reading.devices` (RL-25) and inserts the device's own batch,
+// `on conflict … do nothing` so a retried batch after a crash never
+// duplicates (RL-24) — one statement for every row in it, plus the one row
+// that seals the device. Both live in the same statement: the seal is a
+// data-modifying CTE, so Postgres runs it even when the insert beneath it
+// returns nothing (`retireDevice`'s own `gone` CTE, `docs/TRAPS.md:463-486`),
+// which keeps a resent, fully-duplicate batch sealing the device too. No
+// deviceId at all — an empty batch with nothing to identify it by — writes
+// nothing and costs no round trip, same as before this file sealed anything.
+async function writeUpload(
   tx: Transaction,
   userId: string,
+  deviceId: string | null,
+  label: string,
   rows: SyncRow[],
 ): Promise<number> {
-  if (rows.length === 0) return 0;
+  if (deviceId === null) return 0;
+
+  if (rows.length === 0) {
+    await tx.execute(sql`
+      insert into reading.devices (${DEVICE_INSERT_COLUMNS})
+      values (${userId}, ${deviceId}, ${label})
+      on conflict (user_id, device_id) do update set last_seen_at = now()
+    `);
+    return 0;
+  }
+
   const values = sql.join(
     rows.map((row) => uploadedRow(userId, row)),
     sql`, `,
   );
   const written = await tx.execute(sql`
+    with sealed as (
+      insert into reading.devices (${DEVICE_INSERT_COLUMNS})
+      values (${userId}, ${deviceId}, ${label})
+      on conflict (user_id, device_id) do update set last_seen_at = now()
+      returning 1
+    )
     insert into reading.lookups (${INSERT_COLUMNS})
     values ${values}
     on conflict (user_id, device_id, local_id) do nothing
@@ -204,10 +288,12 @@ export async function POST(request: Request): Promise<Response> {
   if (!parsed.success) return json({ error: "invalid" }, 400);
 
   const { rows, since } = parsed.data;
+  const deviceId = callingDeviceId(rows, raw);
+  const label = deviceLabel(request.headers.get("user-agent"));
 
   const [accepted, downloaded] = await withReaderDb(async (tx) => {
     // Same statement order the contract names: upload, then download.
-    const accepted = await uploadRows(tx, reader.id, rows);
+    const accepted = await writeUpload(tx, reader.id, deviceId, label, rows);
     const downloaded = await downloadRows(tx, since);
     return [accepted, downloaded] as const;
   });
