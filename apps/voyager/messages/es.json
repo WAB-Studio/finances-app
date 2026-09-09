@@ -101,6 +101,7 @@
     "signedInAs": "Sesión iniciada como {email}",
     "enable": "Copiar mi registro",
     "enableWithRows": "Copiar mi registro: suben {count} búsquedas",
+    "enableWithBothCounts": "Copiar mi registro: suben {local} y bajan {remote} búsquedas",
     "enabled": "Copia activada",
     "disable": "Dejar de copiar",
     "disabled": "Copia desactivada",
