@@ -3,7 +3,7 @@
 import { useTranslations } from "next-intl";
 
 import type { WordAnswer } from "@/lib/dictionary/lookup";
-import { Flex, Separator, Spinner, Text } from "@/components/ui";
+import { Flex, Headword, Separator, Spinner, Text } from "@/components/ui";
 import { SenseList } from "./sense-list";
 
 export type NoEntryPart = { token: string; answer: WordAnswer | null };
@@ -26,14 +26,23 @@ function hasHit(answer: WordAnswer | null): answer is WordAnswer {
 }
 
 // A single word's block: SenseList's own headword and senses when the
-// dictionary has one, its own line — never SenseList's generic "not found"
-// copy — when it does not, so the reader reads "tampoco" and not a second
-// "no tiene esa palabra" that already answered the phrase above it.
+// dictionary has one, its own heading and its own line — never SenseList's
+// generic "not found" copy — when it does not, so the reader reads "tampoco"
+// under the word that hit it and not a second "no tiene esa palabra" that
+// already answered the phrase above it. The block that carries the
+// breakdown's answer draws `compact`: translations alone, no IPA, no
+// definition, no voice control (docs/voyager/DESIGN.md "A word block on
+// `SinEntradaFrase` carries its translations alone").
 function NoEntryWord({ part, t }: { part: NoEntryPart; t: ReturnType<typeof useTranslations> }) {
   if (!hasHit(part.answer)) {
-    return <Text size="3">{t("noEntry.wordMiss")}</Text>;
+    return (
+      <Flex direction="column" gap="3">
+        <Headword>{part.token}</Headword>
+        <Text size="3">{t("noEntry.wordMiss")}</Text>
+      </Flex>
+    );
   }
-  return <SenseList answer={part.answer} />;
+  return <SenseList answer={part.answer} variant="compact" />;
 }
 
 // RL-31: the screen a typed word or a short phrase used to leave blank.

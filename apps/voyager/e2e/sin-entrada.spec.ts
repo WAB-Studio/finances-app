@@ -71,7 +71,7 @@ test("a two-token miss draws both headwords, offline, with no request", async ({
 // "zzqx" is absent from `eng-spa-2025.11.23.json` as a headword, and no
 // inflection rule in `lib/dictionary/inflect.ts` strips a suffix off it —
 // there is nothing left for `lookupWord` to find under any of its rules.
-test("a two-token miss where the dictionary lacks one word draws that word's own miss, and the other's answer", async ({
+test("a two-token miss where the dictionary lacks one word draws that word's own heading and its own miss, and the other's answer", async ({
   page,
 }) => {
   await deleteTranslator(page);
@@ -81,7 +81,11 @@ test("a two-token miss where the dictionary lacks one word draws that word's own
   await searchBox.fill("hello zzqx");
 
   await expect(mainHeadings(page).filter({ hasText: "hello" })).toBeVisible();
-  await expect(mainHeadings(page)).toHaveCount(1);
+  // The word that broke the phrase is the one word this screen must be able
+  // to locate: it draws its own heading like every other block, not silence
+  // above its "tampoco" line.
+  await expect(mainHeadings(page).filter({ hasText: "zzqx" })).toBeVisible();
+  await expect(mainHeadings(page)).toHaveCount(2);
   await expect(page.getByText(messages.search.noEntry.wordMiss)).toBeVisible();
 });
 
@@ -175,9 +179,10 @@ test("a phrase whose translation fails falls to the per-word breakdown, capped a
   const expectedTitle = messages.search.noEntry.titleTranslationFailed.replace("{query}", phraseText);
   await expect(page.getByText(expectedTitle)).toBeVisible();
 
-  // The first eight tokens each draw a block; "zzqx" is the third and draws
-  // the dictionary's own miss line instead of a heading.
-  for (const shown of ["dog", "cat", "bird", "fish", "mouse", "horse", "cow"]) {
+  // The first eight tokens each draw a block, including "zzqx", the third:
+  // the dictionary's own miss line still runs below it, but the heading
+  // above it names the word like every other block's does.
+  for (const shown of ["dog", "cat", "zzqx", "bird", "fish", "mouse", "horse", "cow"]) {
     await expect(mainHeadings(page).filter({ hasText: shown })).toBeVisible();
   }
   await expect(page.getByText(messages.search.noEntry.wordMiss)).toBeVisible();
@@ -185,8 +190,21 @@ test("a phrase whose translation fails falls to the per-word breakdown, capped a
   // "pig" is the ninth token: past `MAX_BLOCKS`, it never gets its own
   // block — only the "N more" line below names it indirectly, by count.
   await expect(mainHeadings(page).filter({ hasText: "pig" })).toHaveCount(0);
-  await expect(mainHeadings(page)).toHaveCount(7);
+  await expect(mainHeadings(page)).toHaveCount(8);
   await expect(page.getByText("…y 1 palabra más que no cabe aquí.")).toBeVisible();
+
+  // docs/voyager/DESIGN.md "A word block on `SinEntradaFrase` carries its
+  // translations alone": no IPA, no definition anywhere in the breakdown.
+  // "dog" (eng-spa-2025.11.23.json) carries both on a direct lookup —
+  // "/dɑɡ/" and "(transitive) To pursue with the intent to catch." — and
+  // neither draws here.
+  await expect(page.getByText("/dɑɡ/")).toHaveCount(0);
+  await expect(page.getByText("(transitive) To pursue with the intent to catch.")).toHaveCount(0);
+  await expect(page.getByText(messages.word.definition)).toHaveCount(0);
+
+  // The voice control belongs to the word screen's own four boards alone
+  // (docs/voyager/DESIGN.md), never to this breakdown.
+  await expect(page.getByRole("button", { name: /^Escuchar/ })).toHaveCount(0);
 
   // RL-37: the breakdown itself answers from the device — the one request
   // this test allows is the translation attempt that failed, not a second
