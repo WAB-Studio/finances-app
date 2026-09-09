@@ -1,7 +1,6 @@
 import "server-only";
 
 import { sql } from "drizzle-orm";
-import { z } from "zod";
 
 import { getReader, withReaderDb, type Transaction } from "@/lib/session";
 import { syncRequestSchema, SYNC_BATCH, type SyncResponse, type SyncRow } from "@/lib/sync/protocol";
@@ -84,23 +83,6 @@ const DEVICE_INSERT_COLUMNS = sql.join(
   sql`, `,
 );
 
-// A batch with no rows carries no `SyncRow` to read a device id off — the
-// only other place one can travel is a top-level field of its own, read
-// straight off the raw body rather than through `syncRequestSchema`: that
-// schema is the shared wire contract this file does not touch. Optional and
-// additive, so today's driver (which never sends it) parses exactly as
-// before.
-const emptyBatchDevice = z.object({ deviceId: z.uuid() });
-
-// The device a request speaks for. A non-empty batch already carries it on
-// every row (`protocol.ts`: "deviceId + localId is the row's identity"); an
-// empty one — a download-only round, RL-22 — has nothing else to ask.
-function callingDeviceId(rows: SyncRow[], raw: unknown): string | null {
-  if (rows.length > 0) return rows[0].deviceId;
-  const parsed = emptyBatchDevice.safeParse(raw);
-  return parsed.success ? parsed.data.deviceId : null;
-}
-
 function uploadedRow(userId: string, row: SyncRow) {
   // A string, not a `Date`: postgres.js's Bind step serializes a bound
   // parameter by the OID Postgres describes back, and an ISO string reaches
@@ -119,9 +101,10 @@ function uploadedRow(userId: string, row: SyncRow) {
 // that seals the device. Both live in the same statement: the seal is a
 // data-modifying CTE, so Postgres runs it even when the insert beneath it
 // returns nothing (`retireDevice`'s own `gone` CTE, `docs/TRAPS.md:463-486`),
-// which keeps a resent, fully-duplicate batch sealing the device too. No
-// deviceId at all — an empty batch with nothing to identify it by — writes
-// nothing and costs no round trip, same as before this file sealed anything.
+// which keeps a resent, fully-duplicate batch sealing the device too.
+// `deviceId` is required on the wire (`syncRequestSchema`), so the `null`
+// guard below is unreached through this route; it stays for a caller
+// `writeUpload` gains later that is not fed a parsed request.
 async function writeUpload(
   tx: Transaction,
   userId: string,
@@ -302,8 +285,10 @@ export async function POST(request: Request): Promise<Response> {
   const parsed = syncRequestSchema.safeParse(raw);
   if (!parsed.success) return json({ error: "invalid" }, 400);
 
-  const { rows, since } = parsed.data;
-  const deviceId = callingDeviceId(rows, raw);
+  // `deviceId` is top-level and required on `syncRequestSchema` (`protocol.ts`):
+  // an empty batch — a download-only round, RL-22 — carries no row to read it
+  // off, but still has to name the device sealing `reading.devices`.
+  const { deviceId, rows, since } = parsed.data;
   const label = deviceLabel(request.headers.get("user-agent"));
 
   const [accepted, downloaded] = await withReaderDb(async (tx) => {
