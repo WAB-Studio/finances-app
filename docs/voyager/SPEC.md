@@ -109,6 +109,12 @@ this gets built, and no schema, table or column is "prepared for" it.
 - [ ] **RL-27** — A local server, which the reader starts on their own machine, offers the exported
   file to an MCP client: the most looked-up words, the most recent ones, and the full history of one
   word. It only ever reads the file; no tool modifies it. The server is not part of the deployed app.
+- [ ] **RL-28** — When a search finds nothing and the word looks like a typo of one the dictionary
+  has, the answer offers the words it might have been, and reaching one of them is a tap. The
+  suggestion is computed on the device and touches the network on no keystroke.
+- [ ] **RL-29** — When a search finds nothing and no suggestion fits, the reader can ask for the word
+  to be answered over the network, and only by asking: nothing is sent until they do. The answer says
+  it did not come from the dictionary, and says plainly when it could not be produced.
 
 ### Non-functional requirements
 

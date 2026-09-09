@@ -127,6 +127,30 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
 
 ## Settled
 
+- **A search with no result offers two things, and they are not the same thing.** Decided by the
+  user 2026-09-08, written as RL-28 and RL-29.
+  - **A typo gets a correction, computed on the device.** Edit distance over the 58,946 headwords:
+    of 1,955 generated one-edit typos it found the intended word **100% of the time**, 288 with more
+    than one candidate, at **0.04 ms** a search. No network, no cost. `recieve` → `receive`.
+    Boards: `SinResultadoSugerencia`, light/dark × desktop/mobile.
+  - **A real word the dictionary lacks gets a button, never an automatic call.** `fettle` is English,
+    absent from the 58,946, and confirmed in Wiktionary as having twelve senses **and no Spanish
+    pair** — which is why DBnary never extracted it. Edit distance answers it *wrong*, offering
+    `kettle/mettle/nettle/settle`, so the correction must not fire here. Only a model closes it.
+    Nothing leaves the device until the reader taps. Boards: `SinResultadoIA`, `SinResultadoIAFallo`.
+  - **The guard between them:** the correction shows only when a candidate is within one edit of a
+    headword. `zzqqxv` gets neither line, and that is the case the guard exists for.
+  - **The answer is labelled.** An AI answer carries `RESPONDIDO POR IA` above it; the reader always
+    knows what came from the dictionary and what did not.
+  - **A failure is a failure.** Measured 2026-09-08: 3 of ~12 calls failed (two 403, one 503). The
+    board for it exists and says so plainly, with a retry in the ordinary accent button and **no new
+    error colour**.
+- **The provider is Gemini, `gemini-3.8-flash`.** Decided by the user 2026-09-08 after running both
+  candidates against the real gap words. Flash writes what a reader uses (`fettle` → *estado, casi
+  siempre en «in fine fettle»*); Flash-Lite pads every note with «Se usa para describir…», which is
+  text that only explains and `AGENTS.md` forbids. Flash also costs less per answer at 55–92 output
+  tokens against ~95.
+
 - **A headword can be heard, in the browser's own voice.** Decided by the user 2026-09-08 over
   recorded audio and over doing nothing, and written as RL-26. It is the option that serves the
   **27,938 entries with no IPA** exactly as well as the 36,320 that have one, and it adds nothing to
