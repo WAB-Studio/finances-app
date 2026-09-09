@@ -108,9 +108,17 @@ export function HistoryList() {
 
   useEffect(() => {
     let cancelled = false;
+    // Set while a `read` is between its call and its `finally`, so a flush
+    // that lands mid-read never opens a second cursor over the same store —
+    // the previous guard only picked which reply painted, not which ones
+    // ran, and two full passes over 10k+ rows both cost the main thread at
+    // once. A flush during that window queues one rerun instead.
+    let reading = false;
+    let rerunQueued = false;
 
     function read(): void {
       const requestId = ++requestIdRef.current;
+      reading = true;
       Promise.all([readWordStudy(), countRecords()])
         .then(([study, totalLookups]) => {
           if (cancelled || requestIdRef.current !== requestId) return;
@@ -122,7 +130,24 @@ export function HistoryList() {
         })
         .catch(() => {
           if (!cancelled && requestIdRef.current === requestId) setState({ kind: "failed" });
+        })
+        .finally(() => {
+          reading = false;
+          if (!cancelled && rerunQueued) {
+            rerunQueued = false;
+            read();
+          }
         });
+    }
+
+    function onFlush(): void {
+      // Already mid-read: its own reply is what's stale, not this event —
+      // one rerun once it lands covers whatever the flush added.
+      if (reading) {
+        rerunQueued = true;
+        return;
+      }
+      read();
     }
 
     read();
@@ -132,10 +157,10 @@ export function HistoryList() {
     // once forced. This rereads the moment it lands, instead of waiting on
     // a reload — `read` only ever calls `setState` with a finished answer,
     // so an already-populated list never drops back to the skeleton.
-    window.addEventListener(LOG_FLUSHED_EVENT, read);
+    window.addEventListener(LOG_FLUSHED_EVENT, onFlush);
     return () => {
       cancelled = true;
-      window.removeEventListener(LOG_FLUSHED_EVENT, read);
+      window.removeEventListener(LOG_FLUSHED_EVENT, onFlush);
     };
   }, [attempt]);
 
