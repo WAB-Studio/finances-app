@@ -1081,3 +1081,22 @@ Medido 2026-09-08. `WebSearch` con `allowed_domains: ["reddit.com"]` devuelve
 - Busca en la web abierta y filtra tú. Las guías agregadoras repiten lo mismo que los hilos.
 - Desconfía de lo que digan de límites y cuotas: para este proyecto decían ~1.500 peticiones/día y la
   medición dio **20**. Ver la entrada de la cuota diaria de Gemini.
+
+## Republicar el lienzo con `JSON.stringify` lo deja truncado
+
+Medido 2026-09-09. El lienzo de diseño lleva todo su estado —un `.dc.html` por tablero, más
+`canvas.json`— dentro de un `<script type="application/json" id="appifact-doc">` en la página. Y cada
+tablero lleva dentro un `<script src="./support.js"></script>`.
+
+`JSON.stringify` **no escapa la barra**. El original guardaba `<\/script>`; al reconstruir la página
+con `JSON.stringify(doc)` salen `</script>` literales, el navegador cierra el bloque en el **primero**
+y el editor recibe un documento cortado. Costó una publicación: el bloque terminaba en el carácter
+**229** de 630.363.
+
+- Escapa a mano al incrustar: `JSON.stringify(o).replace(/<\/script/gi, '<\\/script')`.
+- Compruébalo antes de publicar, no después: en la línea del bloque, `indexOf('</script>')` tiene que
+  ser igual a `lastIndexOf('</script>')`.
+- Parsea el bloque tal y como lo va a leer el navegador y cuenta los tableros. Un `JSON.parse` sobre
+  lo que escribiste no prueba nada; el corte lo hace el HTML, no el JSON.
+- La página no da ningún error visible. Se ve vacía, que es exactamente lo que un lienzo grande
+  parece cuando de verdad es grande. El usuario lo diagnosticó como tamaño; era esto.

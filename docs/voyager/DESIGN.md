@@ -120,11 +120,13 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   2026-09-07. Checked 2026-09-08: the published canvas contains the string `Noche` zero times.
   Nothing on it contradicts this file any more.
 - When a board and this file disagree, **this file wins**.
-- **The canvas is 76 boards**, counted 2026-09-08 from the published file: Inicio, Palabra, Frase,
-  FraseOferta, Flexión, SinResultado, SinResultadoIA, SinResultadoIAFallo, SinResultadoSinPista,
-  Sugerencias, Instalando, Fuente, Fallo, Registro, RegistroVacío, Cuenta, CuentaDentro,
-  Dispositivos and **BarraSidebar**, each in light/dark × desktop/mobile. `BarraSidebar` is T1,
-  published after the count of 72 that stood here; the count is the only thing that changed.
+- **The canvas is 112 boards**, counted 2026-09-09 from the published file: Inicio, Palabra,
+  PalabraCategoria, PalabraHistorial, Frase, FraseOferta, Flexión, SinResultado, SinResultadoIA,
+  SinResultadoIAFallo, SinResultadoSinPista, SinEntrada, SinEntradaEstados, Sugerencias, Instalando,
+  Fuente, Fallo, Registro, RegistroVacío, RegistroEstudio, RegistroEstudioEstados, Cuenta,
+  CuentaDentro, CuentaCopia, CuentaCopiaEstados, CuentaInformacion, Dispositivos and
+  **BarraSidebar**, each in light/dark × desktop/mobile. The nine that arrived 2026-09-09 are T2,
+  T3, T4 and T5; the count is the only thing that changed.
 - **An answer the AI wrote already has boards** — `SinResultadoIA` and `SinResultadoIAFallo`, both
   in all four. Whatever RL-29 becomes, it is not drawing from nothing.
 - **Nothing is drawn for exporting or for syncing**, and this file names neither. A screen for
@@ -133,10 +135,24 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   `SinResultadoSinPista`, `Registro`, `RegistroVacío`, `Cuenta`, `CuentaDentro`,
   `BarraSidebarClaroMovil`, `BarraSidebarClaroEscritorio`, `BarraSidebarOscuroMovil` and
   `BarraSidebarOscuroEscritorio` already exist. `BarraSidebar` (T1) draws the theme control at the
-  sidebar's foot, which is what the user has just approved for desktop; see `## Settled`. **Nothing
-  exists** for the record grouped and counted by word (T2), for the no-entry state (T3), for the
-  account with its automatic copy (T4), for the sense-category amendment to `Palabra` (T5), or for
-  the information tab RL-33 puts inside `/cuenta`.
+  sidebar's foot, which is what the user approved for desktop; see `## Settled`. T2, T3, T4 and T5
+  landed 2026-09-09 and the user approved them the same day: `RegistroEstudio`,
+  `RegistroEstudioEstados` and `PalabraHistorial` (T2); `SinEntrada` and `SinEntradaEstados` (T3);
+  `CuentaCopia`, `CuentaCopiaEstados` and `CuentaInformacion` (T4); `PalabraCategoria` (T5).
+- **The one board still missing is the photo.** RL-36 draws a photo inside the word's answer and no
+  board in any of the four faces has a state for it. No module of the 2026-09-08 slice draws one, so
+  it blocks nothing today — and the first module that does opens the amendment before it writes a
+  line.
+- **The two dark `BarraSidebar` boards marked «Claro» selected in the theme control**, drawn dark.
+  Fixed in place 2026-09-09. A worker copying that builds a control that contradicts the page it
+  sits on.
+- **The canvas is seven pages, one per area of the app, and each carries light and dark side by
+  side.** Instalación, Buscar · la palabra, Buscar · sin respuesta, Buscar · la frase, Registro,
+  Cuenta, Cáscara. It was two pages — `Claro` and `Oscuro` — of 56 boards each, stacked over
+  25,000 px, and at that height the user could not read it: «demasiadas pantallas que ya no se ve
+  nada», 2026-09-09. Light sits at x 0 and 480, dark at 1900 and 2380, so a board and its dark twin
+  are legible together for the first time. Adding a family means adding it to its area's page, never
+  a ninth page and never a second canvas.
 - **Reading the published canvas costs 2.7 MB**, and the head of it is the editor's own stylesheet,
   not the design. Read it to a file and grep the file for `\.dc\.html` names; never read it into a
   conversation twice.
@@ -223,7 +239,8 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   deberían ser un sidebar porque hay más información». Voyager has no desktop design today — it
   centres the phone layout and stops, which is what `/registro` stretching edge to edge showed. The
   sidebar is the first piece, not the whole answer: every screen that is not prose has to be drawn
-  for the width it now gets. **No board exists for any of it.**
+  for the width it now gets. `BarraSidebar` (T1) drew the shell 2026-09-08; `RegistroEstudio`,
+  `SinEntrada`, `CuentaCopia` and `CuentaInformacion` drew the screens inside it 2026-09-09.
 - **Copying to an account is automatic, not an act.** Decided by the user 2026-09-08, on their own
   words: «no tiene sentido que sea manual, debería linkearse automáticamente. No es una pregunta, es
   algo que se hace solo». With an account, the copy starts by itself and is never asked about. This
@@ -237,13 +254,15 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   QUEDAR VISIBLE A LA GENTE (A MI)». It leaves the search screen, where it bothered the user, and
   lands in `/cuenta`, which already renders with no session — so the credit CC BY-SA 3.0 requires
   stays reachable by whoever uses the app, signed in or not. This retires RL-15 and is written as
-  RL-33. **No board exists for this tab.**
+  RL-33. Drawn 2026-09-09 as `CuentaInformacion`, in all four faces: a two-tab strip at the head of
+  `/cuenta`, the dictionary and its edition, then the CC BY-SA 3.0 credit, then the app's version.
 - **`/registro` becomes the study, and a word opens its full history.** Decided by the user
   2026-09-08. The record groups by word — one row, a count, ordered by frequency — and replaces the
   chronological list this same slice had just settled on (`Registro`/`RegistroVacío`, above);
-  tapping a word opens every one of its searches with its date. Written as RL-32. **No board exists
-  for the grouped rows or for a word's opened history**; `Registro` and `RegistroVacío` as drawn are
-  the chronological list this decision retires from the reading path, not the study's boards.
+  tapping a word opens every one of its searches with its date. Written as RL-32. Drawn 2026-09-09
+  as `RegistroEstudio`, `RegistroEstudioEstados` and `PalabraHistorial`; `Registro` and
+  `RegistroVacío` as drawn are the chronological list this decision retires from the reading path,
+  and they stay on the canvas as what was replaced.
 - **The theme control has two homes, one per shape of the navigation.** Decided by the user
   2026-09-08, looking at the `BarraSidebar` board: the sidebar's foot on desktop, inside `/cuenta`
   on the phone. Two surfaces, not one, because the bar that carries the phone's navigation has no
@@ -279,6 +298,27 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   app already puts a licence (RL-33's source and licence, in an information tab). A per-image credit
   cannot hide there. A per-image attribution has to sit next to its image to mean anything, which is the
   opposite instinct. **Open, not resolved here:** where does a photo's attribution go?
+
+- **A sense group carries one category label, and the group's IPA sits on that label's row.**
+  Decided by the user 2026-09-09, looking at `PalabraCategoria`, over the alternative of giving every
+  sense its own IPA. `like` draws SUSTANTIVO once, not twice. The IPA on the label row is the first
+  sense's; a sense whose IPA differs from it draws its own above its translation, and a sense whose
+  IPA matches never repeats it. This is what RL-04 has asked for since it was written and what
+  `sense-list.tsx` has never done. Known price: a reader glancing at the label row sees an IPA that
+  belongs to the first sense of the group, not to the group.
+- **The study replaces the download as the weight of `/registro`.** Decided by the user 2026-09-09,
+  approving `RegistroEstudio`. The grouped rows are the screen; «Descargar el registro» drops from a
+  filled button to an underlined link at the foot. The three other states are drawn:
+  a four-row skeleton while loading, «Todavía no has buscado nada» when empty, and «No pude leer el
+  registro» with a retry when the store fails — no system red, per `## Failure`.
+- **The no-entry screen names the string and answers each word under it.** Decided by the user
+  2026-09-09, approving `SinEntrada`. At most eight word blocks; the rest becomes one line. Over
+  sixty words there is one line and no block at all. A word the dictionary also lacks draws its own
+  «El diccionario tampoco tiene esta palabra», never a gap.
+- **The account screen shows a state, never a control.** Decided by the user 2026-09-09, approving
+  `CuentaCopia`. With a session it reads «Copiando a tu cuenta» and when the last copy was; there is
+  no button and neither of the two figures RL-23 used to name. Copying now, never copied, failed
+  with its retry, and signed-out are each drawn. The only way out stays signing out, per RL-30.
 
 - **The AI is parked, and no provider is chosen.** Decided by the user 2026-09-08, after the numbers
   came in. RL-28 and RL-29 stay open and unbuilt; nothing in the app calls a model, so picking a
