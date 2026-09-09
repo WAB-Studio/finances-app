@@ -1,0 +1,79 @@
+"use client";
+
+import { useTranslations } from "next-intl";
+
+import type { WordAnswer } from "@/lib/dictionary/lookup";
+import { Flex, Separator, Spinner, Text } from "@/components/ui";
+import { SenseList } from "./sense-list";
+
+export type NoEntryPart = { token: string; answer: WordAnswer | null };
+
+export type NoEntryState =
+  | { kind: "words"; query: string; parts: NoEntryPart[] }
+  | { kind: "tooLong"; query: string; tokens: number }
+  | { kind: "resolving"; query: string };
+
+// Sixty answers are not an answer, and eight is already a lot to read on a
+// bus: the rest folds into one line (docs/voyager/DESIGN.md "Settled").
+const MAX_BLOCKS = 8;
+
+function hasHit(answer: WordAnswer | null): answer is WordAnswer {
+  return answer !== null && (answer.exact !== null || answer.viaInflection.length > 0);
+}
+
+// A single word's block: SenseList's own headword and senses when the
+// dictionary has one, its own line — never SenseList's generic "not found"
+// copy — when it does not, so the reader reads "tampoco" and not a second
+// "no tiene esa palabra" that already answered the phrase above it.
+function NoEntryWord({ part, t }: { part: NoEntryPart; t: ReturnType<typeof useTranslations> }) {
+  if (!hasHit(part.answer)) {
+    return <Text size="3">{t("noEntry.wordMiss")}</Text>;
+  }
+  return <SenseList answer={part.answer} />;
+}
+
+// RL-31: the screen a typed word or a short phrase used to leave blank.
+// Every branch draws something — that silence is the defect this replaces.
+export function NoEntryAnswer({ state }: { state: NoEntryState }) {
+  const t = useTranslations("search");
+
+  if (state.kind === "resolving") {
+    return (
+      <Flex align="center" gap="2">
+        <Spinner />
+        <Text size="2" muted>
+          {t("noEntry.resolving")}
+        </Text>
+      </Flex>
+    );
+  }
+
+  if (state.kind === "tooLong") {
+    return <Text size="3">{t("noEntry.tooLong", { count: state.tokens })}</Text>;
+  }
+
+  const shown = state.parts.slice(0, MAX_BLOCKS);
+  const remaining = state.parts.length - shown.length;
+
+  return (
+    <Flex direction="column" gap="4">
+      <Text size="3">{t("noEntry.title", { query: state.query })}</Text>
+
+      {shown.map((part, index) => (
+        <Flex direction="column" gap="3" key={`${part.token}-${index}`}>
+          {index > 0 && <Separator size="4" />}
+          <NoEntryWord part={part} t={t} />
+        </Flex>
+      ))}
+
+      {remaining > 0 && (
+        <Flex direction="column" gap="3">
+          <Separator size="4" />
+          <Text size="2" muted>
+            {t("noEntry.more", { count: remaining })}
+          </Text>
+        </Flex>
+      )}
+    </Flex>
+  );
+}
