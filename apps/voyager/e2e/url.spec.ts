@@ -96,22 +96,18 @@ test("opening /?q=serendipity cold answers it with no typing", async ({ page }) 
   await expect(page.getByRole("heading", { name: "serendipity" })).toBeVisible({ timeout: 5000 });
 });
 
-test("a trip to /fuente and back keeps the word, unretyped", async ({ page }) => {
-  await deleteTranslator(page);
-  await openReady(page);
-
-  const searchBox = page.getByRole("textbox", { name: messages.search.label });
-  await searchBox.fill("book");
-  await expect(page.getByRole("heading", { name: "book" })).toBeVisible({ timeout: 5000 });
-  await page.waitForTimeout(SETTLE_MARGIN_MS);
-
-  await page.getByRole("link", { name: messages.source.open }).click();
-  await expect(page).toHaveURL(/\/fuente$/);
-
-  await page.goBack();
-  await expect(searchBox).toHaveValue("book");
-  await expect(page.getByRole("heading", { name: "book" })).toBeVisible({ timeout: 5000 });
-});
+// Retired 2026-09-09 (module 10): this drove `messages.source.open`, the
+// search screen's own link to `/fuente`, which module 6 dropped
+// (`components/search/source-note.tsx` no longer mounts anywhere). The
+// licence's new home is `/cuenta`'s information tab, one tap from the bottom
+// bar rather than one tap from the box (RL-33), so "the box's own trip out
+// and back, unretyped" is no longer a claim `/fuente` makes. The behaviour
+// this test actually proved — a round trip through another route leaves the
+// box's word untyped — is what `e2e/bottom-nav.spec.ts` ("Buscar carries the
+// query past a trip through Registro, unretyped", and its own loop over
+// `/`, `/registro` and `/cuenta`) already drives for every route the bottom
+// bar reaches, `/cuenta` included. Nothing here needs a replacement of its
+// own.
 
 test("typing ten letters adds one history entry, not ten", async ({ page }) => {
   await deleteTranslator(page);
