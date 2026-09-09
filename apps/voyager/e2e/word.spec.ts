@@ -233,3 +233,121 @@ test("a paused prefix never leaves the page blank", async ({ page }) => {
   const textLength = await page.evaluate(() => document.querySelector("main")?.innerText.length ?? 0);
   expect(textLength).toBeGreaterThan(0);
 });
+
+// Counts a `<button>` whose text names the fold, bounded by document order
+// to two headings — never the whole page — so a second headword's own
+// senses (an inflected form's `viaInflection` group) never inflate the
+// count of the one being measured.
+async function countFoldsBetween(
+  page: Page,
+  afterHeading: string,
+  beforeHeading: string | null,
+  label: string,
+): Promise<number> {
+  return page.evaluate(
+    ({ afterHeading, beforeHeading, label }) => {
+      const headings = Array.from(document.querySelectorAll("h1"));
+      const after = headings.find((h) => h.textContent === afterHeading);
+      const before = beforeHeading ? headings.find((h) => h.textContent === beforeHeading) : undefined;
+      if (!after) return -1;
+      return Array.from(document.querySelectorAll("button"))
+        .filter((b) => b.textContent?.includes(label))
+        .filter((b) => Boolean(after.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING))
+        .filter((b) => !before || Boolean(b.compareDocumentPosition(before) & Node.DOCUMENT_POSITION_FOLLOWING))
+        .length;
+    },
+    { afterHeading, beforeHeading, label },
+  );
+}
+
+test("a headword with no definition at all shows no fold control and no dangling line", async ({ page }) => {
+  await deleteTranslator(page);
+
+  const assetResponse = page.waitForResponse(
+    (response) => response.url().includes(manifest.asset.path) && response.ok(),
+  );
+  await page.goto("/");
+  await assetResponse;
+  await page.waitForTimeout(1000);
+
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+  // "umbrella": one sense, no definition in the source, and no inflection
+  // candidate the dictionary carries — nothing on the page but its own
+  // headword and translations.
+  await searchBox.fill("umbrella");
+  await expect(page.getByRole("heading", { name: "umbrella", exact: true })).toBeVisible({ timeout: 5000 });
+
+  await expect(page.getByText(messages.word.definitionEnglish)).toHaveCount(0);
+  await expect(page.getByRole("button", { name: messages.word.definitionEnglish })).toHaveCount(0);
+});
+
+test("`left` (one of the 34 entries whose definition is a bare '.') never folds onto that period", async ({
+  page,
+}) => {
+  await deleteTranslator(page);
+
+  const assetResponse = page.waitForResponse(
+    (response) => response.url().includes(manifest.asset.path) && response.ok(),
+  );
+  await page.goto("/");
+  await assetResponse;
+  await page.waitForTimeout(1000);
+
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+  await searchBox.fill("left");
+  await expect(page.getByRole("heading", { name: "left", exact: true })).toBeVisible({ timeout: 5000 });
+  // "left" also resolves as the past tense of "leave" (RL-06): that group's
+  // own heading is the boundary countFoldsBetween must stop at.
+  await expect(page.getByRole("heading", { name: "leave", exact: true })).toBeVisible({ timeout: 5000 });
+
+  // Four senses of "left" carry a definition in the source: adj (null,
+  // never had one), adv ("On the left side."), n ("The left side or
+  // direction.") and v ("."). Only the two real ones fold; the bare period
+  // is filtered to no definition, same as adj's null.
+  const folds = await countFoldsBetween(page, "left", "leave", messages.word.definitionEnglish);
+  expect(folds).toBe(2);
+});
+
+test("the English definition opens on tap and folds back on the next one, reachable by keyboard", async ({
+  page,
+}) => {
+  await deleteTranslator(page);
+
+  const assetResponse = page.waitForResponse(
+    (response) => response.url().includes(manifest.asset.path) && response.ok(),
+  );
+  await page.goto("/");
+  await assetResponse;
+  await page.waitForTimeout(1000);
+
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+  await searchBox.fill("her");
+  await expect(page.getByRole("heading", { name: "her", exact: true })).toBeVisible({ timeout: 5000 });
+
+  const englishText = "The form of she used after a preposition, as the object of a verb";
+  const fold = page.getByRole("button", { name: messages.word.definitionEnglish }).first();
+
+  // Closed on open: the control names itself, the English prose does not
+  // show, and it says its own state to the accessibility tree.
+  await expect(fold).toBeVisible();
+  await expect(fold).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByText(englishText)).toHaveCount(0);
+
+  // 360px, closed: nothing spills sideways.
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
+
+  // A tap opens it — the keyboard reaches the same control, no `div` with
+  // an `onClick` would answer `Tab` or `Enter`.
+  await fold.focus();
+  await fold.press("Enter");
+  await expect(fold).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByText(englishText)).toBeVisible();
+
+  // 360px, open: the unfolded prose still fits inside the column.
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
+
+  // A second tap folds it back away.
+  await fold.press("Enter");
+  await expect(fold).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByText(englishText)).toHaveCount(0);
+});

@@ -7,7 +7,7 @@ import { useTranslations } from "next-intl";
 import type { Sense } from "@/lib/dictionary/index-build";
 import type { WordAnswer } from "@/lib/dictionary/lookup";
 import { speak, speechSupported } from "@/lib/speech/speak";
-import { Flex, Grid, Headword, IconButton, Link, PosLabel, Separator, Text, TapTarget } from "@/components/ui";
+import { Collapsible, Flex, Grid, Headword, IconButton, Link, PosLabel, Separator, Text, TapTarget } from "@/components/ui";
 
 // docs/voyager/DESIGN.md "Viewport": stroke-width 1.75, round caps and
 // joins, fill none — the same glyph shape `bottom-nav.tsx` draws, sized down
@@ -110,13 +110,15 @@ function SpeakButton({ headword, t }: { headword: string; t: ReturnType<typeof u
   );
 }
 
-// One sense's own body: every translation on its own line, its definition
-// when the entry carries one, and its own IPA only when it differs from the
-// one already drawn on its segment's label row — repeating an identical IPA
-// on every sense would say nothing a reader does not already have.
-// `compact` drops the IPA and the definition (docs/voyager/DESIGN.md
-// "A word block on `SinEntradaFrase` carries its translations alone"):
-// only `NoEntryAnswer`'s per-word breakdown ever sets it.
+// One sense's own body: every translation on its own line, its English
+// definition folded behind a tap when the entry carries one
+// (docs/voyager/DESIGN.md "The English definition folds away behind a
+// tap"), and its own IPA only when it differs from the one already drawn on
+// its segment's label row — repeating an identical IPA on every sense would
+// say nothing a reader does not already have. `compact` drops the IPA and
+// the definition (docs/voyager/DESIGN.md "A word block on `SinEntradaFrase`
+// carries its translations alone"): only `NoEntryAnswer`'s per-word
+// breakdown ever sets it.
 function SenseDetail({
   sense,
   segmentIpa,
@@ -148,14 +150,11 @@ function SenseDetail({
         ))}
       </Flex>
       {!compact && sense.definition !== null && (
-        <Flex direction="column" gap="1">
-          <Text size="1" color="gray">
-            {t("definition")}
-          </Text>
-          <Text size="2" serif>
+        <Collapsible label={t("definitionEnglish")}>
+          <Text size="2" serif muted>
             {sense.definition}
           </Text>
-        </Flex>
+        </Collapsible>
       )}
     </Flex>
   );
