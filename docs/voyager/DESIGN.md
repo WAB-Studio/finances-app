@@ -382,10 +382,14 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   measured **3508px desktop and 3805px mobile** for a nine-word failing phrase: four or five phone
   screens of scrolling to reach the word the reader wanted. Measure the page, never the artboard,
   when a screen is approved on its height.
-  **Three figures were measured for one screen and they disagree**: 3022/3155 and 3508/3805 for the
-  full block, and 2851/2944 after the trim — all on a nine-word failing phrase, all on a production
-  build, by three different agents. Nobody reconciled the method. Take none of them as the number;
-  measure it again, once, and write down how.
+  **The three figures are reconciled, 2026-09-09, and the number is 2851px desktop / 2944px mobile.**
+  They never contradicted each other: 3022/3155 was the block before the trim, and 3508/3805 was a
+  different phrase on a version with no eight-block cap. A validator re-measured 2851/2944
+  independently and hit the worker's figure exactly. **The method is the number**:
+  `document.documentElement.scrollHeight`, production build, the phrase
+  `dog cat zzqx bird fish mouse horse cow pig`, read 1000ms after the fill. Measure the page, never
+  the artboard. The four boards still print 1560/1880 — the content column, not the page — and are
+  stale until redrawn.
 - **A phrase the translation cannot answer falls back to the per-word breakdown.** Decided by the
   user 2026-09-09, closing the gap `SinEntrada`'s eight-block cut left. `schedulePhrase` sends every
   3-to-60-token phrase to `PhraseAnswer` today, so the breakdown ran at exactly two tokens and
