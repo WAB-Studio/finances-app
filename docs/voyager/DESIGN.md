@@ -77,9 +77,12 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
 - Hold a 32 px floor on every tap target's shorter side. `TapTarget` owns it for a link.
 - Centre the reading column above ~660 px and cap its measure at **620 px**. The phone is the case
   the app is designed for; the desktop is the case it must not look neglected in.
-- **A bottom bar carries the sections, at every width.** Buscar, Registro, Cuenta — three, and it
-  never holds an action, a filter or a count. Decided by the user 2026-09-08, over a sidebar.
-  It ships with two of the three first; see `## Settled` for which and why.
+- **A bottom bar carries the sections on the phone; a sidebar carries them on the desktop.** Buscar,
+  Registro, Cuenta — three either way, and neither surface ever holds an action, a filter or a count.
+  Decided by the user 2026-09-08. The earlier reading of this line — bar at every width, over a
+  sidebar — was taken about the phone and is not withdrawn there; the desktop was never the case it
+  answered. The width the bar becomes a sidebar at **is not decided**; no board draws it yet.
+  The bar ships with two of its three first; see `## Settled` for which and why.
 - **The 620 px cap is a reading measure, not a page width.** It governs the screens that are prose —
   Palabra, Frase, Flexión, Sin resultado, Inicio, Instalando, Fallo, Sugerencias, Fuente. Registro,
   Cuenta and Dispositivos are a list and a set of controls: they take the width they need. Applying
@@ -115,17 +118,50 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   2026-09-07. Checked 2026-09-08: the published canvas contains the string `Noche` zero times.
   Nothing on it contradicts this file any more.
 - When a board and this file disagree, **this file wins**.
-- **The canvas is 60 boards**, counted 2026-09-08 from the published file: Inicio, Palabra, Frase,
-  FraseOferta, Flexión, SinResultado, Sugerencias, Instalando, Fuente, Fallo, Registro,
-  RegistroVacío, Cuenta, CuentaDentro and Dispositivos, each in light/dark × desktop/mobile.
+- **The canvas is 72 boards**, counted 2026-09-08 from the published file: Inicio, Palabra, Frase,
+  FraseOferta, Flexión, SinResultado, **SinResultadoIA, SinResultadoIAFallo, SinResultadoSinPista**,
+  Sugerencias, Instalando, Fuente, Fallo, Registro, RegistroVacío, Cuenta, CuentaDentro and
+  Dispositivos, each in light/dark × desktop/mobile. The three in bold arrived after the count of
+  60 that stood here, and the count is the only thing that was wrong: every family has its four.
+- **An answer the AI wrote already has boards** — `SinResultadoIA` and `SinResultadoIAFallo`, both
+  in all four. Whatever RL-29 becomes, it is not drawing from nothing.
 - **Nothing is drawn for exporting or for syncing**, and this file names neither. A screen for
   either is designed from scratch, not derived from a board.
+- **Nothing is drawn for the desktop sidebar**, for a theme control, or for a record grouped by word
+  and counted. Those three are the visible work now open and every one of them starts at the canvas.
+- **Reading the published canvas costs 2.7 MB**, and the head of it is the editor's own stylesheet,
+  not the design. Read it to a file and grep the file for `\.dc\.html` names; never read it into a
+  conversation twice.
 - **`Main.dc.html` is Palabra · dark · mobile.** It carries no `Palabra` in its name because it is
   the canvas entry file, so a search for `PalabraOscuroMovil` finds nothing and the set looks short
   by one. It is not: all four of light/dark × desktop/mobile exist for every state. Grep the boards
   for a token with a case-insensitive match — they are written lowercase (`#14130f`).
 
 ## Settled
+
+- **A search with no result offers two things, and they are not the same thing.** Decided by the
+  user 2026-09-08, written as RL-28 and RL-29.
+  - **A typo gets a correction, computed on the device.** Edit distance over the 58,946 headwords:
+    of 1,955 generated one-edit typos it found the intended word **100% of the time**, 288 with more
+    than one candidate, at **0.04 ms** a search. No network, no cost. `recieve` → `receive`.
+    Boards: `SinResultadoSugerencia`, light/dark × desktop/mobile.
+  - **A real word the dictionary lacks gets a button, never an automatic call.** `fettle` is English,
+    absent from the 58,946, and confirmed in Wiktionary as having twelve senses **and no Spanish
+    pair** — which is why DBnary never extracted it. Edit distance answers it *wrong*, offering
+    `kettle/mettle/nettle/settle`, so the correction must not fire here. Only a model closes it.
+    Nothing leaves the device until the reader taps. Boards: `SinResultadoIA`, `SinResultadoIAFallo`.
+  - **The guard between them:** the correction shows only when a candidate is within one edit of a
+    headword. `zzqqxv` gets neither line, and that is the case the guard exists for.
+  - **The answer is labelled.** An AI answer carries `RESPONDIDO POR IA` above it; the reader always
+    knows what came from the dictionary and what did not.
+  - **A failure is a failure.** Measured 2026-09-08: 3 of ~12 calls failed (two 403, one 503). The
+    board for it exists and says so plainly, with a retry in the ordinary accent button and **no new
+    error colour**.
+- **The provider is Gemini, `gemini-3.8-flash`.** Decided by the user 2026-09-08 after running both
+  candidates against the real gap words. Flash writes what a reader uses (`fettle` → *estado, casi
+  siempre en «in fine fettle»*); Flash-Lite pads every note with «Se usa para describir…», which is
+  text that only explains and `AGENTS.md` forbids. Flash also costs less per answer at 55–92 output
+  tokens against ~95.
 
 - **A headword can be heard, in the browser's own voice.** Decided by the user 2026-09-08 over
   recorded audio and over doing nothing, and written as RL-26. It is the option that serves the
@@ -173,3 +209,16 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   and what every board draws; `/cuenta` is a route that does not exist, and a permanent tab onto a
   dead end is worse than a bar that grows. The reason to build it now is that `/registro` is
   currently reachable only through a link labelled «Ver origen», behind the credits page.
+
+- **The desktop gets a design of its own, and it starts with the sidebar.** Decided by the user
+  2026-09-08, on their own words: «en desktop no se ve bien, es como el mobile», and «en desktop
+  deberían ser un sidebar porque hay más información». Voyager has no desktop design today — it
+  centres the phone layout and stops, which is what `/registro` stretching edge to edge showed. The
+  sidebar is the first piece, not the whole answer: every screen that is not prose has to be drawn
+  for the width it now gets. **No board exists for any of it.**
+- **Copying to an account is automatic, not an act.** Decided by the user 2026-09-08, on their own
+  words: «no tiene sentido que sea manual, debería linkearse automáticamente. No es una pregunta, es
+  algo que se hace solo». With an account, the copy starts by itself and is never asked about. This
+  **retires RL-23**, which the 2026-09-08 slice had just built, and with it the consent screen that
+  named the two figures. **RNL-09 is untouched**: with no account, nothing leaves the device — the
+  account is still the whole of the consent. **Whether an off switch survives is not decided.**

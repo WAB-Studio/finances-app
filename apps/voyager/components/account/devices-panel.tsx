@@ -44,6 +44,7 @@ type RowStatus =
 function DeviceRowItem({
   row,
   isThisDevice,
+  isOnlyDevice,
   status,
   onRetireClick,
   onCancel,
@@ -52,6 +53,7 @@ function DeviceRowItem({
 }: {
   row: DeviceRow;
   isThisDevice: boolean;
+  isOnlyDevice: boolean;
   status: RowStatus;
   onRetireClick: () => void;
   onCancel: () => void;
@@ -98,6 +100,7 @@ function DeviceRowItem({
         <Flex direction="column" gap="2" align="start">
           <Text size="2">{t("confirmBody")}</Text>
           {isThisDevice && <Text size="2">{t("confirmBodyOwn")}</Text>}
+          {isOnlyDevice && <Text size="2">{t("confirmBodyLastDevice")}</Text>}
           <Flex gap="2">
             <Button size="2" tap variant="soft" color="gray" onClick={onCancel}>
               {t("cancel")}
@@ -138,11 +141,14 @@ function DeviceRowItem({
 /**
  * The devices the reader's account has copied to (RL-25). Fetches
  * `/api/devices` on mount, never before — this panel only draws inside the
- * account screen, which only mounts with a session. `title` is drawn here,
- * not by the caller: `account-panel.tsx` (module 15) mounts this alongside
- * other sections that carry their own headings too.
+ * account screen, which only mounts with a session — and again whenever
+ * `refreshSignal` changes, which the caller bumps once `syncNow()` resolves.
+ * The refetch runs quietly behind the rows already on screen: it never
+ * forces `loading` back on, so a failed copy never leaves the list spinning.
+ * `title` is drawn here, not by the caller: `account-panel.tsx` (module 15)
+ * mounts this alongside other sections that carry their own headings too.
  */
-export function DevicesPanel() {
+export function DevicesPanel({ refreshSignal }: { refreshSignal: number }) {
   const t = useTranslations("account.devices");
   const [state, setState] = useState<PanelState>({ kind: "loading" });
   // Bumped by the panel-level retry, since the fetch runs in an effect and a
@@ -170,7 +176,7 @@ export function DevicesPanel() {
     return () => {
       cancelled = true;
     };
-  }, [attempt]);
+  }, [attempt, refreshSignal]);
 
   function updateRowStatus(deviceId: string, status: RowStatus): void {
     setRowStatus((current) => ({ ...current, [deviceId]: status }));
@@ -270,6 +276,7 @@ export function DevicesPanel() {
             <DeviceRowItem
               row={row}
               isThisDevice={row.deviceId === localDeviceId}
+              isOnlyDevice={state.rows.length === 1}
               status={rowStatus[row.deviceId] ?? { kind: "idle" }}
               onRetireClick={() => updateRowStatus(row.deviceId, { kind: "confirming" })}
               onCancel={() => updateRowStatus(row.deviceId, { kind: "idle" })}

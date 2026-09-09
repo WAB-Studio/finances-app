@@ -54,11 +54,14 @@ function toForeignRow(row: SyncResponse["rows"][number]): ForeignRow {
   };
 }
 
-async function postBatch(rows: SyncRow[], since: string | null): Promise<SyncResponse> {
+// `deviceId` travels on every round, `rows` empty or not: a pull-only round
+// still has to seal this device's own row in `reading.devices` (module 31,
+// RL-25), and the route has nothing else top-level to read it off.
+async function postBatch(deviceId: string, rows: SyncRow[], since: string | null): Promise<SyncResponse> {
   const response = await fetch(SYNC_ENDPOINT, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(syncRequestSchema.parse({ rows, since })),
+    body: JSON.stringify(syncRequestSchema.parse({ deviceId, rows, since })),
   });
   if (!response.ok) throw new Error(`sync route answered ${response.status}`);
   return syncResponseSchema.parse(await response.json());
@@ -66,8 +69,11 @@ async function postBatch(rows: SyncRow[], since: string | null): Promise<SyncRes
 
 /**
  * Pushes local rows and pulls foreign ones, in batches of `SYNC_BATCH`, until
- * a batch comes back short or `MAX_BATCHES` is spent. Never throws: a failed
- * round trip leaves the cursors where they were, so the next call resumes it.
+ * both sides come back short or `MAX_BATCHES` is spent. Every round calls
+ * `postBatch`, even one with nothing local to push: the download is not a
+ * side effect of the upload, so a fresh device with an empty log still pulls
+ * what the account already holds. Never throws: a failed round trip leaves
+ * the cursors where they were, so the next call resumes it.
  */
 export async function syncNow(): Promise<SyncOutcome> {
   const state = await readSyncState();
@@ -81,21 +87,27 @@ export async function syncNow(): Promise<SyncOutcome> {
   try {
     for (let batch = 0; batch < MAX_BATCHES; batch++) {
       const localRows = await readSince(pushedThroughLocalId ?? 0, SYNC_BATCH);
-      if (localRows.length === 0) break;
-
       const rows = localRows.map((row) => toSyncRow(row, state.deviceId));
-      const response = await postBatch(rows, pulledThroughCursor);
+      const response = await postBatch(state.deviceId, rows, pulledThroughCursor);
 
       // The merge is awaited in full before either cursor moves: a batch
       // that only half lands must be read again next time, not skipped.
       pulled += await mergeForeign(response.rows.map(toForeignRow));
 
-      pushedThroughLocalId = localRows[localRows.length - 1].id!;
+      // A pull-only round has no local row to name: the push cursor stays
+      // put, so the next call's upload page starts exactly where this one's
+      // did.
+      if (localRows.length > 0) {
+        pushedThroughLocalId = localRows[localRows.length - 1].id!;
+        pushed += localRows.length;
+      }
       pulledThroughCursor = response.cursor;
-      pushed += localRows.length;
       await writeSyncState({ pushedThroughLocalId, pulledThroughCursor, lastSyncedAt: Date.now() });
 
-      if (localRows.length < SYNC_BATCH) break;
+      // Stop only once neither side has a next page waiting: a short upload
+      // page alone no longer ends the call, or a large foreign backlog would
+      // never finish downloading behind a thin local log.
+      if (localRows.length < SYNC_BATCH && response.rows.length < SYNC_BATCH) break;
     }
     return { kind: "done", pushed, pulled };
   } catch {

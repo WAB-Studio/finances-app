@@ -133,7 +133,8 @@
       "loading": "Cargando los dispositivos…",
       "empty": "Todavía no hay ningún dispositivo copiando tu registro",
       "confirmBody": "Sus búsquedas salen de tu copia y este dispositivo deja de sincronizar. Lo que ya se copió a tus otros dispositivos sigue en ellos.",
-      "confirmBodyOwn": "Además, la copia se apaga en este dispositivo: tu registro local se queda completo aquí, y si la activas de nuevo se sube todo desde cero."
+      "confirmBodyOwn": "Además, la copia se apaga en este dispositivo: tu registro local se queda completo aquí, y si la activas de nuevo se sube todo desde cero.",
+      "confirmBodyLastDevice": "Es tu único dispositivo copiando: la copia queda vacía. Tu registro local se queda entero donde esté, y si vuelves a activarla se sube todo otra vez."
     }
   },
   "offline": {
