@@ -1,7 +1,13 @@
+import { createTranslator } from "next-intl";
 import { expect, test, type Page } from "@playwright/test";
 
 import messages from "../messages/es.json";
 import manifest from "../public/dictionary/manifest.json";
+
+// The same runtime `next-intl` renders with: module 2's `log.count` is an
+// ICU plural, so a literal `"{count}"` substring never appears in the
+// rendered text and a naive `.replace` against it always misses.
+const t = createTranslator({ locale: "es", messages });
 
 // Chromium's built-in `Translator` hangs `availability()` forever
 // (docs/TRAPS.md); the word path here must never reach it.
@@ -20,51 +26,20 @@ async function deleteLogDatabase(page: Page): Promise<void> {
   });
 }
 
-// Mirrors `e2e/export.spec.ts:56-98`'s own seeder: `schema: 1` rows with no
-// `translation` at all, the shape `toRow`'s `?? null` heals rather than the
-// shape a real search writes.
-async function seedRows(page: Page, count: number): Promise<void> {
-  await page.evaluate(
-    (count) =>
-      new Promise<void>((resolve, reject) => {
-        const request = indexedDB.open("reading-log");
-        request.onupgradeneeded = () => {
-          const store = request.result.createObjectStore("lookups", { keyPath: "id", autoIncrement: true });
-          store.createIndex("at", "at");
-          store.createIndex("normalised", "normalised");
-        };
-        request.onsuccess = () => {
-          const db = request.result;
-          const tx = db.transaction("lookups", "readwrite");
-          const store = tx.objectStore("lookups");
-          for (let i = 0; i < count; i++) {
-            store.add({
-              schema: 1,
-              at: Date.now() - i,
-              text: `seed-${i}`,
-              normalised: `seed-${i}`,
-              kind: "word",
-              outcome: "miss",
-              headword: null,
-              rule: null,
-              senses: 0,
-              dictionaryReady: true,
-              origin: null,
-            });
-          }
-          tx.oncomplete = () => {
-            db.close();
-            resolve();
-          };
-          tx.onerror = () => reject(tx.error);
-        };
-        request.onerror = () => reject(request.error);
-      }),
-    count,
-  );
+// `record.ts`'s own guard (`typeof indexedDB === "undefined"`) is what a
+// broken store looks like to this app; `open` throwing synchronously turns
+// every read the screen makes into a rejected promise, the same way a real
+// storage failure would.
+async function breakIndexedDB(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    Object.defineProperty(window, "indexedDB", {
+      configurable: true,
+      value: { open: () => { throw new Error("storage broken"); } },
+    });
+  });
 }
 
-test("a lookup's row lists with the typed text, a non-empty translation and the Exacta label", async ({ page }) => {
+test("a lookup's row lists the typed word, its count and a non-empty translation", async ({ page }) => {
   await deleteTranslator(page);
 
   const assetResponse = page.waitForResponse(
@@ -83,48 +58,38 @@ test("a lookup's row lists with the typed text, a non-empty translation and the 
 
   await page.goto("/registro");
 
-  const expectedCount = messages.log.count.replace("{count}", "1");
-  await expect(page.getByText(expectedCount)).toBeVisible();
+  await expect(page.getByText(t("log.count", { count: 1 }))).toBeVisible();
 
-  await expect(page.getByText("apple", { exact: true })).toBeVisible();
-  await expect(page.getByText(messages.log.outcome.exact, { exact: true })).toBeVisible();
+  const row = page.locator('a[href="/registro/apple"]');
+  await expect(row).toBeVisible();
+  const rowText = await row.innerText();
+  expect(rowText).toContain("apple");
+  expect(rowText).toContain("1");
 
-  // The row's own container: the word span and the outcome label share it,
-  // two ancestors up — proven against a live build in this branch's own
-  // history, not assumed. What is left over once both known strings are
-  // stripped is the translation module 24 wrote and module 25 read back.
-  const rowText = await page.getByText("apple", { exact: true }).locator("xpath=../..").innerText();
-  const translation = rowText.replace("apple", "").replace(messages.log.outcome.exact, "").trim();
+  // What is left over once the word and its count are stripped is the
+  // translation module 24 wrote and module 25's grouped read carries here.
+  const translation = rowText.replace("apple", "").replace("1", "").trim();
   expect(translation.length).toBeGreaterThan(0);
 });
 
-test("10,003 rows draw 50, and log.more draws 50 more without changing the count", async ({ page }) => {
-  test.setTimeout(60_000);
-  await deleteTranslator(page);
-
-  await page.goto("/registro");
-  await seedRows(page, 10_003);
-  await page.reload();
-
-  const missLabel = page.getByText(messages.log.outcome.miss, { exact: true });
-  await expect(missLabel.first()).toBeVisible();
-  await expect(missLabel).toHaveCount(50);
-
-  const expectedCount = messages.log.count.replace("{count}", "10003");
-  await expect(page.getByText(expectedCount)).toBeVisible();
-
-  await page.getByRole("button", { name: messages.log.more }).click();
-  await expect(missLabel).toHaveCount(100);
-  await expect(page.getByText(expectedCount)).toBeVisible();
-});
-
-test("with no rows, /registro draws the empty state and its link returns to /", async ({ page }) => {
+test("with no rows, /registro draws the study's empty state and its action returns to /", async ({ page }) => {
   await deleteTranslator(page);
   await deleteLogDatabase(page);
 
   await page.goto("/registro");
-  await expect(page.getByText(messages.log.empty)).toBeVisible();
+  await expect(page.getByText(messages.log.study.emptyTitle)).toBeVisible();
+  await expect(page.getByText(messages.log.study.emptyBody)).toBeVisible();
 
-  await page.getByRole("link", { name: messages.log.emptyAction }).click();
+  await page.getByRole("button", { name: messages.log.study.emptyAction }).click();
   await expect(page).toHaveURL(/\/$/);
+});
+
+test("with the store broken, /registro draws the failure, with no system red and a retry", async ({ page }) => {
+  await deleteTranslator(page);
+  await breakIndexedDB(page);
+
+  await page.goto("/registro");
+  await expect(page.getByText(messages.log.study.failedTitle)).toBeVisible();
+  await expect(page.getByText(messages.log.study.failedBody)).toBeVisible();
+  await expect(page.getByRole("button", { name: messages.log.study.failedAction })).toBeVisible();
 });

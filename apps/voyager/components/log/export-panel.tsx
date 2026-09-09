@@ -5,7 +5,7 @@ import { useTranslations } from "next-intl";
 
 import { buildExport } from "@/lib/log/export";
 import { countRecords } from "@/lib/log/record";
-import { Button, Flex, Spinner, Text } from "@/components/ui";
+import { Flex, Link, Spinner, TapTarget, Text } from "@/components/ui";
 
 type CountState = { kind: "loading" } | { kind: "ready"; count: number } | { kind: "failed" };
 type ExportState = { kind: "idle" } | { kind: "building" } | { kind: "done" } | { kind: "failed" };
@@ -87,9 +87,16 @@ export function ExportPanel() {
         </Text>
       )}
 
-      <Button size="2" tap onClick={() => void handleExport()} disabled={exportState.kind === "building"}>
-        {exportState.kind === "building" ? t("exporting") : t("export")}
-      </Button>
+      {/* An underlined link, not a filled button: `/registro`'s weight is the
+          study above, not this download (docs/voyager/DESIGN.md "Settled",
+          "The study replaces the download as the weight of `/registro`"). */}
+      <Link asChild underline="always">
+        <button type="button" onClick={() => void handleExport()} disabled={exportState.kind === "building"}>
+          <TapTarget align="center" px="1">
+            {exportState.kind === "building" ? t("exporting") : t("study.download")}
+          </TapTarget>
+        </button>
+      </Link>
 
       {exportState.kind === "done" && (
         <Text size="2" muted>

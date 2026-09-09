@@ -93,8 +93,6 @@
     "more": "Ver más búsquedas",
     "listFailed": "No se pudo cargar el registro",
     "retry": "Reintentar",
-    "empty": "Todavía no hay búsquedas registradas",
-    "emptyAction": "Buscar una palabra",
     "study": {
       "header": "{lookups, plural, one {# búsqueda} other {# búsquedas}} · {words, plural, one {# palabra} other {# palabras}}.",
       "emptyTitle": "Todavía no has buscado nada",
