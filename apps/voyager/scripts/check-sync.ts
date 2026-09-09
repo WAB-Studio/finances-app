@@ -7,7 +7,7 @@
  * end to force a ROLLBACK. The two subjects are `randomUUID()`, their
  * `auth.users` rows are inserted inside that same transaction, and nothing
  * survives it: `npm run harness:census` does not move and
- * `scripts/harness/registry.ts` is never needed.
+ * `@repo/harness-registry` is never needed.
  */
 import { randomUUID } from "node:crypto";
 
