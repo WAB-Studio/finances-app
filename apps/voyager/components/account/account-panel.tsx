@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useFormatter, useTranslations } from "next-intl";
 
 import { sendSignInLink, signOut } from "@/app/actions/account";
+import type { SendSignInLinkResult } from "@/app/actions/account";
 import { countRecords, readSyncState, writeSyncState } from "@/lib/log/record";
 import { syncNow } from "@/lib/sync/driver";
 import type { SyncState } from "@/lib/log/types";
@@ -38,7 +39,38 @@ type EmailFormState =
   | { kind: "idle" }
   | { kind: "sending" }
   | { kind: "sent" }
-  | { kind: "failed"; error: "emailInvalid" | "sendFailed" | "rateLimited" };
+  | { kind: "failed"; error: "emailInvalid" | "sendFailed" | "rateLimited" | "offline" };
+
+// Driven against a production build, `context.setOffline(true)` rejects the
+// browser's own POST to this Server Action outright (`TypeError: Failed to
+// fetch`) — the button stuck on "Enviando…" was an *uncaught* rejection, not
+// a hang. This clock is the second line of defence, for a connection so slow
+// it neither succeeds nor fails within a reader's patience.
+const SEND_LINK_TIMEOUT_MS = 8_000;
+
+// The glyph `docs/voyager/DESIGN.md` "Settled" names for `CuentaSinRed`: two
+// signal arcs and a dot, struck through — the one screen allowed to say the
+// connection is the problem.
+function OfflineGlyph() {
+  return (
+    <svg
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M8.5 16.5a5 5 0 017 0" />
+      <path d="M5 12.5a10 10 0 0114 0" />
+      <circle cx="12" cy="20" r="0.75" fill="currentColor" stroke="none" />
+      <path d="M3 3l18 18" />
+    </svg>
+  );
+}
 
 // State 1 (RNL-09): no reader yet, so nothing here ever reaches the network
 // beyond the sign-in request the reader themself asks for.
@@ -64,7 +96,22 @@ function SignedOutForm() {
 
   async function handleSend(): Promise<void> {
     setState({ kind: "sending" });
-    const result = await sendSignInLink(email);
+
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const timedOut = new Promise<{ ok: false; error: "offline" }>((resolve) => {
+      timer = setTimeout(() => resolve({ ok: false, error: "offline" }), SEND_LINK_TIMEOUT_MS);
+    });
+
+    let result: SendSignInLinkResult | { ok: false; error: "offline" };
+    try {
+      result = await Promise.race([sendSignInLink(email), timedOut]);
+    } catch {
+      // The rejection this call was missing: a cut connection fails the
+      // fetch outright, and the reader's own "Enviando…" was never going to
+      // move again without one.
+      result = { ok: false, error: "offline" };
+    }
+    if (timer) clearTimeout(timer);
     setState(result.ok ? { kind: "sent" } : { kind: "failed", error: result.error });
   }
 
@@ -96,20 +143,36 @@ function SignedOutForm() {
             autoCorrect="off"
             spellCheck={false}
           />
-          <Button size="2" tap onClick={() => void handleSend()} disabled={state.kind === "sending"}>
-            {state.kind === "sending" ? t("sending") : t("copy.noSessionAction")}
-          </Button>
 
           {state.kind === "failed" && (
             // No red in this palette (docs/voyager/DESIGN.md "Failure"): a
-            // hairline sets the break off, full-weight ink says it.
+            // hairline sets the break off, full-weight ink says it. Offline
+            // alone carries the glyph `CuentaSinRed` draws — the one screen
+            // this app lets name the connection.
             <Flex direction="column" gap="3" align="start">
               <Separator size="4" />
-              <Text size="2" weight="bold">
-                {t(`errors.${state.error}`)}
-              </Text>
+              <Flex gap="2" align="center">
+                {state.error === "offline" && <OfflineGlyph />}
+                <Text size="2" weight="bold">
+                  {t(`errors.${state.error}`)}
+                </Text>
+              </Flex>
             </Flex>
           )}
+
+          <Button
+            size="2"
+            tap
+            block={state.kind === "failed" && state.error === "offline"}
+            onClick={() => void handleSend()}
+            disabled={state.kind === "sending"}
+          >
+            {state.kind === "sending"
+              ? t("sending")
+              : state.kind === "failed" && state.error === "offline"
+                ? t("retry")
+                : t("copy.noSessionAction")}
+          </Button>
         </Flex>
       )}
     </Flex>
