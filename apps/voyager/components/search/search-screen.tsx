@@ -15,7 +15,7 @@ import { flushPendingLookup, recordLookup } from "@/lib/log/record";
 import type { LookupOutcome, LookupRecord } from "@/lib/log/types";
 import { Flex, Text } from "@/components/ui";
 import { InstallStatus } from "./install-status";
-import { NoEntryAnswer, type NoEntryPart, type NoEntryState } from "./no-entry-answer";
+import { NoEntryAnswer, type NoEntryPart, type NoEntryReason, type NoEntryState } from "./no-entry-answer";
 import { PhraseAnswer, type DeviceOffer, type PhraseState } from "./phrase-answer";
 import { SearchBox } from "./search-box";
 import { SenseList } from "./sense-list";
@@ -129,7 +129,8 @@ export function SearchScreen({ initialQuery }: { initialQuery?: string }) {
   const [suggestionsWithdrawn, setSuggestionsWithdrawn] = useState(false);
   const [phraseState, setPhraseState] = useState<PhraseState>({ kind: "idle" });
   // RL-31: a two-token miss or a >60-token string never reaches
-  // `translatePhrase` — this is the state that draws in its place.
+  // `translatePhrase` — this is the state that draws in its place. RL-37
+  // reuses it for a 3-to-60-token phrase whose translation failed instead.
   const [noEntryState, setNoEntryState] = useState<NoEntryState | null>(null);
   const [deviceOffer, setDeviceOffer] = useState<DeviceOffer>({ kind: "hidden" });
   const [logPayload, setLogPayload] = useState<LogPayload | null>(null);
@@ -275,11 +276,32 @@ export function SearchScreen({ initialQuery }: { initialQuery?: string }) {
       setLogPayload(phraseLogPayload(phraseText, dictionaryReady, "translated", result.origin, result.text));
     } catch {
       if (controller.signal.aborted) return;
+      // RL-37: a phrase in range that cannot be translated falls to the same
+      // per-word breakdown RL-31 draws for one that was never tried — the
+      // trigger is this `failed` state, never a `done` with empty text.
       setPhraseState({ kind: "failed" });
       setLogPayload(phraseLogPayload(phraseText, dictionaryReady, "untranslated", null, null));
+      resolveWordBreakdown(phraseText, "translationFailed");
     } finally {
       if (phraseAbortRef.current === controller) phraseAbortRef.current = null;
     }
+  }
+
+  // Looks every word of `phraseText` up on the device, one `lookup` call
+  // each, with no debounce and no network — shared by RL-31's miss and
+  // RL-37's translation failure, which differ only in which line names what
+  // went wrong (`reason`, read by `NoEntryAnswer`'s title).
+  function resolveWordBreakdown(phraseText: string, reason: NoEntryReason, onResolved?: () => void): void {
+    setNoEntryState({ kind: "resolving", query: phraseText });
+    const words = phraseText.trim().replace(/\s+/g, " ").split(" ");
+    void Promise.all(words.map((word) => lookup(word).catch(() => null))).then((answers) => {
+      // Same guard `runQuery` already uses at :346 and :368: a superseded
+      // reply is dropped, never painted over whatever replaced it.
+      if (latestTextRef.current !== phraseText) return;
+      const parts: NoEntryPart[] = words.map((word, index) => ({ token: word, answer: answers[index] ?? null }));
+      setNoEntryState({ kind: "words", query: phraseText, parts, reason });
+      onResolved?.();
+    });
   }
 
   // RL-31: below the floor, every token is looked up on the device, with no
@@ -292,14 +314,7 @@ export function SearchScreen({ initialQuery }: { initialQuery?: string }) {
       return;
     }
 
-    setNoEntryState({ kind: "resolving", query: phraseText });
-    const words = phraseText.trim().replace(/\s+/g, " ").split(" ");
-    void Promise.all(words.map((word) => lookup(word).catch(() => null))).then((answers) => {
-      // Same guard `runQuery` already uses at :300 and :322: a superseded
-      // reply is dropped, never painted over whatever replaced it.
-      if (latestTextRef.current !== phraseText) return;
-      const parts: NoEntryPart[] = words.map((word, index) => ({ token: word, answer: answers[index] ?? null }));
-      setNoEntryState({ kind: "words", query: phraseText, parts });
+    resolveWordBreakdown(phraseText, "noEntry", () => {
       setLogPayload(phraseLogPayload(phraseText, dictionaryReady, "miss", null, null));
     });
   }
@@ -426,10 +441,6 @@ export function SearchScreen({ initialQuery }: { initialQuery?: string }) {
     }
   }
 
-  function handlePhraseRetry(): void {
-    void translatePhrase(text, status.state === "ready");
-  }
-
   return (
     <Flex direction="column" gap="5">
       <Flex direction="column" gap="2">
@@ -451,7 +462,7 @@ export function SearchScreen({ initialQuery }: { initialQuery?: string }) {
       )}
 
       {kind.kind === "phrase" &&
-        (kind.tokens < PHRASE_MIN_TOKENS || kind.tokens > PHRASE_MAX_TOKENS ? (
+        (kind.tokens < PHRASE_MIN_TOKENS || kind.tokens > PHRASE_MAX_TOKENS || phraseState.kind === "failed" ? (
           noEntryState && <NoEntryAnswer state={noEntryState} />
         ) : (
           <PhraseAnswer
@@ -459,7 +470,6 @@ export function SearchScreen({ initialQuery }: { initialQuery?: string }) {
             state={phraseState}
             offer={deviceOffer}
             onEnableDevice={handleEnableDevice}
-            onRetry={handlePhraseRetry}
           />
         ))}
     </Flex>

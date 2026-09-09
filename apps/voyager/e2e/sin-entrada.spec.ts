@@ -142,3 +142,85 @@ test("the search screen carries no link to /fuente", async ({ page }) => {
 
   await expect(page.locator('a[href="/fuente"]')).toHaveCount(0);
 });
+
+// RL-37. Nine distinct headwords plus "zzqx", which the dictionary lacks —
+// no word repeats, so `mainHeadings` never double-counts one that folds into
+// the "more" line and one that's shown at the same time. The route is
+// intercepted rather than left to MyMemory's own quota, mirroring exactly
+// what `app/api/translate/route.ts` answers once `translateWithProvider`
+// throws: a 502 with no `translatedText` a client ever reads.
+test("a phrase whose translation fails falls to the per-word breakdown, capped at eight blocks with the rest in one line", async ({
+  page,
+}) => {
+  await deleteTranslator(page);
+  let translateCount = 0;
+  await page.route("**/api/translate", async (route) => {
+    translateCount++;
+    await route.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({ error: "provider" }) });
+  });
+  await openReady(page);
+
+  const requestUrls: string[] = [];
+  page.on("request", (request) => requestUrls.push(request.url()));
+
+  const phraseText = "dog cat zzqx bird fish mouse horse cow pig";
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+  await searchBox.fill(phraseText);
+
+  // The debounce, the failed request, and the on-device breakdown all have
+  // to land before any of this is worth reading.
+  await page.waitForTimeout(PHRASE_DEBOUNCE_MS + 300);
+  expect(translateCount, "the translation is attempted once, and fails").toBe(1);
+
+  const expectedTitle = messages.search.noEntry.titleTranslationFailed.replace("{query}", phraseText);
+  await expect(page.getByText(expectedTitle)).toBeVisible();
+
+  // The first eight tokens each draw a block; "zzqx" is the third and draws
+  // the dictionary's own miss line instead of a heading.
+  for (const shown of ["dog", "cat", "bird", "fish", "mouse", "horse", "cow"]) {
+    await expect(mainHeadings(page).filter({ hasText: shown })).toBeVisible();
+  }
+  await expect(page.getByText(messages.search.noEntry.wordMiss)).toBeVisible();
+
+  // "pig" is the ninth token: past `MAX_BLOCKS`, it never gets its own
+  // block — only the "N more" line below names it indirectly, by count.
+  await expect(mainHeadings(page).filter({ hasText: "pig" })).toHaveCount(0);
+  await expect(mainHeadings(page)).toHaveCount(7);
+  await expect(page.getByText("…y 1 palabra más que no cabe aquí.")).toBeVisible();
+
+  // RL-37: the breakdown itself answers from the device — the one request
+  // this test allows is the translation attempt that failed, not a second
+  // one per word.
+  const stray = strayRequests(requestUrls).filter((url) => !url.includes("/api/translate"));
+  console.log(`requests past the failed translate call, static assets and the call itself excluded: ${stray.length}`);
+  expect(stray).toEqual([]);
+});
+
+// The two-token path this replaces nothing of: below `PHRASE_MIN_TOKENS`,
+// `schedulePhrase` still routes straight to `scheduleNoEntry` and never
+// reaches `translatePhrase`, so a failing `/api/translate` stub is never
+// even called here — proof this string still draws exactly what it drew
+// before RL-37 touched the phrase-in-range path.
+test("a two-token string still never reaches the translator, and still draws the no-entry title", async ({
+  page,
+}) => {
+  await deleteTranslator(page);
+  let translateCount = 0;
+  await page.route("**/api/translate", async (route) => {
+    translateCount++;
+    await route.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({ error: "provider" }) });
+  });
+  await openReady(page);
+
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+  await searchBox.fill("dog cat");
+
+  await expect(mainHeadings(page).filter({ hasText: "dog" })).toBeVisible();
+  await expect(mainHeadings(page).filter({ hasText: "cat" })).toBeVisible();
+  const expectedTitle = messages.search.noEntry.title.replace("{query}", "dog cat");
+  await expect(page.getByText(expectedTitle)).toBeVisible();
+  await expect(page.getByText(messages.search.noEntry.titleTranslationFailed.replace("{query}", "dog cat"))).toHaveCount(0);
+
+  await page.waitForTimeout(PHRASE_DEBOUNCE_MS + 300);
+  expect(translateCount, "a two-token string never reaches the translate route").toBe(0);
+});
