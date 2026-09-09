@@ -9,11 +9,8 @@ type SerifProps = {
   // Sets the family to Newsreader; the size and weight stay whatever `size`
   // and `weight` already say.
   serif?: boolean;
-  // "translation" is the exact 21px / 1.5 a translation line runs, no Radix
-  // step covers it. "ipa" is the 13px muted line a pronunciation runs,
-  // whether it names a sense group or sits beside one sense's own
-  // translation (docs/voyager/DESIGN.md "Type").
-  variant?: "translation" | "ipa";
+  // The exact 21px / 1.5 a translation line runs, no Radix step covers it.
+  variant?: "translation";
   // The muted tone every caption, status line and secondary link takes
   // (docs/voyager/DESIGN.md "Tokens"), so a screen never reaches for Radix's
   // own `color="gray"`.
@@ -29,8 +26,7 @@ function withSerif(
   const classes = [
     serif || variant === "translation" ? styles.serif : undefined,
     variant === "translation" ? styles.translation : undefined,
-    variant === "ipa" ? styles.ipa : undefined,
-    muted || variant === "ipa" ? styles.muted : undefined,
+    muted ? styles.muted : undefined,
     className,
   ].filter(Boolean);
   return classes.length > 0 ? classes.join(" ") : undefined;

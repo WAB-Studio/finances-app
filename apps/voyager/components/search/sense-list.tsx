@@ -88,7 +88,7 @@ function SenseDetail({
     <Flex direction="column" gap="2">
       <Flex direction="column" gap="1">
         {ownIpa !== null && (
-          <Text variant="ipa" truncate>
+          <Text size="2" color="gray" truncate>
             {ownIpa}
           </Text>
         )}
@@ -140,7 +140,7 @@ function PosSegment({
           // whose `minmax(0, 1fr)` governs the item regardless
           // (docs/voyager/DESIGN.md "What the data forces").
           <Grid flexGrow="1" minWidth="0">
-            <Text variant="ipa" align="right" truncate>
+            <Text size="2" color="gray" align="right" truncate>
               {segmentIpa}
             </Text>
           </Grid>
