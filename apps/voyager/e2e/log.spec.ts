@@ -353,4 +353,20 @@ test("RL-34: a word's stored translation spans senses, and the 120-char cut stil
   );
   expect(idiomRow?.senses).toBe(1);
   expect(idiomRow?.translation).toHaveLength(120);
+
+  // "anyway" carries one sense whose raw glosses run to 195 characters, and
+  // the 120-char cut lands right after "comoquiera, " — a separator, not a
+  // letter. The stored row must not carry that dangling ", " onward.
+  await searchBox.fill("anyway");
+  await expect(page.getByRole("heading", { name: "anyway" })).toBeVisible({ timeout: 5000 });
+  await searchBox.fill("");
+  await page.waitForTimeout(300);
+
+  const anywayRow = (await readLogRows(page)).find((row) => row.normalised === "anyway");
+  expect(anywayRow?.senses).toBe(1);
+  expect(anywayRow?.translation).toBe(
+    "en fin, pero bueno, pues nada, de todas formas, de todos modos, de todas maneras, a pesar de todo, aun así, comoquiera",
+  );
+  expect(anywayRow?.translation).not.toMatch(/[,\s]$/);
+  expect(anywayRow?.translation?.length).toBeLessThanOrEqual(120);
 });

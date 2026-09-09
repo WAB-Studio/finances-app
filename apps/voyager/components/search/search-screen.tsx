@@ -45,7 +45,11 @@ const TRANSLATION_MAX_CHARS = 120;
 const TRANSLATION_MAX_SENSES = 3;
 
 function cutTranslation(text: string): string {
-  return text.slice(0, TRANSLATION_MAX_CHARS);
+  if (text.length <= TRANSLATION_MAX_CHARS) return text;
+  // The cut can land mid-separator, leaving ", " or "," dangling at the
+  // end. Trim it — the 120 cap stays a ceiling, not a quota, so a shorter
+  // result here is fine. A cut that lands mid-word is left alone.
+  return text.slice(0, TRANSLATION_MAX_CHARS).replace(/[,\s]+$/u, "");
 }
 
 // Up to the group's first three senses, every translation each one carries,
