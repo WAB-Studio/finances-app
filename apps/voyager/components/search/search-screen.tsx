@@ -5,6 +5,7 @@ import { useTranslations } from "next-intl";
 
 import { classify, PHRASE_MAX_TOKENS, PHRASE_MIN_TOKENS, type QueryKind } from "@/lib/query/classify";
 import { normaliseHeadword } from "@/lib/dictionary/format";
+import type { Sense } from "@/lib/dictionary/index-build";
 import { useDictionary } from "@/lib/dictionary/use-dictionary";
 import type { WordAnswer } from "@/lib/dictionary/lookup";
 import { deviceTranslatorState, type TranslatorState } from "@/lib/translate/availability";
@@ -47,10 +48,16 @@ function cutTranslation(text: string): string {
   return text.slice(0, TRANSLATION_MAX_CHARS);
 }
 
-// The first sense of the same group `headword` already comes from — at most
-// its first three translations, joined the way `SenseCard` lists them.
-function formatSenseTranslations(translations: readonly string[]): string {
-  return cutTranslation(translations.slice(0, TRANSLATION_MAX_SENSES).join(", "));
+// Up to the group's first three senses, every translation each one carries,
+// joined the way `SenseCard` lists them within one sense. The 120-char cut
+// is the storage limit; this cap is only a maximum on top of it, so a word
+// with fewer, longer senses can still lose its third one to the cut.
+function formatSenseTranslations(senses: readonly Sense[]): string {
+  const joined = senses
+    .slice(0, TRANSLATION_MAX_SENSES)
+    .flatMap((sense) => sense.translations)
+    .join(", ");
+  return cutTranslation(joined);
 }
 
 function wordLogPayload(text: string, answer: WordAnswer, dictionaryReady: boolean): LogPayload {
@@ -66,7 +73,7 @@ function wordLogPayload(text: string, answer: WordAnswer, dictionaryReady: boole
     headword: answer.exact ? answer.exact.headword : (hit?.group.headword ?? null),
     rule: hit ? hit.rule : null,
     senses: group?.senses.length ?? 0,
-    translation: group ? formatSenseTranslations(group.senses[0]?.translations ?? []) : null,
+    translation: group ? formatSenseTranslations(group.senses) : null,
     dictionaryReady,
     origin: null,
   };
