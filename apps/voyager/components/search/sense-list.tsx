@@ -73,16 +73,21 @@ function SpeakButton({ headword, t }: { headword: string; t: ReturnType<typeof u
 // when the entry carries one, and its own IPA only when it differs from the
 // one already drawn on its segment's label row — repeating an identical IPA
 // on every sense would say nothing a reader does not already have.
+// `compact` drops the IPA and the definition (docs/voyager/DESIGN.md
+// "A word block on `SinEntradaFrase` carries its translations alone"):
+// only `NoEntryAnswer`'s per-word breakdown ever sets it.
 function SenseDetail({
   sense,
   segmentIpa,
+  compact,
   t,
 }: {
   sense: Sense;
   segmentIpa: string | null;
+  compact: boolean;
   t: ReturnType<typeof useTranslations>;
 }) {
-  const ownIpa = sense.ipa !== null && sense.ipa !== segmentIpa ? sense.ipa : null;
+  const ownIpa = !compact && sense.ipa !== null && sense.ipa !== segmentIpa ? sense.ipa : null;
 
   return (
     <Flex direction="column" gap="2">
@@ -101,7 +106,7 @@ function SenseDetail({
           </Text>
         ))}
       </Flex>
-      {sense.definition !== null && (
+      {!compact && sense.definition !== null && (
         <Flex direction="column" gap="1">
           <Text size="1" color="gray">
             {t("definition")}
@@ -120,9 +125,11 @@ function SenseDetail({
 // with a hairline. Never a card, never a border box (docs/voyager/DESIGN.md).
 function PosSegment({
   segment,
+  compact,
   t,
 }: {
   segment: SenseSegment;
+  compact: boolean;
   t: ReturnType<typeof useTranslations>;
 }) {
   const segmentIpa = segment.senses[0].ipa;
@@ -131,7 +138,7 @@ function PosSegment({
     <Flex direction="column" gap="3">
       <Flex align="center" gap="2">
         <PosLabel>{t(`pos.${segment.pos}`)}</PosLabel>
-        {segmentIpa !== null && (
+        {!compact && segmentIpa !== null && (
           // IPA runs past 120 characters with no space to break on, and it is
           // metadata beside the headword, not the headword itself — one
           // clamped line reads better than four wrapped ones. `PosLabel` has
@@ -149,7 +156,7 @@ function PosSegment({
       {segment.senses.map((sense, index) => (
         <Flex direction="column" gap="3" key={index}>
           {index > 0 && <Separator size="4" />}
-          <SenseDetail sense={sense} segmentIpa={segmentIpa} t={t} />
+          <SenseDetail sense={sense} segmentIpa={segmentIpa} compact={compact} t={t} />
         </Flex>
       ))}
     </Flex>
@@ -175,9 +182,11 @@ function segmentByPos(senses: readonly Sense[]): SenseSegment[] {
 // headword or inflected form.
 function SenseGroup({
   senses,
+  compact,
   t,
 }: {
   senses: readonly Sense[];
+  compact: boolean;
   t: ReturnType<typeof useTranslations>;
 }) {
   const segments = segmentByPos(senses);
@@ -187,18 +196,34 @@ function SenseGroup({
       {segments.map((segment, index) => (
         <Flex direction="column" gap="3" key={index}>
           {index > 0 && <Separator size="4" />}
-          <PosSegment segment={segment} t={t} />
+          <PosSegment segment={segment} compact={compact} t={t} />
         </Flex>
       ))}
     </Flex>
   );
 }
 
+// `full` is a direct lookup's own answer — IPA, definition, voice, the lot.
+// `compact` is a word block inside the no-entry breakdown
+// (`no-entry-answer.tsx`): headword, category and translations alone
+// (docs/voyager/DESIGN.md "A word block on `SinEntradaFrase` carries its
+// translations alone"), and no voice control — that belongs to the word
+// screen's own four boards, never to the breakdown (docs/voyager/DESIGN.md
+// "RL-26").
+export type SenseListVariant = "full" | "compact";
+
 // A headword's full answer: its own senses first, then every inflected form
 // that reached one, each carrying its own senses in turn (RL-04, RL-06).
-export function SenseList({ answer }: { answer: WordAnswer }) {
+export function SenseList({
+  answer,
+  variant = "full",
+}: {
+  answer: WordAnswer;
+  variant?: SenseListVariant;
+}) {
   const t = useTranslations("word");
   const tSearch = useTranslations("search");
+  const compact = variant === "compact";
 
   const hasAnswer = answer.exact !== null || answer.viaInflection.length > 0;
   if (!hasAnswer) {
@@ -218,9 +243,9 @@ export function SenseList({ answer }: { answer: WordAnswer }) {
         <Flex direction="column" gap="3">
           <Flex align="center" gap="1">
             <Headword>{answer.exact.headword}</Headword>
-            <SpeakButton headword={answer.exact.headword} t={t} />
+            {!compact && <SpeakButton headword={answer.exact.headword} t={t} />}
           </Flex>
-          <SenseGroup senses={answer.exact.senses} t={t} />
+          <SenseGroup senses={answer.exact.senses} compact={compact} t={t} />
         </Flex>
       )}
 
@@ -237,7 +262,7 @@ export function SenseList({ answer }: { answer: WordAnswer }) {
               {t("viaInflection", { surface: hit.surface, lemma: hit.lemma })}
             </Text>
           </Flex>
-          <SenseGroup senses={hit.group.senses} t={t} />
+          <SenseGroup senses={hit.group.senses} compact={compact} t={t} />
         </Flex>
       ))}
     </Flex>
