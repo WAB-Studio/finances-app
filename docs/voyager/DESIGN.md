@@ -139,12 +139,6 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   landed 2026-09-09 and the user approved them the same day: `RegistroEstudio`,
   `RegistroEstudioEstados` and `PalabraHistorial` (T2); `SinEntrada` and `SinEntradaEstados` (T3);
   `CuentaCopia`, `CuentaCopiaEstados` and `CuentaInformacion` (T4); `PalabraCategoria` (T5).
-- **`SinEntrada`'s fallback is decided and undrawn.** The decision below sends a 3-to-60-token
-  phrase whose translation comes back empty to the per-word breakdown, which makes the eight-block
-  cut reachable for the first time. **No board draws that fallback**: `SinEntrada` and
-  `SinEntradaEstados` (T3) draw the two-token case only. Draw the fallback — a phrase of nine or
-  more words, blocks cut at eight, the «N más» line — in all four faces before the module that
-  builds it.
 - **`/registro/<palabra>` has no empty state drawn.** `PalabraHistorial` (T2) draws the word's own
   history full and nothing else. Module 12 shipped it reusing the strings of
   `RegistroEstudioEstados`, so the screen a reader reaches for a word with no rows is a reuse
@@ -334,6 +328,14 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   reader's eye crosses between a word and its translation — 925px at 2560. `width: auto` is what
   keeps the screen from overflowing the sidebar's 240px; a maximum is a separate rule and there is
   none. Any new `measure="full"` screen inherits this.
+- **`SinEntradaFrase` draws the phrase fallback, and the screen it makes is tall.** Approved by the
+  user 2026-09-09, four boards on the canvas's «Buscar · sin respuesta» page at y 5200, light and
+  dark × desktop and mobile. «she kept her fettle through the long and bitter winter» with no
+  translation: eight word blocks, then «y 2 palabras más» for the rest. `fettle` is block 4, so the
+  «El diccionario tampoco tiene esta palabra» line is drawn **inside** the fallback and not only
+  beside it. Known price, and the user took it with the number in front of them: 1560px tall on
+  desktop, 1880px on mobile. Two alternatives were offered and refused — cutting to four or five
+  blocks, and skipping articles and prepositions — so the breakdown stays every word, in order.
 - **A phrase the translation cannot answer falls back to the per-word breakdown.** Decided by the
   user 2026-09-09, closing the gap `SinEntrada`'s eight-block cut left. `schedulePhrase` sends every
   3-to-60-token phrase to `PhraseAnswer` today, so the breakdown ran at exactly two tokens and
