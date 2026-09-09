@@ -73,6 +73,10 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
 - `apps/orbit` — **none yet.** Its screens were built before this rule. The next orbit screen opens
   one and names it here.
 - Add the URL here the day a canvas is created. A canvas nobody can find is a canvas nobody uses.
+- Read a canvas from the main session, never from a subagent. It comes back as one 2.7 MB page whose
+  head is the editor's stylesheet, not the design.
+- Grep the saved file for `\.dc\.html` to get the board names. Never read the page in twice.
+- Name the boards a module cites from that list, in the dispatch. The worker never opens the canvas.
 
 ## Parallel tracks
 
