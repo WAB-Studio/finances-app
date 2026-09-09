@@ -31,8 +31,8 @@ async function exposeDictionaryWorker(page: Page): Promise<void> {
 
 // The pause these tests hold past a keystroke before checking the offer:
 // long enough that the old, retired withdrawal timer would have fired.
-// RL-18 no longer withdraws on any timer — the list stays until the text
-// itself changes — so this constant is the tests' own clock, not the
+// RL-18 withdraws on the answer, never on a timer, so this constant is the
+// tests' own clock — long enough to prove no timer fires — not the
 // component's.
 const SUGGESTIONS_SETTLE_MS = 900;
 
@@ -97,8 +97,11 @@ test("an installed dictionary answers offline, fast, and within a thumb's reach"
   await searchBox.fill("throughout");
   await expect(page.getByRole("heading", { name: "throughout" })).toBeVisible({ timeout: 5000 });
 
+  // `left` is its own headword, so it is answered as itself and never as a
+  // guess at `leave`: a hit ends the guessing (`lookup.ts`).
   await searchBox.fill("left");
-  await expect(page.getByRole("heading", { name: "leave" })).toBeVisible({ timeout: 5000 });
+  await expect(page.getByRole("heading", { name: "left" })).toBeVisible({ timeout: 5000 });
+  await expect(page.getByRole("heading", { name: "leave" })).toHaveCount(0);
 
   const durations = await measureWorkerRoundTrips(page, 200, "throughout");
   expect(durations).toHaveLength(200);
@@ -126,7 +129,7 @@ test("an installed dictionary answers offline, fast, and within a thumb's reach"
   expect(undersized).toEqual([]);
 });
 
-test("RL-18: a paused prefix keeps its offer, coexisting with the word answer", async ({ page }) => {
+test("RL-18: the offer retires the moment an answer stands under it", async ({ page }) => {
   await deleteTranslator(page);
 
   const assetResponse = page.waitForResponse(
@@ -142,18 +145,20 @@ test("RL-18: a paused prefix keeps its offer, coexisting with the word answer", 
 
   await searchBox.fill("throughout");
 
-  // RNL-05: the answer and the offer both land on the same keystroke.
+  // RNL-05: the answer lands on the keystroke, and it is the answer — not a
+  // timer — that takes the offer away.
   await expect(heading).toBeVisible({ timeout: SUGGESTIONS_SETTLE_MS - 400 });
-  await expect(suggestionsLabel).toBeVisible({ timeout: SUGGESTIONS_SETTLE_MS - 400 });
+  await expect(suggestionsLabel).toHaveCount(0);
 
-  // Decided by the user 2026-09-09: the offer stays put past the pause,
-  // the price of also being a real word, taken knowingly.
   await page.waitForTimeout(SUGGESTIONS_SETTLE_MS + 200);
-  await expect(suggestionsLabel).toBeVisible();
+  await expect(suggestionsLabel).toHaveCount(0);
   await expect(heading).toBeVisible();
 
-  // A fresh keystroke still updates the offer straight away.
+  // Cut back to a prefix that answers nothing and the offer returns, and
+  // stays — this is the pause that used to leave the page blank.
   await searchBox.fill("throughou");
+  await expect(suggestionsLabel).toBeVisible();
+  await page.waitForTimeout(SUGGESTIONS_SETTLE_MS + 200);
   await expect(suggestionsLabel).toBeVisible();
 });
 
@@ -296,15 +301,15 @@ test("`left` (one of the 34 entries whose definition is a bare '.') never folds 
   const searchBox = page.getByRole("textbox", { name: messages.search.label });
   await searchBox.fill("left");
   await expect(page.getByRole("heading", { name: "left", exact: true })).toBeVisible({ timeout: 5000 });
-  // "left" also resolves as the past tense of "leave" (RL-06): that group's
-  // own heading is the boundary countFoldsBetween must stop at.
-  await expect(page.getByRole("heading", { name: "leave", exact: true })).toBeVisible({ timeout: 5000 });
+  // A hit ends the guessing, so `leave` is no longer drawn under it and
+  // `left`'s own group runs to the end of the page.
+  await expect(page.getByRole("heading", { name: "leave", exact: true })).toHaveCount(0);
 
   // Four senses of "left" carry a definition in the source: adj (null,
   // never had one), adv ("On the left side."), n ("The left side or
   // direction.") and v ("."). Only the two real ones fold; the bare period
   // is filtered to no definition, same as adj's null.
-  const folds = await countFoldsBetween(page, "left", "leave", messages.word.definitionEnglish);
+  const folds = await countFoldsBetween(page, "left", null, messages.word.definitionEnglish);
   expect(folds).toBe(2);
 });
 
@@ -350,4 +355,30 @@ test("the English definition opens on tap and folds back on the next one, reacha
   await fold.press("Enter");
   await expect(fold).toHaveAttribute("aria-expanded", "false");
   await expect(page.getByText(englishText)).toHaveCount(0);
+});
+
+// `bed` is a headword the dictionary carries. It also matched two inflection
+// candidates — "a form of `b`" and "a form of `be`", the first translating to
+// "n." — and both were drawn under the real answer. A hit is answered, never
+// guessed at.
+test("a word the dictionary carries is never also split into inflection guesses", async ({ page }) => {
+  await deleteTranslator(page);
+
+  const assetResponse = page.waitForResponse(
+    (response) => response.url().includes(manifest.asset.path) && response.ok(),
+  );
+  await page.goto("/");
+  await assetResponse;
+  await page.waitForTimeout(1000);
+
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+
+  await searchBox.fill("bed");
+  await expect(page.getByRole("heading", { name: "bed" })).toBeVisible({ timeout: 5000 });
+  await expect(page.getByText('es una forma de', { exact: false })).toHaveCount(0);
+
+  // A miss still earns its guess: `zzqxbeds` is nothing, and the machinery
+  // that finds a lemma is untouched for the case it exists to serve.
+  await searchBox.fill("running");
+  await expect(page.getByRole("heading", { name: "run" })).toBeVisible({ timeout: 5000 });
 });
