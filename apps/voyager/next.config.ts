@@ -2,6 +2,12 @@ import type { NextConfig } from "next";
 import createNextIntlPlugin from "next-intl/plugin";
 
 const nextConfig: NextConfig = {
+  // Inlined by DefinePlugin into every bundle, server included, so
+  // `app/layout.tsx`'s own check on it folds to a literal `false` and the
+  // branch it guards drops out of a build where the variable is unset.
+  env: {
+    VOYAGER_E2E_HOOKS: process.env.VOYAGER_E2E_HOOKS ?? "",
+  },
   async headers() {
     return [
       {

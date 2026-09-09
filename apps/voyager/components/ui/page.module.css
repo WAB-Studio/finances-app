@@ -27,3 +27,29 @@
     margin-inline: 0;
   }
 }
+
+/* docs/voyager/DESIGN.md "Viewport": the sidebar (bottom-nav.module.css)
+   takes a fixed 240px band on the left from 1024px up. No bottom bar to
+   clear any more, so the 45px reserve above goes back to a plain 6-token
+   pad; the reading column centres in what is left of the viewport, not in
+   the viewport itself, so the offset feeds the same calc that centres it.
+   `100%`, not `100vw`: a percentage margin resolves against the containing
+   block's own used width, which a browser already shrinks for a reserved
+   scrollbar; `vw` is the raw initial containing block and does not. */
+@media (min-width: 1024px) {
+  .page.page {
+    padding-bottom: var(--space-6);
+    margin-inline-start: calc(240px + (100% - 240px - 620px) / 2);
+    margin-inline-end: 0;
+  }
+
+  /* `full` takes whatever width is left of the sidebar, not a centred
+     620px column — three classes to outrank both rules above.
+     `width: auto` is the load-bearing half: the 660px rule above sets
+     `width: 100%`, and 100% of the viewport pushed 240px right overflows by
+     exactly the sidebar's own band at every desktop width. */
+  .page.page.full {
+    margin-inline-start: 240px;
+    width: auto;
+  }
+}

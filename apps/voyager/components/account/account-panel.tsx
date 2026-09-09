@@ -2,33 +2,75 @@
 
 import { useEffect, useState } from "react";
 import { useFormatter, useTranslations } from "next-intl";
-import { z } from "zod";
 
 import { sendSignInLink, signOut } from "@/app/actions/account";
+import type { SendSignInLinkResult } from "@/app/actions/account";
 import { countRecords, readSyncState, writeSyncState } from "@/lib/log/record";
 import { syncNow } from "@/lib/sync/driver";
 import type { SyncState } from "@/lib/log/types";
-import { Button, Flex, Separator, Spinner, Text, TextField } from "@/components/ui";
+import { Button, Flex, MetaLabel, Separator, Text, TextField } from "@/components/ui";
 import { DevicesPanel } from "./devices-panel";
 
-const DEVICES_ENDPOINT = "/api/devices";
+// The key `bottom-nav.tsx:41-42` writes the box's query under. Not imported:
+// that module belongs to the shell lane, so the spelling is pinned here by
+// hand instead of exporting a constant from a file this one does not own.
+const NAV_QUERY_STORAGE_KEY = "voyager:nav-query";
 
-// Only the figure this screen needs before the reader says yes (RL-23): the
-// full device list is `DevicesPanel`'s own fetch, made once the copy is on.
-const pendingResponseSchema = z.object({ pending: z.number() });
-
-async function fetchPending(cursor: string | null): Promise<number> {
-  const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
-  const response = await fetch(`${DEVICES_ENDPOINT}${query}`);
-  if (!response.ok) throw new Error(`devices route answered ${response.status}`);
-  return pendingResponseSchema.parse(await response.json()).pending;
+// `account.copy.upToDateBody` and `.failedBody` both already open on "hace"
+// (`docs/voyager/DESIGN.md` "Settled"), so the span they take has to carry
+// no direction word of its own or the sentence doubles it — Node's own
+// `Intl.RelativeTimeFormat` proved `format.relativeTime` always says "hace
+// 2 horas", never "2 horas" alone. This picks the unit `relativeTime` would
+// and asks `format.number`'s unit style for it bare.
+function bareDuration(from: number | null, format: ReturnType<typeof useFormatter>): string {
+  // `null` only reaches here on a first sync that fails before ever
+  // landing one: there is no earlier moment to measure from, so this
+  // reads as "just now" rather than reaching for `Date.now()` inline in a
+  // component body, which the purity lint (react-hooks/purity) forbids.
+  const reference = from ?? Date.now();
+  const minutes = Math.max(1, Math.round((Date.now() - reference) / 60_000));
+  if (minutes < 60) return format.number(minutes, { style: "unit", unit: "minute", unitDisplay: "long" });
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return format.number(hours, { style: "unit", unit: "hour", unitDisplay: "long" });
+  return format.number(Math.round(hours / 24), { style: "unit", unit: "day", unitDisplay: "long" });
 }
 
 type EmailFormState =
   | { kind: "idle" }
   | { kind: "sending" }
   | { kind: "sent" }
-  | { kind: "failed"; error: "emailInvalid" | "sendFailed" };
+  | { kind: "failed"; error: "emailInvalid" | "sendFailed" | "rateLimited" | "offline" };
+
+// Driven against a production build, `context.setOffline(true)` rejects the
+// browser's own POST to this Server Action outright (`TypeError: Failed to
+// fetch`) — the button stuck on "Enviando…" was an *uncaught* rejection, not
+// a hang. This clock is the second line of defence, for a connection so slow
+// it neither succeeds nor fails within a reader's patience.
+const SEND_LINK_TIMEOUT_MS = 8_000;
+
+// The glyph `docs/voyager/DESIGN.md` "Settled" names for `CuentaSinRed`: two
+// signal arcs and a dot, struck through — the one screen allowed to say the
+// connection is the problem.
+function OfflineGlyph() {
+  return (
+    <svg
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M8.5 16.5a5 5 0 017 0" />
+      <path d="M5 12.5a10 10 0 0114 0" />
+      <circle cx="12" cy="20" r="0.75" fill="currentColor" stroke="none" />
+      <path d="M3 3l18 18" />
+    </svg>
+  );
+}
 
 // State 1 (RNL-09): no reader yet, so nothing here ever reaches the network
 // beyond the sign-in request the reader themself asks for.
@@ -37,17 +79,54 @@ function SignedOutForm() {
   const [email, setEmail] = useState("");
   const [state, setState] = useState<EmailFormState>({ kind: "idle" });
 
+  // Half of RNL-09 this component has to hold by hand: `signOut` redirects
+  // to `/registro`, so this never mounts on the way out of a session. It
+  // only ever catches the other path onto this state — a device that was
+  // signed in once, is not any more, and lands here directly (RL-30).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const current = await readSyncState();
+      if (!cancelled && current.enabled) await writeSyncState({ enabled: false });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   async function handleSend(): Promise<void> {
     setState({ kind: "sending" });
-    const result = await sendSignInLink(email);
+
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const timedOut = new Promise<{ ok: false; error: "offline" }>((resolve) => {
+      timer = setTimeout(() => resolve({ ok: false, error: "offline" }), SEND_LINK_TIMEOUT_MS);
+    });
+
+    let result: SendSignInLinkResult | { ok: false; error: "offline" };
+    try {
+      result = await Promise.race([sendSignInLink(email), timedOut]);
+    } catch {
+      // The rejection this call was missing: a cut connection fails the
+      // fetch outright, and the reader's own "Enviando…" was never going to
+      // move again without one.
+      result = { ok: false, error: "offline" };
+    }
+    if (timer) clearTimeout(timer);
     setState(result.ok ? { kind: "sent" } : { kind: "failed", error: result.error });
   }
 
   return (
     <Flex direction="column" gap="4">
-      <Text size="2" muted>
-        {t("signedOutLead")}
-      </Text>
+      {/* The signed-out state of the "Copia" section (`docs/voyager/DESIGN.md`
+          "Settled", `CuentaCopiaEstados`): a state, not a control — the
+          control it leads into is the email form right below it. */}
+      <Flex direction="column" gap="1">
+        <MetaLabel>{t("copy.label")}</MetaLabel>
+        <Text size="2">{t("copy.noSessionTitle")}</Text>
+        <Text size="2" muted>
+          {t("copy.noSessionBody")}
+        </Text>
+      </Flex>
 
       {state.kind === "sent" ? (
         <Text size="2">{t("sent")}</Text>
@@ -64,98 +143,35 @@ function SignedOutForm() {
             autoCorrect="off"
             spellCheck={false}
           />
-          <Button size="2" tap onClick={() => void handleSend()} disabled={state.kind === "sending"}>
-            {state.kind === "sending" ? t("sending") : t("send")}
-          </Button>
 
           {state.kind === "failed" && (
             // No red in this palette (docs/voyager/DESIGN.md "Failure"): a
-            // hairline sets the break off, full-weight ink says it.
+            // hairline sets the break off, full-weight ink says it. Offline
+            // alone carries the glyph `CuentaSinRed` draws — the one screen
+            // this app lets name the connection.
             <Flex direction="column" gap="3" align="start">
               <Separator size="4" />
-              <Text size="2" weight="bold">
-                {t(`errors.${state.error}`)}
-              </Text>
+              <Flex gap="2" align="center">
+                {state.error === "offline" && <OfflineGlyph />}
+                <Text size="2" weight="bold">
+                  {t(`errors.${state.error}`)}
+                </Text>
+              </Flex>
             </Flex>
           )}
-        </Flex>
-      )}
-    </Flex>
-  );
-}
 
-type CountsState =
-  | { kind: "loading" }
-  | { kind: "ready"; local: number; remote: number }
-  | { kind: "failed" };
-
-// State 2: signed in, the copy still off. RL-23's own request — the first
-// and only one issued before the reader turns anything on.
-function EnableSection({
-  email,
-  syncState,
-  onEnable,
-}: {
-  email: string;
-  syncState: SyncState;
-  onEnable: () => Promise<void>;
-}) {
-  const t = useTranslations("account");
-  const tDevices = useTranslations("account.devices");
-  const [counts, setCounts] = useState<CountsState>({ kind: "loading" });
-  const [attempt, setAttempt] = useState(0);
-  const [enabling, setEnabling] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const [local, remote] = await Promise.all([
-          countRecords(),
-          fetchPending(syncState.pulledThroughCursor),
-        ]);
-        if (!cancelled) setCounts({ kind: "ready", local, remote });
-      } catch {
-        if (!cancelled) setCounts({ kind: "failed" });
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [syncState.pulledThroughCursor, attempt]);
-
-  async function handleEnable(): Promise<void> {
-    setEnabling(true);
-    await onEnable();
-  }
-
-  return (
-    <Flex direction="column" gap="4">
-      <Text size="2">{t("signedInAs", { email })}</Text>
-
-      {counts.kind === "loading" && <Spinner />}
-
-      {counts.kind === "ready" && (
-        <Button size="2" tap onClick={() => void handleEnable()} disabled={enabling}>
-          {t("enableWithBothCounts", { local: counts.local, remote: counts.remote })}
-        </Button>
-      )}
-
-      {counts.kind === "failed" && (
-        <Flex direction="column" gap="3" align="start">
-          <Separator size="4" />
-          <Text size="2" weight="bold">
-            {t("syncFailed")}
-          </Text>
           <Button
             size="2"
             tap
-            onClick={() => {
-              setCounts({ kind: "loading" });
-              setAttempt((current) => current + 1);
-            }}
+            block={state.kind === "failed" && state.error === "offline"}
+            onClick={() => void handleSend()}
+            disabled={state.kind === "sending"}
           >
-            {tDevices("retry")}
+            {state.kind === "sending"
+              ? t("sending")
+              : state.kind === "failed" && state.error === "offline"
+                ? t("retry")
+                : t("copy.noSessionAction")}
           </Button>
         </Flex>
       )}
@@ -165,55 +181,95 @@ function EnableSection({
 
 type SyncStatus = { kind: "idle" } | { kind: "syncing" } | { kind: "failed" };
 
-// State 3: signed in, the copy on. `DevicesPanel` is the module 21 line the
-// contract names — this file writes nothing else of it.
+// State 2: signed in, the copy on — the only state a session ever shows now
+// (RL-30). `DevicesPanel` is the module 21 line the contract names — this
+// file writes nothing else of it. No "Dejar de copiar" here: the user
+// answered that no manual shutdown survives one (`docs/voyager/DESIGN.md`
+// "Settled"), so the only doors out are `signOut` below and retiring this
+// device from `DevicesPanel`.
 function SyncedSection({
+  email,
   syncState,
   syncStatus,
+  syncCount,
   syncVersion,
   onSyncNow,
-  onDisable,
 }: {
+  email: string;
   syncState: SyncState;
   syncStatus: SyncStatus;
+  syncCount: number;
   syncVersion: number;
   onSyncNow: () => void;
-  onDisable: () => void;
 }) {
   const t = useTranslations("account");
   const format = useFormatter();
-  const syncing = syncStatus.kind === "syncing";
 
-  return (
-    <Flex direction="column" gap="4">
-      <Text size="2" muted>
-        {syncState.lastSyncedAt
-          ? t("lastSynced", {
-              date: format.dateTime(new Date(syncState.lastSyncedAt), {
-                dateStyle: "medium",
-                timeStyle: "short",
-              }),
-            })
-          : t("neverSynced")}
-      </Text>
+  // Fires before the sign-out `<form>` submits: `signOut` redirects to
+  // `/registro`, so this component never gets to unmount and run an effect
+  // of its own first (RL-30, RNL-09). Same gesture drops the box's last
+  // query (`bottom-nav.tsx:41-42`), which otherwise pre-fills `Buscar` for
+  // whoever signs in next on this tab.
+  function handleSignOutClick(): void {
+    void writeSyncState({ enabled: false });
+    try {
+      window.sessionStorage.removeItem(NAV_QUERY_STORAGE_KEY);
+    } catch {
+      // Private browsing can refuse storage; nothing was there to leak.
+    }
+  }
 
-      <Flex gap="3">
-        <Button size="2" tap onClick={onSyncNow} disabled={syncing}>
-          {syncing ? t("syncing") : t("syncNow")}
-        </Button>
-        <Button size="2" tap variant="soft" color="gray" onClick={() => void onDisable()} disabled={syncing}>
-          {t("disable")}
-        </Button>
-      </Flex>
+  // The four signed-in states `CuentaCopiaEstados` draws
+  // (`docs/voyager/DESIGN.md` "Settled"): a state, never a control — the
+  // manual "Copiar ahora" button RL-23's slice shipped is gone, not hidden,
+  // and only the failed state's retry survives as an action.
+  function renderCopyState() {
+    if (syncStatus.kind === "syncing") {
+      return <Text size="2">{t("copy.syncingNow", { count: syncCount })}</Text>;
+    }
 
-      {syncStatus.kind === "failed" && (
+    if (syncStatus.kind === "failed") {
+      return (
+        // No red in this palette (docs/voyager/DESIGN.md "Failure"): a
+        // hairline sets the break off, full-weight ink says it, and the
+        // retry rides the ordinary accent button.
         <Flex direction="column" gap="3" align="start">
           <Separator size="4" />
           <Text size="2" weight="bold">
-            {t("syncFailed")}
+            {t("copy.failedTitle")}
           </Text>
+          <Text size="2" muted>
+            {t("copy.failedBody", { time: bareDuration(syncState.lastSyncedAt, format) })}
+          </Text>
+          <Button size="2" tap onClick={onSyncNow}>
+            {t("copy.failedAction")}
+          </Button>
         </Flex>
-      )}
+      );
+    }
+
+    if (!syncState.lastSyncedAt) {
+      return <Text size="2">{t("copy.neverSynced")}</Text>;
+    }
+
+    return (
+      <Flex direction="column" gap="1">
+        <Text size="2">{t("copy.upToDateTitle")}</Text>
+        <Text size="2" muted>
+          {t("copy.upToDateBody", { time: bareDuration(syncState.lastSyncedAt, format) })}
+        </Text>
+      </Flex>
+    );
+  }
+
+  return (
+    <Flex direction="column" gap="4">
+      <Text size="2">{t("signedInAs", { email })}</Text>
+
+      <Flex direction="column" gap="1">
+        <MetaLabel>{t("copy.label")}</MetaLabel>
+        {renderCopyState()}
+      </Flex>
 
       <Separator size="4" />
 
@@ -221,7 +277,7 @@ function SyncedSection({
           redirect, and a `<form>` is the invocation the framework documents
           for that (node_modules/next/dist/docs's server-actions guide). */}
       <form action={signOut}>
-        <Button size="2" tap type="submit" variant="soft" color="gray">
+        <Button size="2" tap type="submit" variant="soft" color="gray" onClick={handleSignOutClick}>
           {t("signOut")}
         </Button>
       </form>
@@ -233,28 +289,24 @@ function SyncedSection({
   );
 }
 
-// States 2 and 3 both need the device's own `sync` row (IndexedDB, never the
-// network) before they can draw anything, so this one component owns the
-// read and the transitions between the two rather than splitting that race
-// across two effects in two files.
+// The device's own `sync` row (IndexedDB, never the network) has to be read
+// before anything draws, and — with a reader open — turned on by itself the
+// moment it is not (RL-30): no button, no figures, no state 2 to click
+// through. `EnableSection` and its pre-consent `/api/devices` request are
+// gone, not hidden.
 function SignedInPanel({ email }: { email: string }) {
   const [syncState, setSyncState] = useState<SyncState | null>(null);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>({ kind: "idle" });
+  // The `{count}` `copy.syncingNow` reads while a round is in flight: the
+  // local log's own size at the moment the round starts, the only figure
+  // available once RL-23's two-figure consent is gone.
+  const [syncCount, setSyncCount] = useState(0);
   // Bumped once `syncNow()` resolves, success or failure alike: the device
   // list's own refetch keys off this, never off a timer (module 35).
   const [syncVersion, setSyncVersion] = useState(0);
 
-  useEffect(() => {
-    let cancelled = false;
-    readSyncState().then((state) => {
-      if (!cancelled) setSyncState(state);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   async function runSync(): Promise<void> {
+    setSyncCount(await countRecords());
     setSyncStatus({ kind: "syncing" });
     const outcome = await syncNow();
     setSyncState(await readSyncState());
@@ -262,44 +314,47 @@ function SignedInPanel({ email }: { email: string }) {
     setSyncVersion((current) => current + 1);
   }
 
-  // Turning the copy on writes `enabled: true` and calls `syncNow()` in the
-  // same gesture (RL-23, decision 9): the screen switches to state 3 the
-  // moment the write lands, and `syncStatus` carries the sync already under
-  // way there rather than blocking the switch on it finishing.
-  async function handleEnable(): Promise<void> {
-    await writeSyncState({ enabled: true });
-    setSyncState(await readSyncState());
-    await runSync();
-  }
-
-  async function handleDisable(): Promise<void> {
-    await writeSyncState({ enabled: false });
-    setSyncState(await readSyncState());
-    setSyncStatus({ kind: "idle" });
-  }
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const current = await readSyncState();
+      if (cancelled) return;
+      if (current.enabled) {
+        setSyncState(current);
+        return;
+      }
+      // Turning the copy on and firing the first sync happen in the same
+      // mount, with no act from the reader (RL-30): the two figures RL-23
+      // used to ask permission with are never computed, let alone drawn.
+      await writeSyncState({ enabled: true });
+      if (cancelled) return;
+      setSyncState(await readSyncState());
+      await runSync();
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // The IndexedDB read settles in a beat; nothing is drawn while it does,
   // same as the near-instant reads `record.ts` backs elsewhere.
   if (!syncState) return null;
 
-  if (!syncState.enabled) {
-    return <EnableSection email={email} syncState={syncState} onEnable={handleEnable} />;
-  }
-
   return (
     <SyncedSection
+      email={email}
       syncState={syncState}
       syncStatus={syncStatus}
+      syncCount={syncCount}
       syncVersion={syncVersion}
       onSyncNow={() => void runSync()}
-      onDisable={handleDisable}
     />
   );
 }
 
 /**
- * The account screen's three states (RL-22, RL-23): no reader, a reader with
- * the copy off, a reader with it on. `readerEmail` comes from the server
+ * The account screen's two states (RL-22, RL-30): no reader, or a reader
+ * whose copy is already running. `readerEmail` comes from the server
  * component above, which is the only place `getReader()` runs — this file
  * never opens a session of its own to learn it.
  */

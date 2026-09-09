@@ -1,18 +1,18 @@
 // Hand-written, no build step (RL-16). Bump this by hand on every change: it
 // names the one cache the app is allowed to hold, and `activate` deletes any
 // other cache it finds under this origin.
-const CACHE_NAME = "reading-shell-v5";
+const CACHE_NAME = "reading-shell-v6";
 
 // How long a navigation waits for the network before it falls back to the
 // cached shell. Short enough that a dead connection does not stall the box.
 const NAVIGATION_TIMEOUT_MS = 3000;
 
-// This app has four pages (SPEC §page list): "/", "/fuente", "/registro" and
-// "/cuenta". All four are precached at install so each opens offline on its
+// This app has three pages (SPEC §page list): "/", "/registro" and
+// "/cuenta". All three are precached at install so each opens offline on its
 // own, never only as a side effect of having been visited online first — a
 // bookmark, or a link into "/cuenta" that lands before "/" ever loaded, must
 // still draw the app's own screen, not the browser's error page.
-const SHELL_ROUTES = ["/", "/fuente", "/registro", "/cuenta"];
+const SHELL_ROUTES = ["/", "/registro", "/cuenta"];
 
 // "/cuenta"'s document bakes the session cookie into its HTML (`getReader()`
 // on the server, `readerEmail` in the markup) — the only shell route that
@@ -62,8 +62,8 @@ function rejectAfter(ms) {
 }
 
 // Keyed by the request itself (its own URL), one entry per route: a hard
-// load of "/fuente" must never overwrite the cached "/" shell, or an offline
-// open of "/" would serve the source page instead of the search box. Also
+// load of "/registro" must never overwrite the cached "/" shell, or an
+// offline open of "/" would serve the study instead of the search box. Also
 // keeps SHELL_ROUTES fresh with whatever the network last answered, so a
 // precached route never goes stale once it has been visited online — except
 // "/cuenta" (`NO_OVERWRITE_ROUTES`), whose live render may carry a session

@@ -19,6 +19,11 @@ export default defineConfig({
   use: {
     baseURL,
   },
+  // `escritorio.spec.ts` asserts a 1024px+ layout no other spec touches: the
+  // `mobile` project below sets no `testMatch`/`testIgnore` of its own, so
+  // it inherits this and keeps running the other eleven files exactly as
+  // before. `desktop`, further down, opts back in with its own `testIgnore`.
+  testIgnore: /escritorio\.spec\.ts$/,
   projects: [
     // RNL-03's base case: a phone, held one-handed, standing.
     {
@@ -27,6 +32,21 @@ export default defineConfig({
         ...devices["Desktop Chrome"],
         viewport: { width: 360, height: 740 },
         hasTouch: true,
+      },
+    },
+    // docs/voyager/DESIGN.md "Viewport": the second breakpoint, 1024px, where
+    // the bar becomes a sidebar. No `hasTouch`: a desktop, not a tablet.
+    // Scoped to the specs that say something about the width, so the rest
+    // never double their run time against a viewport they say nothing about.
+    // `sin-entrada.spec.ts` joined `escritorio.spec.ts` here (module 6): its
+    // own criterion names both projects, unlike its ten siblings.
+    {
+      name: "desktop",
+      testMatch: [/escritorio\.spec\.ts$/, /sin-entrada\.spec\.ts$/],
+      testIgnore: [],
+      use: {
+        ...devices["Desktop Chrome"],
+        viewport: { width: 1280, height: 800 },
       },
     },
   ],

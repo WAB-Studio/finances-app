@@ -62,7 +62,11 @@ function percentile(durations: readonly number[], p: number): number {
 // Raw IndexedDB, mirroring `lib/log/record.ts`'s own shape — this file may
 // not import it (it runs inside `page.evaluate`, a browser context no Node
 // import reaches), so it opens the same database by name instead.
-async function readLogRows(page: Page): Promise<Array<{ normalised: string; outcome: string; dictionaryReady: boolean }>> {
+async function readLogRows(
+  page: Page,
+): Promise<
+  Array<{ normalised: string; outcome: string; dictionaryReady: boolean; senses: number; translation: string | null }>
+> {
   return page.evaluate(
     () =>
       new Promise((resolve, reject) => {
@@ -305,4 +309,105 @@ test("RNL-01 stays under 10ms with a 10,000-row merge in flight (RNL-06 under de
   await mergeDone;
   const rowCount = (await readLogRows(page)).length;
   expect(rowCount).toBe(20_001);
+});
+
+test("RL-34: a word's stored translation spans senses, and the 120-char cut still wins over the 3-sense cap", async ({
+  page,
+}) => {
+  await deleteTranslator(page);
+  const assetResponse = page.waitForResponse(
+    (response) => response.url().includes(manifest.asset.path) && response.ok(),
+  );
+  await page.goto("/");
+  await assetResponse;
+  await page.waitForTimeout(1000);
+
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+
+  // "back" carries four senses (v, n, adj, adv). Its first sense alone never
+  // reaches 120 characters, so a translation reaching "dorso" — the noun
+  // sense's own second gloss, not a substring of anything the verb sense
+  // carries — is the only way this row proves the second sense was kept,
+  // not just the first one over budget.
+  await searchBox.fill("back");
+  await expect(page.getByRole("heading", { name: "back" })).toBeVisible({ timeout: 5000 });
+  await searchBox.fill("");
+  await page.waitForTimeout(300);
+
+  const backRow = (await readLogRows(page)).find((row) => row.normalised === "back");
+  expect(backRow?.senses).toBe(4);
+  expect(backRow?.translation).toContain("dorso");
+  expect(backRow?.translation?.length).toBeLessThanOrEqual(120);
+
+  // A one-sense headword whose glosses alone run to 154 raw characters: the
+  // cut still lands at exactly 120, unmoved by the sense cap above it.
+  await searchBox.fill("the road to hell is paved with good intentions");
+  await expect(page.getByRole("heading", { name: "the road to hell is paved with good intentions" })).toBeVisible({
+    timeout: 5000,
+  });
+  await searchBox.fill("");
+  await page.waitForTimeout(300);
+
+  const idiomRow = (await readLogRows(page)).find(
+    (row) => row.normalised === "the road to hell is paved with good intentions",
+  );
+  expect(idiomRow?.senses).toBe(1);
+  expect(idiomRow?.translation).toHaveLength(120);
+
+  // "anyway" carries one sense whose raw glosses run to 195 characters, and
+  // the 120-char cut lands right after "comoquiera, " — a separator, not a
+  // letter. The stored row must not carry that dangling ", " onward.
+  await searchBox.fill("anyway");
+  await expect(page.getByRole("heading", { name: "anyway" })).toBeVisible({ timeout: 5000 });
+  await searchBox.fill("");
+  await page.waitForTimeout(300);
+
+  const anywayRow = (await readLogRows(page)).find((row) => row.normalised === "anyway");
+  expect(anywayRow?.senses).toBe(1);
+  expect(anywayRow?.translation).toBe(
+    "en fin, pero bueno, pues nada, de todas formas, de todos modos, de todas maneras, a pesar de todo, aun así, comoquiera",
+  );
+  expect(anywayRow?.translation).not.toMatch(/[,\s]$/);
+  expect(anywayRow?.translation?.length).toBeLessThanOrEqual(120);
+});
+
+test("a killed tab still commits the query it had settled on, and a fast one still groups by prefix", async ({
+  page,
+  context,
+}) => {
+  await deleteTranslator(page);
+  const assetResponse = page.waitForResponse(
+    (response) => response.url().includes(manifest.asset.path) && response.ok(),
+  );
+  await page.goto("/");
+  await assetResponse;
+  await page.waitForTimeout(1000);
+
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+
+  // Past the 800ms settle, short of the 5000ms forced flush: only the
+  // `pagehide` path below, not a timer, can be what lands this row.
+  await searchBox.fill("lemon");
+  await page.waitForTimeout(2000);
+  await page.close();
+
+  const reopened = await context.newPage();
+  await reopened.goto("/");
+  const rowsAfterClose = await readLogRows(reopened);
+  expect(rowsAfterClose.some((row) => row.normalised === "lemon")).toBe(true);
+
+  // The regression the fix must not open: four keystrokes chained well
+  // under the settle window, killed mid-chain, must still land as one row.
+  const chainedBox = reopened.getByRole("textbox", { name: messages.search.label });
+  for (const step of ["b", "bo", "boo", "book"]) {
+    await chainedBox.fill(step);
+    await reopened.waitForTimeout(150);
+  }
+  await reopened.close();
+
+  const finalPage = await context.newPage();
+  await finalPage.goto("/");
+  const rowsAfterChain = await readLogRows(finalPage);
+  expect(rowsAfterChain.filter((row) => row.normalised.startsWith("b"))).toHaveLength(1);
+  expect(rowsAfterChain.find((row) => row.normalised === "book")).toBeTruthy();
 });

@@ -53,7 +53,13 @@ async function isCached(page: import("@playwright/test").Page, path: string) {
   }, path);
 }
 
-test("a hard load of /fuente does not overwrite the cached / shell", async ({ page, context }) => {
+// `/fuente` was this second route until module 10 (RL-33) retired it; the
+// claim here was always about the service worker's per-route cache key, not
+// about that route itself. `/registro/zzqqxv` replaces it: a real page no
+// other lane's assignment holds right now, its word never searched, so it
+// always draws the same empty state (e2e/palabra-historial.spec.ts drives
+// the same page the same way).
+test("a hard load of /registro/zzqqxv does not overwrite the cached / shell", async ({ page, context }) => {
   await page.addInitScript(() => {
     delete (window as unknown as { Translator?: unknown }).Translator;
   });
@@ -64,21 +70,22 @@ test("a hard load of /fuente does not overwrite the cached / shell", async ({ pa
 
   // A hard load of the other route, still online — this used to be the
   // navigation that stomped the single "/" cache entry.
-  await page.goto("/fuente");
-  await expect.poll(() => isCached(page, "/fuente")).toBe(true);
+  await page.goto("/registro/zzqqxv");
+  await expect.poll(() => isCached(page, "/registro/zzqqxv")).toBe(true);
 
   await context.setOffline(true);
 
-  // Offline "/": the search box, not the source page the last hard load left
+  // Offline "/": the search box, not the word page the last hard load left
   // in the browser's history.
   await page.goto("/");
   const searchBox = page.getByRole("textbox", { name: messages.search.label });
   await expect(searchBox).toBeVisible();
   await expect(searchBox).toBeEditable();
 
-  // Offline "/fuente": its own cached page, still reachable — a per-route
-  // cache key must not have traded one route's offline support for the
-  // other's.
-  await page.goto("/fuente");
-  await expect(page.getByRole("heading", { name: messages.source.title })).toBeVisible();
+  // Offline "/registro/zzqqxv": its own cached page, still reachable — a
+  // per-route cache key must not have traded one route's offline support for
+  // the other's.
+  await page.goto("/registro/zzqqxv");
+  await expect(page.getByRole("heading", { name: "zzqqxv" })).toBeVisible();
+  await expect(page.getByText(messages.log.word.emptyBody.replace("{word}", "zzqqxv"))).toBeVisible();
 });

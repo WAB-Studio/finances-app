@@ -1025,3 +1025,247 @@ Rewriting a transcript to hide one's own mistake falsifies the record — leave 
 credential instead. A secret that reached a chat is rotated, not scrubbed.
 
 Measured 2026-09-08.
+
+### A code cited in a source comment can not exist in `SPEC.md`
+
+A code cited in a comment in the code is not proof the code was ever opened.
+`apps/voyager/components/search/search-screen.tsx:42` cites **RL-36**, and the highest code ever
+opened in `docs/voyager/SPEC.md` is RL-29.
+
+Grep `RL-[0-9]*` over `SPEC.md` before trusting a number read from a code comment.
+
+Measured 2026-09-08.
+
+## `worktree.sh <n> <rama> integracion` corta de la local, no del remoto
+
+Medido 2026-09-08. `scripts/worktree.sh 3 modulo-12-contrato-foto integracion` resolvió `integracion`
+a la rama **local**, que iba cinco commits por detrás de `origin/integracion` porque su checkout
+vivía en otro carril y nadie la había adelantado. El carril nació sin el módulo que acababa de
+fusionarse, y su worker abrió los códigos siguientes contando desde un `SPEC.md` que llegaba a RL-29
+cuando la base real llegaba a RL-34.
+
+**Salió bien por casualidad**: eligió RL-35 y RL-36, que no colisionaban. El razonamiento que escribió
+para justificarlo era otro y era falso. Un número correcto por la razón equivocada vuelve a salir mal
+la próxima vez.
+
+- `git fetch` y adelanta la base **antes** de abrir el carril, no después.
+- Una rama que otro carril tiene sacada no se adelanta sola. `integracion` es la que más lo sufre.
+- Rebasa sobre la base real antes de fusionar, siempre que la rama nombre un fichero que otra tocó.
+  Aquí `SPEC.md` y `DESIGN.md` chocaron los dos, y el conflicto era la prueba de que el carril estaba
+  desfasado — no una molestia.
+- Un worker que ve un número que no cuadra con su despacho está viendo esto. Que lo diga y pare.
+
+## Los números de módulo se repiten entre slices, y los informes se pisan
+
+Medido 2026-09-08. `private/reportes/modulo-12-contrato-foto.md` iba a escribirse junto a un
+`modulo-12-driver-copia.md` de otro slice, y `modulo-13-proveedores-ia.md` junto a
+`modulo-13-cadenas.md`. Cada plan numera desde 1, así que el número solo es único dentro de su plan.
+
+- Nombra el informe por lo que hace, no solo por el número. `modulo-12-contrato-foto`, nunca `modulo-12`.
+- Comprueba `ls private/reportes/modulo-<n>-*` antes de escribir uno.
+
+## Copia el informe del carril antes de soltarlo
+
+Medido 2026-09-08. `git worktree remove ../finances-app-l3 --force` se llevó
+`modulo-12-contrato-foto.md` sin avisar: `private/` está en gitignore, así que el informe vivía solo
+ahí. Sobrevivió porque su contenido estaba en el cuerpo del PR y en `SPEC.md`.
+
+- `cp ../finances-app-l<n>/private/reportes/*.md private/reportes/` **antes** del `worktree remove`.
+- Escribe en el cuerpo del PR lo que decide, no solo en el informe. El PR sí viaja en git.
+
+## Reddit bloquea el rastreador de Anthropic
+
+Medido 2026-09-08. `WebSearch` con `allowed_domains: ["reddit.com"]` devuelve
+`400 The following domains are not accessible to our user agent`. No es un fallo de la consulta.
+
+- Busca en la web abierta y filtra tú. Las guías agregadoras repiten lo mismo que los hilos.
+- Desconfía de lo que digan de límites y cuotas: para este proyecto decían ~1.500 peticiones/día y la
+  medición dio **20**. Ver la entrada de la cuota diaria de Gemini.
+
+## Republicar el lienzo con `JSON.stringify` lo deja truncado
+
+Medido 2026-09-09. El lienzo de diseño lleva todo su estado —un `.dc.html` por tablero, más
+`canvas.json`— dentro de un `<script type="application/json" id="appifact-doc">` en la página. Y cada
+tablero lleva dentro un `<script src="./support.js"></script>`.
+
+`JSON.stringify` **no escapa la barra**. El original guardaba `<\/script>`; al reconstruir la página
+con `JSON.stringify(doc)` salen `</script>` literales, el navegador cierra el bloque en el **primero**
+y el editor recibe un documento cortado. Costó una publicación: el bloque terminaba en el carácter
+**229** de 630.363.
+
+- Escapa a mano al incrustar: `JSON.stringify(o).replace(/<\/script/gi, '<\\/script')`.
+- Compruébalo antes de publicar, no después: en la línea del bloque, `indexOf('</script>')` tiene que
+  ser igual a `lastIndexOf('</script>')`.
+- Parsea el bloque tal y como lo va a leer el navegador y cuenta los tableros. Un `JSON.parse` sobre
+  lo que escribiste no prueba nada; el corte lo hace el HTML, no el JSON.
+- La página no da ningún error visible. Se ve vacía, que es exactamente lo que un lienzo grande
+  parece cuando de verdad es grande. El usuario lo diagnosticó como tamaño; era esto.
+
+## El puerto de otro carril responde por el tuyo, y los rojos no tienen patrón
+
+Medido 2026-09-09. La fórmula está en `AGENTS.md`: un carril sirve la app de lectura en
+`:310<n-1>`. El carril 4 es **:3103**; **:3102 es el carril 3**.
+
+El orquestador mandó a un agente del carril 4 correr su suite contra `:3102`. Su propio servidor
+murió a mitad de una corrida por presión de memoria, y **las peticiones siguientes las respondió el
+servidor del carril 3**, que servía otra rama. Resultado: tres corridas con fallos extendidos y sin
+patrón que no eran ningún defecto.
+
+- Cuenta el puerto desde el número de carril antes de escribirlo en un despacho. `310<n-1>`.
+- Un rojo que cambia de sitio entre corridas y no tiene patrón es un servidor equivocado, no un
+  defecto. Comprueba **de quién es el proceso** antes de perseguirlo:
+  `readlink /proc/<pid>/cwd` dice desde qué carril arrancó.
+- Con tres servidores y tres Chromium en nueve GB, un servidor **muere a mitad de una corrida** sin
+  decir nada. La suite no se entera: sigue recibiendo respuestas.
+- Mata sólo tus propios procesos, identificados uno a uno. Nunca un `pkill -f` sobre una ruta: el
+  patrón alcanza tu propia shell y los carriles de al lado.
+
+## `.next/dev/types` viejo pone en rojo un typecheck que está bien
+
+Medido 2026-09-09, carril 5, al fusionar las cinco ramas del slice de lectura.
+
+`npm run typecheck` dio dos errores sobre la ruta nueva `/registro/[palabra]`:
+
+```
+app/registro/[palabra]/page.tsx(8,69): error TS2344: Type '"/registro/[palabra]"' does not satisfy the constraint 'AppRoutes'.
+app/registro/[palabra]/page.tsx(9,11): error TS2339: Property 'palabra' does not exist on type 'unknown'.
+```
+
+**Un `next build` completo no lo arregló.** El build sí escribe `.next/types/routes.d.ts` con la
+ruta dentro, pero el `tsconfig.json` de la app incluye **dos** directorios generados:
+
+```
+".next/types/**/*.ts",
+".next/dev/types/**/*.ts"
+```
+
+El segundo lo escribe `next dev`, no `next build`, y en un carril que corrió `next dev` sobre un
+árbol anterior se queda **congelado con la lista de rutas de aquel día**. Las dos declaraciones de
+`AppRoutes` conviven y gana la vieja.
+
+- `rm -rf apps/<app>/.next/dev/types` y vuelve a correr. Segundos, y el rojo desaparece.
+- Sospéchalo cuando el rojo es **sólo** de rutas o de `PageProps`/`LayoutProps` y el fichero
+  generado sí tiene la ruta: `grep AppRoutes .next/types/routes.d.ts` contra
+  `.next/dev/types/routes.d.ts`. Si difieren, es esto.
+- Un `apps/<app>/.next` que no existe da la misma familia de rojo por otra causa —
+  `Cannot find name 'PageProps'` en cada página—, y ése sí lo arregla un `next build`. Un carril
+  recién nacido no tiene `.next` de ninguna app que no haya construido.
+- Ninguno de los dos es un rojo real. CI construye antes de comprobar y nunca los ve.
+
+## Una rama apilada no lleva la punta de la rama de la que salió
+
+Medido 2026-09-09. Cuatro ramas apiladas: 2 → 5 → 6 → 10. Fusionar la 10 parecía traer las cuatro,
+y trae **tres y media**: la 10 se cortó de `f97decf`, el penúltimo commit de la 6, no de su punta
+`ac8aba3`. Ese commit era el que metía `sin-entrada.spec.ts` en el proyecto `desktop` de Playwright.
+La fusión pasó limpia, la suite pasó verde, y **cuatro pruebas de escritorio simplemente no
+existían**.
+
+- Comprueba la punta, no la rama: `git merge-base --is-ancestor <rama> <la-de-arriba>` por cada
+  eslabón, antes de decidir que fusionar la última basta.
+- `git log <integracion>..<rama-de-arriba> --oneline` y cuenta: si falta un commit que sabes que
+  existe, la pila se cortó por en medio.
+- Una punta que llega **después** de que se cortara la rama de encima es lo normal, no lo raro. Un
+  arreglo pedido al trabajador cuando su rama ya había parido la siguiente cae siempre aquí.
+- Fusiona la rama de en medio también. Es un merge vacío si ya estaba, y no cuesta nada.
+
+## Un carril cortado de un `integracion` local sin empujar acusa al trabajador de salirse del encargo
+
+Medido 2026-09-09. El carril 4 volvió con **FAIL por alcance de ficheros**: su rama traía un segundo
+commit, `8a418ac`, que tocaba dos ficheros fuera de la lista permitida.
+
+El commit era **mío**. Lo había comiteado en `integracion` local y no lo había empujado; `worktree.sh`
+corta de la rama local, así que los carriles nacidos después lo heredaron. Cuando otro PR lo subió
+dentro de su squash, `integracion` quedó con el **contenido** pero sin el **commit**, y a partir de
+ahí `git log integracion..<rama>` lo lista como si fuera de la rama.
+
+- Compara **árboles, no historia**, antes de acusar a nadie de salirse del encargo:
+  `git diff --stat origin/<base>..origin/<rama> -- <los ficheros sospechosos>`. Vacío significa que
+  ya están idénticos arriba, sea cual sea la historia.
+- Mira qué toca **el commit del trabajador**, no la rama: `git show --stat <sha>`.
+- El diff de tres puntos (`base...rama`) sale del ancestro común y **enseña lo que ya subió por otra
+  vía**. El de dos puntos (`base..rama`) compara los dos árboles. Para juzgar alcance, dos puntos.
+- Empuja `integracion` antes de abrir un carril. Cuesta un segundo y ahorra esto.
+- Dos validadores vieron la misma rama el mismo día. Uno cayó en la trampa y falló al trabajador;
+  el otro la nombró, comprobó los árboles y pasó. La diferencia estuvo en comprobar, no en saber.
+
+## Un servidor de producción viejo hace que un crítico juzgue código que no está corriendo
+
+Medido 2026-09-09. Arreglé un desbordamiento de 240 px, comiteé, y dejé corriendo el `next start`
+que ya estaba levantado. El crítico llegó después, **midió el build viejo** (1520 px contra 1280),
+**leyó el fuente ya arreglado**, y concluyó que el arreglo no funcionaba — con un mecanismo inventado
+para explicar por qué.
+
+- `next start` sirve el `.next` que había al arrancar. Un `git commit` no lo cambia.
+- Reconstruye y reinicia **antes** de mandar a alguien a conducir la app. `rm -rf .next/dev/types`,
+  `npm run build`, `fuser -k <puerto>/tcp`, `npx next start`.
+- Cuando un agente diga que un arreglo no funciona, **mide tú sobre un build fresco** antes de
+  creerle. Un mecanismo bien argumentado sobre una medición vieja sigue siendo falso.
+- El mecanismo que inventó era plausible y estaba mal: `width: auto` en un hijo de una columna flex
+  **sí** resta los márgenes al estirarse. Eso es lo que arregla el desbordamiento.
+
+## This machine cannot test a reserved scrollbar
+
+Measured 2026-09-09 while fixing `components/ui/page.module.css`'s `100vw` centring. Chromium here
+uses overlay scrollbars: `window.innerWidth - document.documentElement.clientWidth` is **0** in every
+configuration tried, including a forced `html { height: 3000px }` at 1280×400. There is no Firefox
+installed. So a bug whose whole symptom is *the scrollbar takes width* cannot be reproduced or
+regression-tested in this repo at all.
+
+The `100vw` → `100%` fix landed on reasoning, not on a red turned green: a percentage margin resolves
+against the containing block's used width, already scrollbar-adjusted, while `vw` uses the raw initial
+containing block. What *was* measured is that the fix breaks nothing — reading-column gaps symmetric
+at 1280/1920/2560 (210/210, 530/530, 850/850), zero overflow on all three `measure="full"` routes at
+all three widths, `escritorio.spec.ts` 5/5.
+
+Say so when you touch a viewport-unit rule here. A green suite is not evidence about scrollbars on
+this machine; it is silence.
+
+## tsgo caches a red past the edit that fixed it
+
+Measured 2026-09-09 while proving a message key was live. Deleting a key made `npm run typecheck`
+fall red; restoring the file byte-for-byte (`md5sum` identical, `git status` clean) left it red.
+`tsconfig.tsbuildinfo` and `.next/cache/.tsbuildinfo` had cached the diagnostics. Delete both to get
+a true re-read.
+
+This sits beside the `.next/dev/types` trap and behaves worse: that one gives a red a full build
+clears, this one survives the edit that fixed it. When a typecheck disagrees with a file you just
+restored, suspect the cache before the code.
+
+## `gh pr merge` authors the squash as the GitHub account, not as wilson
+
+Measured 2026-09-09 at the close of a 16-PR session: of 73 commits on `integracion`, **41 were
+`wilson <cxrkeybwp2004@gmail.com>` and 32 were `Cxrkeyb <88465069+Cxrkeyb@users.noreply.github.com>`**
+— every one of the 32 a squash commit GitHub minted when `gh pr merge --squash` ran. `git config
+user.email` was correct the whole time; it never applies, because the squash is made server-side
+under the authenticated account.
+
+`AGENTS.md` says to commit as wilson. That rule holds for every commit written locally and breaks on
+every merge, silently, in any session that lands PRs. Nothing catches it: the trailer check passes
+(there is no Claude trailer), and `git log --format='%an'` is only read on the branch, before the
+merge.
+
+**Settled 2026-09-09 by the user: it is acceptable.** Keep using `gh pr merge --squash`. The squash
+commit carries the GitHub account; the branch's own commits stay wilson's, and those are the ones
+`AGENTS.md` means. Do not raise this again, and do not merge by hand to work around it.
+
+## A malformed `%` in a dynamic segment 500s inside Next's own router
+
+Measured 2026-09-09 while fixing `/registro/<palabra>`, which was serving the raw segment
+(`give%20up` drawn instead of `give up`, on 16,112 of 64,258 dictionary entries — 25.1%).
+
+`GET /registro/100%` returns **500**, and no edit to the page can prevent it. The crash is in
+Next 16.3.3 itself: `shared/lib/router/utils/route-matcher.js:19` calls `decodeURIComponent(param)`
+while `server/lib/router-utils/resolve-routes.js`'s `checkTrue()` is still deciding whether the
+pathname matches `/registro/[palabra]` — entirely **before** `page.tsx` executes. Confirmed by
+monkey-patching global `decodeURIComponent` and capturing the stack.
+
+It affects **every dynamic segment in the app**, not this route. The only fix that reaches it is a
+root `middleware.ts` intercepting the pathname before the router sees it.
+
+**Not taken, 2026-09-09.** A site-wide interception layer is a large, always-on hammer for a URL a
+person can only reach by typing a broken escape by hand. Decode inside the page with a try/catch
+that falls back to the raw segment — a malformed escape is best read as the literal text the person
+typed — and leave the router's own edge alone. Revisit only if a real link, share or redirect is
+found producing one.
+
+`/registro/100%25` (a properly escaped percent) works and always did.

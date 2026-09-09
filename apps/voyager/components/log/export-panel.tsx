@@ -5,7 +5,7 @@ import { useTranslations } from "next-intl";
 
 import { buildExport } from "@/lib/log/export";
 import { countRecords } from "@/lib/log/record";
-import { Button, Flex, Spinner, Text } from "@/components/ui";
+import { Flex, Link, Spinner, TapTarget, Text } from "@/components/ui";
 
 type CountState = { kind: "loading" } | { kind: "ready"; count: number } | { kind: "failed" };
 type ExportState = { kind: "idle" } | { kind: "building" } | { kind: "done" } | { kind: "failed" };
@@ -75,33 +75,41 @@ export function ExportPanel() {
         </Flex>
       )}
 
-      {countState.kind === "ready" && (
-        <Text size="2" muted>
-          {t("count", { count: countState.count })}
-        </Text>
-      )}
-
       {countState.kind === "failed" && (
         <Text size="2" muted>
           {t("countFailed")}
         </Text>
       )}
 
-      <Button size="2" tap onClick={() => void handleExport()} disabled={exportState.kind === "building"}>
-        {exportState.kind === "building" ? t("exporting") : t("export")}
-      </Button>
+      {/* The study's own header already says the count (`study.header`);
+          nothing here repeats it. An empty store has no file worth
+          offering, so a confirmed zero drops the link along with it. */}
+      {countState.kind !== "ready" || countState.count > 0 ? (
+        <>
+          {/* An underlined link, not a filled button: `/registro`'s weight is the
+              study above, not this download (docs/voyager/DESIGN.md "Settled",
+              "The study replaces the download as the weight of `/registro`"). */}
+          <Link asChild underline="always">
+            <button type="button" onClick={() => void handleExport()} disabled={exportState.kind === "building"}>
+              <TapTarget align="center" px="1">
+                {exportState.kind === "building" ? t("exporting") : t("study.download")}
+              </TapTarget>
+            </button>
+          </Link>
 
-      {exportState.kind === "done" && (
-        <Text size="2" muted>
-          {t("exported")}
-        </Text>
-      )}
+          {exportState.kind === "done" && (
+            <Text size="2" muted>
+              {t("exported")}
+            </Text>
+          )}
 
-      {exportState.kind === "failed" && (
-        <Text size="2" muted>
-          {t("exportFailed")}
-        </Text>
-      )}
+          {exportState.kind === "failed" && (
+            <Text size="2" muted>
+              {t("exportFailed")}
+            </Text>
+          )}
+        </>
+      ) : null}
     </Flex>
   );
 }

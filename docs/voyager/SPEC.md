@@ -51,12 +51,24 @@ this gets built, and no schema, table or column is "prepared for" it.
 - [ ] **RL-07** — Autocomplete appears only while the string is being treated as a word. A sentence never raises it.
 - [x] **RL-26** — A headword's answer can be heard. The device speaks it with the voice the browser
   already carries, so a headword with no IPA is spoken exactly like one that has it. Decided by the
-  user 2026-09-08: **27,938 of the 64,258 entries carry no IPA at all** (36,320 do), and written
+  user 2026-09-08: **27,899 of the 64,258 entries carry no IPA at all** (36,359 do), and written
   transcription therefore answers barely half of them. Nothing is downloaded and nothing is
   recorded — no audio file ships with the dictionary and none is fetched.
 - [x] **RL-18** — While the string is being treated as a word and the typing has not settled, up to
   ten headwords that begin with it are offered. Choosing one answers it. The offer withdraws once
   the typing settles: the answer is already on screen and the list has nothing left to add.
+- [ ] **RL-35** *(successor of RL-14)* — The answer to a word comes whole from the device and never
+  waits on the network: with a connection or without one, the same text appears at the same speed,
+  and no keystroke ever leaves the device. What the network can add afterwards is decoration: it
+  arrives late, arrives only sometimes, and its absence never changes the answer or delays it.
+- [ ] **RL-36** — The answer to a concrete noun can carry an image, requested from Wikimedia Commons
+  as the answer draws and only with a connection. The image never blocks or delays the answer;
+  offline, with no result, or on failure, the answer draws just the same, with no gap left for it.
+  Asking Wikimedia directly tells it which word the reader is looking up, and the reader's IP address
+  — a known price, accepted deliberately by the user on 2026-09-08, and the one place this app lets a
+  lookup leave the device to a party of its own: everywhere else, RL-35, RNL-09 and the copy's
+  consent keep a lookup off the network entirely. The alternative declined was a route handler of the
+  app's own in front of the request, the shape RL-09 already uses for the sentence path.
 
 #### The sentence
 
@@ -69,28 +81,27 @@ this gets built, and no schema, table or column is "prepared for" it.
 
 - [ ] **RL-12** — The dictionary is fetched once, as a static asset, and installed onto the device. Its progress is shown and the box stays typeable throughout.
 - [x] **RL-13** — An interrupted install leaves no partial dictionary. The next open finds the dictionary whole or absent, never in between, and starts it again from zero.
-- [x] **RL-14** — Once installed, looking a word up touches the network in no way, on no keystroke.
-- [x] **RL-15** — The dictionary's source, its edition and its CC BY-SA 3.0 licence are named in the interface, one tap from the box, linking to the source and to the licence text, and stating that what the app ships is a reformatted extract distributed under the same licence.
+- [x] **RL-33** — The dictionary's source, its edition and its CC BY-SA 3.0 licence are named in an
+  information tab inside `/cuenta`, linking to the source and to the licence text, and stating that
+  what the app ships is a reformatted extract distributed under the same licence. CC BY-SA 3.0
+  conditions the credit on it staying reachable by whoever uses the work, so the tab reads without
+  signing in — `/cuenta` already renders with no session, and that is what keeps it reachable.
 
 #### The shell
 
 - [ ] **RL-16** — The app opens with no connection and shows its box, and it can be launched from the phone's home screen without a browser around it. This holds from the second time it is opened onwards: the first open needs the network to deliver the app itself.
-- [ ] **RL-21** — Every lookup a reader settles on is recorded on the device, from the app's first
+- [x] **RL-21** — Every lookup a reader settles on is recorded on the device, from the app's first
   day: what was typed, whether it was answered as a word or a sentence, the headword it actually
   reached when an inflected form was typed, whether it found anything at all, and when. The record
   only ever gains rows: nothing edits or deletes one. No screen on the read path shows it. It is read
   to take it off the device — to a file, or to the copy held by the reader's account — and to bring
   back what the same reader's other devices recorded; never on the path that answers a lookup.
-- [ ] **RL-22** — A reader can keep their record in an account of their own: they sign in through a
+- [x] **RL-22** — A reader can keep their record in an account of their own: they sign in through a
   link sent to their address and, from then on, what this device records is copied to that account
   and what their other devices recorded comes down to this one **and stays in its local record,
   beside its own**. It is a copy: a lookup is still answered from the device, with an account or
   without one, online or offline.
-- [ ] **RL-23** — Turning the copy on in a device sends up the record already there and brings down
-  what the reader's other devices recorded. The reader knows both figures before anything happens:
-  they are told how many searches will go up and how many will come down, and turning it on is what
-  authorises it.
-- [ ] **RL-24** — The copy never edits a row. A row names the device that recorded it and the number
+- [x] **RL-24** — The copy never edits a row. A row names the device that recorded it and the number
   it carried there, so copying it twice does not duplicate it, going up or coming down, and what one
   device copies never overwrites what another wrote. An interrupted merge leaves the record whole in
   every sense that matters: what came down is valid, what did not comes down next time.
@@ -99,9 +110,19 @@ this gets built, and no schema, table or column is "prepared for" it.
   device had copied leave the copy, and that device stops syncing. **What had already come down to
   another device stays on that device**, and leaves it by clearing the app's data in that browser.
   The app says this before confirming and promises no more.
-- [ ] **RL-25** — The reader sees the list of devices that have copied to their account: which one is
+- [x] **RL-25** — The reader sees the list of devices that have copied to their account: which one is
   in their hand, when each was last seen, and how many searches it has copied. They can retire any of
   them, their own included.
+- [ ] **RL-30** — With an account open on the device, the copy starts on its own and is never asked
+  about: it sends up what this device already had and brings down what the others recorded, with no
+  act from the reader and no switch that turns it off. Signing out is the only way to stop it. With
+  no account, nothing leaves the device.
+- [x] **RL-32** — The reader reads their record grouped by word: one row per word, with how many
+  times it was searched, ordered by frequency, case-insensitive; and tapping a word opens every one
+  of its searches with its date. This replaces the chronological list.
+- [x] **RL-34** — The record keeps, for every lookup, the word, its translation cut to 120
+  characters and at most 3 senses, and how the answer was reached; and the reader reads it inside
+  the app.
 - [x] **RL-20** — The log can be exported from the app as a single file the reader saves onto their
   device: every recorded search, with its date and the headword it reached, in a documented and
   versioned shape. The export is deliberate: it is reached from outside the search screen and
@@ -115,6 +136,15 @@ this gets built, and no schema, table or column is "prepared for" it.
 - [ ] **RL-29** — When a search finds nothing and no suggestion fits, the reader can ask for the word
   to be answered over the network, and only by asking: nothing is sent until they do. The answer says
   it did not come from the dictionary, and says plainly when it could not be produced.
+- [ ] **RL-31** — A string of more than one word that the dictionary has no entry for, and that is
+  not treated as a sentence, never gets silence: the app names what it did not find and offers,
+  underneath, the dictionary's own answer for each of its words. It answers from the device, and
+  touches the network on no keystroke.
+- [x] **RL-37** — A sentence the app cannot translate gets the same answer a string it never tried
+  to translate gets: the app names what it could not answer and offers, underneath, the dictionary's
+  own answer for each of its words. This replaces the notice that only said the translation failed —
+  a reader who typed a sentence and got nothing back now gets the dictionary's own words instead.
+  It answers from the device, so it holds with no network at all.
 
 ### Non-functional requirements
 
@@ -149,6 +179,9 @@ this gets built, and no schema, table or column is "prepared for" it.
 
 Dead codes. The number stays burned and the tick stays as it was.
 
+- [x] **RL-14** — Once installed, looking a word up touches the network in no way, on no keystroke.
+  _Retired 2026-09-08. Successor: RL-35. The word's image (RL-36), decided the same day, is the
+  reason this stopped being true: it reaches the network as the answer draws._
 - [x] **RL-19** — Every lookup a reader settles on is recorded on the device, from the app's first
   day: what was typed, whether it was answered as a word or a sentence, the headword it actually
   reached when an inflected form was typed, whether it found anything at all, and when. The record
@@ -160,6 +193,11 @@ Dead codes. The number stays burned and the tick stays as it was.
   day: what was typed, whether it was answered as a word or a sentence, the headword it actually
   reached when an inflected form was typed, whether it found anything at all, and when. The record
   is append-only and nothing in the interface shows it. _Retired 2026-09-07. Successor: RL-19._
+- [ ] **RL-23** — Turning the copy on in a device sends up the record already there and brings down
+  what the reader's other devices recorded. The reader knows both figures before anything happens:
+  they are told how many searches will go up and how many will come down, and turning it on is what
+  authorises it. _Retired 2026-09-08. Successor: RL-30._
+- [x] **RL-15** — The dictionary's source, its edition and its CC BY-SA 3.0 licence are named in the interface, one tap from the box, linking to the source and to the licence text, and stating that what the app ships is a reformatted extract distributed under the same licence. _Retired 2026-09-08. Successor: RL-33._
 
 ---
 
@@ -177,9 +215,16 @@ measurements taken from it, not estimates:
 | Edition | 2025.11.23 |
 | Licence | CC BY-SA 3.0 |
 | Entries carrying a Spanish translation | 64,258 |
-| Entries carrying IPA | 36,320 |
+| Distinct normalised headwords | 58,944 |
+| Entries carrying IPA | 36,359 |
 | Multi-word entries | 16,112 |
-| Extracted payload | 8.2 MB raw, 2.9 MB gzipped |
+| Extracted payload | 8,389,666 bytes = 8.0 MiB raw, 2.9 MiB gzipped |
+
+Every figure in this table is read from `apps/voyager/public/dictionary/manifest.json`, which the
+build writes beside the asset. Re-read it after a rebuild; do not carry a number forward. Corrected
+2026-09-09, when four of them had drifted from the shipped asset: headwords 58,946 → **58,944**,
+entries with IPA 36,320 → **36,359**, entries without 27,938 → **27,899**, and a payload written as
+«8.2 MB» that is neither 8.39 MB nor 8.00 MiB.
 
 The 16,112 multi-word entries are why RL-03 looks the whole string up before it
 counts tokens: `give up` is a headword, not a sentence.
@@ -191,7 +236,8 @@ Rules the model must always guarantee, regardless of how they are implemented:
 - The dictionary is data, never state. Nothing the reader does mutates it.
 - A headword is a group of senses, never a row. Its senses, its parts of speech,
   its pronunciations and its translations answer together or not at all.
-- The word path never touches the network.
+- A word's answer never touches the network (RL-35). Its image (RL-36) does, and only with a
+  connection: decoration, never a condition of the answer.
 - The payload is installed whole or not at all. There is no partial dictionary
   a lookup could read from.
 - The interface never asserts a browser capability it has not asked for at
@@ -208,12 +254,18 @@ A Next.js application whose data lives on the device.
 
 Principles, not recipes:
 
-- **The read path has no backend.** The dictionary ships as a static asset and is read locally;
-  looking a word up touches the network on no keystroke (RL-14). The app has two server surfaces and
-  neither is on that path: the sentence translation (RL-09), and the copy of the reader's record
-  (RL-22), which runs on the same Supabase as `apps/orbit`, in a schema of its own, and only once the
-  reader opened an account on purpose. With no account, nothing of the reader's leaves the device
-  (RNL-09).
+- **The read path has no backend for its text.** The dictionary ships as a static asset and is read
+  locally; a word's answer touches the network on no keystroke (RL-35). The app has two server
+  surfaces and neither is on that path: the sentence translation (RL-09), and the copy of the
+  reader's record (RL-22), which runs on the same Supabase as `apps/orbit`, in a schema of its own,
+  and only once the reader opened an account on purpose. With no account, nothing of the reader's
+  leaves the device (RNL-09).
+- **A word's image is the one thing on that path that does reach the network** (RL-36), and it
+  reaches a fourth party, not one of the app's own two surfaces: it is requested straight from
+  Wikimedia Commons as the answer draws, only with a connection, never blocking or delaying the
+  text. Unlike the sentence path, no route handler of the app's own sits in front of it, so Wikimedia
+  sees which word the reader is looking up and from which address. Decided by the user 2026-09-08,
+  the request itself weighed against building a fifth route handler to hide it.
 - **The server surface is four route handlers and one page**, and nothing else. Rewritten
   2026-09-08, when the account slice landed and left the old wording — "one route handler is the
   single exception" — false:
@@ -225,16 +277,18 @@ Principles, not recipes:
     the reader opened on purpose; with no account they answer 401 without opening a connection.
   - `app/auth/confirm/route.ts` — landing the sign-in link (RL-22).
   - `app/cuenta/page.tsx` — a server component that reads the session and queries nothing.
-- **The word path never passes through any of them.** That is the claim "no backend" actually
+- **The word's text never passes through any of them.** That is the claim "no backend" actually
   protects, and it is the one to check before adding a fifth: not how many handlers exist, but
-  whether looking a word up still touches none of them (RL-14, RNL-09).
+  whether the answer's text still touches none of them (RL-35, RNL-09). The word's image (RL-36)
+  touches the network too, but never through one of these four: it goes straight to Wikimedia,
+  decoration on an answer that already stands without it.
 - **A local MCP server (RL-27) is not part of the deployed app.** It is a
   script the reader runs on their own machine, over the file `/registro`
   exported (RL-20), never over the deployed app's network. It does not
   contradict "there is no backend": nothing about it ships, runs on Vercel,
   or answers a request from a browser.
 - **IndexedDB is the durable payload cache.** It is the only store with the
-  volume for 8.2 MB and the transaction boundary RL-13 needs to make the install
+  volume for 8.0 MiB and the transaction boundary RL-13 needs to make the install
   whole-or-nothing.
 - **A Worker is the query engine.** The dictionary is parsed and searched off
   the main thread, so that RNL-01 and RL-01 hold on the same keystroke.
@@ -273,7 +327,7 @@ bundle.
 | Any client-side database or ORM | IndexedDB directly: the payload is one store, read-only after install. |
 | Tailwind, shadcn/ui | Radix Themes is the system. |
 | Zustand / Redux | State is one worker and one hook. |
-| `localStorage` for the payload | IndexedDB: 8.2 MB does not fit and would not survive. |
+| `localStorage` for the payload | IndexedDB: 8.0 MiB does not fit and would not survive. |
 | A wrapper library around IndexedDB | The store is 80 lines. |
 | Workbox, or any service-worker framework | The worker is 80 lines, and caching a hashed build output needs no library. |
 | Any NLP or stemming package | The inflection module is 200 lines and a table. |

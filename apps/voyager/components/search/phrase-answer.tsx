@@ -3,11 +3,12 @@
 import { useTranslations } from "next-intl";
 
 import type { TranslationResult } from "@/lib/translate/types";
-import { Button, Flex, MetaLabel, Progress, Separator, Spinner, Text } from "@/components/ui";
+import { Button, Flex, MetaLabel, Progress, Spinner, Text } from "@/components/ui";
 
 // What stage a sentence lookup is at. The composing module owns the debounce,
 // the token floor and the request itself; this only draws the stage it lands
-// in (RL-09).
+// in (RL-09). `failed` is never drawn here (RL-37): the composing module
+// intercepts it and draws the per-word breakdown instead.
 export type PhraseState =
   | { kind: "idle" }
   | { kind: "waiting" }
@@ -27,19 +28,19 @@ export function PhraseAnswer({
   state,
   offer,
   onEnableDevice,
-  onRetry,
 }: {
   source: string;
   state: PhraseState;
   offer: DeviceOffer;
   onEnableDevice: () => void;
-  onRetry: () => void;
 }) {
   const t = useTranslations("phrase");
 
   // The typing has not settled and nothing was asked for: silence, not a
   // spinner, so the box never flickers while a person is mid-sentence.
-  if (state.kind === "waiting") {
+  // `failed` draws nothing here either — the composing module never mounts
+  // this component while its own state reads `failed` (RL-37).
+  if (state.kind === "waiting" || state.kind === "failed") {
     return null;
   }
 
@@ -63,21 +64,6 @@ export function PhraseAnswer({
           <MetaLabel>
             {state.result.origin === "device" ? t("originDevice") : t("originNetwork")}
           </MetaLabel>
-        </Flex>
-      )}
-
-      {state.kind === "failed" && (
-        // No red in this palette (docs/voyager/DESIGN.md "Failure"): a
-        // hairline sets the break off, full-weight ink says it, the accent
-        // lives in retry — the same treatment as install-status.tsx.
-        <Flex direction="column" gap="3" align="start">
-          <Separator size="4" />
-          <Text size="2" weight="bold">
-            {t("failed")}
-          </Text>
-          <Button size="2" tap onClick={onRetry}>
-            {t("retry")}
-          </Button>
         </Flex>
       )}
 

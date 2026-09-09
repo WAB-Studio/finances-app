@@ -20,6 +20,11 @@ const MAX_PENDING_MS = 5000;
 
 let databasePromise: Promise<IDBDatabase> | null = null;
 
+// Mirrors `databasePromise` once it resolves, so a caller that cannot afford
+// to wait on a promise — a `pagehide` handler gets no later task to resume
+// in — can still reach the connection with a plain property read.
+let openDatabaseHandle: IDBDatabase | null = null;
+
 function openDatabase(): Promise<IDBDatabase> {
   if (typeof indexedDB === "undefined") {
     return Promise.reject(new Error("indexedDB unavailable"));
@@ -48,16 +53,31 @@ function openDatabase(): Promise<IDBDatabase> {
           .createIndex("foreign", ["device", "deviceSeq"], { unique: true });
       }
     };
-    request.onsuccess = () => resolve(request.result);
+    request.onsuccess = () => {
+      const database = request.result;
+      // A connection the browser closes on its own (eviction, another tab's
+      // version change) stops being usable synchronously too.
+      database.onclose = () => {
+        openDatabaseHandle = null;
+        databasePromise = null;
+      };
+      openDatabaseHandle = database;
+      resolve(database);
+    };
     request.onerror = () => reject(request.error);
   });
   // Forget a connection that dies (deleted database, version change
   // elsewhere) so the next write reopens instead of retrying a dead handle.
   databasePromise.catch(() => {
     databasePromise = null;
+    openDatabaseHandle = null;
   });
   return databasePromise;
 }
+
+// Starts the connection the moment this module loads, well before any query
+// settles, so `openDatabaseHandle` is already warm by the time a tab dies.
+if (typeof indexedDB !== "undefined") void openDatabase();
 
 async function writeRow(row: LookupRecord): Promise<void> {
   try {
@@ -75,8 +95,47 @@ async function writeRow(row: LookupRecord): Promise<void> {
   }
 }
 
+// Same write, issued with no `await` at all: the transaction opens in the
+// caller's own task, which is the only way it stands a chance of surviving
+// a page that dies before the event loop grants it another one. Returns
+// whether it managed to start — never whether it committed.
+function writeRowSync(row: LookupRecord): boolean {
+  if (!openDatabaseHandle) return false;
+  try {
+    const transaction = openDatabaseHandle.transaction(STORE_NAME, "readwrite");
+    transaction.objectStore(STORE_NAME).add(row);
+    transaction.oncomplete = notifyFlushed;
+    transaction.onerror = () => {
+      databasePromise = null;
+      openDatabaseHandle = null;
+    };
+    transaction.onabort = () => {
+      databasePromise = null;
+      openDatabaseHandle = null;
+    };
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// A screen that reads `lookups` (`history-list.tsx`) listens for this to
+// reread once a row it may already have missed actually lands — the write
+// below is still async even after a caller forces it, so the event fires
+// only once the transaction that carries it has committed.
+export const LOG_FLUSHED_EVENT = "voyager:log-flushed";
+
+function notifyFlushed(): void {
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(LOG_FLUSHED_EVENT));
+}
+
+// Tries the same-task path first — it costs nothing when the connection is
+// already warm, which is nearly always, and it is the only path a dying
+// page can still complete. Falls back to the awaited path only while the
+// connection is still opening, a gap that closes once, early, at load.
 function commit(row: LookupRecord): void {
-  void writeRow(row);
+  if (writeRowSync(row)) return;
+  void writeRow(row).then(notifyFlushed);
 }
 
 function isStrictPrefix(previous: string, next: string): boolean {
@@ -124,7 +183,9 @@ export function recordLookup(row: Omit<LookupRecord, "id" | "schema">): void {
 /**
  * Forces the pending row to IndexedDB now. Call this when the box empties:
  * the guard has no other way to learn a query was abandoned mid-word. Also
- * fires on tab hide and page hide, so a killed tab loses at most one row.
+ * fires on tab hide and page hide, where `commit` above starts the write in
+ * the same task instead of behind a promise, so a killed tab still commits
+ * the one row this module ever holds pending.
  */
 export function flushPendingLookup(): void {
   if (settleTimer) {

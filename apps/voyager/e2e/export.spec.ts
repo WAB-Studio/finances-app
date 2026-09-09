@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 
+import { createTranslator } from "next-intl";
 import { expect, test, type Page } from "@playwright/test";
 
 import messages from "../messages/es.json";
@@ -11,6 +12,11 @@ import type { LogExport } from "../lib/log/export";
 // constant sits outside all of them. Sourcing it here, instead of a second
 // literal `2`, keeps the seeder below in lockstep with the schema it mirrors.
 import { DATABASE_VERSION } from "../lib/log/record";
+
+// The same runtime `next-intl` renders with: `log.study.header` is an ICU
+// plural, so a literal `"{lookups}"` substring never appears in the
+// rendered text and a naive `.replace` against it always misses.
+const t = createTranslator({ locale: "es", messages });
 
 // Chromium's built-in `Translator` hangs `availability()` forever
 // (docs/TRAPS.md); the word path here must never reach it.
@@ -117,7 +123,7 @@ async function seedRows(page: Page, count: number): Promise<void> {
 
 async function downloadExport(page: Page): Promise<LogExport> {
   const downloadPromise = page.waitForEvent("download");
-  await page.getByRole("button", { name: messages.log.export }).click();
+  await page.getByRole("button", { name: messages.log.study.download }).click();
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toMatch(/^registro-lecturas-\d{4}-\d{2}-\d{2}\.json$/);
   const path = await download.path();
@@ -140,8 +146,7 @@ test("10,003 rows export whole, and the file round-trips through JSON exactly", 
   await seedRows(page, 10_003);
   await page.reload();
 
-  const expectedCount = messages.log.count.replace("{count}", "10003");
-  await expect(page.getByText(expectedCount)).toBeVisible();
+  await expect(page.getByText(t("log.study.header", { lookups: 10_003, words: 10_003 }))).toBeVisible();
 
   const rawRows = await readRawRows(page);
   expect(rawRows).toHaveLength(10_003);
@@ -156,7 +161,7 @@ test("10,003 rows export whole, and the file round-trips through JSON exactly", 
   expect(exported.rows).toEqual(rawRows);
 });
 
-test("/fuente links to /registro, which counts what was searched and exports it", async ({ page }) => {
+test("the nav reaches /registro, which counts what was searched and exports it", async ({ page }) => {
   await deleteTranslator(page);
 
   const assetResponse = page.waitForResponse(
@@ -171,14 +176,13 @@ test("/fuente links to /registro, which counts what was searched and exports it"
   await searchBox.fill("");
   await page.waitForTimeout(300);
 
-  await page.getByRole("link", { name: messages.source.open }).click();
-  await expect(page).toHaveURL(/\/fuente$/);
-
-  await page.getByRole("link", { name: messages.log.openLink }).click();
+  // Reached through the nav bar, which is the only way in since module 6
+  // dropped the search screen's link to `/fuente` and module 10 moved the
+  // credit to `/cuenta`. The old route through `/fuente` no longer exists.
+  await page.getByRole("navigation", { name: messages.nav.label }).getByRole("link", { name: messages.nav.log }).click();
   await expect(page).toHaveURL(/\/registro$/);
 
-  const expectedCount = messages.log.count.replace("{count}", "1");
-  await expect(page.getByText(expectedCount)).toBeVisible();
+  await expect(page.getByText(t("log.study.header", { lookups: 1, words: 1 }))).toBeVisible();
 
   const exported = await downloadExport(page);
   expect(exported.exportSchema).toBe(1);

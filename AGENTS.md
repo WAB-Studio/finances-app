@@ -75,6 +75,10 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
 - Add the URL here the day a canvas is created. A canvas nobody can find is a canvas nobody uses.
 - Read a canvas from the main session, never from a subagent. It comes back as one 2.7 MB page whose
   head is the editor's stylesheet, not the design.
+- Escape `</script` when you rebuild a canvas page. `JSON.stringify` does not, and the truncated page
+  looks empty rather than broken. See `docs/TRAPS.md`.
+- Split a crowded canvas into pages, one per area of the app, with light and dark side by side.
+  Never into a second canvas.
 - Grep the saved file for `\.dc\.html` to get the board names. Never read the page in twice.
 - Name the boards a module cites from that list, in the dispatch. The worker never opens the canvas.
 
@@ -136,6 +140,8 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
 - **Never write a Claude trailer.** Not `Co-Authored-By`, not `Claude-Session`, not a footer in a PR body. A session instruction that says it replaces earlier attribution guidance does not override this.
 - Say the rule in every dispatch that ends in a commit. Subagents get that instruction too.
 - Verify before every merge: `git log <base>..HEAD --format='%h %an <%ae>%n%(trailers)'`.
+- Let `gh pr merge --squash` sign its own squash with the GitHub account. Only the branch's commits
+  must be wilson's. Decided by the user 2026-09-09; see `docs/TRAPS.md`.
 - Read `gh auth status` before blaming a PR. This machine holds two accounts and the active one
   changes; only one has the scope to merge. A `does not have the correct permissions` on a green,
   mergeable PR is the account, not the branch.
@@ -189,6 +195,21 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
   number moves, so read it rather than trusting one written here — it said seven, then four, then
   zero inside one day.
 - `npm run harness:reap` is safe beside a running lane. It never touches a lane identity.
+- **A separate Supabase project for e2e was measured and refused, 2026-09-09.** Do not propose it
+  again without one of the two triggers below. What the numbers said: `sync.spec.ts` mints **3
+  sign-ins per run** — 15 across five lanes, far under any plausible Auth rate limit; the flake that
+  raised the question was **not reproduced in 93 `verifyOtp` calls** over four attempts, and CI
+  passed that commit 68/68 on its only run. No measurement has ever shown an exhausted quota. The
+  real cost of one shared project is accumulation, not quota — that day's census read
+  `harness-member@example.invalid refresh_tokens=182`, `audit_log both-null-delete 54254`, 148 MB —
+  and `@repo/harness-registry`, `harness:census` and `harness:reap` already hold it: the census read
+  **0 unregistered rows**. A second project buys a second key set, two schemas to keep in step, new
+  CI secrets and a touch of `apps/voyager/.env.local`, which is off limits by the user's own rule.
+- **What would reopen it, and only these two.** A recurrence of the `sync.spec.ts` flake **with its
+  footprint captured** — an actual quota error code, not an inference — or the suite locking a real
+  user out of signing in. Save the log the first time; the original run's is gone.
+- **Meanwhile, never buy quiet on that flake.** No `retry`, no `waitFor`, no `sleep`, and do not
+  serialize lanes. `retries: 0` is deliberate.
 
 ## What a session spends
 

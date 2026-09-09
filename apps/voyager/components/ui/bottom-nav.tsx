@@ -1,12 +1,64 @@
 "use client";
 
+import { useEffect, useSyncExternalStore } from "react";
 import NextLink from "next/link";
 import { usePathname } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { Link } from "@radix-ui/themes";
+import { Heading, Link } from "@radix-ui/themes";
 
 import { TapTarget } from "./tap-target";
 import styles from "./bottom-nav.module.css";
+
+// The query name `search-screen.tsx` writes to the address bar on settle.
+const QUERY_PARAM = "q";
+
+// Carries the search box's last settled text past a trip away from `/`, so
+// Buscar retypes nothing. `search-screen.tsx` writes the URL with raw
+// `history.pushState`/`replaceState`, which next/navigation's own
+// `useSearchParams()` does not observe, and this component remounts on every
+// route change (`Page` mounts a fresh `BottomNav` per screen) so a React
+// state alone would not survive the trip either.
+const QUERY_STORAGE_KEY = "voyager:nav-query";
+
+function readAddressBarQuery(): string {
+  if (typeof window === "undefined") return "";
+  return new URLSearchParams(window.location.search).get(QUERY_PARAM) ?? "";
+}
+
+function readStoredQuery(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    return window.sessionStorage.getItem(QUERY_STORAGE_KEY) ?? "";
+  } catch {
+    // Private browsing can refuse storage; Buscar falls back to a bare `/`.
+    return "";
+  }
+}
+
+function storeQuery(query: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (query) window.sessionStorage.setItem(QUERY_STORAGE_KEY, query);
+    else window.sessionStorage.removeItem(QUERY_STORAGE_KEY);
+  } catch {
+    // Nothing to recover: the next read falls back to "".
+  }
+}
+
+function searchHref(query: string): string {
+  return query ? `/?${QUERY_PARAM}=${encodeURIComponent(query)}` : "/";
+}
+
+// Nothing here ever pushes a re-render on its own (mirrors sense-list.tsx's
+// own `subscribeNever`): the value this reads only changes across a mount,
+// which a route change already forces by remounting `BottomNav` fresh.
+function subscribeNever(): () => void {
+  return () => {};
+}
+
+function getServerQuery(): string {
+  return "";
+}
 
 // docs/voyager/DESIGN.md "Viewport": stroke-width 1.75, round caps and
 // joins, fill none, 20px — read from the published boards, not guessed.
@@ -53,34 +105,70 @@ const GLYPHS = {
   account: AccountGlyph,
 } as const;
 
+// `route` is what marks a destination current; `search`'s actual `href`
+// gains the query on top of it, the other two never do.
 const items = [
-  { href: "/", key: "search" } as const,
-  { href: "/registro", key: "log" } as const,
-  { href: "/cuenta", key: "account" } as const,
+  { route: "/", key: "search" } as const,
+  { route: "/registro", key: "log" } as const,
+  { route: "/cuenta", key: "account" } as const,
 ];
 
-// docs/voyager/DESIGN.md "Viewport": the three sections the bar carries
-// (`## Settled`: it shipped with two, Cuenta joined with the account
-// slice). Never an action, a filter or a count: `Fuente` rides as a link on
-// the screens that carry the box, not a fourth item here.
+// docs/voyager/DESIGN.md "Viewport": the same three sections the bar has
+// always carried (`## Settled`: it shipped with two, Cuenta joined with the
+// account slice), now also the desktop sidebar's three destinations — one
+// `<nav>`, one CSS media query at 1024px, never a second tree mounted
+// alongside it. Never an action, a filter or a count: `Fuente` rides as a
+// link on the screens that carry the box, not a fourth item here, and the
+// theme control (RNL-07) is a different module's — the sidebar's foot below
+// the three items is left empty for it.
 export function BottomNav() {
   const pathname = usePathname();
   const t = useTranslations("nav");
+  const tMeta = useTranslations("metadata");
+  // The address bar's own `q` on `/`, what a prior mount remembered
+  // anywhere else. `getServerQuery` answers "" for the hydration pass, so
+  // the server-rendered `href="/"` never mismatches the client's first
+  // paint — the real value lands one commit later, the way sense-list.tsx's
+  // `speechSupported` already does.
+  const query = useSyncExternalStore(
+    subscribeNever,
+    () => (pathname === "/" ? readAddressBarQuery() : readStoredQuery()),
+    getServerQuery,
+  );
+
+  // The one-way sync onto the external store `useSyncExternalStore` only
+  // reads: leaving `/` with a query already committed must still find it
+  // from `/registro` or `/cuenta`, which never carry `q` themselves.
+  useEffect(() => {
+    if (pathname === "/") storeQuery(query);
+  }, [pathname, query]);
 
   return (
     <nav className={styles.nav} aria-label={t("label")}>
-      {items.map(({ href, key }) => {
-        const selected = pathname === href;
+      <Heading className={styles.title}>{tMeta("title")}</Heading>
+      {items.map(({ route, key }) => {
+        const selected = pathname === route;
         const Glyph = GLYPHS[key];
+        const href = key === "search" ? searchHref(query) : route;
         return (
           <Link
-            key={href}
+            key={route}
             asChild
             underline="none"
             className={`${styles.item} ${selected ? styles.selected : styles.unselected}`}
           >
             <NextLink href={href} aria-current={selected ? "page" : undefined}>
-              <TapTarget direction="column" align="center" justify="center" gap="1" size={44}>
+              {/* Radix's own `md` breakpoint is 1024px (`--md` in
+                  breakpoints.css), the same one bottom-nav.module.css
+                  switches on: icon above label on the bar, icon beside
+                  label on the sidebar, with no primitive to patch. */}
+              <TapTarget
+                direction={{ initial: "column", md: "row" }}
+                align="center"
+                justify="center"
+                gap="1"
+                size={44}
+              >
                 <Glyph />
                 <span className={styles.label}>{t(key)}</span>
               </TapTarget>
@@ -88,6 +176,10 @@ export function BottomNav() {
           </Link>
         );
       })}
+      {/* Reserved for the theme control (RNL-07, a different module). Empty
+          on purpose: flex-grow pushes it to the sidebar's foot; it draws
+          nothing on the bar, where it collapses to zero width. */}
+      <div className={styles.spacer} aria-hidden="true" />
     </nav>
   );
 }

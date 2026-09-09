@@ -20,3 +20,10 @@
   min-width: 44px;
   min-height: 44px;
 }
+
+/* `CuentaSinRed`'s retry, the one button this app runs to the row's full
+   width. Doubled for the same reason as `.tap` above: `all: unset` resets
+   `width` too, and load order alone would otherwise decide the winner. */
+.block.block {
+  width: 100%;
+}

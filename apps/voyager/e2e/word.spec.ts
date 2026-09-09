@@ -29,8 +29,11 @@ async function exposeDictionaryWorker(page: Page): Promise<void> {
   });
 }
 
-// `search-screen.tsx`'s own constant, not exported: how long autocomplete
-// stays up after the last keystroke before it withdraws (RL-18).
+// The pause these tests hold past a keystroke before checking the offer:
+// long enough that the old, retired withdrawal timer would have fired.
+// RL-18 no longer withdraws on any timer — the list stays until the text
+// itself changes — so this constant is the tests' own clock, not the
+// component's.
 const SUGGESTIONS_SETTLE_MS = 900;
 
 type WorkerRequestShape = Extract<WorkerRequest, { kind: "lookup" }>;
@@ -123,7 +126,7 @@ test("an installed dictionary answers offline, fast, and within a thumb's reach"
   expect(undersized).toEqual([]);
 });
 
-test("RL-18: autocomplete withdraws once typing settles, and never delays the word answer", async ({ page }) => {
+test("RL-18: a paused prefix keeps its offer, coexisting with the word answer", async ({ page }) => {
   await deleteTranslator(page);
 
   const assetResponse = page.waitForResponse(
@@ -139,19 +142,52 @@ test("RL-18: autocomplete withdraws once typing settles, and never delays the wo
 
   await searchBox.fill("throughout");
 
-  // RNL-05: the answer and the offer both land on the same keystroke, well
-  // inside the pause the offer itself is about to wait out.
+  // RNL-05: the answer and the offer both land on the same keystroke.
   await expect(heading).toBeVisible({ timeout: SUGGESTIONS_SETTLE_MS - 400 });
   await expect(suggestionsLabel).toBeVisible({ timeout: SUGGESTIONS_SETTLE_MS - 400 });
 
-  // Past the pause, untouched: the offer withdraws, the answer does not.
+  // Decided by the user 2026-09-09: the offer stays put past the pause,
+  // the price of also being a real word, taken knowingly.
   await page.waitForTimeout(SUGGESTIONS_SETTLE_MS + 200);
-  await expect(suggestionsLabel).toHaveCount(0);
+  await expect(suggestionsLabel).toBeVisible();
   await expect(heading).toBeVisible();
 
-  // A fresh keystroke brings the offer straight back.
+  // A fresh keystroke still updates the offer straight away.
   await searchBox.fill("throughou");
   await expect(suggestionsLabel).toBeVisible();
+});
+
+test("a mid-word prefix stays silent past the settle, and a real miss still says so", async ({ page }) => {
+  await deleteTranslator(page);
+
+  const assetResponse = page.waitForResponse(
+    (response) => response.url().includes(manifest.asset.path) && response.ok(),
+  );
+  await page.goto("/");
+  await assetResponse;
+  await page.waitForTimeout(1000);
+
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+  const notFound = page.getByText(messages.search.notFound);
+
+  // "ru" is not a headword on its own, but it prefixes real ones ("run",
+  // "rub"...): the offer stays up past the settle, and the miss text stays
+  // out regardless — the suppression reads the suggestion data, not
+  // whether the list is still on screen.
+  await searchBox.fill("ru");
+  await page.waitForTimeout(SUGGESTIONS_SETTLE_MS + 200);
+  await expect(page.getByText(messages.word.suggestions)).toBeVisible();
+  await expect(notFound).toHaveCount(0);
+
+  // A string past every real headword — no suppression left to hide behind.
+  await searchBox.fill("zzqx");
+  await page.waitForTimeout(SUGGESTIONS_SETTLE_MS + 200);
+  await expect(notFound).toBeVisible();
+
+  // Finishing the word answers as always, past any suppression.
+  await searchBox.fill("run");
+  await expect(page.getByRole("heading", { name: "run" })).toBeVisible({ timeout: 5000 });
+  await expect(notFound).toHaveCount(0);
 });
 
 test("RNL-03: an 85-character headword with no space to break on never scrolls the page sideways", async ({
@@ -176,4 +212,142 @@ test("RNL-03: an 85-character headword with no space to break on never scrolls t
   const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
   const clientWidth = await page.evaluate(() => document.documentElement.clientWidth);
   expect(scrollWidth).toBe(clientWidth);
+});
+
+test("a paused prefix never leaves the page blank", async ({ page }) => {
+  await deleteTranslator(page);
+
+  const assetResponse = page.waitForResponse(
+    (response) => response.url().includes(manifest.asset.path) && response.ok(),
+  );
+  await page.goto("/");
+  await assetResponse;
+  await page.waitForTimeout(1000);
+
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+
+  // "ru" answers nothing on its own — the old withdrawal timer left this
+  // exact pause with nothing at all on screen.
+  await searchBox.fill("ru");
+  await page.waitForTimeout(1500);
+  const textLength = await page.evaluate(() => document.querySelector("main")?.innerText.length ?? 0);
+  expect(textLength).toBeGreaterThan(0);
+});
+
+// Counts a `<button>` whose text names the fold, bounded by document order
+// to two headings — never the whole page — so a second headword's own
+// senses (an inflected form's `viaInflection` group) never inflate the
+// count of the one being measured.
+async function countFoldsBetween(
+  page: Page,
+  afterHeading: string,
+  beforeHeading: string | null,
+  label: string,
+): Promise<number> {
+  return page.evaluate(
+    ({ afterHeading, beforeHeading, label }) => {
+      const headings = Array.from(document.querySelectorAll("h1"));
+      const after = headings.find((h) => h.textContent === afterHeading);
+      const before = beforeHeading ? headings.find((h) => h.textContent === beforeHeading) : undefined;
+      if (!after) return -1;
+      return Array.from(document.querySelectorAll("button"))
+        .filter((b) => b.textContent?.includes(label))
+        .filter((b) => Boolean(after.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING))
+        .filter((b) => !before || Boolean(b.compareDocumentPosition(before) & Node.DOCUMENT_POSITION_FOLLOWING))
+        .length;
+    },
+    { afterHeading, beforeHeading, label },
+  );
+}
+
+test("a headword with no definition at all shows no fold control and no dangling line", async ({ page }) => {
+  await deleteTranslator(page);
+
+  const assetResponse = page.waitForResponse(
+    (response) => response.url().includes(manifest.asset.path) && response.ok(),
+  );
+  await page.goto("/");
+  await assetResponse;
+  await page.waitForTimeout(1000);
+
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+  // "umbrella": one sense, no definition in the source, and no inflection
+  // candidate the dictionary carries — nothing on the page but its own
+  // headword and translations.
+  await searchBox.fill("umbrella");
+  await expect(page.getByRole("heading", { name: "umbrella", exact: true })).toBeVisible({ timeout: 5000 });
+
+  await expect(page.getByText(messages.word.definitionEnglish)).toHaveCount(0);
+  await expect(page.getByRole("button", { name: messages.word.definitionEnglish })).toHaveCount(0);
+});
+
+test("`left` (one of the 34 entries whose definition is a bare '.') never folds onto that period", async ({
+  page,
+}) => {
+  await deleteTranslator(page);
+
+  const assetResponse = page.waitForResponse(
+    (response) => response.url().includes(manifest.asset.path) && response.ok(),
+  );
+  await page.goto("/");
+  await assetResponse;
+  await page.waitForTimeout(1000);
+
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+  await searchBox.fill("left");
+  await expect(page.getByRole("heading", { name: "left", exact: true })).toBeVisible({ timeout: 5000 });
+  // "left" also resolves as the past tense of "leave" (RL-06): that group's
+  // own heading is the boundary countFoldsBetween must stop at.
+  await expect(page.getByRole("heading", { name: "leave", exact: true })).toBeVisible({ timeout: 5000 });
+
+  // Four senses of "left" carry a definition in the source: adj (null,
+  // never had one), adv ("On the left side."), n ("The left side or
+  // direction.") and v ("."). Only the two real ones fold; the bare period
+  // is filtered to no definition, same as adj's null.
+  const folds = await countFoldsBetween(page, "left", "leave", messages.word.definitionEnglish);
+  expect(folds).toBe(2);
+});
+
+test("the English definition opens on tap and folds back on the next one, reachable by keyboard", async ({
+  page,
+}) => {
+  await deleteTranslator(page);
+
+  const assetResponse = page.waitForResponse(
+    (response) => response.url().includes(manifest.asset.path) && response.ok(),
+  );
+  await page.goto("/");
+  await assetResponse;
+  await page.waitForTimeout(1000);
+
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+  await searchBox.fill("her");
+  await expect(page.getByRole("heading", { name: "her", exact: true })).toBeVisible({ timeout: 5000 });
+
+  const englishText = "The form of she used after a preposition, as the object of a verb";
+  const fold = page.getByRole("button", { name: messages.word.definitionEnglish }).first();
+
+  // Closed on open: the control names itself, the English prose does not
+  // show, and it says its own state to the accessibility tree.
+  await expect(fold).toBeVisible();
+  await expect(fold).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByText(englishText)).toHaveCount(0);
+
+  // 360px, closed: nothing spills sideways.
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
+
+  // A tap opens it — the keyboard reaches the same control, no `div` with
+  // an `onClick` would answer `Tab` or `Enter`.
+  await fold.focus();
+  await fold.press("Enter");
+  await expect(fold).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByText(englishText)).toBeVisible();
+
+  // 360px, open: the unfolded prose still fits inside the column.
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
+
+  // A second tap folds it back away.
+  await fold.press("Enter");
+  await expect(fold).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByText(englishText)).toHaveCount(0);
 });

@@ -5,6 +5,7 @@ import { useTranslations } from "next-intl";
 
 import { classify, PHRASE_MAX_TOKENS, PHRASE_MIN_TOKENS, type QueryKind } from "@/lib/query/classify";
 import { normaliseHeadword } from "@/lib/dictionary/format";
+import type { Sense } from "@/lib/dictionary/index-build";
 import { useDictionary } from "@/lib/dictionary/use-dictionary";
 import type { WordAnswer } from "@/lib/dictionary/lookup";
 import { deviceTranslatorState, type TranslatorState } from "@/lib/translate/availability";
@@ -15,10 +16,10 @@ import { flushPendingLookup, recordLookup } from "@/lib/log/record";
 import type { LookupOutcome, LookupRecord } from "@/lib/log/types";
 import { Flex, Text } from "@/components/ui";
 import { InstallStatus } from "./install-status";
+import { NoEntryAnswer, type NoEntryPart, type NoEntryReason, type NoEntryState } from "./no-entry-answer";
 import { PhraseAnswer, type DeviceOffer, type PhraseState } from "./phrase-answer";
 import { SearchBox } from "./search-box";
 import { SenseList } from "./sense-list";
-import { SourceNote } from "./source-note";
 import { Suggestions } from "./suggestions";
 
 // RNL-05, rule 1: how long the box waits for a pause before a sentence is
@@ -28,10 +29,6 @@ const PHRASE_DEBOUNCE_MS = 600;
 
 // The query string's own name: `/?q=book`.
 const QUERY_PARAM = "q";
-
-// RL-18: how long autocomplete stays up after the last keystroke before it
-// withdraws. The word answer itself is never held for this — only the list.
-const SUGGESTIONS_SETTLE_MS = 900;
 
 // RNL-05, rule 3: how many translated sentences stay free to revisit.
 const PHRASE_CACHE_LIMIT = 20;
@@ -44,13 +41,23 @@ const TRANSLATION_MAX_CHARS = 120;
 const TRANSLATION_MAX_SENSES = 3;
 
 function cutTranslation(text: string): string {
-  return text.slice(0, TRANSLATION_MAX_CHARS);
+  if (text.length <= TRANSLATION_MAX_CHARS) return text;
+  // The cut can land mid-separator, leaving ", " or "," dangling at the
+  // end. Trim it — the 120 cap stays a ceiling, not a quota, so a shorter
+  // result here is fine. A cut that lands mid-word is left alone.
+  return text.slice(0, TRANSLATION_MAX_CHARS).replace(/[,\s]+$/u, "");
 }
 
-// The first sense of the same group `headword` already comes from — at most
-// its first three translations, joined the way `SenseCard` lists them.
-function formatSenseTranslations(translations: readonly string[]): string {
-  return cutTranslation(translations.slice(0, TRANSLATION_MAX_SENSES).join(", "));
+// Up to the group's first three senses, every translation each one carries,
+// joined the way `SenseCard` lists them within one sense. The 120-char cut
+// is the storage limit; this cap is only a maximum on top of it, so a word
+// with fewer, longer senses can still lose its third one to the cut.
+function formatSenseTranslations(senses: readonly Sense[]): string {
+  const joined = senses
+    .slice(0, TRANSLATION_MAX_SENSES)
+    .flatMap((sense) => sense.translations)
+    .join(", ");
+  return cutTranslation(joined);
 }
 
 function wordLogPayload(text: string, answer: WordAnswer, dictionaryReady: boolean): LogPayload {
@@ -66,7 +73,7 @@ function wordLogPayload(text: string, answer: WordAnswer, dictionaryReady: boole
     headword: answer.exact ? answer.exact.headword : (hit?.group.headword ?? null),
     rule: hit ? hit.rule : null,
     senses: group?.senses.length ?? 0,
-    translation: group ? formatSenseTranslations(group.senses[0]?.translations ?? []) : null,
+    translation: group ? formatSenseTranslations(group.senses) : null,
     dictionaryReady,
     origin: null,
   };
@@ -75,7 +82,7 @@ function wordLogPayload(text: string, answer: WordAnswer, dictionaryReady: boole
 function phraseLogPayload(
   text: string,
   dictionaryReady: boolean,
-  outcome: Extract<LookupOutcome, "translated" | "untranslated">,
+  outcome: LookupOutcome,
   origin: TranslationResult["origin"] | null,
   translation: string | null,
 ): LogPayload {
@@ -123,11 +130,14 @@ export function SearchScreen({ initialQuery }: { initialQuery?: string }) {
   const [text, setText] = useState(resolvedQuery);
   const [kind, setKind] = useState<QueryKind>({ kind: "empty" });
   const [wordAnswer, setWordAnswer] = useState<WordAnswer | null>(null);
+  // RL-18: stays on screen until the text itself changes, never on a timer
+  // — a paused prefix keeps its list. Decided by the user 2026-09-09.
   const [suggestions, setSuggestions] = useState<string[]>([]);
-  // RL-18: the list is withdrawn once typing settles; the data behind it
-  // stays put so a fresh keystroke can bring it straight back.
-  const [suggestionsWithdrawn, setSuggestionsWithdrawn] = useState(false);
   const [phraseState, setPhraseState] = useState<PhraseState>({ kind: "idle" });
+  // RL-31: a two-token miss or a >60-token string never reaches
+  // `translatePhrase` — this is the state that draws in its place. RL-37
+  // reuses it for a 3-to-60-token phrase whose translation failed instead.
+  const [noEntryState, setNoEntryState] = useState<NoEntryState | null>(null);
   const [deviceOffer, setDeviceOffer] = useState<DeviceOffer>({ kind: "hidden" });
   const [logPayload, setLogPayload] = useState<LogPayload | null>(null);
 
@@ -135,7 +145,6 @@ export function SearchScreen({ initialQuery }: { initialQuery?: string }) {
   // anything else was superseded before it arrived, and is dropped.
   const latestTextRef = useRef("");
   const phraseDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const suggestionsSettleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const phraseAbortRef = useRef<AbortController | null>(null);
   const phraseCacheRef = useRef(new Map<string, TranslationResult>());
   // Read once per open (RL-08); routing for every phrase after that reads
@@ -163,8 +172,13 @@ export function SearchScreen({ initialQuery }: { initialQuery?: string }) {
 
   useEffect(() => {
     return () => {
-      if (suggestionsSettleRef.current) clearTimeout(suggestionsSettleRef.current);
       if (urlSettleRef.current) clearTimeout(urlSettleRef.current);
+      // A tap on "Registro" or "Cuenta" is client-side navigation: the
+      // document never unloads, so neither `pagehide` nor
+      // `visibilitychange` fires and a pending row would otherwise sit
+      // unwritten until `record.ts`'s 5 s ceiling. Unmounting this screen
+      // is the one signal every in-app trip away from `/` shares.
+      flushPendingLookup();
     };
   }, []);
 
@@ -179,6 +193,21 @@ export function SearchScreen({ initialQuery }: { initialQuery?: string }) {
     void runQuery(resolvedQuery, status.state === "ready");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // A block of the breakdown links to `/?q=<word>` while this very screen
+  // stays mounted (docs/voyager/DESIGN.md "Every block of the breakdown is
+  // a way back in"): Next re-renders `app/page.tsx` with the new
+  // `searchParams`, but nothing unmounts this component to make the mount
+  // effect above run again. `committedTextRef` is what tells the two apart
+  // from a keystroke's own write to the same ref: a prop the mount effect
+  // already consumed is skipped here.
+  useEffect(() => {
+    if (!initialQuery || initialQuery === committedTextRef.current) return;
+    committedTextRef.current = initialQuery;
+    boundaryRef.current = false;
+    applyText(initialQuery, { schedule: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialQuery]);
 
   // The browser's own back and forward across this screen's own history
   // entries: nothing else updates the box or re-asks the dictionary when
@@ -266,16 +295,52 @@ export function SearchScreen({ initialQuery }: { initialQuery?: string }) {
       setLogPayload(phraseLogPayload(phraseText, dictionaryReady, "translated", result.origin, result.text));
     } catch {
       if (controller.signal.aborted) return;
+      // RL-37: a phrase in range that cannot be translated falls to the same
+      // per-word breakdown RL-31 draws for one that was never tried — the
+      // trigger is this `failed` state, never a `done` with empty text.
       setPhraseState({ kind: "failed" });
       setLogPayload(phraseLogPayload(phraseText, dictionaryReady, "untranslated", null, null));
+      resolveWordBreakdown(phraseText, "translationFailed");
     } finally {
       if (phraseAbortRef.current === controller) phraseAbortRef.current = null;
     }
   }
 
+  // Looks every word of `phraseText` up on the device, one `lookup` call
+  // each, with no debounce and no network — shared by RL-31's miss and
+  // RL-37's translation failure, which differ only in which line names what
+  // went wrong (`reason`, read by `NoEntryAnswer`'s title).
+  function resolveWordBreakdown(phraseText: string, reason: NoEntryReason, onResolved?: () => void): void {
+    setNoEntryState({ kind: "resolving", query: phraseText });
+    const words = phraseText.trim().replace(/\s+/g, " ").split(" ");
+    void Promise.all(words.map((word) => lookup(word).catch(() => null))).then((answers) => {
+      // Same guard `runQuery` already uses at :346 and :368: a superseded
+      // reply is dropped, never painted over whatever replaced it.
+      if (latestTextRef.current !== phraseText) return;
+      const parts: NoEntryPart[] = words.map((word, index) => ({ token: word, answer: answers[index] ?? null }));
+      setNoEntryState({ kind: "words", query: phraseText, parts, reason });
+      onResolved?.();
+    });
+  }
+
+  // RL-31: below the floor, every token is looked up on the device, with no
+  // debounce — RNL-05 only throttles the network path, and this one never
+  // reaches it. Above the ceiling, nothing is asked at all.
+  function scheduleNoEntry(phraseText: string, tokens: number, dictionaryReady: boolean): void {
+    if (tokens > PHRASE_MAX_TOKENS) {
+      setNoEntryState({ kind: "tooLong", query: phraseText, tokens });
+      setLogPayload(phraseLogPayload(phraseText, dictionaryReady, "miss", null, null));
+      return;
+    }
+
+    resolveWordBreakdown(phraseText, "noEntry", () => {
+      setLogPayload(phraseLogPayload(phraseText, dictionaryReady, "miss", null, null));
+    });
+  }
+
   function schedulePhrase(phraseText: string, tokens: number, dictionaryReady: boolean): void {
     if (tokens < PHRASE_MIN_TOKENS || tokens > PHRASE_MAX_TOKENS) {
-      setPhraseState({ kind: "waiting" });
+      scheduleNoEntry(phraseText, tokens, dictionaryReady);
       return;
     }
 
@@ -349,17 +414,6 @@ export function SearchScreen({ initialQuery }: { initialQuery?: string }) {
     phraseAbortRef.current?.abort();
     phraseAbortRef.current = null;
 
-    // RL-18: a keystroke brings a withdrawn list straight back, and restarts
-    // the pause the list is waiting out.
-    if (suggestionsSettleRef.current) {
-      clearTimeout(suggestionsSettleRef.current);
-    }
-    setSuggestionsWithdrawn(false);
-    suggestionsSettleRef.current = setTimeout(() => {
-      suggestionsSettleRef.current = null;
-      setSuggestionsWithdrawn(true);
-    }, SUGGESTIONS_SETTLE_MS);
-
     if (urlSettleRef.current) {
       clearTimeout(urlSettleRef.current);
       urlSettleRef.current = null;
@@ -395,9 +449,13 @@ export function SearchScreen({ initialQuery }: { initialQuery?: string }) {
     }
   }
 
-  function handlePhraseRetry(): void {
-    void translatePhrase(text, status.state === "ready");
-  }
+  // A prefix mid-word — "ru" on the way to "run" — has no exact or inflected
+  // hit of its own, but `suggest` only ever returns headwords that begin
+  // with it: a non-empty list is that same proof. Suppress SenseList's
+  // "not found" text for as long as one stands — the ordinary silence of no
+  // answer yet, not a new state. Decided by the user 2026-09-09.
+  const wordFound = wordAnswer !== null && (wordAnswer.exact !== null || wordAnswer.viaInflection.length > 0);
+  const suppressNotFound = !wordFound && suggestions.length > 0;
 
   return (
     <Flex direction="column" gap="5">
@@ -414,22 +472,22 @@ export function SearchScreen({ initialQuery }: { initialQuery?: string }) {
 
       {kind.kind === "word" && (
         <Flex direction="column" gap="4">
-          <Suggestions items={suggestionsWithdrawn ? [] : suggestions} onPick={handleTextChange} />
-          {wordAnswer && <SenseList answer={wordAnswer} />}
+          <Suggestions items={suggestions} onPick={handleTextChange} />
+          {wordAnswer && !suppressNotFound && <SenseList answer={wordAnswer} />}
         </Flex>
       )}
 
-      {kind.kind === "phrase" && (
-        <PhraseAnswer
-          source={text}
-          state={phraseState}
-          offer={deviceOffer}
-          onEnableDevice={handleEnableDevice}
-          onRetry={handlePhraseRetry}
-        />
-      )}
-
-      <SourceNote />
+      {kind.kind === "phrase" &&
+        (kind.tokens < PHRASE_MIN_TOKENS || kind.tokens > PHRASE_MAX_TOKENS || phraseState.kind === "failed" ? (
+          noEntryState && <NoEntryAnswer state={noEntryState} />
+        ) : (
+          <PhraseAnswer
+            source={text}
+            state={phraseState}
+            offer={deviceOffer}
+            onEnableDevice={handleEnableDevice}
+          />
+        ))}
     </Flex>
   );
 }
