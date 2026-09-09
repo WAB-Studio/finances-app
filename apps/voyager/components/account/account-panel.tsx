@@ -38,7 +38,7 @@ type EmailFormState =
   | { kind: "idle" }
   | { kind: "sending" }
   | { kind: "sent" }
-  | { kind: "failed"; error: "emailInvalid" | "sendFailed" };
+  | { kind: "failed"; error: "emailInvalid" | "sendFailed" | "rateLimited" };
 
 // State 1 (RNL-09): no reader yet, so nothing here ever reaches the network
 // beyond the sign-in request the reader themself asks for.

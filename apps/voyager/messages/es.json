@@ -91,7 +91,9 @@
       "subtitle": "{translation} · {count, plural, one {# búsqueda} other {# búsquedas}} desde el {date}.",
       "skeletonHeadword": "Palabra de ejemplo",
       "skeletonSubtitle": "Su traducción de ejemplo · 0 búsquedas",
-      "skeletonDate": "0 de enero de 2026"
+      "skeletonDate": "0 de enero de 2026",
+      "emptyBody": "No has buscado «{word}» todavía.",
+      "emptyAction": "Buscarla"
     }
   },
   "account": {
@@ -104,6 +106,7 @@
     "errors": {
       "emailInvalid": "Escribe un correo válido",
       "sendFailed": "No se pudo enviar el enlace",
+      "rateLimited": "Demasiados intentos. Prueba de nuevo en unos minutos.",
       "linkInvalid": "El enlace no es válido o venció"
     },
     "copy": {

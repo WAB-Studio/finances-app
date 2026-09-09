@@ -208,13 +208,36 @@ test("from /registro, tapping the lukewarm row reaches /registro/lukewarm", asyn
   await expect(page).toHaveURL(/\/registro\/lukewarm$/);
 });
 
-test("a word never searched draws the empty state, never a failure or a blank screen", async ({ page }) => {
+test("a word never searched draws its own empty state, never a failure or a blank screen", async ({ page }) => {
   await deleteTranslator(page);
   await deleteLogDatabase(page);
 
   await page.goto("/registro/zzqqxv");
-  await expect(page.getByText(messages.log.study.emptyTitle)).toBeVisible();
-  await expect(page.getByText(messages.log.study.failedTitle)).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "zzqqxv" })).toBeVisible();
+  await expect(page.getByText(messages.log.word.emptyBody.replace("{word}", "zzqqxv"))).toBeVisible();
+  await expect(page.getByRole("button", { name: messages.log.word.emptyAction })).toBeVisible();
+  await expect(page.getByText(messages.log.listFailed)).toHaveCount(0);
+});
+
+// The module 25 fix (`PalabraHistorialVacio`): the old copy borrowed from
+// `study.emptyTitle`, "Todavía no has buscado nada" — false the moment the
+// record holds even one row for some other word, which this seeds on
+// purpose so a regression back to the borrowed copy fails loudly.
+test("a word never searched keeps its own empty copy even when the record holds other words", async ({ page }) => {
+  await deleteTranslator(page);
+
+  await page.goto("/registro");
+  await seedRows(page, [{ at: Date.now(), text: "lukewarm", normalised: "lukewarm", translation: "tibio" }]);
+
+  await page.goto("/registro/zzqqxv");
+  await expect(page.getByRole("heading", { name: "zzqqxv" })).toBeVisible();
+  await expect(page.getByText(messages.log.word.emptyBody.replace("{word}", "zzqqxv"))).toBeVisible();
+  await expect(page.getByText(messages.log.study.emptyTitle)).toHaveCount(0);
+
+  // "Buscarla" hands the word straight to the search box.
+  await page.getByRole("button", { name: messages.log.word.emptyAction }).click();
+  await expect(page).toHaveURL(/\/\?q=zzqqxv$/);
+  await expect(page.getByRole("textbox", { name: messages.search.label })).toHaveValue("zzqqxv");
 });
 
 // The dictionary's own longest headword, no space anywhere in it — the same

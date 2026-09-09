@@ -86,5 +86,6 @@ test("a hard load of /registro/zzqqxv does not overwrite the cached / shell", as
   // per-route cache key must not have traded one route's offline support for
   // the other's.
   await page.goto("/registro/zzqqxv");
-  await expect(page.getByText(messages.log.study.emptyTitle)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "zzqqxv" })).toBeVisible();
+  await expect(page.getByText(messages.log.word.emptyBody.replace("{word}", "zzqqxv"))).toBeVisible();
 });

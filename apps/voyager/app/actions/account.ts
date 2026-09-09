@@ -15,7 +15,7 @@ const emailSchema = z.email();
 
 export type SendSignInLinkResult =
   | { ok: true }
-  | { ok: false; error: "emailInvalid" | "sendFailed" };
+  | { ok: false; error: "emailInvalid" | "sendFailed" | "rateLimited" };
 
 /**
  * Asks for the sign-in link (RL-22). No `data` on the call: it would land in
@@ -38,10 +38,9 @@ export async function sendSignInLink(email: string): Promise<SendSignInLinkResul
 
   if (error) {
     console.error("sign-in link request failed", error);
-    // 429 / over_email_send_rate_limit lands on the same key as any other
-    // failure to send: there is no copy in messages/es.json that names the
-    // rate limit apart from a generic "could not send".
-    return { ok: false, error: "sendFailed" };
+    // 429 (over_email_send_rate_limit) names the wait, not just the
+    // failure to send — every other status keeps the generic copy.
+    return { ok: false, error: error.status === 429 ? "rateLimited" : "sendFailed" };
   }
 
   // Identical whether or not that address already has an account: the answer
