@@ -15,10 +15,10 @@ function decodeSegment(segment: string): string {
   }
 }
 
-// Server-rendered shell alone, like `/registro`: the read is IndexedDB-only,
-// so it belongs to the client component this mounts. No `useDictionary`
-// here, so no Worker mounts on a screen that never looks a word up
-// (RNL-08). `measure="full"`: this is a list and a back link, not prose.
+// Server-rendered shell alone: the segment only names which word this is,
+// and everything the word needs — its own log, its own dictionary answer —
+// is a client-side read `WordHistory` owns. `measure="full"`: this is a
+// list and a back link, not prose.
 export default async function PalabraHistorialPage(props: PageProps<"/registro/[palabra]">) {
   const { palabra } = await props.params;
 

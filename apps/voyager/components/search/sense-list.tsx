@@ -258,6 +258,7 @@ export function SenseList({
   answer,
   variant = "full",
   wordHref,
+  showExactHeadword = true,
 }: {
   answer: WordAnswer;
   variant?: SenseListVariant;
@@ -266,6 +267,12 @@ export function SenseList({
   // `no-entry-answer.tsx` alone; a direct lookup passes nothing, so its
   // headword stays plain.
   wordHref?: string;
+  // False on `/registro/[palabra]` alone: that screen already draws the
+  // word as its own page heading, so the exact match's own copy of it
+  // would repeat as a second heading sharing the page heading's name.
+  // Every `viaInflection` hit still gets its own — that lemma names a
+  // different word than the page's own heading.
+  showExactHeadword?: boolean;
 }) {
   const t = useTranslations("word");
   const tSearch = useTranslations("search");
@@ -288,7 +295,7 @@ export function SenseList({
       {answer.exact !== null && (
         <Flex direction="column" gap="3">
           <Flex align="center" gap="1">
-            <BlockHeading word={answer.exact.headword} wordHref={wordHref} />
+            {showExactHeadword && <BlockHeading word={answer.exact.headword} wordHref={wordHref} />}
             {!compact && <SpeakButton headword={answer.exact.headword} t={t} />}
           </Flex>
           <SenseGroup senses={answer.exact.senses} compact={compact} t={t} />
