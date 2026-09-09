@@ -21,6 +21,13 @@ type TapProp = {
   tap?: boolean | TapSize;
 };
 
+type BlockProp = {
+  // Runs the button to the row's full width — `CuentaSinRed`'s retry is the
+  // one place that asks for it, so it is a prop here rather than a style
+  // reached from outside.
+  block?: boolean;
+};
+
 function withTap(
   tap: boolean | TapSize | undefined,
   className: string | undefined,
@@ -30,9 +37,14 @@ function withTap(
   return className ? `${floor} ${className}` : floor;
 }
 
-export const Button = forwardRef<HTMLButtonElement, ButtonProps & TapProp>(
-  function Button({ tap, className, ...props }, ref) {
-    return <ThemesButton ref={ref} {...props} className={withTap(tap, className)} />;
+function withBlock(block: boolean | undefined, className: string | undefined): string | undefined {
+  if (!block) return className;
+  return className ? `${styles.block} ${className}` : styles.block;
+}
+
+export const Button = forwardRef<HTMLButtonElement, ButtonProps & TapProp & BlockProp>(
+  function Button({ tap, block, className, ...props }, ref) {
+    return <ThemesButton ref={ref} {...props} className={withBlock(block, withTap(tap, className))} />;
   },
 );
 

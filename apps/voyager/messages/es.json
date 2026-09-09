@@ -101,12 +101,14 @@
     "emailLabel": "Correo electrónico",
     "sending": "Enviando…",
     "sent": "Revisa tu correo y abre el enlace que te mandamos",
+    "retry": "Reintentar",
     "signedInAs": "Sesión iniciada como {email}",
     "signOut": "Cerrar sesión",
     "errors": {
       "emailInvalid": "Escribe un correo válido",
       "sendFailed": "No se pudo enviar el enlace",
       "rateLimited": "Demasiados intentos. Prueba de nuevo en unos minutos.",
+      "offline": "Sin conexión. No se pudo enviar el enlace.",
       "linkInvalid": "El enlace no es válido o venció"
     },
     "copy": {
