@@ -353,6 +353,20 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   It draws `error.title` and `error.retry`, which were written long before any screen called them.
   It obeys `## Failure` — a hairline sets the break off, the line is full-weight ink, and the accent
   is spent only on the button that recovers. No error colour, here or anywhere.
+- **A word block on `SinEntradaFrase` carries its translations alone — no IPA, no definition.**
+  Decided by the user 2026-09-09, once the screen's real height was measured. It applies to this
+  screen only: looking a word up on its own still answers in full. A reader scrolling a failed
+  sentence does not need the full entry for «the». Known price: the fallback answers less completely
+  than a direct lookup, and it needs a `SenseList` variant that does not exist yet. **The four
+  `SinEntradaFrase` boards draw the full block and are stale until they are redrawn.**
+- **«El diccionario no tiene esa palabra» never shows over an unfinished prefix.** Decided by the
+  user 2026-09-09, after the critic drove it: typing `ru` and pausing 900ms — to think, to look back
+  at the book — withdrew a correct suggestion list and left the not-found line over a prefix the
+  dictionary certainly has, in the gesture the app repeats most. The message is suppressed while the
+  text is still a prefix of at least one suggestion already offered, and kept for when nothing
+  matches at all. **`SUGGESTIONS_SETTLE_MS` does not change** — raising it was offered and refused —
+  **and RL-18 does not change**: the list still withdraws on settle. What was wrong is RL-18's own
+  stated reason, «the answer is already on screen»: on an unfinished prefix there is no answer.
 - **`SinEntradaFrase` draws the phrase fallback, and the screen it makes is tall.** Approved by the
   user 2026-09-09, four boards on the canvas's «Buscar · sin respuesta» page at y 5200, light and
   dark × desktop and mobile. «she kept her fettle through the long and bitter winter» with no
@@ -360,12 +374,12 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   «El diccionario tampoco tiene esta palabra» line is drawn **inside** the fallback and not only
   beside it. Two alternatives were offered and refused — cutting to four or five blocks, and skipping
   articles and prepositions — so the breakdown stays every word, in order.
-  **The height the user approved was wrong, and the built screen is about twice it.** The boards
-  carry 1560px desktop and 1880px mobile, and that is the figure the approval was given against.
-  Measured on the shipped build 2026-09-09, a nine-word failing phrase draws **3022px on desktop and
-  3155px on mobile** — the boards size the content column, the real page adds the search box and the
-  shell around it. The decision stands; the number in the boards does not. Measure the page, not the
-  artboard, the next time a screen is approved on its height.
+  **The height was given wrong twice, and the boards still carry the wrong figure.** They say 1560px
+  desktop and 1880px mobile — that sized the content column, not the page, and it is the number the
+  approval was given against. A first correction said 3022/3155. Driving the built app 2026-09-09
+  measured **3508px desktop and 3805px mobile** for a nine-word failing phrase: four or five phone
+  screens of scrolling to reach the word the reader wanted. Measure the page, never the artboard,
+  when a screen is approved on its height.
 - **A phrase the translation cannot answer falls back to the per-word breakdown.** Decided by the
   user 2026-09-09, closing the gap `SinEntrada`'s eight-block cut left. `schedulePhrase` sends every
   3-to-60-token phrase to `PhraseAnswer` today, so the breakdown ran at exactly two tokens and
