@@ -136,3 +136,30 @@ test("a word never searched draws the empty state, never a failure or a blank sc
   await expect(page.getByText(messages.log.study.emptyTitle)).toBeVisible();
   await expect(page.getByText(messages.log.study.failedTitle)).toHaveCount(0);
 });
+
+// The dictionary's own longest headword, no space anywhere in it — the same
+// literal string `word.spec.ts:157` and `estudio.spec.ts` already prove the
+// search screen and the study hold at 360px. This screen's headline is
+// `Headword`, which wraps mid-word by design (`headword.module.css`'s own
+// `overflow-wrap: anywhere`) rather than truncating, so it carries none of
+// `history-list.tsx`'s `Grid`+`Box`+`truncate` shape — proved here, not
+// assumed from reading the component.
+const LONGEST_HEADWORD = "Taumatawhakatangihangakoauauotamateaturipukakapikimaungahoronukupokaiwhenuakitanatahu";
+
+test("a word's own headword with no space to break on never scrolls /registro/[palabra] sideways, at 360px", async ({
+  page,
+}) => {
+  await deleteTranslator(page);
+
+  await page.goto("/registro");
+  await seedRows(page, [
+    { at: Date.now(), text: LONGEST_HEADWORD, normalised: LONGEST_HEADWORD.toLowerCase(), translation: "tibio" },
+  ]);
+  await page.goto(`/registro/${LONGEST_HEADWORD.toLowerCase()}`);
+
+  await expect(page.getByRole("heading", { name: LONGEST_HEADWORD })).toBeVisible();
+
+  const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
+  const clientWidth = await page.evaluate(() => document.documentElement.clientWidth);
+  expect(scrollWidth).toBe(clientWidth);
+});

@@ -101,3 +101,25 @@ test("tapping a row from /registro reaches that word's own history", async ({ pa
   await page.locator('a[href="/registro/lukewarm"]').click();
   await expect(page).toHaveURL(/\/registro\/lukewarm$/);
 });
+
+// The dictionary's own longest headword, no space anywhere in it — the same
+// literal string `word.spec.ts:157` already proves the search screen holds
+// at 360px, so a row's own clamp is measured against the exact case that
+// broke it, not a stand-in.
+const LONGEST_HEADWORD = "Taumatawhakatangihangakoauauotamateaturipukakapikimaungahoronukupokaiwhenuakitanatahu";
+
+test("a row's headword with no space to break on never scrolls the page sideways, at 360px", async ({ page }) => {
+  await deleteTranslator(page);
+
+  await page.goto("/registro");
+  await seedRows(page, [
+    { at: Date.now(), text: LONGEST_HEADWORD, normalised: LONGEST_HEADWORD.toLowerCase(), translation: "tibio" },
+  ]);
+  await page.reload();
+
+  await expect(page.locator(`a[href="/registro/${LONGEST_HEADWORD.toLowerCase()}"]`)).toBeVisible();
+
+  const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
+  const clientWidth = await page.evaluate(() => document.documentElement.clientWidth);
+  expect(scrollWidth).toBe(clientWidth);
+});

@@ -24,24 +24,46 @@ function StudyRowItem({ row }: { row: StudyRow }) {
     <Link asChild underline="none">
       <NextLink href={`/registro/${encodeURIComponent(row.normalised)}`}>
         <TapTarget size={44} direction="column" align="stretch" width="100%">
-          {/* `1fr auto` on the phone stacks the translation under the word;
-              `1fr 1fr auto` on the desktop puts word, translation and count
-              on one row (RL-32's board). `gridColumn`/`gridRow` move each
-              cell between the two shapes; `Grid`'s `minmax(0, 1fr)` still
-              clamps the headword that never has a space to break on
-              (docs/voyager/DESIGN.md "What the data forces"). */}
-          <Grid columns={{ initial: "1fr auto", md: "1fr 1fr auto" }} gap="3" align="center">
-            <Box gridColumn="1" gridRow="1">
+          {/* `minmax(0, 1fr) auto` on the phone stacks the translation under
+              the word; the desktop's third track puts word, translation and
+              count on one row (RL-32's board). `gridColumn`/`gridRow` move
+              each cell between the two shapes. The `minmax(0, …)` is
+              written out, not left to Radix's own `columns` shorthand:
+              `grid.props.js`'s `parseValue` only rewrites a bare digit
+              count into `repeat(n, minmax(0, 1fr))` — a literal string like
+              `"1fr auto"` passes through unchanged, so a `1fr` track alone
+              never gets a zero floor.
+
+              A truncated word still needs a second guard past that: CSS
+              blockifies a grid item's own display, but not a *grandchild*
+              that only sits inside a plain `Box`, so `Text truncate` stayed
+              `display: inline` — where `overflow: hidden` does not clip —
+              and rendered at its full, un-clamped width regardless of the
+              column underneath it. Making the wrapper a `Flex` (a
+              container of its own) blockifies the `Text` it holds exactly
+              the way module 3's original code had it as the grid item
+              directly (docs/voyager/DESIGN.md "What the data forces"). */}
+          <Grid
+            columns={{ initial: "minmax(0, 1fr) auto", md: "minmax(0, 1fr) minmax(0, 1fr) auto" }}
+            gap="3"
+            align="center"
+          >
+            <Flex gridColumn="1" gridRow="1" minWidth="0" overflow="hidden">
               <Text serif truncate>
                 {row.display}
               </Text>
-            </Box>
+            </Flex>
             {row.lastTranslation !== null && (
-              <Box gridColumn={{ initial: "1", md: "2" }} gridRow={{ initial: "2", md: "1" }}>
+              <Flex
+                gridColumn={{ initial: "1", md: "2" }}
+                gridRow={{ initial: "2", md: "1" }}
+                minWidth="0"
+                overflow="hidden"
+              >
                 <Text variant="translation" muted truncate>
                   {row.lastTranslation}
                 </Text>
-              </Box>
+              </Flex>
             )}
             <Box gridColumn={{ initial: "2", md: "3" }} gridRow="1" justifySelf="end">
               <MetaLabel>{row.count}</MetaLabel>
