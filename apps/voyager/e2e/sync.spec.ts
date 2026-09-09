@@ -616,3 +616,19 @@ test("RL-30, RNL-09: signing out disables the copy, drops the box's stored query
     await sql.end();
   }
 });
+
+test("RL-22: a sign-in link that verifyOtp rejects lands on /cuenta with its own message, not silence", async ({
+  page,
+}) => {
+  // No minted identity: a hash `auth.one_time_tokens` never held is exactly
+  // what `route.ts`'s `verifyOtp` call answers with an error for.
+  const bogusHash = randomBytes(32).toString("hex");
+  const response = await page.request.get(`/auth/confirm?token_hash=${bogusHash}&type=magiclink`, {
+    maxRedirects: 0,
+  });
+  const location = response.headers()["location"];
+  expect(location, `redirected to ${location ?? "nowhere"}`).toContain("error=linkInvalid");
+
+  await page.goto("/cuenta?error=linkInvalid");
+  await expect(page.getByText(messages.account.errors.linkInvalid)).toBeVisible();
+});
