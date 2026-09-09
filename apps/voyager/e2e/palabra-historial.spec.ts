@@ -266,3 +266,83 @@ test("a word's own headword with no space to break on never scrolls /registro/[p
   const clientWidth = await page.evaluate(() => document.documentElement.clientWidth);
   expect(scrollWidth).toBe(clientWidth);
 });
+
+// A URL segment arrives percent-encoded, never decoded, on this Next
+// version (measured against the page's own production build): a
+// multi-word `normalised` used to render and to query IndexedDB as its own
+// raw, still-encoded self, so a real record for "give up" never matched
+// and the reader read a lie about a word they had searched twice.
+test("a multi-word normalised decodes off its own URL segment, and still finds its own rows", async ({ page }) => {
+  await deleteTranslator(page);
+
+  await page.goto("/registro");
+  await seedRows(page, [
+    { at: Date.now() - DAY_MS, text: "give up", normalised: "give up", translation: "rendirse" },
+    { at: Date.now(), text: "give up", normalised: "give up", translation: "rendirse" },
+  ]);
+
+  await page.goto("/registro/give%20up");
+  await expect(page.getByRole("heading", { name: "give up" })).toBeVisible();
+  await expect(page.getByText(/2 búsquedas/)).toBeVisible();
+});
+
+// The other half of the same defect: a word this record never held still
+// names itself correctly in the empty state, and "Buscarla" hands the
+// dictionary a real, single-decoded query — never `give%2520up`, the
+// double-encoded href a raw `normalised` used to build.
+test("a multi-word normalised never searched names itself right, and Buscarla finds the real entry", async ({
+  page,
+}) => {
+  await deleteTranslator(page);
+  await deleteLogDatabase(page);
+
+  await page.goto("/registro/give%20up");
+  await expect(page.getByRole("heading", { name: "give up" })).toBeVisible();
+  await expect(page.getByText(messages.log.word.emptyBody.replace("{word}", "give up"))).toBeVisible();
+
+  await page.getByRole("button", { name: messages.log.word.emptyAction }).click();
+  await page.waitForURL(/\/\?q=/);
+  expect(page.url()).toMatch(/\/\?q=give(\+|%20)up$/);
+  await expect(page.getByRole("heading", { name: "give up" })).toBeVisible();
+});
+
+// Same defect, no space in sight: an accented `normalised` must decode too,
+// not merely split on `%20`.
+test("an accented normalised decodes off its own URL segment", async ({ page }) => {
+  await deleteTranslator(page);
+  await deleteLogDatabase(page);
+
+  await page.goto("/registro/caf%C3%A9");
+  await expect(page.getByRole("heading", { name: "café" })).toBeVisible();
+});
+
+// The mixed reading the fix must not produce: a real percent-encoded `%25`
+// (a literal "%" character) decodes exactly once, to the same "100%" in
+// every one of the three places that read `normalised` — the heading, the
+// empty state's own body copy, and the query "Buscarla" hands the search
+// box — never landing on `100%25` in one and `100%` in another.
+test("a percent-encoded percent sign decodes once, the same way everywhere", async ({ page }) => {
+  await deleteTranslator(page);
+  await deleteLogDatabase(page);
+
+  await page.goto("/registro/100%25");
+  await expect(page.getByRole("heading", { name: "100%", exact: true })).toBeVisible();
+  await expect(page.getByText(messages.log.word.emptyBody.replace("{word}", "100%"))).toBeVisible();
+
+  await page.getByRole("button", { name: messages.log.word.emptyAction }).click();
+  await page.waitForURL(/\/\?q=/);
+  expect(page.url()).toMatch(/\/\?q=100%25$/);
+});
+
+// The regression that matters most: a single-word `normalised` carries no
+// percent escape, so decoding it is a no-op — 75% of the dictionary's own
+// entries take this path and must read exactly as they did before the fix.
+test("a single-word normalised with nothing to decode is unchanged", async ({ page }) => {
+  await deleteTranslator(page);
+  await page.goto("/registro");
+  await seedRows(page, [{ at: Date.now(), text: "book", normalised: "book", translation: "libro" }]);
+
+  await page.goto("/registro/book");
+  await expect(page.getByRole("heading", { name: "book" })).toBeVisible();
+  await expect(page.getByText(messages.log.outcome.exact, { exact: true })).toHaveCount(1);
+});
