@@ -15,3 +15,8 @@
 .muted.muted {
   color: var(--rl-muted);
 }
+
+/* docs/voyager/DESIGN.md "Type": a pronunciation runs 13px, no Radix step. */
+.ipa.ipa {
+  font-size: 13px;
+}
