@@ -339,13 +339,20 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
 - **`SinResultadoIAFallo` is stale in all four faces.** «La IA no pudo responder» is the state the
   decision above replaces. The boards stay on the canvas as a record of what was; never cite one in
   a dispatch. The screen a failed translation reaches from now on is `SinEntradaFrase`.
-- **`error.*` and `offline.*` are strings for two screens nobody wired, and both get built.**
-  Decided by the user 2026-09-09, when a sweep of `messages/es.json` stopped on them rather than
-  deleting them. Verified across all four live branches that day: there is no `app/error.tsx` and no
-  offline check anywhere in the tree, so neither namespace has a caller. They are not orphans to
-  sweep — they are copy written ahead of the screen. A generic error boundary and an offline notice
-  wired to RL-16 each need a module, and **neither has a board yet**: draw them before either is
-  dispatched. Until then the strings stay in the file; a future sweep must leave them alone.
+- **The app says nothing about being offline, and `offline.notice` goes.** Decided by the user
+  2026-09-09, with both readings drawn side by side on the canvas's «Cáscara» page. The string
+  existed — «Estás usando la app instalada en el dispositivo, sin conexión» — and it only explains:
+  there is nothing to act on, and the app answers a lookup offline exactly as it does online, which
+  is what RL-16 promises. `## Type`'s rule wins: write what a person acts on, cut what only explains.
+  **`SinConexionCallado` is the approved board; `SinConexionAviso` is stale** — it exists only to
+  record what was refused. Known price, and the user took it: a reader who needs the network for
+  something that needs it — translating a phrase, copying to the account — is told nothing about why.
+- **The error boundary covers the whole app and keeps the shell.** Decided by the user 2026-09-09,
+  approving `Error` in all four faces on the «Cáscara» page. One `app/error.tsx` at the root: the
+  bottom bar or the sidebar stay put, so a reader can leave for another section without reloading.
+  It draws `error.title` and `error.retry`, which were written long before any screen called them.
+  It obeys `## Failure` — a hairline sets the break off, the line is full-weight ink, and the accent
+  is spent only on the button that recovers. No error colour, here or anywhere.
 - **`SinEntradaFrase` draws the phrase fallback, and the screen it makes is tall.** Approved by the
   user 2026-09-09, four boards on the canvas's «Buscar · sin respuesta» page at y 5200, light and
   dark × desktop and mobile. «she kept her fettle through the long and bitter winter» with no
