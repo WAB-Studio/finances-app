@@ -1247,3 +1247,25 @@ merge.
 **Settled 2026-09-09 by the user: it is acceptable.** Keep using `gh pr merge --squash`. The squash
 commit carries the GitHub account; the branch's own commits stay wilson's, and those are the ones
 `AGENTS.md` means. Do not raise this again, and do not merge by hand to work around it.
+
+## A malformed `%` in a dynamic segment 500s inside Next's own router
+
+Measured 2026-09-09 while fixing `/registro/<palabra>`, which was serving the raw segment
+(`give%20up` drawn instead of `give up`, on 16,112 of 64,258 dictionary entries — 25.1%).
+
+`GET /registro/100%` returns **500**, and no edit to the page can prevent it. The crash is in
+Next 16.3.3 itself: `shared/lib/router/utils/route-matcher.js:19` calls `decodeURIComponent(param)`
+while `server/lib/router-utils/resolve-routes.js`'s `checkTrue()` is still deciding whether the
+pathname matches `/registro/[palabra]` — entirely **before** `page.tsx` executes. Confirmed by
+monkey-patching global `decodeURIComponent` and capturing the stack.
+
+It affects **every dynamic segment in the app**, not this route. The only fix that reaches it is a
+root `middleware.ts` intercepting the pathname before the router sees it.
+
+**Not taken, 2026-09-09.** A site-wide interception layer is a large, always-on hammer for a URL a
+person can only reach by typing a broken escape by hand. Decode inside the page with a try/catch
+that falls back to the raw segment — a malformed escape is best read as the literal text the person
+typed — and leave the router's own edge alone. Revisit only if a real link, share or redirect is
+found producing one.
+
+`/registro/100%25` (a properly escaped percent) works and always did.
