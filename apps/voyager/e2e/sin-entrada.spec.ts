@@ -191,7 +191,7 @@ test("a phrase whose translation fails falls to the per-word breakdown, capped a
   // block — only the "N more" line below names it indirectly, by count.
   await expect(mainHeadings(page).filter({ hasText: "pig" })).toHaveCount(0);
   await expect(mainHeadings(page)).toHaveCount(8);
-  await expect(page.getByText("…y 1 palabra más que no cabe aquí.")).toBeVisible();
+  await expect(page.getByText("…y 1 palabra más: pig.")).toBeVisible();
 
   // docs/voyager/DESIGN.md "A word block on `SinEntradaFrase` carries its
   // translations alone": no IPA, no definition anywhere in the breakdown.
@@ -241,4 +241,53 @@ test("a two-token string still never reaches the translator, and still draws the
 
   await page.waitForTimeout(PHRASE_DEBOUNCE_MS + 300);
   expect(translateCount, "a two-token string never reaches the translate route").toBe(0);
+});
+
+// docs/voyager/DESIGN.md "Every block of the breakdown is a way back in":
+// every shown block, hit or miss, and the "more" line all lead to
+// `/?q=<word>` — the only door out of a breakdown used to be retyping the
+// box from scratch.
+test("every block and the trailing line lead back to /?q=<word>, and that screen answers it", async ({
+  page,
+}) => {
+  await deleteTranslator(page);
+  await page.route("**/api/translate", async (route) => {
+    await route.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({ error: "provider" }) });
+  });
+  await openReady(page);
+
+  const phraseText = "she kept her fettle through the long and bitter winter";
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+  await searchBox.fill(phraseText);
+
+  const expectedTitle = messages.search.noEntry.titleTranslationFailed.replace("{query}", phraseText);
+  await expect(page.getByText(expectedTitle)).toBeVisible();
+
+  // "fettle" is the block the dictionary itself misses; its own heading is
+  // still a door, even with nothing behind it.
+  await page.locator('main a[href="/?q=fettle"]').click();
+  await expect(page).toHaveURL(/\/\?q=fettle$/);
+  await expect(page.getByText(messages.search.notFound)).toBeVisible();
+
+  await page.goBack();
+  await expect(page.getByText(expectedTitle)).toBeVisible();
+
+  // "she" hit the dictionary inside the breakdown, compact; its door reaches
+  // the same word's full answer — IPA, definition, voice, the lot.
+  await page.locator('main a[href="/?q=she"]').click();
+  await expect(page).toHaveURL(/\/\?q=she$/);
+  await expect(page.getByRole("heading", { name: "she", exact: true })).toBeVisible();
+  await expect(page.getByText(messages.word.translations)).toBeVisible();
+
+  await page.goBack();
+  await expect(page.getByText(expectedTitle)).toBeVisible();
+
+  // Blocks 1-8 are she/kept/her/fettle/through/the/long/and; "bitter" and
+  // "winter" fall past `MAX_BLOCKS` and the trailing line is their own door,
+  // naming both and reaching the first.
+  const more = page.locator("main a", { hasText: "bitter" });
+  await expect(more).toHaveText("…y 2 palabras más: bitter, winter.");
+  await more.click();
+  await expect(page).toHaveURL(/\/\?q=bitter$/);
+  await expect(page.getByRole("heading", { name: "bitter", exact: true })).toBeVisible();
 });

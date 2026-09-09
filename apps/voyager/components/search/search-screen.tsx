@@ -194,6 +194,21 @@ export function SearchScreen({ initialQuery }: { initialQuery?: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // A block of the breakdown links to `/?q=<word>` while this very screen
+  // stays mounted (docs/voyager/DESIGN.md "Every block of the breakdown is
+  // a way back in"): Next re-renders `app/page.tsx` with the new
+  // `searchParams`, but nothing unmounts this component to make the mount
+  // effect above run again. `committedTextRef` is what tells the two apart
+  // from a keystroke's own write to the same ref: a prop the mount effect
+  // already consumed is skipped here.
+  useEffect(() => {
+    if (!initialQuery || initialQuery === committedTextRef.current) return;
+    committedTextRef.current = initialQuery;
+    boundaryRef.current = false;
+    applyText(initialQuery, { schedule: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialQuery]);
+
   // The browser's own back and forward across this screen's own history
   // entries: nothing else updates the box or re-asks the dictionary when
   // the URL changes out from under a mounted `SearchScreen` (RNL-05's rule
