@@ -21,7 +21,7 @@
   }
 }
 
-/* Each of the two sections takes half the row; the 44px floor itself comes
+/* Each section takes an equal share of the row; the 44px floor itself comes
    from TapTarget, this only centres it and carries the state colour.
    Doubled to outrank `.rt-Link:where(:any-link, button)`. */
 .item.item {
