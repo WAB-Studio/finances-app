@@ -13,8 +13,8 @@ import type { LogExport } from "../lib/log/export";
 // literal `2`, keeps the seeder below in lockstep with the schema it mirrors.
 import { DATABASE_VERSION } from "../lib/log/record";
 
-// The same runtime `next-intl` renders with: module 2's `log.count` is an
-// ICU plural, so a literal `"{count}"` substring never appears in the
+// The same runtime `next-intl` renders with: `log.study.header` is an ICU
+// plural, so a literal `"{lookups}"` substring never appears in the
 // rendered text and a naive `.replace` against it always misses.
 const t = createTranslator({ locale: "es", messages });
 
@@ -146,7 +146,7 @@ test("10,003 rows export whole, and the file round-trips through JSON exactly", 
   await seedRows(page, 10_003);
   await page.reload();
 
-  await expect(page.getByText(t("log.count", { count: 10_003 }))).toBeVisible();
+  await expect(page.getByText(t("log.study.header", { lookups: 10_003, words: 10_003 }))).toBeVisible();
 
   const rawRows = await readRawRows(page);
   expect(rawRows).toHaveLength(10_003);
@@ -182,7 +182,7 @@ test("the nav reaches /registro, which counts what was searched and exports it",
   await page.getByRole("navigation", { name: messages.nav.label }).getByRole("link", { name: messages.nav.log }).click();
   await expect(page).toHaveURL(/\/registro$/);
 
-  await expect(page.getByText(t("log.count", { count: 1 }))).toBeVisible();
+  await expect(page.getByText(t("log.study.header", { lookups: 1, words: 1 }))).toBeVisible();
 
   const exported = await downloadExport(page);
   expect(exported.exportSchema).toBe(1);
