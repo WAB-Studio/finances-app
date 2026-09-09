@@ -52,3 +52,67 @@
      second line; the label is two words at most and never needs to. */
   white-space: nowrap;
 }
+
+/* The sidebar-only heading and the sidebar-only foot reserve: both collapse
+   to nothing on the bar, below 1024px. */
+.title {
+  display: none;
+}
+
+.spacer {
+  display: none;
+}
+
+/* docs/voyager/DESIGN.md "Viewport": the bar becomes a sidebar at 1024px, a
+   second breakpoint distinct from the ~660px the reading column centres
+   above. Same `<nav>`, same items, same `aria-current` — only the box
+   changes shape. */
+@media (min-width: 1024px) {
+  .nav {
+    inset-inline: 0 auto;
+    inset-block: 0;
+    width: 240px;
+    max-width: none;
+    margin-inline: 0;
+    flex-direction: column;
+    align-items: stretch;
+    border-top: none;
+    border-inline-end: 1px solid var(--rl-line);
+    padding-bottom: 0;
+    padding-block: var(--space-6);
+  }
+
+  .title.title {
+    display: block;
+    padding-inline: 18px;
+    margin: 0 0 var(--space-6) 0;
+    font-size: 21px;
+  }
+
+  /* Doubled to outrank the mobile row's own `.item.item` above. */
+  .item.item {
+    flex: 0 0 auto;
+    justify-content: flex-start;
+    min-height: 44px;
+    padding-inline-start: 18px;
+    border-inline-start: 2px solid transparent;
+  }
+
+  .item.item.selected {
+    border-inline-start-color: var(--rl-accent);
+  }
+
+  /* TapTarget's own root span: no `className` prop to reach it through, so
+     this overrides its `direction="column"` by the DOM shape bottom-nav.tsx
+     itself guarantees — the item link's one direct child. */
+  .item > span {
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .spacer {
+    display: block;
+    flex: 1 1 auto;
+  }
+}

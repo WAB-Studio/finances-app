@@ -1,0 +1,71 @@
+import { expect, test } from "@playwright/test";
+
+import messages from "../messages/es.json";
+
+// Runs against the `desktop` project alone (playwright.config.ts scopes it
+// there): 1280x800, no touch. docs/voyager/DESIGN.md "Viewport": the bar
+// becomes a sidebar at 1024px, a second breakpoint distinct from the ~660px
+// the reading column centres above.
+
+const ROUTES = [
+  { path: "/", key: "search" },
+  { path: "/registro", key: "log" },
+  { path: "/cuenta", key: "account" },
+] as const;
+
+async function disableTranslator(page: import("@playwright/test").Page): Promise<void> {
+  await page.addInitScript(() => {
+    delete (window as unknown as { Translator?: unknown }).Translator;
+  });
+}
+
+test("one <nav> at the side on every route, never a bar at the foot", async ({ page }) => {
+  await disableTranslator(page);
+
+  for (const { path, key } of ROUTES) {
+    await page.goto(path);
+    await page.waitForTimeout(300);
+
+    // A single implementation, one media query: proven by count, not read
+    // off the markup (docs/TRAPS.md "An unscoped locator finds both bands
+    // at once" — a role locator already tells two trees from one).
+    const navs = page.getByRole("navigation", { name: messages.nav.label });
+    await expect(navs).toHaveCount(1);
+
+    const box = await navs.boundingBox();
+    expect(box).not.toBeNull();
+    // Pinned to the left edge, spanning the full viewport height: a side
+    // rail, never a short strip sitting at the foot.
+    expect(box!.x).toBeLessThan(1);
+    expect(box!.width).toBeGreaterThan(238);
+    expect(box!.width).toBeLessThan(242);
+    expect(box!.height).toBeGreaterThan(700);
+
+    const current = navs.getByRole("link", { name: messages.nav[key] });
+    await expect(current).toHaveAttribute("aria-current", "page");
+    for (const other of ROUTES) {
+      if (other.key === key) continue;
+      await expect(navs.getByRole("link", { name: messages.nav[other.key] })).not.toHaveAttribute(
+        "aria-current",
+        "page",
+      );
+    }
+  }
+});
+
+test("the reading column on / keeps its 620px measure and clears the sidebar", async ({ page }) => {
+  await disableTranslator(page);
+  await page.goto("/");
+  await page.waitForTimeout(300);
+
+  const navBox = await page.getByRole("navigation", { name: messages.nav.label }).boundingBox();
+  const mainBox = await page.locator("main").boundingBox();
+  expect(navBox).not.toBeNull();
+  expect(mainBox).not.toBeNull();
+
+  expect(mainBox!.width).toBeLessThanOrEqual(620.5);
+  // Centred in what is left of the viewport, not stuck to the sidebar's
+  // own right edge — a real gap, not a hairline.
+  const gap = mainBox!.x - (navBox!.x + navBox!.width);
+  expect(gap).toBeGreaterThan(20);
+});
