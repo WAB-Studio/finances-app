@@ -30,10 +30,6 @@ const PHRASE_DEBOUNCE_MS = 600;
 // The query string's own name: `/?q=book`.
 const QUERY_PARAM = "q";
 
-// RL-18: how long autocomplete stays up after the last keystroke before it
-// withdraws. The word answer itself is never held for this — only the list.
-const SUGGESTIONS_SETTLE_MS = 900;
-
 // RNL-05, rule 3: how many translated sentences stay free to revisit.
 const PHRASE_CACHE_LIMIT = 20;
 
@@ -134,10 +130,9 @@ export function SearchScreen({ initialQuery }: { initialQuery?: string }) {
   const [text, setText] = useState(resolvedQuery);
   const [kind, setKind] = useState<QueryKind>({ kind: "empty" });
   const [wordAnswer, setWordAnswer] = useState<WordAnswer | null>(null);
+  // RL-18: stays on screen until the text itself changes, never on a timer
+  // — a paused prefix keeps its list. Decided by the user 2026-09-09.
   const [suggestions, setSuggestions] = useState<string[]>([]);
-  // RL-18: the list is withdrawn once typing settles; the data behind it
-  // stays put so a fresh keystroke can bring it straight back.
-  const [suggestionsWithdrawn, setSuggestionsWithdrawn] = useState(false);
   const [phraseState, setPhraseState] = useState<PhraseState>({ kind: "idle" });
   // RL-31: a two-token miss or a >60-token string never reaches
   // `translatePhrase` — this is the state that draws in its place. RL-37
@@ -150,7 +145,6 @@ export function SearchScreen({ initialQuery }: { initialQuery?: string }) {
   // anything else was superseded before it arrived, and is dropped.
   const latestTextRef = useRef("");
   const phraseDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const suggestionsSettleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const phraseAbortRef = useRef<AbortController | null>(null);
   const phraseCacheRef = useRef(new Map<string, TranslationResult>());
   // Read once per open (RL-08); routing for every phrase after that reads
@@ -178,7 +172,6 @@ export function SearchScreen({ initialQuery }: { initialQuery?: string }) {
 
   useEffect(() => {
     return () => {
-      if (suggestionsSettleRef.current) clearTimeout(suggestionsSettleRef.current);
       if (urlSettleRef.current) clearTimeout(urlSettleRef.current);
       // A tap on "Registro" or "Cuenta" is client-side navigation: the
       // document never unloads, so neither `pagehide` nor
@@ -406,17 +399,6 @@ export function SearchScreen({ initialQuery }: { initialQuery?: string }) {
     phraseAbortRef.current?.abort();
     phraseAbortRef.current = null;
 
-    // RL-18: a keystroke brings a withdrawn list straight back, and restarts
-    // the pause the list is waiting out.
-    if (suggestionsSettleRef.current) {
-      clearTimeout(suggestionsSettleRef.current);
-    }
-    setSuggestionsWithdrawn(false);
-    suggestionsSettleRef.current = setTimeout(() => {
-      suggestionsSettleRef.current = null;
-      setSuggestionsWithdrawn(true);
-    }, SUGGESTIONS_SETTLE_MS);
-
     if (urlSettleRef.current) {
       clearTimeout(urlSettleRef.current);
       urlSettleRef.current = null;
@@ -455,9 +437,8 @@ export function SearchScreen({ initialQuery }: { initialQuery?: string }) {
   // A prefix mid-word — "ru" on the way to "run" — has no exact or inflected
   // hit of its own, but `suggest` only ever returns headwords that begin
   // with it: a non-empty list is that same proof. Suppress SenseList's
-  // "not found" text for as long as one stands, list withdrawn (RL-18) or
-  // not — the ordinary silence of no answer yet, not a new state. Decided by
-  // the user 2026-09-09.
+  // "not found" text for as long as one stands — the ordinary silence of no
+  // answer yet, not a new state. Decided by the user 2026-09-09.
   const wordFound = wordAnswer !== null && (wordAnswer.exact !== null || wordAnswer.viaInflection.length > 0);
   const suppressNotFound = !wordFound && suggestions.length > 0;
 
@@ -476,7 +457,7 @@ export function SearchScreen({ initialQuery }: { initialQuery?: string }) {
 
       {kind.kind === "word" && (
         <Flex direction="column" gap="4">
-          <Suggestions items={suggestionsWithdrawn ? [] : suggestions} onPick={handleTextChange} />
+          <Suggestions items={suggestions} onPick={handleTextChange} />
           {wordAnswer && !suppressNotFound && <SenseList answer={wordAnswer} />}
         </Flex>
       )}
