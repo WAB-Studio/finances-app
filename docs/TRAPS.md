@@ -1100,3 +1100,70 @@ y el editor recibe un documento cortado. Costó una publicación: el bloque term
   lo que escribiste no prueba nada; el corte lo hace el HTML, no el JSON.
 - La página no da ningún error visible. Se ve vacía, que es exactamente lo que un lienzo grande
   parece cuando de verdad es grande. El usuario lo diagnosticó como tamaño; era esto.
+
+## El puerto de otro carril responde por el tuyo, y los rojos no tienen patrón
+
+Medido 2026-09-09. La fórmula está en `AGENTS.md`: un carril sirve la app de lectura en
+`:310<n-1>`. El carril 4 es **:3103**; **:3102 es el carril 3**.
+
+El orquestador mandó a un agente del carril 4 correr su suite contra `:3102`. Su propio servidor
+murió a mitad de una corrida por presión de memoria, y **las peticiones siguientes las respondió el
+servidor del carril 3**, que servía otra rama. Resultado: tres corridas con fallos extendidos y sin
+patrón que no eran ningún defecto.
+
+- Cuenta el puerto desde el número de carril antes de escribirlo en un despacho. `310<n-1>`.
+- Un rojo que cambia de sitio entre corridas y no tiene patrón es un servidor equivocado, no un
+  defecto. Comprueba **de quién es el proceso** antes de perseguirlo:
+  `readlink /proc/<pid>/cwd` dice desde qué carril arrancó.
+- Con tres servidores y tres Chromium en nueve GB, un servidor **muere a mitad de una corrida** sin
+  decir nada. La suite no se entera: sigue recibiendo respuestas.
+- Mata sólo tus propios procesos, identificados uno a uno. Nunca un `pkill -f` sobre una ruta: el
+  patrón alcanza tu propia shell y los carriles de al lado.
+
+## `.next/dev/types` viejo pone en rojo un typecheck que está bien
+
+Medido 2026-09-09, carril 5, al fusionar las cinco ramas del slice de lectura.
+
+`npm run typecheck` dio dos errores sobre la ruta nueva `/registro/[palabra]`:
+
+```
+app/registro/[palabra]/page.tsx(8,69): error TS2344: Type '"/registro/[palabra]"' does not satisfy the constraint 'AppRoutes'.
+app/registro/[palabra]/page.tsx(9,11): error TS2339: Property 'palabra' does not exist on type 'unknown'.
+```
+
+**Un `next build` completo no lo arregló.** El build sí escribe `.next/types/routes.d.ts` con la
+ruta dentro, pero el `tsconfig.json` de la app incluye **dos** directorios generados:
+
+```
+".next/types/**/*.ts",
+".next/dev/types/**/*.ts"
+```
+
+El segundo lo escribe `next dev`, no `next build`, y en un carril que corrió `next dev` sobre un
+árbol anterior se queda **congelado con la lista de rutas de aquel día**. Las dos declaraciones de
+`AppRoutes` conviven y gana la vieja.
+
+- `rm -rf apps/<app>/.next/dev/types` y vuelve a correr. Segundos, y el rojo desaparece.
+- Sospéchalo cuando el rojo es **sólo** de rutas o de `PageProps`/`LayoutProps` y el fichero
+  generado sí tiene la ruta: `grep AppRoutes .next/types/routes.d.ts` contra
+  `.next/dev/types/routes.d.ts`. Si difieren, es esto.
+- Un `apps/<app>/.next` que no existe da la misma familia de rojo por otra causa —
+  `Cannot find name 'PageProps'` en cada página—, y ése sí lo arregla un `next build`. Un carril
+  recién nacido no tiene `.next` de ninguna app que no haya construido.
+- Ninguno de los dos es un rojo real. CI construye antes de comprobar y nunca los ve.
+
+## Una rama apilada no lleva la punta de la rama de la que salió
+
+Medido 2026-09-09. Cuatro ramas apiladas: 2 → 5 → 6 → 10. Fusionar la 10 parecía traer las cuatro,
+y trae **tres y media**: la 10 se cortó de `f97decf`, el penúltimo commit de la 6, no de su punta
+`ac8aba3`. Ese commit era el que metía `sin-entrada.spec.ts` en el proyecto `desktop` de Playwright.
+La fusión pasó limpia, la suite pasó verde, y **cuatro pruebas de escritorio simplemente no
+existían**.
+
+- Comprueba la punta, no la rama: `git merge-base --is-ancestor <rama> <la-de-arriba>` por cada
+  eslabón, antes de decidir que fusionar la última basta.
+- `git log <integracion>..<rama-de-arriba> --oneline` y cuenta: si falta un commit que sabes que
+  existe, la pila se cortó por en medio.
+- Una punta que llega **después** de que se cortara la rama de encima es lo normal, no lo raro. Un
+  arreglo pedido al trabajador cuando su rama ya había parido la siguiente cae siempre aquí.
+- Fusiona la rama de en medio también. Es un merge vacío si ya estaba, y no cuesta nada.
