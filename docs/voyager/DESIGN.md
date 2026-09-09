@@ -165,12 +165,12 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
 
 - **A search with no result offers two things, and they are not the same thing.** Decided by the
   user 2026-09-08, written as RL-28 and RL-29.
-  - **A typo gets a correction, computed on the device.** Edit distance over the 58,946 headwords:
+  - **A typo gets a correction, computed on the device.** Edit distance over the 58,944 headwords:
     of 1,955 generated one-edit typos it found the intended word **100% of the time**, 288 with more
     than one candidate, at **0.04 ms** a search. No network, no cost. `recieve` → `receive`.
     Boards: `SinResultadoSugerencia`, light/dark × desktop/mobile.
   - **A real word the dictionary lacks gets a button, never an automatic call.** `fettle` is English,
-    absent from the 58,946, and confirmed in Wiktionary as having twelve senses **and no Spanish
+    absent from the 58,944, and confirmed in Wiktionary as having twelve senses **and no Spanish
     pair** — which is why DBnary never extracted it. Edit distance answers it *wrong*, offering
     `kettle/mettle/nettle/settle`, so the correction must not fire here. Only a model closes it.
     Nothing leaves the device until the reader taps. Boards: `SinResultadoIA`, `SinResultadoIAFallo`.
@@ -189,8 +189,8 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
 
 - **A headword can be heard, in the browser's own voice.** Decided by the user 2026-09-08 over
   recorded audio and over doing nothing, and written as RL-26. It is the option that serves the
-  **27,938 entries with no IPA** exactly as well as the 36,320 that have one, and it adds nothing to
-  the 8.2 MB the dictionary already costs. Known price, and it is not small: the system voice varies
+  **27,899 entries with no IPA** exactly as well as the 36,359 that have one, and it adds nothing to
+  the 8.0 MiB the dictionary already costs. Known price, and it is not small: the system voice varies
   a lot between devices and is poor on some.
 - **The speak control is drawn, on the four `Palabra` boards and on no other.** Counted 2026-09-08 in
   the published file: a 44 px tap target immediately after the headword, holding a 22 px speaker

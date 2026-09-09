@@ -51,7 +51,7 @@ this gets built, and no schema, table or column is "prepared for" it.
 - [ ] **RL-07** — Autocomplete appears only while the string is being treated as a word. A sentence never raises it.
 - [x] **RL-26** — A headword's answer can be heard. The device speaks it with the voice the browser
   already carries, so a headword with no IPA is spoken exactly like one that has it. Decided by the
-  user 2026-09-08: **27,938 of the 64,258 entries carry no IPA at all** (36,320 do), and written
+  user 2026-09-08: **27,899 of the 64,258 entries carry no IPA at all** (36,359 do), and written
   transcription therefore answers barely half of them. Nothing is downloaded and nothing is
   recorded — no audio file ships with the dictionary and none is fetched.
 - [x] **RL-18** — While the string is being treated as a word and the typing has not settled, up to
@@ -210,9 +210,16 @@ measurements taken from it, not estimates:
 | Edition | 2025.11.23 |
 | Licence | CC BY-SA 3.0 |
 | Entries carrying a Spanish translation | 64,258 |
-| Entries carrying IPA | 36,320 |
+| Distinct normalised headwords | 58,944 |
+| Entries carrying IPA | 36,359 |
 | Multi-word entries | 16,112 |
-| Extracted payload | 8.2 MB raw, 2.9 MB gzipped |
+| Extracted payload | 8,389,666 bytes = 8.0 MiB raw, 2.9 MiB gzipped |
+
+Every figure in this table is read from `apps/voyager/public/dictionary/manifest.json`, which the
+build writes beside the asset. Re-read it after a rebuild; do not carry a number forward. Corrected
+2026-09-09, when four of them had drifted from the shipped asset: headwords 58,946 → **58,944**,
+entries with IPA 36,320 → **36,359**, entries without 27,938 → **27,899**, and a payload written as
+«8.2 MB» that is neither 8.39 MB nor 8.00 MiB.
 
 The 16,112 multi-word entries are why RL-03 looks the whole string up before it
 counts tokens: `give up` is a headword, not a sentence.
@@ -276,7 +283,7 @@ Principles, not recipes:
   contradict "there is no backend": nothing about it ships, runs on Vercel,
   or answers a request from a browser.
 - **IndexedDB is the durable payload cache.** It is the only store with the
-  volume for 8.2 MB and the transaction boundary RL-13 needs to make the install
+  volume for 8.0 MiB and the transaction boundary RL-13 needs to make the install
   whole-or-nothing.
 - **A Worker is the query engine.** The dictionary is parsed and searched off
   the main thread, so that RNL-01 and RL-01 hold on the same keystroke.
@@ -315,7 +322,7 @@ bundle.
 | Any client-side database or ORM | IndexedDB directly: the payload is one store, read-only after install. |
 | Tailwind, shadcn/ui | Radix Themes is the system. |
 | Zustand / Redux | State is one worker and one hook. |
-| `localStorage` for the payload | IndexedDB: 8.2 MB does not fit and would not survive. |
+| `localStorage` for the payload | IndexedDB: 8.0 MiB does not fit and would not survive. |
 | A wrapper library around IndexedDB | The store is 80 lines. |
 | Workbox, or any service-worker framework | The worker is 80 lines, and caching a hashed build output needs no library. |
 | Any NLP or stemming package | The inflection module is 200 lines and a table. |
