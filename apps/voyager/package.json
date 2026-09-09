@@ -17,6 +17,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node --env-file=.env.local ../../node_modules/drizzle-kit/bin.cjs migrate",
     "check:sync": "node --import tsx --env-file=.env.local scripts/check-sync.ts",
+    "harness:mint-reader-session": "node --import tsx --env-file=.env.local scripts/harness/mint-reader-session.ts",
     "mcp:serve": "node --import tsx scripts/mcp/server.ts"
   },
   "dependencies": {
