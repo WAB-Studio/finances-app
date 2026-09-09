@@ -168,6 +168,12 @@ export function SearchScreen({ initialQuery }: { initialQuery?: string }) {
     return () => {
       if (suggestionsSettleRef.current) clearTimeout(suggestionsSettleRef.current);
       if (urlSettleRef.current) clearTimeout(urlSettleRef.current);
+      // A tap on "Registro" or "Cuenta" is client-side navigation: the
+      // document never unloads, so neither `pagehide` nor
+      // `visibilitychange` fires and a pending row would otherwise sit
+      // unwritten until `record.ts`'s 5 s ceiling. Unmounting this screen
+      // is the one signal every in-app trip away from `/` shares.
+      flushPendingLookup();
     };
   }, []);
 

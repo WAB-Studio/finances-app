@@ -72,6 +72,43 @@ test("a lookup's row lists the typed word, its count and a non-empty translation
   expect(translation.length).toBeGreaterThan(0);
 });
 
+test("tapping \"Registro\" in the nav bar draws the search that motivated the trip, with no reload and no 5s wait", async ({
+  page,
+}) => {
+  await deleteTranslator(page);
+
+  const assetResponse = page.waitForResponse(
+    (response) => response.url().includes(manifest.asset.path) && response.ok(),
+  );
+  await page.goto("/");
+  await assetResponse;
+  await page.waitForTimeout(1000);
+
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+  await searchBox.fill("apple");
+  // Long enough for the lookup's own promise to answer and `recordLookup`
+  // to run, well short of `record.ts`'s own `SETTLE_MS` (800ms): the row
+  // is still only `latestCandidate`, never even `pending`, when the tap
+  // below fires — the flush it forces has to fold that candidate in too.
+  await page.waitForTimeout(300);
+
+  // A client-side navigation, not `page.goto`: this is the trigger
+  // `pagehide`/`visibilitychange` never fire for.
+  await page
+    .getByRole("navigation", { name: messages.nav.label })
+    .getByRole("link", { name: messages.nav.log })
+    .click();
+  await expect(page).toHaveURL(/\/registro$/);
+
+  // Well under the 5000ms ceiling `record.ts`'s `MAX_PENDING_MS` would
+  // otherwise force the row to wait out.
+  await expect(page.getByText(t("log.study.header", { lookups: 1, words: 1 }))).toBeVisible({ timeout: 2500 });
+
+  const row = page.locator('a[href="/registro/apple"]');
+  await expect(row).toBeVisible();
+  await expect(row).toContainText("apple");
+});
+
 test("with no rows, /registro draws the study's empty state and its action returns to /", async ({ page }) => {
   await deleteTranslator(page);
   await deleteLogDatabase(page);

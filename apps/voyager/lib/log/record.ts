@@ -75,8 +75,18 @@ async function writeRow(row: LookupRecord): Promise<void> {
   }
 }
 
+// A screen that reads `lookups` (`history-list.tsx`) listens for this to
+// reread once a row it may already have missed actually lands — the write
+// below is still async even after a caller forces it, so the event fires
+// only once the transaction that carries it has committed.
+export const LOG_FLUSHED_EVENT = "voyager:log-flushed";
+
+function notifyFlushed(): void {
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(LOG_FLUSHED_EVENT));
+}
+
 function commit(row: LookupRecord): void {
-  void writeRow(row);
+  void writeRow(row).then(notifyFlushed);
 }
 
 function isStrictPrefix(previous: string, next: string): boolean {
