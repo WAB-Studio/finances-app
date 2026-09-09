@@ -6,6 +6,7 @@
   },
   "nav": {
     "label": "Secciones",
+    "title": "Diccionario",
     "search": "Buscar",
     "log": "Registro",
     "account": "Cuenta"
@@ -16,7 +17,14 @@
     "clear": "Borrar",
     "empty": "Escribe una palabra o una frase en inglés",
     "notFound": "El diccionario no tiene esa palabra",
-    "notFoundHint": "Revisa la ortografía o prueba con otra forma de la palabra"
+    "notFoundHint": "Revisa la ortografía o prueba con otra forma de la palabra",
+    "noEntry": {
+      "title": "El diccionario no tiene «{query}». Esto es lo que dice de cada palabra.",
+      "resolving": "Buscando cada palabra…",
+      "wordMiss": "El diccionario tampoco tiene esta palabra.",
+      "tooLong": "Eso son {count} palabras. Busca una, o una frase de hasta sesenta.",
+      "more": "…y {count, plural, one {# palabra más que no cabe aquí} other {# palabras más que no caben aquí}}."
+    }
   },
   "install": {
     "preparing": "Instalando el diccionario en el dispositivo. Puedes seguir buscando mientras tanto",
@@ -64,20 +72,18 @@
     "licenceName": "CC BY-SA 3.0",
     "sourceLink": "Ver la fuente",
     "licenceLink": "Ver el texto de la licencia",
-    "modified": "Esta app distribuye un extracto reformateado del diccionario, bajo la misma licencia.",
-    "back": "Volver al buscador"
+    "modified": "Esta app distribuye un extracto reformateado del diccionario, bajo la misma licencia."
   },
   "log": {
     "title": "Registro de búsquedas",
     "openLink": "Ver el registro de búsquedas",
     "counting": "Contando las búsquedas registradas",
-    "count": "Hay {count} búsquedas registradas en este dispositivo",
+    "count": "{count, plural, one {Hay # búsqueda registrada en este dispositivo} other {Hay # búsquedas registradas en este dispositivo}}",
     "countFailed": "No se pudo leer el registro",
     "export": "Exportar el registro",
     "exporting": "Exportando…",
     "exported": "Registro exportado",
     "exportFailed": "No se pudo exportar el registro",
-    "accountLink": "Copiar el registro en una cuenta",
     "outcome": {
       "exact": "Exacta",
       "inflected": "Flexionada",
@@ -89,7 +95,20 @@
     "retry": "Reintentar",
     "empty": "Todavía no hay búsquedas registradas",
     "emptyAction": "Buscar una palabra",
-    "back": "Volver al buscador"
+    "study": {
+      "header": "{lookups, plural, one {# búsqueda} other {# búsquedas}} · {words, plural, one {# palabra} other {# palabras}}.",
+      "emptyTitle": "Todavía no has buscado nada",
+      "emptyBody": "Cada palabra que busques aparece aquí, con las veces que la miraste.",
+      "emptyAction": "Buscar una palabra",
+      "failedTitle": "No pude leer el registro",
+      "failedBody": "El almacén del navegador no respondió. Tus palabras siguen ahí.",
+      "failedAction": "Reintentar",
+      "download": "Descargar el registro"
+    },
+    "word": {
+      "back": "Registro",
+      "subtitle": "{translation} · {count, plural, one {# búsqueda} other {# búsquedas}} desde el {date}."
+    }
   },
   "account": {
     "title": "Tu cuenta",
@@ -100,8 +119,6 @@
     "sending": "Enviando…",
     "sent": "Revisa tu correo y abre el enlace que te mandamos",
     "signedInAs": "Sesión iniciada como {email}",
-    "enable": "Copiar mi registro",
-    "enableWithRows": "Copiar mi registro: suben {count} búsquedas",
     "enableWithBothCounts": "Copiar mi registro: suben {local} y bajan {remote} búsquedas",
     "enabled": "Copia activada",
     "disable": "Dejar de copiar",
@@ -112,11 +129,36 @@
     "syncing": "Copiando…",
     "syncFailed": "No se pudo copiar el registro",
     "signOut": "Cerrar sesión",
-    "back": "Volver al buscador",
     "errors": {
       "emailInvalid": "Escribe un correo válido",
       "sendFailed": "No se pudo enviar el enlace",
       "linkInvalid": "El enlace no es válido o venció"
+    },
+    "copy": {
+      "label": "Copia",
+      "upToDateTitle": "Copiando a tu cuenta",
+      "upToDateBody": "Al día. La última copia fue hace {time}.",
+      "syncingNow": "Copiando {count, plural, one {# palabra} other {# palabras}}…",
+      "neverSynced": "Aún no ha habido una copia. La primera sale cuando cierres esta pestaña.",
+      "failedTitle": "La copia no salió",
+      "failedBody": "Sin conexión desde hace {time}. Tus palabras siguen en este dispositivo.",
+      "failedAction": "Reintentar",
+      "noSessionTitle": "Tu registro vive solo en este dispositivo",
+      "noSessionBody": "Con una cuenta lo llevas al teléfono y al portátil. Sin ella, nada sale de aquí.",
+      "noSessionAction": "Entrar con mi correo"
+    },
+    "info": {
+      "tabs": {
+        "account": "Cuenta",
+        "info": "Información"
+      },
+      "dictionaryLabel": "El diccionario",
+      "dictionaryName": "FreeDict eng–spa",
+      "dictionaryStats": "{entries} entradas · {edition} · {size} en este dispositivo.",
+      "licenceLabel": "Licencia",
+      "licenceCredit": "Obra derivada de DBnary, bajo <cc>CC BY-SA 3.0</cc>. Esta app la distribuye bajo la misma licencia.",
+      "appLabel": "La app",
+      "appVersion": "Diccionario de lectura · versión {version}"
     },
     "devices": {
       "title": "Dispositivos",
@@ -146,7 +188,6 @@
   },
   "notFound": {
     "title": "Esta página no existe",
-    "description": "La dirección que abriste no lleva a ninguna parte.",
-    "back": "Volver al buscador"
+    "description": "La dirección que abriste no lleva a ninguna parte."
   }
 }

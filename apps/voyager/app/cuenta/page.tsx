@@ -1,9 +1,8 @@
-import NextLink from "next/link";
 import { getTranslations } from "next-intl/server";
 
 import { getReader } from "@/lib/session";
 import { AccountPanel } from "@/components/account/account-panel";
-import { Flex, Headword, Link, Page, TapTarget } from "@/components/ui";
+import { Flex, Headword, Page } from "@/components/ui";
 
 // Server-rendered shell alone, like `/registro`: `getReader()` reads the
 // verified claims with no round trip to Postgres, so a signed-out visit
@@ -22,14 +21,6 @@ export default async function CuentaPage() {
         <Headword>{t("title")}</Headword>
 
         <AccountPanel readerEmail={reader?.email ?? null} />
-
-        <Link asChild>
-          <NextLink href="/">
-            <TapTarget align="center" justify="center" px="2">
-              {t("back")}
-            </TapTarget>
-          </NextLink>
-        </Link>
       </Flex>
     </Page>
   );
