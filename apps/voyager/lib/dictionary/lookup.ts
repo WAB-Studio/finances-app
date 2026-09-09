@@ -17,6 +17,18 @@ export type WordAnswer = {
 
 const MAX_INFLECTED_HITS = 3;
 
+// Stripping "-er"/"-r" off any word that ends that way, then checking the
+// result is a headword, catches a noun or a pronoun whose stem happens to
+// coincide with a real word: "her" -> "he", "beer" -> "be"/"bee", "baker"
+// -> "bake" all pass that test despite naming no comparative at all. Only
+// comparative and superlative run this second check, on the group already
+// fetched for the exists test above, so it costs no further lookup: a
+// grammatical category (adj) the group must carry for the guess to stand.
+function isImplausible(rule: InflectionRule, group: SenseGroup): boolean {
+  if (rule !== "comparative" && rule !== "superlative") return false;
+  return !group.senses.some((sense) => sense.pos === "adj");
+}
+
 // Exact headword first, then every inflection candidate other than the
 // query's own normalised form that the index actually carries.
 export function lookupWord(index: DictionaryIndex, query: string): WordAnswer {
@@ -30,6 +42,7 @@ export function lookupWord(index: DictionaryIndex, query: string): WordAnswer {
     if (candidate.lemma === normalised) continue;
     const group = groupFor(index, candidate.lemma);
     if (!group) continue;
+    if (isImplausible(candidate.rule, group)) continue;
     viaInflection.push({ surface: normalised, lemma: candidate.lemma, rule: candidate.rule, group });
     if (viaInflection.length === MAX_INFLECTED_HITS) break;
   }
