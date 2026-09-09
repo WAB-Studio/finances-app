@@ -103,22 +103,22 @@ export function WordHistory({ normalised }: { normalised: string }) {
   }
 
   if (state.kind === "empty") {
-    // Reachable only by a hand-typed URL for a word never searched — the
-    // study's own empty copy already says exactly that (module 7's
-    // `RegistroEstudioEstados`), so this reuses it rather than adding a
-    // second pair of strings for the same idea.
+    // Reachable by a hand-typed URL, or a stale link, for a word this
+    // record never held — not the same thing as an empty record
+    // (`study.empty*`, `RegistroEstudioEstados`): the reader may have
+    // searched plenty, just never this one (`PalabraHistorialVacio`).
+    // The headword stays up top as it does in the full state below.
     return (
       <Flex direction="column" gap="5">
         <BackLink label={t("word.back")} />
+        <Headword>{normalised}</Headword>
+        <Separator size="4" />
         <Flex direction="column" gap="3" align="start">
-          <Text size="4" weight="bold">
-            {t("study.emptyTitle")}
-          </Text>
           <Text size="2" muted>
-            {t("study.emptyBody")}
+            {t("word.emptyBody", { word: normalised })}
           </Text>
-          <Button size="2" tap onClick={() => router.push("/")}>
-            {t("study.emptyAction")}
+          <Button size="2" tap onClick={() => router.push(`/?q=${encodeURIComponent(normalised)}`)}>
+            {t("word.emptyAction")}
           </Button>
         </Flex>
       </Flex>
