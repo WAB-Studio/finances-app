@@ -193,6 +193,13 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
   number moves, so read it rather than trusting one written here — it said seven, then four, then
   zero inside one day.
 - `npm run harness:reap` is safe beside a running lane. It never touches a lane identity.
+- **Decided 2026-09-09, not built: e2e's magic-link flow moves to a Supabase project of its own.**
+  One `sync.spec.ts` run gave 67/1 where the next gave 68/0 on the same build, the red inside
+  `signInAs` with the test's own magic link rejected. Not reproduced since: 93 `verifyOtp` calls over
+  four attempts came back green, and CI passed that commit 68/68 on its only run. The suspect is the
+  one Auth project five lanes and two apps share. Until the second project exists, **do not serialize
+  lanes or add a retry to buy quiet** — `retries: 0` is deliberate, and the user refused the cheaper
+  cures. Chase a recurrence by saving the log; the original run's is gone.
 
 ## What a session spends
 
