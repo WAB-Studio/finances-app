@@ -63,20 +63,8 @@
     "failed": "No se pudo traducir la frase",
     "retry": "Reintentar"
   },
-  "source": {
-    "title": "Origen del diccionario",
-    "open": "Ver origen",
-    "dictionary": "FreeDict inglés-español",
-    "edition": "Edición 2025.11.23",
-    "licence": "Licencia",
-    "licenceName": "CC BY-SA 3.0",
-    "sourceLink": "Ver la fuente",
-    "licenceLink": "Ver el texto de la licencia",
-    "modified": "Esta app distribuye un extracto reformateado del diccionario, bajo la misma licencia."
-  },
   "log": {
     "title": "Registro de búsquedas",
-    "openLink": "Ver el registro de búsquedas",
     "counting": "Contando las búsquedas registradas",
     "count": "{count, plural, one {Hay # búsqueda registrada en este dispositivo} other {Hay # búsquedas registradas en este dispositivo}}",
     "countFailed": "No se pudo leer el registro",

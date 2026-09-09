@@ -3,8 +3,7 @@ import { expect, test } from "@playwright/test";
 import messages from "../messages/es.json";
 import manifest from "../public/dictionary/manifest.json";
 
-// docs/voyager/DESIGN.md "Viewport": the bar every board draws, and the only
-// door onto `/registro` that isn't hidden behind `/fuente`.
+// docs/voyager/DESIGN.md "Viewport": the bar every board draws.
 test("the bottom bar carries Buscar and Registro, and each reaches its route", async ({ page }) => {
   await page.addInitScript(() => {
     delete (window as unknown as { Translator?: unknown }).Translator;
@@ -55,17 +54,21 @@ test("the bottom bar carries Buscar and Registro, and each reaches its route", a
   expect(scrollWidth).toBe(clientWidth);
 });
 
-test("the bar carries neither section as current on the credits page it links from", async ({ page }) => {
+// `/fuente` was this non-section page until module 10 (RL-33) retired it.
+// `/registro/[palabra]` replaces it: a real route the bar's own `items`
+// never lists (only the bare `/registro` marks Registro current, `pathname
+// === route`), and no other lane's assignment holds it right now.
+test("the bar carries neither section as current on a page that isn't one", async ({ page }) => {
   await page.addInitScript(() => {
     delete (window as unknown as { Translator?: unknown }).Translator;
   });
 
-  await page.goto("/fuente");
+  await page.goto("/registro/zzqqxv");
   await page.waitForTimeout(300);
 
   const nav = page.getByRole("navigation", { name: messages.nav.label });
-  // Fuente is not a section (DESIGN.md "Viewport"): the bar still renders,
-  // reachable from the credits page, but neither item is the current one.
+  // A word page is not a section (DESIGN.md "Viewport"): the bar still
+  // renders, reachable from it, but neither item is the current one.
   await expect(nav.getByRole("link", { name: messages.nav.search })).not.toHaveAttribute("aria-current", "page");
   await expect(nav.getByRole("link", { name: messages.nav.log })).not.toHaveAttribute("aria-current", "page");
 

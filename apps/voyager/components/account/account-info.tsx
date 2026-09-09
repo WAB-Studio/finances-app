@@ -7,8 +7,8 @@ import { manifestSchema } from "@/lib/dictionary/format";
 import packageJson from "@/package.json";
 import { Flex, Link, MetaLabel, Separator, Text } from "@/components/ui";
 
-// Imported, not fetched, the same way `app/fuente/page.tsx` reads it: the
-// manifest is on disk at build time (RNL-04), so this tab pays no request.
+// Imported, not fetched: the manifest is on disk at build time (RNL-04),
+// so this tab pays no request.
 const manifest = manifestSchema.parse(manifestJson);
 
 // `docs/voyager/SPEC.md`'s own model table reads the payload in MiB, so the
