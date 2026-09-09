@@ -1025,3 +1025,13 @@ Rewriting a transcript to hide one's own mistake falsifies the record — leave 
 credential instead. A secret that reached a chat is rotated, not scrubbed.
 
 Measured 2026-09-08.
+
+### A code cited in a source comment can not exist in `SPEC.md`
+
+A code cited in a comment in the code is not proof the code was ever opened.
+`apps/voyager/components/search/search-screen.tsx:42` cites **RL-36**, and the highest code ever
+opened in `docs/voyager/SPEC.md` is RL-29.
+
+Grep `RL-[0-9]*` over `SPEC.md` before trusting a number read from a code comment.
+
+Measured 2026-09-08.
