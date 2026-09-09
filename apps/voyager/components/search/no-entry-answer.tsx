@@ -8,8 +8,12 @@ import { SenseList } from "./sense-list";
 
 export type NoEntryPart = { token: string; answer: WordAnswer | null };
 
+// RL-31's miss and RL-37's translation failure draw the same blocks below
+// the title; only the title names which one happened, so both carry a reason.
+export type NoEntryReason = "noEntry" | "translationFailed";
+
 export type NoEntryState =
-  | { kind: "words"; query: string; parts: NoEntryPart[] }
+  | { kind: "words"; query: string; parts: NoEntryPart[]; reason: NoEntryReason }
   | { kind: "tooLong"; query: string; tokens: number }
   | { kind: "resolving"; query: string };
 
@@ -54,10 +58,11 @@ export function NoEntryAnswer({ state }: { state: NoEntryState }) {
 
   const shown = state.parts.slice(0, MAX_BLOCKS);
   const remaining = state.parts.length - shown.length;
+  const titleKey = state.reason === "translationFailed" ? "noEntry.titleTranslationFailed" : "noEntry.title";
 
   return (
     <Flex direction="column" gap="4">
-      <Text size="3">{t("noEntry.title", { query: state.query })}</Text>
+      <Text size="3">{t(titleKey, { query: state.query })}</Text>
 
       {shown.map((part, index) => (
         <Flex direction="column" gap="3" key={`${part.token}-${index}`}>
