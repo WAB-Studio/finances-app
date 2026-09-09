@@ -1,20 +1,27 @@
 // Hand-written, no build step (RL-16). Bump this by hand on every change: it
 // names the one cache the app is allowed to hold, and `activate` deletes any
 // other cache it finds under this origin.
-const CACHE_NAME = "reading-shell-v3";
+const CACHE_NAME = "reading-shell-v5";
 
 // How long a navigation waits for the network before it falls back to the
 // cached shell. Short enough that a dead connection does not stall the box.
 const NAVIGATION_TIMEOUT_MS = 3000;
 
 // This app has four pages (SPEC §page list): "/", "/fuente", "/registro" and
-// "/cuenta". Only these three are precached at install so each opens offline
-// on its own, never only as a side effect of having been visited online first
-// — "/registro" is where the device's own record lives, and that is exactly
-// the page that must not depend on it. "/cuenta" is left out on purpose:
-// `navigate` already caches by request URL, so it lands in cache the first
-// time it is visited online, the same way "/fuente" and "/registro" do.
-const SHELL_ROUTES = ["/", "/fuente", "/registro"];
+// "/cuenta". All four are precached at install so each opens offline on its
+// own, never only as a side effect of having been visited online first — a
+// bookmark, or a link into "/cuenta" that lands before "/" ever loaded, must
+// still draw the app's own screen, not the browser's error page.
+const SHELL_ROUTES = ["/", "/fuente", "/registro", "/cuenta"];
+
+// "/cuenta"'s document bakes the session cookie into its HTML (`getReader()`
+// on the server, `readerEmail` in the markup) — the only shell route that
+// does. A cached copy of a signed-in render, replayed after the cookie is
+// gone, hands the next person on the device the previous reader's email
+// straight out of Cache Storage. So its cache entry is written exactly once,
+// with credentials withheld (see `install`), and `navigate` below never
+// overwrites it — not with a signed-in render, not with any other.
+const NO_OVERWRITE_ROUTES = new Set(["/cuenta"]);
 
 self.addEventListener("install", (event) => {
   self.skipWaiting();
@@ -23,7 +30,14 @@ self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) =>
       Promise.all(
-        SHELL_ROUTES.map((route) => fetch(route).then((response) => cache.put(route, response))),
+        SHELL_ROUTES.map((route) => {
+          // Omitting credentials for "/cuenta" forces the signed-out render
+          // even when the tab installing the worker happens to hold a
+          // session — the one copy this cache ever takes of it must be safe
+          // to hand to a stranger.
+          const init = NO_OVERWRITE_ROUTES.has(route) ? { credentials: "omit" } : undefined;
+          return fetch(route, init).then((response) => cache.put(route, response));
+        }),
       ),
     ),
   );
@@ -51,14 +65,16 @@ function rejectAfter(ms) {
 // load of "/fuente" must never overwrite the cached "/" shell, or an offline
 // open of "/" would serve the source page instead of the search box. Also
 // keeps SHELL_ROUTES fresh with whatever the network last answered, so a
-// precached route never goes stale once it has been visited online — the
-// route set is SHELL_ROUTES, fixed and tiny, so this never grows into an
-// unbounded cache that needs pruning.
+// precached route never goes stale once it has been visited online — except
+// "/cuenta" (`NO_OVERWRITE_ROUTES`), whose live render may carry a session
+// this cache must never hold: the network still answers it every time, the
+// response just never gets written back.
 async function navigate(request) {
   const cache = await caches.open(CACHE_NAME);
+  const path = new URL(request.url).pathname;
   try {
     const response = await Promise.race([fetch(request), rejectAfter(NAVIGATION_TIMEOUT_MS)]);
-    cache.put(request, response.clone());
+    if (!NO_OVERWRITE_ROUTES.has(path)) cache.put(request, response.clone());
     return response;
   } catch {
     const shell = await cache.match(request);

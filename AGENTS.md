@@ -87,13 +87,16 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
 - `private/` is gitignored. `worktree.sh` copies the plans into the lane at birth; a plan you edit after that is stale there. Re-copy before you dispatch, and carry the report back by hand.
 - Give every track its own lane. Never two tracks on one lane.
 - Split the work before you start it. A track per defect, per module, per screen.
-- Cut a lane's branch from the branch it serves, never from `integracion` by inertia.
-- Use `integracion` only when a merge is too risky to take straight to `main`: many live branches at
-  once, or a conflict that has to be resolved somewhere first. Merge them there, prove them, then
-  take one merge to `main`.
-- Send a branch that lands clean straight to `main`. Most do.
-- Fast-forward `integracion` to `main` before using it. It trails whenever it is idle — 31 commits
-  behind on 2026-09-08, with nothing of its own.
+- Cut a lane's branch from the branch it serves. For a module of the slice in hand that is
+  `integracion`, not `main`.
+- Fast-forward `integracion` to `main` when a slice opens, before cutting anything from it.
+- Rebase a branch onto its base before merging when another branch moved a file it names. Two
+  branches cut from one base are each green alone and red together: on 2026-09-08 a spec importing
+  `../../orbit/scripts/harness/registry` and a package promotion landed twenty minutes apart and
+  broke `main`. The promotion's own guard grepped `../../../` and never saw the two-dot import.
+- Run `npm install` at a lane's root when a workspace package landed after the lane was opened. The
+  lane copied `node_modules` at birth, so the new package has no link and `typecheck` fails there
+  while the main checkout and CI are clean. It is not a real red.
 - Run at most three suites at once. Nine GB of RAM holds three dev servers and three Chromiums.
 - Run `harness:census` from the main checkout when the lane is single-app. A lane opened with
   `--app voyager` copies no `apps/orbit/.env.local`, so `npm run harness:census -w apps/orbit` dies on
@@ -133,16 +136,25 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
   changes; only one has the scope to merge. A `does not have the correct permissions` on a green,
   mergeable PR is the account, not the branch.
 - Check a branch is merged against the branch its PR targets, never against HEAD and never against a
-  name this file hardcodes. Every PR since #33 targets `main`; `integracion` trails it and is not the
-  target. From a checkout sitting on neither, `git branch -d` calls merged branches unmerged. Read the
+  name this file hardcodes. Since 2026-09-08 a module's PR targets `integracion`; before that they
+  targeted `main`. From a checkout sitting on neither, `git branch -d` calls merged branches unmerged. Read the
   base with `gh pr view <n> --json baseRefName`, then
   `git merge-base --is-ancestor <branch> <base>` before `-D`.
 - Do git work without asking: commit, push, open a PR, merge, delete a branch. Report it.
+- **Point every PR at `integracion`. Never at `main`.**
+- **Take `integracion` to `main` once per slice, at most once a day.** That merge is the deploy.
+  Both apps ship from `main` alone (`apps/*/vercel.json`, `deploymentEnabled` `main` only), so every
+  push to `main` spends one production deployment of a quota that runs out.
+  Measured 2026-09-08: 13 merges to `main` in one session, 13 deployments, and Vercel refused the
+  rest for 24 hours — on the free plan the quota is the budget, not the build.
+  Decided by the user that day.
+- Prove the slice on `integracion` before that merge, not after. It is the last place a defect is
+  cheap.
 - Ride a docs-only change along with the work that produced it. A trap a module taught you belongs in
   that module's PR. It earns its own PR only when no work produced it.
   Measured 2026-09-08: 4 of the day's 17 PRs were docs alone, three of them one Markdown file, and
   each cost two Vercel deployments per push and a place in the one-slot `e2e` queue.
-- Ask before merging mid-slice work to `main`. Nothing else.
+- Ask before taking `integracion` to `main`. Nothing else — a merge to `integracion` needs no asking.
 
 ## Verification
 
@@ -209,6 +221,8 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
 - Add a prop to the primitive when a screen needs a variant. Never patch one from outside.
 - Write interface text a person acts on. Cut text that only explains.
 - Install only from §4. Discard the do-not-install list.
+- Leave `apps/voyager/.env.local` alone. It is gitignored, it never ships, and its keys are not
+  rotated on an agent's initiative. Decided by the user 2026-09-08. Do not raise it again.
 - Write code and identifiers in English. Write user-facing copy in the user's language.
 
 ## Comments
