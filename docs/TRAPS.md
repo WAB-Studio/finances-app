@@ -1219,3 +1219,14 @@ all three widths, `escritorio.spec.ts` 5/5.
 
 Say so when you touch a viewport-unit rule here. A green suite is not evidence about scrollbars on
 this machine; it is silence.
+
+## tsgo caches a red past the edit that fixed it
+
+Measured 2026-09-09 while proving a message key was live. Deleting a key made `npm run typecheck`
+fall red; restoring the file byte-for-byte (`md5sum` identical, `git status` clean) left it red.
+`tsconfig.tsbuildinfo` and `.next/cache/.tsbuildinfo` had cached the diagnostics. Delete both to get
+a true re-read.
+
+This sits beside the `.next/dev/types` trap and behaves worse: that one gives a red a full build
+clears, this one survives the edit that fixed it. When a typecheck disagrees with a file you just
+restored, suspect the cache before the code.

@@ -339,6 +339,13 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
 - **`SinResultadoIAFallo` is stale in all four faces.** «La IA no pudo responder» is the state the
   decision above replaces. The boards stay on the canvas as a record of what was; never cite one in
   a dispatch. The screen a failed translation reaches from now on is `SinEntradaFrase`.
+- **`error.*` and `offline.*` are strings for two screens nobody wired, and both get built.**
+  Decided by the user 2026-09-09, when a sweep of `messages/es.json` stopped on them rather than
+  deleting them. Verified across all four live branches that day: there is no `app/error.tsx` and no
+  offline check anywhere in the tree, so neither namespace has a caller. They are not orphans to
+  sweep — they are copy written ahead of the screen. A generic error boundary and an offline notice
+  wired to RL-16 each need a module, and **neither has a board yet**: draw them before either is
+  dispatched. Until then the strings stay in the file; a future sweep must leave them alone.
 - **`SinEntradaFrase` draws the phrase fallback, and the screen it makes is tall.** Approved by the
   user 2026-09-09, four boards on the canvas's «Buscar · sin respuesta» page at y 5200, light and
   dark × desktop and mobile. «she kept her fettle through the long and bitter winter» with no
