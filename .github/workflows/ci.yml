@@ -277,6 +277,10 @@ jobs:
       NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
       NEXT_PUBLIC_SITE_URL: ${{ secrets.NEXT_PUBLIC_SITE_URL }}
       VOYAGER_BASE_URL: http://localhost:3100
+      # Arms `app/layout.tsx`'s test hook for this job's own build alone.
+      # `apps/voyager/vercel.json` names no such variable, so a Vercel build
+      # never sets it and never inlines the branch it guards.
+      VOYAGER_E2E_HOOKS: "1"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7

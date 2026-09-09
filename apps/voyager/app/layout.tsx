@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { Metadata, Viewport } from "next";
+import { headers } from "next/headers";
 import { IBM_Plex_Sans, Newsreader } from "next/font/google";
 import { NextIntlClientProvider } from "next-intl";
 import { getTranslations } from "next-intl/server";
@@ -50,7 +51,20 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
-export default function RootLayout({ children }: { children: ReactNode }) {
+export default async function RootLayout({ children }: { children: ReactNode }) {
+  // First gate: `next.config.ts` inlines the unset variable as `""`, which
+  // folds this comparison to `false` at build time and drops the block below
+  // as dead code — no reader of a production bundle ever sees the header
+  // check or the `throw` it guards (docs/voyager/DESIGN.md "global-error").
+  if (process.env.VOYAGER_E2E_HOOKS === "1") {
+    // Second gate, decided per request rather than at build time: only a
+    // header a real visitor never sends can arm the crash `check:e2e` drives.
+    const requestHeaders = await headers();
+    if (requestHeaders.get("x-voyager-e2e-crash") === "root-layout") {
+      throw new Error("VOYAGER_E2E_GLOBAL_ERROR_HOOK");
+    }
+  }
+
   return (
     <html lang="es" className={`${sans.variable} ${serif.variable}`}>
       <body>
