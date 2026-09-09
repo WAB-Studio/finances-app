@@ -139,31 +139,19 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   landed 2026-09-09 and the user approved them the same day: `RegistroEstudio`,
   `RegistroEstudioEstados` and `PalabraHistorial` (T2); `SinEntrada` and `SinEntradaEstados` (T3);
   `CuentaCopia`, `CuentaCopiaEstados` and `CuentaInformacion` (T4); `PalabraCategoria` (T5).
-- **`SinEntrada`'s eight-block cut cannot be reached, so half that board describes nothing.** The
-  board says «At most eight word blocks; the rest becomes one line», approved 2026-09-09. Measured
-  2026-09-09 by driving the built app with 9-, 10- and 60-word strings: `search-screen.tsx`'s
-  `schedulePhrase` sends every 3-to-60-token phrase to `PhraseAnswer`, so `NoEntryAnswer`'s per-word
-  breakdown only ever runs at **exactly two tokens** and `MAX_BLOCKS = 8` never fires. The «N más»
-  line in `no-entry-answer.tsx` is unreachable through the box. Either 3-to-60-token phrases fall
-  back to the per-word breakdown when the translation has nothing, or the cut comes out of the board
-  and out of the component. **The decision is open**; nothing is drawn for the fallback.
-- **`/registro`'s desktop width is undecided, and the screens take the whole rest of the viewport.**
-  `measure="full"` caps nothing above 1024px, so a row runs 1680px on a 1920 window and 2320px on a
-  2560 one, leaving 925px between a word and its translation. Measured 2026-09-09 on the shipped
-  build. Three candidates were rendered for the user — no cap, 1120px, 960px — and **the decision is
-  open**; module 9 of `private/planes/slice-voyager-lector-2026-09-08.md` is blocked on it. Until it
-  is taken, no board fixes a maximum and any new `measure="full"` screen inherits the same gap.
+- **`SinEntrada`'s fallback is decided and undrawn.** The decision below sends a 3-to-60-token
+  phrase whose translation comes back empty to the per-word breakdown, which makes the eight-block
+  cut reachable for the first time. **No board draws that fallback**: `SinEntrada` and
+  `SinEntradaEstados` (T3) draw the two-token case only. Draw the fallback — a phrase of nine or
+  more words, blocks cut at eight, the «N más» line — in all four faces before the module that
+  builds it.
 - **`/registro/<palabra>` has no empty state drawn.** `PalabraHistorial` (T2) draws the word's own
   history full and nothing else. Module 12 shipped it reusing the strings of
   `RegistroEstudioEstados`, so the screen a reader reaches for a word with no rows is a reuse
   nobody approved, not a decision. Draw it before the next change to that screen.
-- **`/fuente` has boards and no way in.** `Fuente` exists in all four faces, and since module 6
-  dropped the search screen's link and module 10 gave the credit its home in `CuentaInformacion`,
-  **no screen in the app links to `/fuente`.** Verified 2026-09-09 by grep over `app/` and
-  `components/`: the only caller of `log.openLink` is `/fuente` itself, and `source.open` has no
-  caller at all. RL-33's credit is reachable — `attribution.spec.ts` drives `/cuenta` to it — so
-  nothing is broken; the route is simply orphaned, and whether it is retired or linked again is the
-  user's call, open since 2026-09-09.
+- **`Fuente`'s four boards draw a route that is being retired.** The decision below takes `/fuente`
+  out; `CuentaInformacion` (T4) is the credit's only board from now on. The `Fuente` boards stay on
+  the canvas as stale — never cite one in a dispatch.
 - **The one board still missing is the photo.** RL-36 draws a photo inside the word's answer and no
   board in any of the four faces has a state for it. No module of the 2026-09-08 slice draws one, so
   it blocks nothing today — and the first module that does opens the amendment before it writes a
@@ -340,6 +328,28 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   2026-09-09, approving `SinEntrada`. At most eight word blocks; the rest becomes one line. Over
   sixty words there is one line and no block at all. A word the dictionary also lacks draws its own
   «El diccionario tampoco tiene esta palabra», never a gap.
+- **`measure="full"` takes no maximum width on desktop.** Decided by the user 2026-09-09, after
+  three candidates were rendered on the real app with the same rows: no cap, 1120px, 960px. A row
+  runs 1680px on a 1920 window and 2320px on a 2560 one, and the known price is the distance a
+  reader's eye crosses between a word and its translation — 925px at 2560. `width: auto` is what
+  keeps the screen from overflowing the sidebar's 240px; a maximum is a separate rule and there is
+  none. Any new `measure="full"` screen inherits this.
+- **A phrase the translation cannot answer falls back to the per-word breakdown.** Decided by the
+  user 2026-09-09, closing the gap `SinEntrada`'s eight-block cut left. `schedulePhrase` sends every
+  3-to-60-token phrase to `PhraseAnswer` today, so the breakdown ran at exactly two tokens and
+  `MAX_BLOCKS = 8` never fired. From now on, a 3-to-60-token phrase whose translation comes back
+  empty drops to `NoEntryAnswer`: at most eight word blocks, the rest one line. The cut and the «N
+  más» line become reachable, and the board that draws that fallback does not exist yet.
+- **`/fuente` is retired, and the credit lives in `/cuenta` alone.** Decided by the user 2026-09-09.
+  The route was orphaned from module 6 — no screen linked it, `source.open` had no caller — and it
+  is a leftover of RL-15, retired 2026-09-08. RL-33 already puts the source, the edition and the CC
+  BY-SA 3.0 licence in an information tab inside `/cuenta`, so **no live requirement changes and
+  nothing is retired from the SPEC.** `app/fuente/`, its strings and its boards go.
+- **Every attribution the app owes is named in `/cuenta`'s information tab, and nowhere else.**
+  Decided by the user 2026-09-09, settling the question open since 2026-09-08. Tatoeba's per-sentence
+  credit and Wikimedia's per-image credit join the dictionary's in `CuentaInformacion`; the reading
+  screen carries no credit line and no per-block affix. The tab reads with no session, which is what
+  keeps the credit reachable to whoever uses the work.
 - **The account screen shows a state, never a control.** Decided by the user 2026-09-09, approving
   `CuentaCopia`. With a session it reads «Copiando a tu cuenta» and when the last copy was; there is
   no button and neither of the two figures RL-23 used to name. Copying now, never copied, failed
