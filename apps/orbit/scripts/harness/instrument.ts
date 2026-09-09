@@ -11,9 +11,8 @@
  * that reaches `@/db/client` plants nothing, because the client already made its
  * own pool and drizzle holds that reference.
  */
+import { applicationName } from "@repo/harness-registry";
 import postgres from "postgres";
-
-import { applicationName } from "./registry";
 
 let statements = 0;
 

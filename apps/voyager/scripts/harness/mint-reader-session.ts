@@ -14,17 +14,17 @@
 // The two apps share one Supabase project, so `harness.runs` and
 // `harness.identities` — schemas `apps/orbit/db/migrations/0039` owns — are
 // reachable from here over the same `MIGRATION_DATABASE_URL`. `openRun` and
-// `closeRun` are imported straight from that registry rather than
-// reimplemented, so `npm run harness:census -w apps/orbit` sees this
-// identity the moment it lands. `registerEphemeralIdentity` itself is not
-// imported: it inserts into `app_users`, a finances table a voyager reader
-// never has a row in — the run and the `harness.identities` insert are
-// composed here instead, by hand, without it.
+// `closeRun` come from `@repo/harness-registry`, the package both apps
+// depend on, rather than reimplemented, so `npm run harness:census -w
+// apps/orbit` sees this identity the moment it lands.
+// `registerEphemeralIdentity` itself is not imported: it inserts into
+// `app_users`, a finances table a voyager reader never has a row in — the
+// run and the `harness.identities` insert are composed here instead, by
+// hand, without it.
 import { randomBytes, randomUUID } from "node:crypto";
 
+import { closeRun, openRun } from "@repo/harness-registry";
 import postgres from "postgres";
-
-import { closeRun, openRun } from "../../../orbit/scripts/harness/registry";
 
 const sql = postgres(process.env.MIGRATION_DATABASE_URL!, {
   prepare: false,

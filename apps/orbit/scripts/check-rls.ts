@@ -10,6 +10,13 @@ import type { PgColumn } from "drizzle-orm/pg-core";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 
+import {
+  applicationName,
+  closeRun,
+  openRun,
+  registerEphemeralIdentity,
+} from "@repo/harness-registry";
+
 import { insertRow } from "@/db/insert-row";
 import type { InsertValues } from "@/db/insert-row";
 // The two report functions this file drives instead of replicating; both open
@@ -23,13 +30,6 @@ import { todayInBogota } from "@/lib/dates";
 import { pgErrorCode } from "@/lib/db-error";
 import { CATEGORY_COLORS } from "@/lib/fund/category-color";
 import { GROUP_CASH_ACCOUNT_NAME } from "@/lib/fund/seed";
-
-import {
-  applicationName,
-  closeRun,
-  openRun,
-  registerEphemeralIdentity,
-} from "./harness/registry";
 
 // `application_name` names the suite and the lane in `pg_stat_activity`; Supabase's
 // pooler overwrites it to `Supavisor` on both endpoints (`docs/TRAPS.md`), so this
