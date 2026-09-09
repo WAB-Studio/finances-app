@@ -21,6 +21,7 @@ export function InstallStatus({
   status,
   onRetry,
   query,
+  hasBox = true,
 }: {
   status: InstallStatusValue;
   onRetry: () => void;
@@ -28,6 +29,10 @@ export function InstallStatus({
   // Nothing here re-sends a query: the worker's own queue is what answers
   // it once the install lands (`use-dictionary.ts`).
   query: string;
+  // False on a screen that shows no search box of its own
+  // (`word-history.tsx`): "keep searching meanwhile" names a control that
+  // screen never has.
+  hasBox?: boolean;
 }) {
   const t = useTranslations("install");
   const typed = query.trim().length > 0;
@@ -47,7 +52,7 @@ export function InstallStatus({
         <Flex align="center" gap="2">
           <Spinner />
           <Text size="2" muted>
-            {t("preparing")}
+            {hasBox ? t("preparing") : t("preparingReadOnly")}
           </Text>
         </Flex>
         {pending}

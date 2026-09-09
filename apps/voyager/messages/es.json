@@ -33,7 +33,8 @@
     "pending": "«{query}» se responderá en cuanto termine la instalación",
     "failed": "No se pudo instalar el diccionario",
     "failedPending": "«{query}» no tendrá respuesta hasta que reintentes",
-    "retry": "Reintentar"
+    "retry": "Reintentar",
+    "preparingReadOnly": "Instalando el diccionario en el dispositivo"
   },
   "word": {
     "viaInflection": "\"{surface}\" es una forma de \"{lemma}\"",
@@ -88,12 +89,13 @@
     },
     "word": {
       "back": "Registro",
-      "subtitle": "{translation} · {count, plural, one {# búsqueda} other {# búsquedas}} desde el {date}.",
+      "subtitle": "{count, plural, one {# búsqueda} other {# búsquedas}} desde el {date}.",
       "skeletonHeadword": "Palabra de ejemplo",
-      "skeletonSubtitle": "Su traducción de ejemplo · 0 búsquedas",
+      "skeletonSubtitle": "0 búsquedas desde el 0 de enero de 2026",
       "skeletonDate": "0 de enero de 2026",
       "emptyBody": "No has buscado «{word}» todavía.",
-      "emptyAction": "Buscarla"
+      "emptyAction": "Buscarla",
+      "skeletonAnswer": "Su respuesta de ejemplo"
     }
   },
   "account": {
