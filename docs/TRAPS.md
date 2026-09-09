@@ -1202,3 +1202,20 @@ para explicar por qué.
   creerle. Un mecanismo bien argumentado sobre una medición vieja sigue siendo falso.
 - El mecanismo que inventó era plausible y estaba mal: `width: auto` en un hijo de una columna flex
   **sí** resta los márgenes al estirarse. Eso es lo que arregla el desbordamiento.
+
+## This machine cannot test a reserved scrollbar
+
+Measured 2026-09-09 while fixing `components/ui/page.module.css`'s `100vw` centring. Chromium here
+uses overlay scrollbars: `window.innerWidth - document.documentElement.clientWidth` is **0** in every
+configuration tried, including a forced `html { height: 3000px }` at 1280×400. There is no Firefox
+installed. So a bug whose whole symptom is *the scrollbar takes width* cannot be reproduced or
+regression-tested in this repo at all.
+
+The `100vw` → `100%` fix landed on reasoning, not on a red turned green: a percentage margin resolves
+against the containing block's used width, already scrollbar-adjusted, while `vw` uses the raw initial
+containing block. What *was* measured is that the fix breaks nothing — reading-column gaps symmetric
+at 1280/1920/2560 (210/210, 530/530, 850/850), zero overflow on all three `measure="full"` routes at
+all three widths, `escritorio.spec.ts` 5/5.
+
+Say so when you touch a viewport-unit rule here. A green suite is not evidence about scrollbars on
+this machine; it is silence.
