@@ -208,11 +208,20 @@ Principles, not recipes:
   (RL-22), which runs on the same Supabase as `apps/orbit`, in a schema of its own, and only once the
   reader opened an account on purpose. With no account, nothing of the reader's leaves the device
   (RNL-09).
-- **One route handler is the single exception**, `app/api/translate/route.ts`,
-  and it exists for the sentence path alone (RL-09). It is justified by two
-  things a client cannot do: keep the translation provider's identity and key
-  off the client, and make swapping the provider a one-file change. The word
-  path never passes through it.
+- **The server surface is four route handlers and one page**, and nothing else. Rewritten
+  2026-09-08, when the account slice landed and left the old wording — "one route handler is the
+  single exception" — false:
+  - `app/api/translate/route.ts` — the sentence path (RL-09). Justified by two things a client
+    cannot do: keep the provider's identity and key off the client, and make swapping the provider a
+    one-file change.
+  - `app/api/log/sync/route.ts` and `app/api/devices/route.ts` — the copy of the reader's record and
+    the devices that hold it (RL-22, RL-25). They answer **only** a request that carries a session
+    the reader opened on purpose; with no account they answer 401 without opening a connection.
+  - `app/auth/confirm/route.ts` — landing the sign-in link (RL-22).
+  - `app/cuenta/page.tsx` — a server component that reads the session and queries nothing.
+- **The word path never passes through any of them.** That is the claim "no backend" actually
+  protects, and it is the one to check before adding a fifth: not how many handlers exist, but
+  whether looking a word up still touches none of them (RL-14, RNL-09).
 - **A local MCP server (RL-27) is not part of the deployed app.** It is a
   script the reader runs on their own machine, over the file `/registro`
   exported (RL-20), never over the deployed app's network. It does not

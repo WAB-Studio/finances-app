@@ -221,6 +221,8 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
 - Add a prop to the primitive when a screen needs a variant. Never patch one from outside.
 - Write interface text a person acts on. Cut text that only explains.
 - Install only from §4. Discard the do-not-install list.
+- Leave `apps/voyager/.env.local` alone. It is gitignored, it never ships, and its keys are not
+  rotated on an agent's initiative. Decided by the user 2026-09-08. Do not raise it again.
 - Write code and identifiers in English. Write user-facing copy in the user's language.
 
 ## Comments
