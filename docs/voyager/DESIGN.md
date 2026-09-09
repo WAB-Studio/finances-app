@@ -451,3 +451,35 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   losing a legitimate one. What survives is semantic: `cutter` still reduces to `cut`, because
   `cut` carries an adjective sense. Closing that needs NLP — excluded by SPEC §4 — or a hand-built
   gradability list. Neither is worth it at this residue.
+
+- **No lookup is lost when the tab dies, and the grouping stays.** Decided by the user 2026-09-09,
+  after a critic drove it: `lemon` searched, 2.0s wait, tab closed — the row was gone, and only
+  landed after **5.8s** of quiet (`SETTLE_MS` 800 + `MAX_PENDING_MS` 5000, `lib/log/record.ts:18-19`).
+  RL-21 says «**every** lookup a reader settles on is recorded» and its own context is «typed into,
+  read, and **closed**». The listeners were never missing: `pagehide` and `visibilitychange` both
+  call the flush. What loses is the race — `commit` fires `void writeRow(row).then(…)` and the page
+  dies before the IndexedDB transaction commits. Two alternatives were refused: writing at settle
+  (800ms), which fills the record with prefix rows «bo», «boo», «book»; and rewriting RL-21 to
+  promise less.
+
+- **A paused prefix keeps its suggestions on screen.** Decided by the user 2026-09-09. Typing `ru`
+  and waiting left `main.innerText` empty at 900ms (`SUGGESTIONS_SETTLE_MS`,
+  `components/search/search-screen.tsx:35`): **640px of nothing** on a 360×740 phone, light and
+  dark, and the ten candidates the reader was reading went with it. From now the list stays until
+  the text itself changes. The price, taken knowingly: the list coexists with the answer when the
+  prefix is also a word (`book`), which is what RL-18 set out to avoid.
+
+- **Every block of the breakdown is a way back in.** Decided by the user 2026-09-09. On a failed
+  phrase the eight blocks and the «…y N palabras más» line carry no control at all — the only
+  interactive element in `main` was the box's own clear button, so `winter` had to be retyped. Each
+  block and that line now lead to `/?q=<word>`. The price: the reader loses the breakdown on the
+  jump. Two alternatives were refused earlier and are not reopened — cutting to four blocks, and
+  skipping articles and prepositions. This also closes the compact block's other hole: it draws a
+  34px headword identical to a real answer, with no IPA, no definition, no speak and, until now, no
+  door to the full entry.
+
+- **The email screen names the connection when there is none.** Decided by the user 2026-09-09, as
+  an explicit exception to the same day's decision that the app says nothing about being offline.
+  Driven offline at 360px, the button sat on «Enviando…» at 2, 5, 8, 12 and **30 seconds** with no
+  failure line, no retry and no way out but a reload. This is the one screen that genuinely needs
+  the network, so it is the one screen allowed to say so. Everywhere else the silence holds.
