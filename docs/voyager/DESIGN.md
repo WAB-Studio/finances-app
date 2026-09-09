@@ -279,3 +279,26 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   app already puts a licence (RL-33's source and licence, in an information tab). A per-image credit
   cannot hide there. A per-image attribution has to sit next to its image to mean anything, which is the
   opposite instinct. **Open, not resolved here:** where does a photo's attribution go?
+
+- **The AI is parked, and no provider is chosen.** Decided by the user 2026-09-08, after the numbers
+  came in. RL-28 and RL-29 stay open and unbuilt; nothing in the app calls a model, so picking a
+  provider now would be deciding without a caller. What was measured that day, and what it is worth
+  re-reading before this reopens (`private/reportes/proveedores-ia-oracion-2026-09-08.md`):
+  - The 46.7% failure rate that started this was **never the provider**. It was
+    `GenerateRequestsPerDayPerProjectPerModel-FreeTier`, `quotaValue: 20` — a per-project daily cap
+    on `gemini-3.8-flash`, shared by every lane. Spacing calls 5 s apart changed nothing; the same
+    model measured **0/35** the next day, when the day's 20 were already gone.
+  - **Google publishes no free-tier daily limit.** Its own rate-limit page says to look in AI Studio.
+    Community guides say ~1,500 requests a day for free Flash; this project measured 20. A figure
+    read off the open web would have confirmed a false diagnosis and bought a migration for nothing.
+  - Two models in the same family and project have no such wall: `gemini-3.5-flash-lite` measured
+    **19/20**, `gemini-3.1-flash-lite` **16/20**, on the same 20 headwords. The one failure of the
+    first was **our own client timeout**, not theirs.
+  - Published prices per MTok, read 2026-09-08: `gemini-3.1-flash-lite` $0.25/$1.50,
+    `gemini-3.5-flash-lite` $0.30/$2.50, `gemini-3.8-flash` $0.75/$3.75 — **doubling to $1.50/$7.50
+    on 2027-01-01** — Claude Haiku 4.5 $1.00/$5.00.
+  - Nobody has compared the one thing that decides this: **which model writes a better Spanish
+    example sentence for a reader.** Price does not separate them at this volume; quality is unmeasured.
+- **Read a price, measure a reliability. Never the other way round.** The rule this day earned. Half
+  the published comparisons confuse Flash with Flash-Lite, and none of them knows this project's
+  quota, prompt or words.
