@@ -139,6 +139,14 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   landed 2026-09-09 and the user approved them the same day: `RegistroEstudio`,
   `RegistroEstudioEstados` and `PalabraHistorial` (T2); `SinEntrada` and `SinEntradaEstados` (T3);
   `CuentaCopia`, `CuentaCopiaEstados` and `CuentaInformacion` (T4); `PalabraCategoria` (T5).
+- **`SinEntrada`'s eight-block cut cannot be reached, so half that board describes nothing.** The
+  board says «At most eight word blocks; the rest becomes one line», approved 2026-09-09. Measured
+  2026-09-09 by driving the built app with 9-, 10- and 60-word strings: `search-screen.tsx`'s
+  `schedulePhrase` sends every 3-to-60-token phrase to `PhraseAnswer`, so `NoEntryAnswer`'s per-word
+  breakdown only ever runs at **exactly two tokens** and `MAX_BLOCKS = 8` never fires. The «N más»
+  line in `no-entry-answer.tsx` is unreachable through the box. Either 3-to-60-token phrases fall
+  back to the per-word breakdown when the translation has nothing, or the cut comes out of the board
+  and out of the component. **The decision is open**; nothing is drawn for the fallback.
 - **`/registro`'s desktop width is undecided, and the screens take the whole rest of the viewport.**
   `measure="full"` caps nothing above 1024px, so a row runs 1680px on a 1920 window and 2320px on a
   2560 one, leaving 925px between a word and its translation. Measured 2026-09-09 on the shipped
