@@ -161,7 +161,7 @@ test("10,003 rows export whole, and the file round-trips through JSON exactly", 
   expect(exported.rows).toEqual(rawRows);
 });
 
-test("/fuente links to /registro, which counts what was searched and exports it", async ({ page }) => {
+test("the nav reaches /registro, which counts what was searched and exports it", async ({ page }) => {
   await deleteTranslator(page);
 
   const assetResponse = page.waitForResponse(
@@ -176,10 +176,10 @@ test("/fuente links to /registro, which counts what was searched and exports it"
   await searchBox.fill("");
   await page.waitForTimeout(300);
 
-  await page.getByRole("link", { name: messages.source.open }).click();
-  await expect(page).toHaveURL(/\/fuente$/);
-
-  await page.getByRole("link", { name: messages.log.openLink }).click();
+  // Reached through the nav bar, which is the only way in since module 6
+  // dropped the search screen's link to `/fuente` and module 10 moved the
+  // credit to `/cuenta`. The old route through `/fuente` no longer exists.
+  await page.getByRole("navigation", { name: messages.nav.label }).getByRole("link", { name: messages.nav.log }).click();
   await expect(page).toHaveURL(/\/registro$/);
 
   await expect(page.getByText(t("log.count", { count: 1 }))).toBeVisible();
