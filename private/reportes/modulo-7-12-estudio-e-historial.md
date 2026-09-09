@@ -1,25 +1,109 @@
 # Módulo 7 + 12 — el registro como estudio, y el historial de una palabra
 
 Carril 4, rama `modulo-7-12-estudio-e-historial`, cortada de `modulo-2-catalogo` en `e5ad5b7`.
-Commits: `5b7cd59` (módulo 7), `916d991` (módulo 12). Autor `wilson <cxrkeybwp2004@gmail.com>`,
-ningún trailer. Empujados a `origin/modulo-7-12-estudio-e-historial`. Sin PR abierto.
+Commits: `5b7cd59` (módulo 7), `916d991` (módulo 12), `44a3b86` (este informe, primera versión),
+`0c35c8e` (del coordinador: mueve `ExportPanel` bajo `HistoryList` en `app/registro/page.tsx`, ver
+más abajo), `1382517` (el arreglo del desbordamiento que este apartado añade). Autor `wilson
+<cxrkeybwp2004@gmail.com>` en todos los míos, ningún trailer. Empujados a
+`origin/modulo-7-12-estudio-e-historial`. Sin PR abierto.
 
-Nota sobre el corte de luz: el código y los dos commits ya estaban a salvo cuando se cortó; lo único
-que faltó fue este informe. Todo lo que sigue se **volvió a medir después del corte**, contra un
-`next build && next start` levantado de nuevo — nada de lo de abajo es un número recordado de antes
-del apagón.
+Nota sobre el corte de luz: el código y los dos commits originales ya estaban a salvo cuando se
+cortó; lo único que faltó fue este informe. Todo lo que sigue se **volvió a medir después del
+corte**, contra un `next build && next start` levantado de nuevo — nada de lo de abajo es un número
+recordado de antes del apagón.
 
-## La suite entera, medida de nuevo
+## Añadido tras el validador: el desbordamiento a 360px en `/registro`
+
+El validador reprodujo en vivo un desbordamiento horizontal real: sembrando una búsqueda con un
+encabezado de 85 caracteres sin espacio y cargando `/registro` a 360px, `document.documentElement.
+scrollWidth` medía **732px** contra un `clientWidth` de **360px**.
+
+**Dos agujeros apilados, no uno**, confirmados con `getComputedStyle` en cada nivel del árbol antes
+de tocar nada:
+
+1. `history-list.tsx` pasaba `columns={{ initial: "1fr auto", md: "1fr 1fr auto" }}` a `Grid`.
+   `grid.props.js`'s `parseValue` sólo reescribe una cadena que es **un solo dígito** a
+   `repeat(n, minmax(0, 1fr))`; una cadena literal como `"1fr auto"` pasa **sin tocar**. El track
+   `1fr` nunca recibía el piso `minmax(0, …)`, así que su tamaño mínimo automático nunca colapsaba a
+   cero y la columna se estiraba hasta el ancho de la palabra. Medido con el track así:
+   `grid-template-columns: 680px 8.32812px`.
+2. Arreglado el primero (columnas escritas como `minmax(0, 1fr) auto` / `minmax(0, 1fr) minmax(0,
+   1fr) auto`), el track ya medía **275.67px** — correcto — pero el `scrollWidth` seguía dando 745px.
+   Medido bajando por el árbol con `getComputedStyle` en cada hijo: el `Box` que envuelve `<Text
+   truncate>` sí tenía 275.67px, pero el `<span>` del `Text` dentro tenía **`display: inline`** y
+   **713px** de ancho — su propio `overflow: hidden` (que trae la clase `truncate`) no recorta nada
+   porque `overflow` no recorta contenido en línea. El módulo 3 original tenía el `Text truncate`
+   como hijo **directo** de la rejilla, y CSS "blockifica" el hijo directo de un contenedor grid/flex
+   — por eso funcionaba ahí. Envolverlo en un `Box` (que sí se blockifica, pero es sólo el
+   contenedor) rompió esa cadena en silencio: el nieto (`Text`) nunca se blockifica por sí solo.
+
+**El arreglo, los dos pasos:**
+- Columnas explícitas: `minmax(0, 1fr) auto` en el móvil, `minmax(0, 1fr) minmax(0, 1fr) auto` en
+  escritorio — nunca la cadena `"1fr auto"` a secas.
+- Las dos celdas con `truncate` (palabra y traducción) pasan de `<Box gridColumn=… gridRow=…>` a
+  `<Flex gridColumn=… gridRow=… minWidth="0" overflow="hidden">`. Al ser `Flex` un contenedor propio,
+  su hijo directo (`Text truncate`) se blockifica igual que en el código original del módulo 3, y el
+  `minWidth="0"`/`overflow="hidden"` en el propio `Flex` cierran el mismo agujero un nivel arriba. La
+  celda de la cuenta (`MetaLabel`, sin `truncate`, nunca desborda) se queda en `Box`.
+
+**Medido tras el arreglo**, con el mismo `getComputedStyle` recursivo: el `<span>` del `Text`
+truncado pasa a `display: block`, `width: 275.671875px` — igual al track que lo contiene — y
+`document.documentElement.scrollWidth === clientWidth` a 360px.
+
+**`/registro/<palabra>` (módulo 12) no tenía el mismo agujero**, comprobado, no asumido. Su
+encabezado usa `<Headword>`, cuyo propio `headword.module.css` ya trae `overflow-wrap: anywhere`
+— parte mid-palabra en vez de truncar, la misma técnica que ya sostiene `word.spec.ts:157` en la
+pantalla de búsqueda — y ninguna fila de esa pantalla usa `truncate` (sólo una fecha y una etiqueta
+de resultado, ninguna de longitud abierta). Añadí de todos modos un test que siembra el mismo
+encabezado de 85 caracteres y mide `scrollWidth`/`clientWidth` en esa ruta, para probarlo en vez de
+sólo afirmarlo por lectura: pasa.
+
+**El test que faltaba, y su mutación:**
+- `e2e/estudio.spec.ts` — nuevo test: siembra el encabezado más largo del diccionario (el mismo
+  literal que `word.spec.ts:157` ya usa, `Taumatawhakatangihangakoauauotamateaturipukakapikimaunga
+  horonukupokaiwhenuakitanatahu`, 85 caracteres, sin espacio) como una fila de `/registro` y comprueba
+  `scrollWidth === clientWidth` a 360px (el proyecto `mobile` de Playwright ya corre a ese ancho por
+  defecto).
+- `e2e/palabra-historial.spec.ts` — el mismo test, contra `/registro/<esa-palabra>`.
+- **Mutación, medida dos veces:** revertí sólo la mitad del arreglo (el `Flex` de la celda de la
+  palabra vuelto a `Box`, dejando las columnas `minmax` intactas) y reconstruí: `estudio.spec.ts`
+  dio **1 failed**, `Expected: 360, Received: 745` — la misma cifra, casi exacta, que el hallazgo
+  original del validador (732–745px, la diferencia es el `id` autoincremental del row seedeado en
+  cada corrida). Revertí la mutación, `git diff --stat` vacío, reconstruí y las dos specs volvieron a
+  verde (7/7 entre las dos).
+
+## Un incidente de puerto, al cerrar — y por qué el número final es de :3103, no de :3102
+
+El coordinador pidió cerrar contra `:3102` («el 3103 puede estar ocupado»). Ese puerto **no es el
+del carril 4**: por la fórmula de `AGENTS.md` (reading en `:310<n-1>`), `:3102` es el carril **3**, y
+su propio servidor (`finances-app-l3/apps/voyager`, PID confirmado con `readlink /proc/<pid>/cwd`)
+estaba corriendo ahí en el momento. Corrí la suite contra `:3102` sin saberlo, mi propio servidor
+murió por presión de memoria a mitad de una corrida (`next start` — código de salida 137, `Killed`),
+y las siguientes peticiones de mi suite siguieron recibiendo `200` porque **el servidor del carril 3
+seguía respondiendo ahí** — con su propio código, no el mío. Eso produjo tres corridas con fallos
+extendidos y sin patrón (rutas mías que ese carril no tiene, specs no relacionadas fallando también)
+que no eran un defecto real, sino estar midiendo la app equivocada.
+
+Encontrado con `ss -ltnp` y `readlink -f /proc/<pid>/cwd` sobre cada `next-server`, no asumido.
+Maté únicamente mis propios procesos (el `playwright test` y sus Chromium, lanzados desde
+`finances-app-l4`, identificados uno por uno) y dejé el servidor y la corrida del carril 3
+completamente intactos — nunca un `pkill` genérico. Volví a `:3103`, el puerto que ya usaba desde
+antes del corte de luz y que estaba libre, y reconstruí desde ahí.
+
+## La suite entera, medida de nuevo — la corrida limpia, sola, contra su propio puerto
 
 ```
 cd apps/voyager && npm run build && PORT=3103 npm run start
 VOYAGER_BASE_URL=http://localhost:3103 npx playwright test --config=apps/voyager/playwright.config.ts
 ```
 
-**53 passed (1.5m), 0 failed.** Log completo en `/tmp/e2e-final-verify.log` (fuera del repo, para no
-comitear un log). Conteo verificado con grep, no de memoria: `grep -c "✓"` → 53, `grep -c "✘"` → 0.
+**55 passed (1.6m), 0 failed** — 53 anteriores más los dos tests nuevos del desbordamiento. Log
+completo en `/tmp/e2e-close-3103-final.log` (fuera del repo). Conteo verificado con grep, no de
+memoria: `grep -c "✓"` → 55, `grep -c "✘"` → 0. Corrida única, sin otra suite compartiendo el puerto,
+observada test a test hasta el final para no repetir el error del párrafo anterior.
 
-`npm run typecheck -w apps/voyager` y `npm run lint -w apps/voyager`: limpios, sin salida.
+`npm run typecheck -w apps/voyager` y `npm run lint -w apps/voyager`: limpios, sin salida, corridos
+de nuevo después de este arreglo.
 
 ## Los cuatro rojos que traía a cerrar
 
@@ -40,7 +124,7 @@ cruda, así que el `.replace` siempre erraba.
   Su reemplazo es `e2e/estudio.spec.ts`, que prueba el criterio real del módulo (agrupar, ordenar,
   plegar mayúsculas).
 
-**Los cuatro están cerrados. Cero rojos quedan en la suite** (53/53, verificado arriba).
+**Los cuatro están cerrados. Cero rojos quedan en la suite** (55/55 tras el arreglo del desbordamiento, verificado arriba).
 
 ## Módulo 7, medido sobre el DOM
 
@@ -97,7 +181,7 @@ Repetida después del corte, contra un rebuild fresco cada vez, revertida y conf
    (la cuenta ya no cuadra al mezclarse con el otro grupo). Revertido; `git diff` vacío.
 
 Las dos veces, tras revertir, `npm run typecheck` y `npm run lint` quedaron limpios y la suite
-completa (53/53) se volvió a correr verde antes de dar el módulo por cerrado.
+completa (55/55) se volvió a correr verde antes de dar el módulo por cerrado.
 
 ## Qué claves retiré, y por qué
 
@@ -117,7 +201,7 @@ completa (53/53) se volvió a correr verde antes de dar el módulo por cerrado.
   y `t(\`...\`)` en los tres ficheros que tocan el namespace `log`
   (`export-panel.tsx`, `history-list.tsx`, `word-history.tsx`) y crucé cada clave contra
   `messages/es.json`. Las 22 llamadas (incluida la plantilla `outcome.${outcomeKey(...)}`) resuelven
-  a una clave existente. La suite verde (53/53) es la prueba en ejecución: un `t()` sin clave
+  a una clave existente. La suite verde (55/55) es la prueba en ejecución: un `t()` sin clave
   lanzaría en el navegador y `getByText`/`getByRole` fallarían por ausencia del texto esperado.
 
 **Claves que quedaron huérfanas y que NO retiré**, porque el contrato sólo autorizaba
@@ -133,12 +217,10 @@ Ambas quedan anotadas aquí para que quien decida sobre `messages/es.json` las v
 
 ## Lo que dejé sin hacer, y lo que el contrato no había previsto
 
-- **El orden visual en `/registro` no es el del tablero.** `RegistroEstudio` dibuja: cabecera, las
-  dos cuentas, regla, filas, y **al final** el enlace «Descargar el registro». `app/registro/page.tsx`
-  — que no puedo tocar, es del módulo 2 — monta `<ExportPanel />` antes que `<HistoryList />`, así que
-  el enlace de descarga queda **arriba** de las filas, no al pie. Cambié el peso visual del botón
-  (de relleno a enlace subrayado, con el texto correcto) pero no pude mover su posición. Decisión de
-  implementación, no de dominio: lo dejo escrito para quien pueda tocar `page.tsx`.
+- ~~El orden visual en `/registro` no es el del tablero~~ — **resuelto por el coordinador en
+  `0c35c8e`**, ya en esta rama: `app/registro/page.tsx` monta ahora `<HistoryList />` antes que
+  `<ExportPanel />`, así que el enlace «Descargar el registro» queda al pie, bajo las filas, como
+  dibuja `RegistroEstudio`. Es el único módulo de esta lista que se cerró sin que yo lo tocara.
 - **El estado vacío de `/registro/<palabra>`** (una palabra jamás buscada, sólo alcanzable tecleando
   la URL a mano) no tenía tablero ni par de cadenas propio en el contrato — sólo las cinco que nombra
   para módulo 12, ninguna de ellas un "vacío". Reusé `log.study.emptyTitle/emptyBody/emptyAction`
@@ -160,11 +242,16 @@ Ambas quedan anotadas aquí para que quien decida sobre `messages/es.json` las v
 
 ## Verificación
 
-- `npm run typecheck -w apps/voyager`: limpio.
-- `npm run lint -w apps/voyager`: limpio.
+- `npm run typecheck -w apps/voyager`: limpio, corrido tanto tras el arreglo del agrupado (módulos 7
+  y 12) como tras el arreglo del desbordamiento.
+- `npm run lint -w apps/voyager`: limpio, mismas dos veces.
 - `npm run build` (Next 16.3.3, Turbopack): compila; `/registro/[palabra]` aparece en el árbol de
   rutas como `ƒ` (dinámica).
-- Suite completa contra `next build && next start` en `:3103`: **53 passed, 0 failed**, dos veces
-  seguidas después del corte de luz (una antes de mutar, otra después de revertir).
-- Mutación de `lib/log/summary.ts` en dos puntos distintos (orden del fold, acotamiento del cursor):
-  cada una tumbó exactamente la aserción que debía, revertida y reconfirmada verde.
+- Suite completa contra `next build && next start`: **53 passed, 0 failed** antes del arreglo del
+  desbordamiento (dos corridas, una antes de mutar `summary.ts` y otra después de revertir); **55
+  passed, 0 failed** después, en una corrida única y sola contra `:3103` — su propio puerto de
+  carril, no el `:3102` que resultó ser del carril 3 (ver más arriba).
+- Mutación de `lib/log/summary.ts` en dos puntos distintos (orden del fold, acotamiento del cursor)
+  para el agrupado, y mutación de `history-list.tsx` (revertir la celda de la palabra de `Flex` a
+  `Box`) para el desbordamiento: las tres tumbaron exactamente la aserción que debían, cada una
+  revertida y reconfirmada verde antes de seguir.
