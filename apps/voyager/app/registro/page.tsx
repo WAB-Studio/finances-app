@@ -1,9 +1,8 @@
-import NextLink from "next/link";
 import { getTranslations } from "next-intl/server";
 
 import { ExportPanel } from "@/components/log/export-panel";
 import { HistoryList } from "@/components/log/history-list";
-import { Flex, Headword, Link, Page, TapTarget } from "@/components/ui";
+import { Flex, Headword, Page } from "@/components/ui";
 
 // Server-rendered shell alone, like `/fuente`: the count and the download
 // belong to the client component this mounts. No `useDictionary` here, so
@@ -21,22 +20,6 @@ export default async function RegistroPage() {
         <ExportPanel />
 
         <HistoryList />
-
-        <Link asChild>
-          <NextLink href="/cuenta">
-            <TapTarget align="center" justify="center" px="2">
-              {t("accountLink")}
-            </TapTarget>
-          </NextLink>
-        </Link>
-
-        <Link asChild>
-          <NextLink href="/">
-            <TapTarget align="center" justify="center" px="2">
-              {t("back")}
-            </TapTarget>
-          </NextLink>
-        </Link>
       </Flex>
     </Page>
   );

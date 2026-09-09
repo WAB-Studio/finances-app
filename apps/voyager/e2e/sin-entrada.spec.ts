@@ -1,0 +1,123 @@
+import { expect, test, type Page } from "@playwright/test";
+
+import messages from "../messages/es.json";
+import manifest from "../public/dictionary/manifest.json";
+
+// Chromium's built-in `Translator` hangs `availability()` forever
+// (docs/TRAPS.md); the mount effect must never reach it in this suite.
+async function deleteTranslator(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    delete (window as unknown as { Translator?: unknown }).Translator;
+  });
+}
+
+// `search-screen.tsx`'s own constant, not exported: the debounce a sentence
+// waits out before it is worth asking about (RNL-05, rule 1). The no-entry
+// path below the floor and above the ceiling never waits on this at all.
+const PHRASE_DEBOUNCE_MS = 600;
+
+async function openReady(page: Page): Promise<void> {
+  const assetResponse = page.waitForResponse(
+    (response) => response.url().includes(manifest.asset.path) && response.ok(),
+  );
+  await page.goto("/");
+  await assetResponse;
+  // The fetch settling is not the worker posting "ready": buildIndex still
+  // has to run over 64,258 entries. Give it room before the first keystroke.
+  await page.waitForTimeout(1000);
+}
+
+// `BottomNav` carries a heading of its own (`bottom-nav.tsx:148`), outside
+// `<main>`, on every screen — scoping to `main` is what keeps that title out
+// of a count this spec means for the answer alone.
+function mainHeadings(page: Page) {
+  return page.locator("main").getByRole("heading");
+}
+
+// A lazily-loaded font past the fold is a rendering detail, not a lookup —
+// `url.spec.ts:132` excludes it for the same reason, offline or not: it is
+// served from the browser's own cache and still raises a `request` event.
+function strayRequests(urls: string[]): string[] {
+  return urls.filter((url) => !url.includes("/_next/static/"));
+}
+
+test("a two-token miss draws both headwords, offline, with no request", async ({ page, context }) => {
+  await deleteTranslator(page);
+  await openReady(page);
+
+  // RL-16/RNL-01: the answer to a word never touches the network — cutting
+  // it here proves the claim rather than assuming it.
+  await context.setOffline(true);
+
+  const requestUrls: string[] = [];
+  page.on("request", (request) => requestUrls.push(request.url()));
+
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+  await searchBox.fill("hello world");
+
+  await expect(mainHeadings(page).filter({ hasText: "hello" })).toBeVisible();
+  await expect(mainHeadings(page).filter({ hasText: "world" })).toBeVisible();
+  await expect(mainHeadings(page)).toHaveCount(2);
+
+  const expectedTitle = messages.search.noEntry.title.replace("{query}", "hello world");
+  await expect(page.getByText(expectedTitle)).toBeVisible();
+
+  await page.waitForTimeout(PHRASE_DEBOUNCE_MS + 300);
+  const stray = strayRequests(requestUrls);
+  console.log(`requests while offline and typing "hello world", static assets excluded: ${stray.length}`);
+  expect(stray).toEqual([]);
+});
+
+test("a 61-token string draws one line and no heading, and asks the dictionary nothing", async ({ page }) => {
+  await deleteTranslator(page);
+  await openReady(page);
+
+  const requestUrls: string[] = [];
+  page.on("request", (request) => requestUrls.push(request.url()));
+
+  const tooLongText = Array.from({ length: 61 }, (_, index) => `palabra${index}`).join(" ");
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+  await searchBox.fill(tooLongText);
+
+  const expectedTooLong = messages.search.noEntry.tooLong.replace("{count}", "61");
+  await expect(page.getByText(expectedTooLong)).toBeVisible();
+  await expect(mainHeadings(page)).toHaveCount(0);
+
+  await page.waitForTimeout(PHRASE_DEBOUNCE_MS + 300);
+  const stray = strayRequests(requestUrls);
+  console.log(`requests past the ceiling, static assets excluded: ${stray.length}`);
+  expect(stray).toEqual([]);
+});
+
+test("the cat sits still debounces to exactly one translate request, 600ms after the last keystroke", async ({
+  page,
+}) => {
+  await deleteTranslator(page);
+  let translateCount = 0;
+  await page.route("**/api/translate", async (route) => {
+    translateCount++;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ text: "El gato se sienta", origin: "network" }),
+    });
+  });
+  await openReady(page);
+
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+  await searchBox.fill("the cat sits");
+
+  await page.waitForTimeout(PHRASE_DEBOUNCE_MS - 100);
+  expect(translateCount, "nothing is asked before the debounce settles").toBe(0);
+
+  await page.waitForTimeout(300);
+  expect(translateCount, "exactly one request once it does").toBe(1);
+  await expect(page.getByText("El gato se sienta")).toBeVisible();
+});
+
+test("the search screen carries no link to /fuente", async ({ page }) => {
+  await deleteTranslator(page);
+  await openReady(page);
+
+  await expect(page.locator('a[href="/fuente"]')).toHaveCount(0);
+});

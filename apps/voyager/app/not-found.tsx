@@ -1,7 +1,6 @@
-import NextLink from "next/link";
 import { useTranslations } from "next-intl";
 
-import { Box, Flex, Headword, Link, Page, TapTarget, Text } from "@/components/ui";
+import { Box, Flex, Headword, Page, Text } from "@/components/ui";
 
 export default function NotFound() {
   const t = useTranslations("notFound");
@@ -15,13 +14,6 @@ export default function NotFound() {
             {t("description")}
           </Text>
         </Box>
-        <Link asChild>
-          <NextLink href="/">
-            <TapTarget align="center" justify="center" px="2">
-              {t("back")}
-            </TapTarget>
-          </NextLink>
-        </Link>
       </Flex>
     </Page>
   );

@@ -15,10 +15,10 @@ import { flushPendingLookup, recordLookup } from "@/lib/log/record";
 import type { LookupOutcome, LookupRecord } from "@/lib/log/types";
 import { Flex, Text } from "@/components/ui";
 import { InstallStatus } from "./install-status";
+import { NoEntryAnswer, type NoEntryPart, type NoEntryState } from "./no-entry-answer";
 import { PhraseAnswer, type DeviceOffer, type PhraseState } from "./phrase-answer";
 import { SearchBox } from "./search-box";
 import { SenseList } from "./sense-list";
-import { SourceNote } from "./source-note";
 import { Suggestions } from "./suggestions";
 
 // RNL-05, rule 1: how long the box waits for a pause before a sentence is
@@ -75,7 +75,7 @@ function wordLogPayload(text: string, answer: WordAnswer, dictionaryReady: boole
 function phraseLogPayload(
   text: string,
   dictionaryReady: boolean,
-  outcome: Extract<LookupOutcome, "translated" | "untranslated">,
+  outcome: LookupOutcome,
   origin: TranslationResult["origin"] | null,
   translation: string | null,
 ): LogPayload {
@@ -128,6 +128,9 @@ export function SearchScreen({ initialQuery }: { initialQuery?: string }) {
   // stays put so a fresh keystroke can bring it straight back.
   const [suggestionsWithdrawn, setSuggestionsWithdrawn] = useState(false);
   const [phraseState, setPhraseState] = useState<PhraseState>({ kind: "idle" });
+  // RL-31: a two-token miss or a >60-token string never reaches
+  // `translatePhrase` — this is the state that draws in its place.
+  const [noEntryState, setNoEntryState] = useState<NoEntryState | null>(null);
   const [deviceOffer, setDeviceOffer] = useState<DeviceOffer>({ kind: "hidden" });
   const [logPayload, setLogPayload] = useState<LogPayload | null>(null);
 
@@ -273,9 +276,31 @@ export function SearchScreen({ initialQuery }: { initialQuery?: string }) {
     }
   }
 
+  // RL-31: below the floor, every token is looked up on the device, with no
+  // debounce — RNL-05 only throttles the network path, and this one never
+  // reaches it. Above the ceiling, nothing is asked at all.
+  function scheduleNoEntry(phraseText: string, tokens: number, dictionaryReady: boolean): void {
+    if (tokens > PHRASE_MAX_TOKENS) {
+      setNoEntryState({ kind: "tooLong", query: phraseText, tokens });
+      setLogPayload(phraseLogPayload(phraseText, dictionaryReady, "miss", null, null));
+      return;
+    }
+
+    setNoEntryState({ kind: "resolving", query: phraseText });
+    const words = phraseText.trim().replace(/\s+/g, " ").split(" ");
+    void Promise.all(words.map((word) => lookup(word).catch(() => null))).then((answers) => {
+      // Same guard `runQuery` already uses at :300 and :322: a superseded
+      // reply is dropped, never painted over whatever replaced it.
+      if (latestTextRef.current !== phraseText) return;
+      const parts: NoEntryPart[] = words.map((word, index) => ({ token: word, answer: answers[index] ?? null }));
+      setNoEntryState({ kind: "words", query: phraseText, parts });
+      setLogPayload(phraseLogPayload(phraseText, dictionaryReady, "miss", null, null));
+    });
+  }
+
   function schedulePhrase(phraseText: string, tokens: number, dictionaryReady: boolean): void {
     if (tokens < PHRASE_MIN_TOKENS || tokens > PHRASE_MAX_TOKENS) {
-      setPhraseState({ kind: "waiting" });
+      scheduleNoEntry(phraseText, tokens, dictionaryReady);
       return;
     }
 
@@ -419,17 +444,18 @@ export function SearchScreen({ initialQuery }: { initialQuery?: string }) {
         </Flex>
       )}
 
-      {kind.kind === "phrase" && (
-        <PhraseAnswer
-          source={text}
-          state={phraseState}
-          offer={deviceOffer}
-          onEnableDevice={handleEnableDevice}
-          onRetry={handlePhraseRetry}
-        />
-      )}
-
-      <SourceNote />
+      {kind.kind === "phrase" &&
+        (kind.tokens < PHRASE_MIN_TOKENS || kind.tokens > PHRASE_MAX_TOKENS ? (
+          noEntryState && <NoEntryAnswer state={noEntryState} />
+        ) : (
+          <PhraseAnswer
+            source={text}
+            state={phraseState}
+            offer={deviceOffer}
+            onEnableDevice={handleEnableDevice}
+            onRetry={handlePhraseRetry}
+          />
+        ))}
     </Flex>
   );
 }

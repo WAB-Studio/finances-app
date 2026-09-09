@@ -62,14 +62,6 @@ export default async function FuentePage() {
             <TapTarget align="center">{tLog("openLink")}</TapTarget>
           </NextLink>
         </Link>
-
-        <Link asChild>
-          <NextLink href="/">
-            <TapTarget align="center" justify="center" px="2">
-              {t("back")}
-            </TapTarget>
-          </NextLink>
-        </Link>
       </Flex>
     </Page>
   );
