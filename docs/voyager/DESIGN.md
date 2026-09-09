@@ -429,3 +429,21 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
 - **Read a price, measure a reliability. Never the other way round.** The rule this day earned. Half
   the published comparisons confuse Flash with Flash-Lite, and none of them knows this project's
   quota, prompt or words.
+
+- **`global-error.tsx` gets a test hook, and only outside production.** Decided by the user
+  2026-09-09. `app/layout.tsx` throws on a signal that an environment variable arms, so `check:e2e`
+  can drive the root-layout crash; the production build strips it and no reader can reach it.
+  Prove the stripping, or the hole comes back wearing a hook. Until that module lands, the only
+  proof this screen renders is a hand-made hook a validator wrote and deleted.
+
+- **The 429 stays proven by reading, not by driving.** Decided by the user 2026-09-09: no vitest, no
+  jest, one test layer in this repo. `apps/voyager/app/actions/account.ts` classifies
+  `error.status === 429` into its own line, and a validator mutation confirmed 2026-09-09 that
+  breaking that branch reddens nothing in `check:e2e`. The type it leans on is
+  `AuthError.status: number | undefined`. Known gap, not an oversight.
+
+- **The false-inflection filter stops where grammar stops.** Decided by the user 2026-09-09. The
+  grammatical filter took 931 headwords claiming a false comparative or superlative to 0 without
+  losing a legitimate one. What survives is semantic: `cutter` still reduces to `cut`, because
+  `cut` carries an adjective sense. Closing that needs NLP — excluded by SPEC §4 — or a hand-built
+  gradability list. Neither is worth it at this residue.
