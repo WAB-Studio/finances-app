@@ -1167,3 +1167,38 @@ existían**.
 - Una punta que llega **después** de que se cortara la rama de encima es lo normal, no lo raro. Un
   arreglo pedido al trabajador cuando su rama ya había parido la siguiente cae siempre aquí.
 - Fusiona la rama de en medio también. Es un merge vacío si ya estaba, y no cuesta nada.
+
+## Un carril cortado de un `integracion` local sin empujar acusa al trabajador de salirse del encargo
+
+Medido 2026-09-09. El carril 4 volvió con **FAIL por alcance de ficheros**: su rama traía un segundo
+commit, `8a418ac`, que tocaba dos ficheros fuera de la lista permitida.
+
+El commit era **mío**. Lo había comiteado en `integracion` local y no lo había empujado; `worktree.sh`
+corta de la rama local, así que los carriles nacidos después lo heredaron. Cuando otro PR lo subió
+dentro de su squash, `integracion` quedó con el **contenido** pero sin el **commit**, y a partir de
+ahí `git log integracion..<rama>` lo lista como si fuera de la rama.
+
+- Compara **árboles, no historia**, antes de acusar a nadie de salirse del encargo:
+  `git diff --stat origin/<base>..origin/<rama> -- <los ficheros sospechosos>`. Vacío significa que
+  ya están idénticos arriba, sea cual sea la historia.
+- Mira qué toca **el commit del trabajador**, no la rama: `git show --stat <sha>`.
+- El diff de tres puntos (`base...rama`) sale del ancestro común y **enseña lo que ya subió por otra
+  vía**. El de dos puntos (`base..rama`) compara los dos árboles. Para juzgar alcance, dos puntos.
+- Empuja `integracion` antes de abrir un carril. Cuesta un segundo y ahorra esto.
+- Dos validadores vieron la misma rama el mismo día. Uno cayó en la trampa y falló al trabajador;
+  el otro la nombró, comprobó los árboles y pasó. La diferencia estuvo en comprobar, no en saber.
+
+## Un servidor de producción viejo hace que un crítico juzgue código que no está corriendo
+
+Medido 2026-09-09. Arreglé un desbordamiento de 240 px, comiteé, y dejé corriendo el `next start`
+que ya estaba levantado. El crítico llegó después, **midió el build viejo** (1520 px contra 1280),
+**leyó el fuente ya arreglado**, y concluyó que el arreglo no funcionaba — con un mecanismo inventado
+para explicar por qué.
+
+- `next start` sirve el `.next` que había al arrancar. Un `git commit` no lo cambia.
+- Reconstruye y reinicia **antes** de mandar a alguien a conducir la app. `rm -rf .next/dev/types`,
+  `npm run build`, `fuser -k <puerto>/tcp`, `npx next start`.
+- Cuando un agente diga que un arreglo no funciona, **mide tú sobre un build fresco** antes de
+  creerle. Un mecanismo bien argumentado sobre una medición vieja sigue siendo falso.
+- El mecanismo que inventó era plausible y estaba mal: `width: auto` en un hijo de una columna flex
+  **sí** resta los márgenes al estirarse. Eso es lo que arregla el desbordamiento.
