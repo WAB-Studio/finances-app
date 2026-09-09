@@ -218,9 +218,18 @@ function decodeCursor(raw: string): Cursor | null {
 // the next cursor to send back (RL-22). No cursor at all — a first-ever sync
 // — filters on `user_id` alone: there is no sentinel value less than every
 // real `received_at` to bind instead, and none is needed.
+//
+// `excludeDeviceId` is the calling device's own id, filtered out here rather
+// than left for the client to notice: the client's own dedupe keys on
+// `[device, deviceSeq]` in IndexedDB, and a row this device just uploaded
+// comes back with `device` set (a local row is stored with `device: null`,
+// `lib/log/merge.ts`), so it never collides with itself there — it lands as
+// a second, foreign-looking copy of a search the reader already made. A
+// filter on the query is the only place this is actually excluded.
 async function downloadRows(
   tx: Transaction,
   since: string | null,
+  excludeDeviceId: string | null,
 ): Promise<DownloadedRow[]> {
   const cursor = since ? decodeCursor(since) : null;
 
@@ -236,12 +245,18 @@ async function downloadRows(
     ? sql`(received_at, device_id, local_id) > (${cursor.receivedAt}::text::timestamptz, ${cursor.deviceId}::uuid, ${cursor.localId}::integer)`
     : sql`true`;
 
+  // A filter, not a paging boundary: the tuple comparison and the order by
+  // below are untouched, so a page still resumes from the last row it named.
+  // Fewer rows now qualify per page — a device with rows of its own gets a
+  // smaller page than before, never a skipped one.
+  const notOwn = excludeDeviceId ? sql`and device_id <> ${excludeDeviceId}::uuid` : sql``;
+
   return tx.execute<DownloadedRow>(sql`
     select device_id, local_id, to_json(timezone('utc', "at")) as "at", text, normalised,
            kind, outcome, headword, rule, senses, translation, dictionary_ready, origin,
            record_schema, to_json(timezone('utc', received_at)) as received_at
     from reading.lookups
-    where user_id = auth.uid() and ${boundary}
+    where user_id = auth.uid() and ${boundary} ${notOwn}
     -- Table-qualified: the output column of the same name is the to_json
     -- alias above, and json carries no ordering operator (42883) on its own.
     -- The full tuple, in the comparison's own order: received_at alone ties
@@ -294,7 +309,7 @@ export async function POST(request: Request): Promise<Response> {
   const [accepted, downloaded] = await withReaderDb(async (tx) => {
     // Same statement order the contract names: upload, then download.
     const accepted = await writeUpload(tx, reader.id, deviceId, label, rows);
-    const downloaded = await downloadRows(tx, since);
+    const downloaded = await downloadRows(tx, since, deviceId);
     return [accepted, downloaded] as const;
   });
 
