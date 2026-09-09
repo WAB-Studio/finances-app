@@ -154,6 +154,37 @@ test("RL-18: autocomplete withdraws once typing settles, and never delays the wo
   await expect(suggestionsLabel).toBeVisible();
 });
 
+test("a mid-word prefix stays silent past the settle, and a real miss still says so", async ({ page }) => {
+  await deleteTranslator(page);
+
+  const assetResponse = page.waitForResponse(
+    (response) => response.url().includes(manifest.asset.path) && response.ok(),
+  );
+  await page.goto("/");
+  await assetResponse;
+  await page.waitForTimeout(1000);
+
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+  const notFound = page.getByText(messages.search.notFound);
+
+  // "ru" is not a headword on its own, but it prefixes real ones ("run",
+  // "rub"...): the offer withdraws past the settle, the miss text stays out.
+  await searchBox.fill("ru");
+  await page.waitForTimeout(SUGGESTIONS_SETTLE_MS + 200);
+  await expect(page.getByText(messages.word.suggestions)).toHaveCount(0);
+  await expect(notFound).toHaveCount(0);
+
+  // A string past every real headword — no suppression left to hide behind.
+  await searchBox.fill("zzqx");
+  await page.waitForTimeout(SUGGESTIONS_SETTLE_MS + 200);
+  await expect(notFound).toBeVisible();
+
+  // Finishing the word answers as always, past any suppression.
+  await searchBox.fill("run");
+  await expect(page.getByRole("heading", { name: "run" })).toBeVisible({ timeout: 5000 });
+  await expect(notFound).toHaveCount(0);
+});
+
 test("RNL-03: an 85-character headword with no space to break on never scrolls the page sideways", async ({
   page,
 }) => {
