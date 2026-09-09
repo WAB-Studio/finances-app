@@ -6,7 +6,6 @@
   },
   "nav": {
     "label": "Secciones",
-    "title": "Diccionario",
     "search": "Buscar",
     "log": "Registro",
     "account": "Cuenta"
@@ -34,12 +33,10 @@
     "pending": "«{query}» se responderá en cuanto termine la instalación",
     "failed": "No se pudo instalar el diccionario",
     "failedPending": "«{query}» no tendrá respuesta hasta que reintentes",
-    "retry": "Reintentar",
-    "ready": "Diccionario instalado"
+    "retry": "Reintentar"
   },
   "word": {
     "viaInflection": "\"{surface}\" es una forma de \"{lemma}\"",
-    "ipa": "Pronunciación",
     "translations": "Traducciones",
     "definition": "Definición",
     "suggestions": "Sugerencias",
@@ -65,9 +62,7 @@
   "log": {
     "title": "Registro de búsquedas",
     "counting": "Contando las búsquedas registradas",
-    "count": "{count, plural, one {Hay # búsqueda registrada en este dispositivo} other {Hay # búsquedas registradas en este dispositivo}}",
     "countFailed": "No se pudo leer el registro",
-    "export": "Exportar el registro",
     "exporting": "Exportando…",
     "exported": "Registro exportado",
     "exportFailed": "No se pudo exportar el registro",
@@ -77,7 +72,6 @@
       "translated": "Traducida",
       "miss": "Sin resultado"
     },
-    "more": "Ver más búsquedas",
     "listFailed": "No se pudo cargar el registro",
     "retry": "Reintentar",
     "study": {
@@ -102,22 +96,10 @@
   },
   "account": {
     "title": "Tu cuenta",
-    "openLink": "Ver tu cuenta",
-    "signedOutLead": "Crea una cuenta y tu registro deja de vivir sólo en este teléfono",
     "emailLabel": "Correo electrónico",
-    "send": "Enviar enlace de acceso",
     "sending": "Enviando…",
     "sent": "Revisa tu correo y abre el enlace que te mandamos",
     "signedInAs": "Sesión iniciada como {email}",
-    "enableWithBothCounts": "Copiar mi registro: suben {local} y bajan {remote} búsquedas",
-    "enabled": "Copia activada",
-    "disable": "Dejar de copiar",
-    "disabled": "Copia desactivada",
-    "lastSynced": "Última copia: {date}",
-    "neverSynced": "Todavía no se copió nada",
-    "syncNow": "Copiar ahora",
-    "syncing": "Copiando…",
-    "syncFailed": "No se pudo copiar el registro",
     "signOut": "Cerrar sesión",
     "errors": {
       "emailInvalid": "Escribe un correo válido",
