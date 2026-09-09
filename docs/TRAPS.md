@@ -1054,3 +1054,30 @@ la próxima vez.
   Aquí `SPEC.md` y `DESIGN.md` chocaron los dos, y el conflicto era la prueba de que el carril estaba
   desfasado — no una molestia.
 - Un worker que ve un número que no cuadra con su despacho está viendo esto. Que lo diga y pare.
+
+## Los números de módulo se repiten entre slices, y los informes se pisan
+
+Medido 2026-09-08. `private/reportes/modulo-12-contrato-foto.md` iba a escribirse junto a un
+`modulo-12-driver-copia.md` de otro slice, y `modulo-13-proveedores-ia.md` junto a
+`modulo-13-cadenas.md`. Cada plan numera desde 1, así que el número solo es único dentro de su plan.
+
+- Nombra el informe por lo que hace, no solo por el número. `modulo-12-contrato-foto`, nunca `modulo-12`.
+- Comprueba `ls private/reportes/modulo-<n>-*` antes de escribir uno.
+
+## Copia el informe del carril antes de soltarlo
+
+Medido 2026-09-08. `git worktree remove ../finances-app-l3 --force` se llevó
+`modulo-12-contrato-foto.md` sin avisar: `private/` está en gitignore, así que el informe vivía solo
+ahí. Sobrevivió porque su contenido estaba en el cuerpo del PR y en `SPEC.md`.
+
+- `cp ../finances-app-l<n>/private/reportes/*.md private/reportes/` **antes** del `worktree remove`.
+- Escribe en el cuerpo del PR lo que decide, no solo en el informe. El PR sí viaja en git.
+
+## Reddit bloquea el rastreador de Anthropic
+
+Medido 2026-09-08. `WebSearch` con `allowed_domains: ["reddit.com"]` devuelve
+`400 The following domains are not accessible to our user agent`. No es un fallo de la consulta.
+
+- Busca en la web abierta y filtra tú. Las guías agregadoras repiten lo mismo que los hilos.
+- Desconfía de lo que digan de límites y cuotas: para este proyecto decían ~1.500 peticiones/día y la
+  medición dio **20**. Ver la entrada de la cuota diaria de Gemini.
