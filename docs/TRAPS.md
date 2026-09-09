@@ -1230,3 +1230,19 @@ a true re-read.
 This sits beside the `.next/dev/types` trap and behaves worse: that one gives a red a full build
 clears, this one survives the edit that fixed it. When a typecheck disagrees with a file you just
 restored, suspect the cache before the code.
+
+## `gh pr merge` authors the squash as the GitHub account, not as wilson
+
+Measured 2026-09-09 at the close of a 16-PR session: of 73 commits on `integracion`, **41 were
+`wilson <cxrkeybwp2004@gmail.com>` and 32 were `Cxrkeyb <88465069+Cxrkeyb@users.noreply.github.com>`**
+— every one of the 32 a squash commit GitHub minted when `gh pr merge --squash` ran. `git config
+user.email` was correct the whole time; it never applies, because the squash is made server-side
+under the authenticated account.
+
+`AGENTS.md` says to commit as wilson. That rule holds for every commit written locally and breaks on
+every merge, silently, in any session that lands PRs. Nothing catches it: the trailer check passes
+(there is no Claude trailer), and `git log --format='%an'` is only read on the branch, before the
+merge.
+
+Decide once whether that is acceptable. If it is not, the merge has to set the author explicitly
+rather than going through `gh pr merge`.
