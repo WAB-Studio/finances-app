@@ -10,6 +10,11 @@ import type { SyncState } from "@/lib/log/types";
 import { Button, Flex, Separator, Text, TextField } from "@/components/ui";
 import { DevicesPanel } from "./devices-panel";
 
+// The key `bottom-nav.tsx:41-42` writes the box's query under. Not imported:
+// that module belongs to the shell lane, so the spelling is pinned here by
+// hand instead of exporting a constant from a file this one does not own.
+const NAV_QUERY_STORAGE_KEY = "voyager:nav-query";
+
 type EmailFormState =
   | { kind: "idle" }
   | { kind: "sending" }
@@ -112,9 +117,16 @@ function SyncedSection({
 
   // Fires before the sign-out `<form>` submits: `signOut` redirects to
   // `/registro`, so this component never gets to unmount and run an effect
-  // of its own first (RL-30, RNL-09).
+  // of its own first (RL-30, RNL-09). Same gesture drops the box's last
+  // query (`bottom-nav.tsx:41-42`), which otherwise pre-fills `Buscar` for
+  // whoever signs in next on this tab.
   function handleSignOutClick(): void {
     void writeSyncState({ enabled: false });
+    try {
+      window.sessionStorage.removeItem(NAV_QUERY_STORAGE_KEY);
+    } catch {
+      // Private browsing can refuse storage; nothing was there to leak.
+    }
   }
 
   return (

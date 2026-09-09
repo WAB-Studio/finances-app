@@ -571,7 +571,7 @@ test("RL-30: opening /cuenta with a fresh session turns the copy on and fires it
   }
 });
 
-test("RL-30, RNL-09: signing out disables the copy, and a later hidden tab reaches /api/log/sync no more", async ({
+test("RL-30, RNL-09: signing out disables the copy, drops the box's stored query, and a later hidden tab reaches /api/log/sync no more", async ({
   page,
 }) => {
   test.setTimeout(45_000);
@@ -589,8 +589,16 @@ test("RL-30, RNL-09: signing out disables the copy, and a later hidden tab reach
     await firstSync;
     await page.waitForTimeout(500);
 
+    // The leak the module 8 validator drove: a word looked up before
+    // signing out must not pre-fill `Buscar` for whoever opens this tab
+    // next (`components/ui/bottom-nav.tsx:41-42`).
+    await page.evaluate(() => window.sessionStorage.setItem("voyager:nav-query", "portmanteau"));
+
     await page.getByRole("button", { name: messages.account.signOut }).click();
     await expect(page).toHaveURL(/\/registro$/);
+
+    const navQuery = await page.evaluate(() => window.sessionStorage.getItem("voyager:nav-query"));
+    expect(navQuery).toBeNull();
 
     const row = await readSyncRow(page);
     expect(row?.enabled, `sync row after sign-out: ${JSON.stringify(row)}`).toBe(false);
