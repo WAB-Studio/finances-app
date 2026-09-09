@@ -102,15 +102,6 @@
     border-inline-start-color: var(--rl-accent);
   }
 
-  /* TapTarget's own root span: no `className` prop to reach it through, so
-     this overrides its `direction="column"` by the DOM shape bottom-nav.tsx
-     itself guarantees — the item link's one direct child. */
-  .item > span {
-    flex-direction: row;
-    align-items: center;
-    gap: 12px;
-  }
-
   .spacer {
     display: block;
     flex: 1 1 auto;

@@ -158,7 +158,17 @@ export function BottomNav() {
             className={`${styles.item} ${selected ? styles.selected : styles.unselected}`}
           >
             <NextLink href={href} aria-current={selected ? "page" : undefined}>
-              <TapTarget direction="column" align="center" justify="center" gap="1" size={44}>
+              {/* Radix's own `md` breakpoint is 1024px (`--md` in
+                  breakpoints.css), the same one bottom-nav.module.css
+                  switches on: icon above label on the bar, icon beside
+                  label on the sidebar, with no primitive to patch. */}
+              <TapTarget
+                direction={{ initial: "column", md: "row" }}
+                align="center"
+                justify="center"
+                gap="1"
+                size={44}
+              >
                 <Glyph />
                 <span className={styles.label}>{t(key)}</span>
               </TapTarget>

@@ -58,12 +58,27 @@ test("the reading column on / keeps its 620px measure and clears the sidebar", a
   await page.goto("/");
   await page.waitForTimeout(300);
 
+  const viewport = page.viewportSize();
+  expect(viewport).not.toBeNull();
+
   const navBox = await page.getByRole("navigation", { name: messages.nav.label }).boundingBox();
   const mainBox = await page.locator("main").boundingBox();
   expect(navBox).not.toBeNull();
   expect(mainBox).not.toBeNull();
 
   expect(mainBox!.width).toBeLessThanOrEqual(620.5);
+
+  // page.module.css's own 1024px block: the sidebar's 240px plus half of
+  // whatever the viewport, the sidebar and the 620px column leave over. A
+  // floor alone — "a gap bigger than 20px" — also passes if that block
+  // never fires: the 660px rule's plain `margin-inline: auto` centres the
+  // 620px column on the full 1280px viewport instead (x≈330, gap≈90) and
+  // clears 20px by coincidence. Pinning the exact x this formula produces
+  // is what tells the two apart.
+  const expectedX = 240 + (viewport!.width - 240 - 620) / 2;
+  expect(mainBox!.x).toBeGreaterThan(expectedX - 2);
+  expect(mainBox!.x).toBeLessThan(expectedX + 2);
+
   // Centred in what is left of the viewport, not stuck to the sidebar's
   // own right edge — a real gap, not a hairline.
   const gap = mainBox!.x - (navBox!.x + navBox!.width);
