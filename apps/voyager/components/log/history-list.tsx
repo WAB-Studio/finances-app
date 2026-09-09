@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import NextLink from "next/link";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 
 import { readWordStudy, type StudyRow } from "@/lib/log/summary";
-import { countRecords } from "@/lib/log/record";
+import { countRecords, LOG_FLUSHED_EVENT } from "@/lib/log/record";
 import { Box, Button, Flex, Grid, Link, MetaLabel, Separator, Skeleton, TapTarget, Text } from "@/components/ui";
 
 // Reachable through `useEffect` alone (module 25's own store, IndexedDB),
@@ -102,23 +102,40 @@ export function HistoryList() {
   // Bumped by the failed state's own retry, since the read runs in an
   // effect and a click cannot call it directly.
   const [attempt, setAttempt] = useState(0);
+  // Every read this component starts bumps this, so a reply superseded by
+  // a newer one — the flush event firing mid-read — never overwrites it.
+  const requestIdRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([readWordStudy(), countRecords()])
-      .then(([study, totalLookups]) => {
-        if (cancelled) return;
-        setState(
-          study.rows.length === 0
-            ? { kind: "empty" }
-            : { kind: "ready", rows: study.rows, totalLookups, totalWords: study.total },
-        );
-      })
-      .catch(() => {
-        if (!cancelled) setState({ kind: "failed" });
-      });
+
+    function read(): void {
+      const requestId = ++requestIdRef.current;
+      Promise.all([readWordStudy(), countRecords()])
+        .then(([study, totalLookups]) => {
+          if (cancelled || requestIdRef.current !== requestId) return;
+          setState(
+            study.rows.length === 0
+              ? { kind: "empty" }
+              : { kind: "ready", rows: study.rows, totalLookups, totalWords: study.total },
+          );
+        })
+        .catch(() => {
+          if (!cancelled && requestIdRef.current === requestId) setState({ kind: "failed" });
+        });
+    }
+
+    read();
+    // RL-21's row can still be in flight to IndexedDB when this screen
+    // mounts: the search that motivated the trip only settles in
+    // `record.ts` once the reader leaves `/`, and that write is async even
+    // once forced. This rereads the moment it lands, instead of waiting on
+    // a reload — `read` only ever calls `setState` with a finished answer,
+    // so an already-populated list never drops back to the skeleton.
+    window.addEventListener(LOG_FLUSHED_EVENT, read);
     return () => {
       cancelled = true;
+      window.removeEventListener(LOG_FLUSHED_EVENT, read);
     };
   }, [attempt]);
 
