@@ -328,6 +328,17 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   reader's eye crosses between a word and its translation — 925px at 2560. `width: auto` is what
   keeps the screen from overflowing the sidebar's 240px; a maximum is a separate rule and there is
   none. Any new `measure="full"` screen inherits this.
+- **A sentence that fails to translate falls to the per-word breakdown, always.** Decided by the
+  user 2026-09-09, after the code was measured rather than assumed. «The translation comes back
+  empty» is not a state this app has: `app/api/translate/route.ts` turns an empty `translatedText`,
+  a quota warning and a non-200 `responseStatus` each into a 502, which `translateOverNetwork`
+  throws and `search-screen.tsx` renders as `failed`. So the fallback hangs off `failed`, and a
+  module built on «done with empty text» would have landed dark. Written as **RL-37**; RL-31 is
+  untouched, because its own claim — a string *not* treated as a sentence never gets silence —
+  stays true.
+- **`SinResultadoIAFallo` is stale in all four faces.** «La IA no pudo responder» is the state the
+  decision above replaces. The boards stay on the canvas as a record of what was; never cite one in
+  a dispatch. The screen a failed translation reaches from now on is `SinEntradaFrase`.
 - **`SinEntradaFrase` draws the phrase fallback, and the screen it makes is tall.** Approved by the
   user 2026-09-09, four boards on the canvas's «Buscar · sin respuesta» page at y 5200, light and
   dark × desktop and mobile. «she kept her fettle through the long and bitter winter» with no

@@ -140,6 +140,11 @@ this gets built, and no schema, table or column is "prepared for" it.
   not treated as a sentence, never gets silence: the app names what it did not find and offers,
   underneath, the dictionary's own answer for each of its words. It answers from the device, and
   touches the network on no keystroke.
+- [ ] **RL-37** — A sentence the app cannot translate gets the same answer a string it never tried
+  to translate gets: the app names what it could not answer and offers, underneath, the dictionary's
+  own answer for each of its words. This replaces the notice that only said the translation failed —
+  a reader who typed a sentence and got nothing back now gets the dictionary's own words instead.
+  It answers from the device, so it holds with no network at all.
 
 ### Non-functional requirements
 
