@@ -103,6 +103,90 @@ async function countLocalRecords(page: Page): Promise<number> {
   );
 }
 
+// The one row `record.ts`'s own `sync` store ever holds, read the same way
+// `countLocalRecords` reads `lookups`: no import reaches into a page's own
+// IndexedDB, so this opens it by name instead.
+async function readSyncRow(page: Page): Promise<SyncState | undefined> {
+  return page.evaluate(
+    () =>
+      new Promise<SyncState | undefined>((resolve, reject) => {
+        const request = indexedDB.open("reading-log");
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => {
+          const db = request.result;
+          const get = db.transaction("sync", "readonly").objectStore("sync").get("state");
+          get.onsuccess = () => resolve(get.result);
+          get.onerror = () => reject(get.error);
+        };
+      }),
+  );
+}
+
+// Mirrors `scripts/harness/mint-reader-session.ts`'s own two functions: a
+// fresh `auth.users` row with a landed recovery token, the only pair
+// GoTrue's `verifyOtp` accepts. Kept local rather than imported — that
+// script opens its own `postgres` connection and calls `process.exit`,
+// neither of which belongs in a spec's module scope.
+async function mintReaderIdentity(
+  sql: postgres.Sql,
+  runId: string,
+): Promise<{ id: string; email: string; hash: string }> {
+  const id = randomUUID();
+  const email = `harness-reader-${id}@example.invalid`;
+
+  await sql.begin(async (tx) => {
+    await tx`
+      insert into auth.users (
+        id, instance_id, aud, role, email, email_confirmed_at,
+        encrypted_password, confirmation_token, recovery_token,
+        email_change, email_change_token_current, email_change_token_new,
+        email_change_confirm_status, phone_change, phone_change_token,
+        reauthentication_token, raw_app_meta_data, raw_user_meta_data,
+        is_sso_user, is_anonymous, created_at, updated_at)
+      values (
+        ${id}, '00000000-0000-0000-0000-000000000000', 'authenticated',
+        'authenticated', ${email}, now(),
+        '', '', '',
+        '', '', '',
+        0, '', '',
+        '', '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb,
+        false, false, now(), now())`;
+    await tx`
+      insert into harness.identities (user_id, run_id, email, disposition)
+      values (${id}, ${runId}, ${email}, 'ephemeral')`;
+  });
+
+  const hash = randomBytes(32).toString("hex");
+  await sql`
+    update auth.users
+    set recovery_token = ${hash}, recovery_sent_at = now(), updated_at = now()
+    where id = ${id}`;
+  await sql`
+    insert into auth.one_time_tokens
+      (id, user_id, token_type, token_hash, relates_to, created_at, updated_at)
+    values
+      (${randomUUID()}, ${id}, 'recovery_token', ${hash}, ${email}, now(), now())`;
+
+  return { id, email, hash };
+}
+
+async function dropReaderIdentity(sql: postgres.Sql, id: string): Promise<void> {
+  await sql`delete from harness.identities where user_id = ${id}`;
+  await sql`delete from auth.users where id = ${id}`;
+}
+
+// Same trick `mint-reader-session.ts`'s own `mintSessionCookie` plays: the
+// route's `Set-Cookie` lands on this very redirect, and `page.request`
+// shares the browser context's cookie jar, so the context is signed in the
+// moment this resolves — no page ever has to visit the link itself.
+async function signInAs(page: Page, hash: string): Promise<void> {
+  const response = await page.request.get(`/auth/confirm?token_hash=${hash}&type=magiclink`, {
+    maxRedirects: 0,
+  });
+  const location = response.headers()["location"];
+  expect(location?.includes("error="), `redirected to ${location ?? "nowhere"}`).toBe(false);
+}
+
 test("RNL-09: with no account, ten keystrokes and a hidden tab issue nothing to /api/log/sync", async ({
   page,
 }) => {
@@ -444,6 +528,82 @@ test("RL-24: a request whose top-level deviceId disagrees with its rows never se
   } finally {
     await sql`delete from harness.identities where user_id = ${readerId}`;
     await sql`delete from auth.users where id = ${readerId}`;
+    await closeRun(sql);
+    await sql.end();
+  }
+});
+
+test("RL-30: opening /cuenta with a fresh session turns the copy on and fires it, with no button and no counts drawn", async ({
+  page,
+}) => {
+  test.setTimeout(45_000);
+  await deleteTranslator(page);
+
+  const sql = postgres(process.env.MIGRATION_DATABASE_URL!, { prepare: false, max: 1 });
+  const runId = await openRun("e2e", sql);
+  const { id: readerId, hash } = await mintReaderIdentity(sql, runId);
+
+  try {
+    await signInAs(page, hash);
+
+    // The one round trip `syncNow()` makes even with nothing local to push:
+    // a fresh device still pulls whatever the account already holds.
+    // `lastSyncedAt` is only written once the response lands (`driver.ts`'s
+    // own `writeSyncState` call), so this waits for the response, not the
+    // request going out.
+    const syncResponse = page.waitForResponse((response) => response.url().includes("/api/log/sync"));
+    await page.goto("/cuenta");
+    await expect(page.getByRole("heading", { name: messages.account.title })).toBeVisible();
+    await syncResponse;
+    await page.waitForTimeout(500);
+
+    const row = await readSyncRow(page);
+    expect(row?.enabled, `sync row: ${JSON.stringify(row)}`).toBe(true);
+    expect(row?.lastSyncedAt, `sync row: ${JSON.stringify(row)}`).not.toBeNull();
+
+    // RL-23's consent button is gone, not hidden: no control ever names two
+    // figures for the reader to weigh.
+    await expect(page.getByRole("button", { name: /suben.*bajan/ })).toHaveCount(0);
+  } finally {
+    await dropReaderIdentity(sql, readerId);
+    await closeRun(sql);
+    await sql.end();
+  }
+});
+
+test("RL-30, RNL-09: signing out disables the copy, and a later hidden tab reaches /api/log/sync no more", async ({
+  page,
+}) => {
+  test.setTimeout(45_000);
+  await deleteTranslator(page);
+
+  const sql = postgres(process.env.MIGRATION_DATABASE_URL!, { prepare: false, max: 1 });
+  const runId = await openRun("e2e", sql);
+  const { id: readerId, hash } = await mintReaderIdentity(sql, runId);
+
+  try {
+    await signInAs(page, hash);
+
+    const firstSync = page.waitForRequest((request) => request.url().includes("/api/log/sync"));
+    await page.goto("/cuenta");
+    await firstSync;
+    await page.waitForTimeout(500);
+
+    await page.getByRole("button", { name: messages.account.signOut }).click();
+    await expect(page).toHaveURL(/\/registro$/);
+
+    const row = await readSyncRow(page);
+    expect(row?.enabled, `sync row after sign-out: ${JSON.stringify(row)}`).toBe(false);
+
+    const syncRequests: string[] = [];
+    page.on("request", (request) => {
+      if (request.url().includes("/api/log/sync")) syncRequests.push(request.url());
+    });
+    await hideTab(page);
+    await page.waitForTimeout(1500);
+    expect(syncRequests, `sync requests after sign-out: ${JSON.stringify(syncRequests)}`).toHaveLength(0);
+  } finally {
+    await dropReaderIdentity(sql, readerId);
     await closeRun(sql);
     await sql.end();
   }

@@ -2,27 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { useFormatter, useTranslations } from "next-intl";
-import { z } from "zod";
 
 import { sendSignInLink, signOut } from "@/app/actions/account";
-import { countRecords, readSyncState, writeSyncState } from "@/lib/log/record";
+import { readSyncState, writeSyncState } from "@/lib/log/record";
 import { syncNow } from "@/lib/sync/driver";
 import type { SyncState } from "@/lib/log/types";
-import { Button, Flex, Separator, Spinner, Text, TextField } from "@/components/ui";
+import { Button, Flex, Separator, Text, TextField } from "@/components/ui";
 import { DevicesPanel } from "./devices-panel";
-
-const DEVICES_ENDPOINT = "/api/devices";
-
-// Only the figure this screen needs before the reader says yes (RL-23): the
-// full device list is `DevicesPanel`'s own fetch, made once the copy is on.
-const pendingResponseSchema = z.object({ pending: z.number() });
-
-async function fetchPending(cursor: string | null): Promise<number> {
-  const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
-  const response = await fetch(`${DEVICES_ENDPOINT}${query}`);
-  if (!response.ok) throw new Error(`devices route answered ${response.status}`);
-  return pendingResponseSchema.parse(await response.json()).pending;
-}
 
 type EmailFormState =
   | { kind: "idle" }
@@ -36,6 +22,21 @@ function SignedOutForm() {
   const t = useTranslations("account");
   const [email, setEmail] = useState("");
   const [state, setState] = useState<EmailFormState>({ kind: "idle" });
+
+  // Half of RNL-09 this component has to hold by hand: `signOut` redirects
+  // to `/registro`, so this never mounts on the way out of a session. It
+  // only ever catches the other path onto this state — a device that was
+  // signed in once, is not any more, and lands here directly (RL-30).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const current = await readSyncState();
+      if (!cancelled && current.enabled) await writeSyncState({ enabled: false });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function handleSend(): Promise<void> {
     setState({ kind: "sending" });
@@ -84,108 +85,42 @@ function SignedOutForm() {
   );
 }
 
-type CountsState =
-  | { kind: "loading" }
-  | { kind: "ready"; local: number; remote: number }
-  | { kind: "failed" };
+type SyncStatus = { kind: "idle" } | { kind: "syncing" } | { kind: "failed" };
 
-// State 2: signed in, the copy still off. RL-23's own request — the first
-// and only one issued before the reader turns anything on.
-function EnableSection({
+// State 2: signed in, the copy on — the only state a session ever shows now
+// (RL-30). `DevicesPanel` is the module 21 line the contract names — this
+// file writes nothing else of it. No "Dejar de copiar" here: the user
+// answered that no manual shutdown survives one (`docs/voyager/DESIGN.md`
+// "Settled"), so the only doors out are `signOut` below and retiring this
+// device from `DevicesPanel`.
+function SyncedSection({
   email,
   syncState,
-  onEnable,
+  syncStatus,
+  syncVersion,
+  onSyncNow,
 }: {
   email: string;
   syncState: SyncState;
-  onEnable: () => Promise<void>;
+  syncStatus: SyncStatus;
+  syncVersion: number;
+  onSyncNow: () => void;
 }) {
   const t = useTranslations("account");
-  const tDevices = useTranslations("account.devices");
-  const [counts, setCounts] = useState<CountsState>({ kind: "loading" });
-  const [attempt, setAttempt] = useState(0);
-  const [enabling, setEnabling] = useState(false);
+  const format = useFormatter();
+  const syncing = syncStatus.kind === "syncing";
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const [local, remote] = await Promise.all([
-          countRecords(),
-          fetchPending(syncState.pulledThroughCursor),
-        ]);
-        if (!cancelled) setCounts({ kind: "ready", local, remote });
-      } catch {
-        if (!cancelled) setCounts({ kind: "failed" });
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [syncState.pulledThroughCursor, attempt]);
-
-  async function handleEnable(): Promise<void> {
-    setEnabling(true);
-    await onEnable();
+  // Fires before the sign-out `<form>` submits: `signOut` redirects to
+  // `/registro`, so this component never gets to unmount and run an effect
+  // of its own first (RL-30, RNL-09).
+  function handleSignOutClick(): void {
+    void writeSyncState({ enabled: false });
   }
 
   return (
     <Flex direction="column" gap="4">
       <Text size="2">{t("signedInAs", { email })}</Text>
 
-      {counts.kind === "loading" && <Spinner />}
-
-      {counts.kind === "ready" && (
-        <Button size="2" tap onClick={() => void handleEnable()} disabled={enabling}>
-          {t("enableWithBothCounts", { local: counts.local, remote: counts.remote })}
-        </Button>
-      )}
-
-      {counts.kind === "failed" && (
-        <Flex direction="column" gap="3" align="start">
-          <Separator size="4" />
-          <Text size="2" weight="bold">
-            {t("syncFailed")}
-          </Text>
-          <Button
-            size="2"
-            tap
-            onClick={() => {
-              setCounts({ kind: "loading" });
-              setAttempt((current) => current + 1);
-            }}
-          >
-            {tDevices("retry")}
-          </Button>
-        </Flex>
-      )}
-    </Flex>
-  );
-}
-
-type SyncStatus = { kind: "idle" } | { kind: "syncing" } | { kind: "failed" };
-
-// State 3: signed in, the copy on. `DevicesPanel` is the module 21 line the
-// contract names — this file writes nothing else of it.
-function SyncedSection({
-  syncState,
-  syncStatus,
-  syncVersion,
-  onSyncNow,
-  onDisable,
-}: {
-  syncState: SyncState;
-  syncStatus: SyncStatus;
-  syncVersion: number;
-  onSyncNow: () => void;
-  onDisable: () => void;
-}) {
-  const t = useTranslations("account");
-  const format = useFormatter();
-  const syncing = syncStatus.kind === "syncing";
-
-  return (
-    <Flex direction="column" gap="4">
       <Text size="2" muted>
         {syncState.lastSyncedAt
           ? t("lastSynced", {
@@ -197,14 +132,12 @@ function SyncedSection({
           : t("neverSynced")}
       </Text>
 
-      <Flex gap="3">
-        <Button size="2" tap onClick={onSyncNow} disabled={syncing}>
-          {syncing ? t("syncing") : t("syncNow")}
-        </Button>
-        <Button size="2" tap variant="soft" color="gray" onClick={() => void onDisable()} disabled={syncing}>
-          {t("disable")}
-        </Button>
-      </Flex>
+      {/* The one manual trigger RNL-09 still allows: the copy also "fires
+          … when the reader asks for it". Never the two-figure consent
+          button RL-23 drew — that button is gone, not hidden. */}
+      <Button size="2" tap onClick={onSyncNow} disabled={syncing}>
+        {syncing ? t("syncing") : t("syncNow")}
+      </Button>
 
       {syncStatus.kind === "failed" && (
         <Flex direction="column" gap="3" align="start">
@@ -221,7 +154,7 @@ function SyncedSection({
           redirect, and a `<form>` is the invocation the framework documents
           for that (node_modules/next/dist/docs's server-actions guide). */}
       <form action={signOut}>
-        <Button size="2" tap type="submit" variant="soft" color="gray">
+        <Button size="2" tap type="submit" variant="soft" color="gray" onClick={handleSignOutClick}>
           {t("signOut")}
         </Button>
       </form>
@@ -233,26 +166,17 @@ function SyncedSection({
   );
 }
 
-// States 2 and 3 both need the device's own `sync` row (IndexedDB, never the
-// network) before they can draw anything, so this one component owns the
-// read and the transitions between the two rather than splitting that race
-// across two effects in two files.
+// The device's own `sync` row (IndexedDB, never the network) has to be read
+// before anything draws, and — with a reader open — turned on by itself the
+// moment it is not (RL-30): no button, no figures, no state 2 to click
+// through. `EnableSection` and its pre-consent `/api/devices` request are
+// gone, not hidden.
 function SignedInPanel({ email }: { email: string }) {
   const [syncState, setSyncState] = useState<SyncState | null>(null);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>({ kind: "idle" });
   // Bumped once `syncNow()` resolves, success or failure alike: the device
   // list's own refetch keys off this, never off a timer (module 35).
   const [syncVersion, setSyncVersion] = useState(0);
-
-  useEffect(() => {
-    let cancelled = false;
-    readSyncState().then((state) => {
-      if (!cancelled) setSyncState(state);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   async function runSync(): Promise<void> {
     setSyncStatus({ kind: "syncing" });
@@ -262,44 +186,46 @@ function SignedInPanel({ email }: { email: string }) {
     setSyncVersion((current) => current + 1);
   }
 
-  // Turning the copy on writes `enabled: true` and calls `syncNow()` in the
-  // same gesture (RL-23, decision 9): the screen switches to state 3 the
-  // moment the write lands, and `syncStatus` carries the sync already under
-  // way there rather than blocking the switch on it finishing.
-  async function handleEnable(): Promise<void> {
-    await writeSyncState({ enabled: true });
-    setSyncState(await readSyncState());
-    await runSync();
-  }
-
-  async function handleDisable(): Promise<void> {
-    await writeSyncState({ enabled: false });
-    setSyncState(await readSyncState());
-    setSyncStatus({ kind: "idle" });
-  }
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const current = await readSyncState();
+      if (cancelled) return;
+      if (current.enabled) {
+        setSyncState(current);
+        return;
+      }
+      // Turning the copy on and firing the first sync happen in the same
+      // mount, with no act from the reader (RL-30): the two figures RL-23
+      // used to ask permission with are never computed, let alone drawn.
+      await writeSyncState({ enabled: true });
+      if (cancelled) return;
+      setSyncState(await readSyncState());
+      await runSync();
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // The IndexedDB read settles in a beat; nothing is drawn while it does,
   // same as the near-instant reads `record.ts` backs elsewhere.
   if (!syncState) return null;
 
-  if (!syncState.enabled) {
-    return <EnableSection email={email} syncState={syncState} onEnable={handleEnable} />;
-  }
-
   return (
     <SyncedSection
+      email={email}
       syncState={syncState}
       syncStatus={syncStatus}
       syncVersion={syncVersion}
       onSyncNow={() => void runSync()}
-      onDisable={handleDisable}
     />
   );
 }
 
 /**
- * The account screen's three states (RL-22, RL-23): no reader, a reader with
- * the copy off, a reader with it on. `readerEmail` comes from the server
+ * The account screen's two states (RL-22, RL-30): no reader, or a reader
+ * whose copy is already running. `readerEmail` comes from the server
  * component above, which is the only place `getReader()` runs — this file
  * never opens a session of its own to learn it.
  */
