@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 import messages from "../messages/es.json";
+import type { LookupOutcome } from "../lib/log/types";
 
 // The module 12 done criterion: `/registro/<normalised>` lists every search
 // for one word, most recent first, and never bleeds a different word in.
@@ -35,7 +36,17 @@ async function countWorkerConstructions(page: Page): Promise<void> {
   });
 }
 
-type SeedRow = { at: number; text: string; normalised: string; translation: string | null };
+type SeedRow = {
+  at: number;
+  text: string;
+  normalised: string;
+  translation: string | null;
+  outcome?: LookupOutcome;
+  // Set on a row standing in for one another device already merged in
+  // (`merge.ts`'s own shape); absent on a row this "device" wrote itself.
+  device?: string;
+  deviceSeq?: number;
+};
 
 async function seedRows(page: Page, rows: SeedRow[]): Promise<void> {
   await page.evaluate(
@@ -52,20 +63,25 @@ async function seedRows(page: Page, rows: SeedRow[]): Promise<void> {
           const tx = db.transaction("lookups", "readwrite");
           const store = tx.objectStore("lookups");
           for (const row of rows) {
-            store.add({
+            const record: Record<string, unknown> = {
               schema: 2,
               at: row.at,
               text: row.text,
               normalised: row.normalised,
               kind: "word",
-              outcome: "exact",
+              outcome: row.outcome ?? "exact",
               headword: row.text,
               rule: null,
               senses: 1,
               translation: row.translation,
               dictionaryReady: true,
               origin: null,
-            });
+            };
+            // Only a foreign row names a device, matching `record.ts`'s own
+            // `foreign` index: a local row carries neither key at all.
+            if (row.device !== undefined) record.device = row.device;
+            if (row.deviceSeq !== undefined) record.deviceSeq = row.deviceSeq;
+            store.add(record);
           }
           tx.oncomplete = () => {
             db.close();
@@ -115,6 +131,70 @@ test("a word's history lists every one of its searches with its date, and no oth
   await page.goto("/registro/word");
   await expect(page.getByRole("heading", { name: "Word" })).toBeVisible();
   await expect(page.getByText(messages.log.outcome.exact, { exact: true })).toHaveCount(1);
+});
+
+// RL-32's other half, `readWordHistory`, filters `lookups` on `normalised`
+// alone: a foreign row (`device`/`deviceSeq` set, `merge.ts`'s own shape)
+// sits in the same store as a local one and the reader never sees the
+// difference — the screen just orders every row by its own `at`. Seeded
+// out of both `at` order and insertion order, so a bug that sorted by
+// insertion (autoincrement `id`) or grouped by device would show a
+// different order than this test expects.
+test("a word's history interleaves two devices' rows by their own `at`, not by device or insertion order", async ({
+  page,
+}) => {
+  await deleteTranslator(page);
+
+  const now = Date.now();
+  await page.goto("/registro");
+  await seedRows(page, [
+    // id 1, at -3d, local
+    { at: now - 3 * DAY_MS, text: "twilight", normalised: "twilight", translation: "crepúsculo", outcome: "inflected" },
+    // id 2, at -1d, foreign (device-a)
+    {
+      at: now - 1 * DAY_MS,
+      text: "twilight",
+      normalised: "twilight",
+      translation: "crepúsculo",
+      outcome: "exact",
+      device: "device-a",
+      deviceSeq: 1,
+    },
+    // id 3, at -4d, local
+    { at: now - 4 * DAY_MS, text: "twilight", normalised: "twilight", translation: "crepúsculo", outcome: "miss" },
+    // id 4, at -2d, foreign (device-b)
+    {
+      at: now - 2 * DAY_MS,
+      text: "twilight",
+      normalised: "twilight",
+      translation: "crepúsculo",
+      outcome: "translated",
+      device: "device-b",
+      deviceSeq: 1,
+    },
+  ]);
+
+  await page.goto("/registro/twilight");
+  await expect(page.getByRole("heading", { name: "twilight" })).toBeVisible();
+  await expect(page.getByText(/4 búsquedas/)).toBeVisible();
+
+  // Document order of the four outcome labels: most recent `at` first,
+  // regardless of which device wrote the row or when it was inserted.
+  const labelPattern = new RegExp(
+    [
+      messages.log.outcome.exact,
+      messages.log.outcome.translated,
+      messages.log.outcome.inflected,
+      messages.log.outcome.miss,
+    ].join("|"),
+  );
+  const rendered = await page.getByText(labelPattern).allTextContents();
+  expect(rendered).toEqual([
+    messages.log.outcome.exact, // -1d, foreign, id 2
+    messages.log.outcome.translated, // -2d, foreign, id 4
+    messages.log.outcome.inflected, // -3d, local, id 1
+    messages.log.outcome.miss, // -4d, local, id 3
+  ]);
 });
 
 test("from /registro, tapping the lukewarm row reaches /registro/lukewarm", async ({ page }) => {

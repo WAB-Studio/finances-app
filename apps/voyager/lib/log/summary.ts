@@ -8,6 +8,16 @@ import type { LookupOutcome, LookupRecord } from "./types";
 const STORE_NAME = "lookups";
 const NORMALISED_INDEX = "normalised";
 
+// A row minted under schema 1 has no `translation` key at all — the field
+// landed at schema 2 (`types.ts`'s own history) — so IndexedDB hands the
+// cursor `undefined` where `LookupRecord` promises `string | null`. Both
+// readers below cast a raw cursor value through this, once, at the point a
+// row enters the module, rather than each folding `?? null` on its own.
+function readRecord(value: unknown): LookupRecord {
+  const record = value as LookupRecord;
+  return record.translation === undefined ? { ...record, translation: null } : record;
+}
+
 export type StudyRow = {
   normalised: string;
   display: string;
@@ -59,7 +69,7 @@ export async function readWordStudy(limit?: number): Promise<{ rows: StudyRow[];
         resolve(found);
         return;
       }
-      const record = cursor.value as LookupRecord;
+      const record = readRecord(cursor.value);
       found.set(record.normalised, foldRow(found.get(record.normalised), record));
       cursor.continue();
     };
@@ -101,7 +111,7 @@ export async function readWordHistory(
         resolve(rows);
         return;
       }
-      const record = cursor.value as LookupRecord;
+      const record = readRecord(cursor.value);
       rows.push({
         id: record.id as number,
         at: record.at,
