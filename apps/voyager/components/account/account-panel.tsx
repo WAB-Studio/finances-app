@@ -170,11 +170,13 @@ type SyncStatus = { kind: "idle" } | { kind: "syncing" } | { kind: "failed" };
 function SyncedSection({
   syncState,
   syncStatus,
+  syncVersion,
   onSyncNow,
   onDisable,
 }: {
   syncState: SyncState;
   syncStatus: SyncStatus;
+  syncVersion: number;
   onSyncNow: () => void;
   onDisable: () => void;
 }) {
@@ -226,7 +228,7 @@ function SyncedSection({
 
       <Separator size="4" />
 
-      <DevicesPanel />
+      <DevicesPanel refreshSignal={syncVersion} />
     </Flex>
   );
 }
@@ -238,6 +240,9 @@ function SyncedSection({
 function SignedInPanel({ email }: { email: string }) {
   const [syncState, setSyncState] = useState<SyncState | null>(null);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>({ kind: "idle" });
+  // Bumped once `syncNow()` resolves, success or failure alike: the device
+  // list's own refetch keys off this, never off a timer (module 35).
+  const [syncVersion, setSyncVersion] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -254,6 +259,7 @@ function SignedInPanel({ email }: { email: string }) {
     const outcome = await syncNow();
     setSyncState(await readSyncState());
     setSyncStatus(outcome.kind === "failed" ? { kind: "failed" } : { kind: "idle" });
+    setSyncVersion((current) => current + 1);
   }
 
   // Turning the copy on writes `enabled: true` and calls `syncNow()` in the
@@ -284,6 +290,7 @@ function SignedInPanel({ email }: { email: string }) {
     <SyncedSection
       syncState={syncState}
       syncStatus={syncStatus}
+      syncVersion={syncVersion}
       onSyncNow={() => void runSync()}
       onDisable={handleDisable}
     />
