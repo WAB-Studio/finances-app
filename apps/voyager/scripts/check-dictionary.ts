@@ -16,6 +16,7 @@ import path from "node:path";
 
 import { manifestSchema, type DictionaryPayload, type PartOfSpeech } from "../lib/dictionary/format";
 import { buildIndex, groupFor, type DictionaryIndex } from "../lib/dictionary/index-build";
+import { lemmaCandidates } from "../lib/dictionary/inflect";
 import { INFLECTION_FIXTURE } from "../lib/dictionary/inflect.fixture";
 import { IRREGULAR_FORMS } from "../lib/dictionary/irregular-forms";
 import { hasEntry, lookupWord } from "../lib/dictionary/lookup";
@@ -292,6 +293,42 @@ assert(
   next(`p95 of lookupWord over ${TIMING_SAMPLE_SIZE} headwords is under 1 ms in Node`),
   p95Ms < 1,
   `p95=${p95Ms.toFixed(4)} ms over ${timingsMs.length} calls`,
+);
+
+// D11 — no headword's answer claims a comparative or superlative reading
+// whose target carries no adj sense: "her" is not a form of "he", "beer"
+// is not a form of "be"/"bee", "baker" is not a form of "bake". Measured
+// against every headword the dictionary carries, not three examples.
+// preFilterFalseCount reruns lemmaCandidates without lookupWord's own
+// plausibility check, to report how large the surface was before it.
+let preFilterFalseHeadwords = 0;
+let postFilterFalseHeadwords = 0;
+const stillFalseExamples: string[] = [];
+for (const headword of index.sortedHeadwords) {
+  const compSup = lemmaCandidates(headword).filter(
+    (c) => (c.rule === "comparative" || c.rule === "superlative") && c.lemma !== headword,
+  );
+  const hadImplausible = compSup.some((c) => {
+    const g = groupFor(index, c.lemma);
+    return g !== null && !g.senses.some((s) => s.pos === "adj");
+  });
+  if (hadImplausible) preFilterFalseHeadwords++;
+
+  const shipped = lookupWord(index, headword).viaInflection.filter(
+    (h) => h.rule === "comparative" || h.rule === "superlative",
+  );
+  const stillImplausible = shipped.some((h) => !h.group.senses.some((s) => s.pos === "adj"));
+  if (stillImplausible) {
+    postFilterFalseHeadwords++;
+    if (stillFalseExamples.length < 10) stillFalseExamples.push(headword);
+  }
+}
+assert(
+  next("no shipped comparative/superlative hit targets a headword without an adj sense"),
+  postFilterFalseHeadwords === 0,
+  postFilterFalseHeadwords === 0
+    ? `${preFilterFalseHeadwords} headwords carried an implausible hit before the adj filter, 0 after`
+    : `${postFilterFalseHeadwords} headwords still carry one: ${stillFalseExamples.join(", ")}`,
 );
 
 report();
