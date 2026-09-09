@@ -139,6 +139,12 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   landed 2026-09-09 and the user approved them the same day: `RegistroEstudio`,
   `RegistroEstudioEstados` and `PalabraHistorial` (T2); `SinEntrada` and `SinEntradaEstados` (T3);
   `CuentaCopia`, `CuentaCopiaEstados` and `CuentaInformacion` (T4); `PalabraCategoria` (T5).
+- **`/registro`'s desktop width is undecided, and the screens take the whole rest of the viewport.**
+  `measure="full"` caps nothing above 1024px, so a row runs 1680px on a 1920 window and 2320px on a
+  2560 one, leaving 925px between a word and its translation. Measured 2026-09-09 on the shipped
+  build. Three candidates were rendered for the user — no cap, 1120px, 960px — and **the decision is
+  open**; module 9 of `private/planes/slice-voyager-lector-2026-09-08.md` is blocked on it. Until it
+  is taken, no board fixes a maximum and any new `measure="full"` screen inherits the same gap.
 - **`/registro/<palabra>` has no empty state drawn.** `PalabraHistorial` (T2) draws the word's own
   history full and nothing else. Module 12 shipped it reusing the strings of
   `RegistroEstudioEstados`, so the screen a reader reaches for a word with no rows is a reuse
