@@ -69,31 +69,29 @@ function SpeakButton({ headword, t }: { headword: string; t: ReturnType<typeof u
   );
 }
 
-// One sense: its part of speech, its IPA when the entry carries one, every
-// translation on its own line, and its definition when the entry carries one.
-// Never a card, never a border box (docs/voyager/DESIGN.md); the caller rules
-// it against the next sense with a hairline instead.
-function SenseCard({ sense, t }: { sense: Sense; t: ReturnType<typeof useTranslations> }) {
+// One sense's own body: every translation on its own line, its definition
+// when the entry carries one, and its own IPA only when it differs from the
+// one already drawn on its segment's label row — repeating an identical IPA
+// on every sense would say nothing a reader does not already have.
+function SenseDetail({
+  sense,
+  segmentIpa,
+  t,
+}: {
+  sense: Sense;
+  segmentIpa: string | null;
+  t: ReturnType<typeof useTranslations>;
+}) {
+  const ownIpa = sense.ipa !== null && sense.ipa !== segmentIpa ? sense.ipa : null;
+
   return (
     <Flex direction="column" gap="2">
-      <Flex align="center" gap="2">
-        <PosLabel>{t(`pos.${sense.pos}`)}</PosLabel>
-        {sense.ipa !== null && (
-          // IPA runs past 120 characters with no space to break on, and it is
-          // metadata beside the headword, not the headword itself — one
-          // clamped line reads better than four wrapped ones. `PosLabel` has
-          // no intrinsic width limit of its own, so the row's flex-shrink
-          // alone would starve it too; the clamp has to come from `Grid`,
-          // whose `minmax(0, 1fr)` governs the item regardless
-          // (docs/voyager/DESIGN.md "What the data forces").
-          <Grid flexGrow="1" minWidth="0">
-            <Text size="2" color="gray" truncate>
-              {sense.ipa}
-            </Text>
-          </Grid>
-        )}
-      </Flex>
       <Flex direction="column" gap="1">
+        {ownIpa !== null && (
+          <Text size="2" color="gray" truncate>
+            {ownIpa}
+          </Text>
+        )}
         <Text size="1" color="gray">
           {t("translations")}
         </Text>
@@ -117,8 +115,64 @@ function SenseCard({ sense, t }: { sense: Sense; t: ReturnType<typeof useTransla
   );
 }
 
-// A group of senses ruled apart with a hairline, one per headword or
-// inflected form.
+// A contiguous run of same-part-of-speech senses: one `PosLabel`, one IPA
+// taken from the run's first sense, and every sense's own body ruled apart
+// with a hairline. Never a card, never a border box (docs/voyager/DESIGN.md).
+function PosSegment({
+  segment,
+  t,
+}: {
+  segment: SenseSegment;
+  t: ReturnType<typeof useTranslations>;
+}) {
+  const segmentIpa = segment.senses[0].ipa;
+
+  return (
+    <Flex direction="column" gap="3">
+      <Flex align="center" gap="2">
+        <PosLabel>{t(`pos.${segment.pos}`)}</PosLabel>
+        {segmentIpa !== null && (
+          // IPA runs past 120 characters with no space to break on, and it is
+          // metadata beside the headword, not the headword itself — one
+          // clamped line reads better than four wrapped ones. `PosLabel` has
+          // no intrinsic width limit of its own, so the row's flex-shrink
+          // alone would starve it too; the clamp has to come from `Grid`,
+          // whose `minmax(0, 1fr)` governs the item regardless
+          // (docs/voyager/DESIGN.md "What the data forces").
+          <Grid flexGrow="1" minWidth="0">
+            <Text size="2" color="gray" align="right" truncate>
+              {segmentIpa}
+            </Text>
+          </Grid>
+        )}
+      </Flex>
+      {segment.senses.map((sense, index) => (
+        <Flex direction="column" gap="3" key={index}>
+          {index > 0 && <Separator size="4" />}
+          <SenseDetail sense={sense} segmentIpa={segmentIpa} t={t} />
+        </Flex>
+      ))}
+    </Flex>
+  );
+}
+
+type SenseSegment = { pos: Sense["pos"]; senses: Sense[] };
+
+// `groupFor` (lib/dictionary/index-build.ts) already sorts senses by
+// POS_RANK, so every sense of one part of speech arrives contiguous: this
+// only draws its label once instead of once per sense (RL-04).
+function segmentByPos(senses: readonly Sense[]): SenseSegment[] {
+  const segments: SenseSegment[] = [];
+  for (const sense of senses) {
+    const open = segments.at(-1);
+    if (open !== undefined && open.pos === sense.pos) open.senses.push(sense);
+    else segments.push({ pos: sense.pos, senses: [sense] });
+  }
+  return segments;
+}
+
+// A group of part-of-speech segments ruled apart with a hairline, one per
+// headword or inflected form.
 function SenseGroup({
   senses,
   t,
@@ -126,12 +180,14 @@ function SenseGroup({
   senses: readonly Sense[];
   t: ReturnType<typeof useTranslations>;
 }) {
+  const segments = segmentByPos(senses);
+
   return (
     <Flex direction="column" gap="3">
-      {senses.map((sense, index) => (
+      {segments.map((segment, index) => (
         <Flex direction="column" gap="3" key={index}>
           {index > 0 && <Separator size="4" />}
-          <SenseCard sense={sense} t={t} />
+          <PosSegment segment={segment} t={t} />
         </Flex>
       ))}
     </Flex>
