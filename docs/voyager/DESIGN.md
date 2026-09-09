@@ -344,9 +344,14 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   dark × desktop and mobile. «she kept her fettle through the long and bitter winter» with no
   translation: eight word blocks, then «y 2 palabras más» for the rest. `fettle` is block 4, so the
   «El diccionario tampoco tiene esta palabra» line is drawn **inside** the fallback and not only
-  beside it. Known price, and the user took it with the number in front of them: 1560px tall on
-  desktop, 1880px on mobile. Two alternatives were offered and refused — cutting to four or five
-  blocks, and skipping articles and prepositions — so the breakdown stays every word, in order.
+  beside it. Two alternatives were offered and refused — cutting to four or five blocks, and skipping
+  articles and prepositions — so the breakdown stays every word, in order.
+  **The height the user approved was wrong, and the built screen is about twice it.** The boards
+  carry 1560px desktop and 1880px mobile, and that is the figure the approval was given against.
+  Measured on the shipped build 2026-09-09, a nine-word failing phrase draws **3022px on desktop and
+  3155px on mobile** — the boards size the content column, the real page adds the search box and the
+  shell around it. The decision stands; the number in the boards does not. Measure the page, not the
+  artboard, the next time a screen is approved on its height.
 - **A phrase the translation cannot answer falls back to the per-word breakdown.** Decided by the
   user 2026-09-09, closing the gap `SinEntrada`'s eight-block cut left. `schedulePhrase` sends every
   3-to-60-token phrase to `PhraseAnswer` today, so the breakdown ran at exactly two tokens and
