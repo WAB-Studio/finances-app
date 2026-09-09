@@ -4,12 +4,18 @@ import { getTranslations } from "next-intl/server";
 import { getReader } from "@/lib/session";
 import { AccountPanel } from "@/components/account/account-panel";
 import { AccountInfo } from "@/components/account/account-info";
-import { Flex, Headword, Link, Page, TapTarget, Text } from "@/components/ui";
+import { Flex, Headword, Link, Page, Separator, TapTarget, Text } from "@/components/ui";
 
 type InfoTab = "account" | "info";
 
 function resolveTab(raw: string | string[] | undefined): InfoTab {
   return raw === "info" ? "info" : "account";
+}
+
+// `app/auth/confirm/route.ts` sends every invalid or expired link here,
+// `?error=linkInvalid`, with no state of its own to carry the reason in.
+function isLinkInvalid(raw: string | string[] | undefined): boolean {
+  return (Array.isArray(raw) ? raw[0] : raw) === "linkInvalid";
 }
 
 // Server-rendered shell alone, like `/registro`: `getReader()` reads the
@@ -22,13 +28,14 @@ function resolveTab(raw: string | string[] | undefined): InfoTab {
 export default async function CuentaPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string | string[] }>;
+  searchParams: Promise<{ tab?: string | string[]; error?: string | string[] }>;
 }) {
   const t = await getTranslations("account");
   const tInfo = await getTranslations("account.info");
   const reader = await getReader();
-  const { tab: rawTab } = await searchParams;
+  const { tab: rawTab, error: rawError } = await searchParams;
   const tab = resolveTab(rawTab);
+  const linkInvalid = isLinkInvalid(rawError);
 
   return (
     <Page measure="full">
@@ -58,6 +65,18 @@ export default async function CuentaPage({
             </NextLink>
           </Link>
         </Flex>
+
+        {linkInvalid && tab === "account" && (
+          // No red in this palette (docs/voyager/DESIGN.md "Failure"): a
+          // hairline sets the break off, full-weight ink says it. No retry
+          // button of its own — the email form right below is the retry.
+          <Flex direction="column" gap="3" align="start">
+            <Separator size="4" />
+            <Text size="2" weight="bold">
+              {t("errors.linkInvalid")}
+            </Text>
+          </Flex>
+        )}
 
         {tab === "account" ? <AccountPanel readerEmail={reader?.email ?? null} /> : <AccountInfo />}
       </Flex>
