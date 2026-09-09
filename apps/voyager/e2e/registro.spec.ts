@@ -4,8 +4,8 @@ import { expect, test, type Page } from "@playwright/test";
 import messages from "../messages/es.json";
 import manifest from "../public/dictionary/manifest.json";
 
-// The same runtime `next-intl` renders with: module 2's `log.count` is an
-// ICU plural, so a literal `"{count}"` substring never appears in the
+// The same runtime `next-intl` renders with: `log.study.header` is an ICU
+// plural, so a literal `"{lookups}"` substring never appears in the
 // rendered text and a naive `.replace` against it always misses.
 const t = createTranslator({ locale: "es", messages });
 
@@ -58,7 +58,7 @@ test("a lookup's row lists the typed word, its count and a non-empty translation
 
   await page.goto("/registro");
 
-  await expect(page.getByText(t("log.count", { count: 1 }))).toBeVisible();
+  await expect(page.getByText(t("log.study.header", { lookups: 1, words: 1 }))).toBeVisible();
 
   const row = page.locator('a[href="/registro/apple"]');
   await expect(row).toBeVisible();
@@ -79,6 +79,12 @@ test("with no rows, /registro draws the study's empty state and its action retur
   await page.goto("/registro");
   await expect(page.getByText(messages.log.study.emptyTitle)).toBeVisible();
   await expect(page.getByText(messages.log.study.emptyBody)).toBeVisible();
+
+  // The empty study already says there is nothing here; a download link
+  // for a file with no rows in it would only repeat that with an action
+  // that does not work.
+  await expect(page.getByRole("button", { name: messages.log.study.download })).toHaveCount(0);
+  await expect(page.getByText(t("log.study.header", { lookups: 0, words: 0 }))).toHaveCount(0);
 
   await page.getByRole("button", { name: messages.log.study.emptyAction }).click();
   await expect(page).toHaveURL(/\/$/);
