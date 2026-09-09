@@ -120,7 +120,13 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   2026-09-07. Checked 2026-09-08: the published canvas contains the string `Noche` zero times.
   Nothing on it contradicts this file any more.
 - When a board and this file disagree, **this file wins**.
-- **The canvas is 112 boards**, counted 2026-09-09 from the published file: Inicio, Palabra,
+- **The canvas is 156 boards**, counted 2026-09-09 from the published file after the critic's drive.
+  The last twenty are the five decisions of that afternoon, each drawn light and dark × desktop and
+  mobile before any worker was dispatched, each carrying an annotation that says what was refused:
+  `SugerenciasPausadas` (the prefix that keeps its list), `SinEntradaFraseEnlaces` (every block a way
+  back in), `CuentaSinRed` (the one screen allowed to name the connection), `PalabraDefinicionPlegada`
+  and `PalabraDefinicionAbierta` (the English definition's two states). The older count follows:
+- **The canvas was 112 boards**, counted 2026-09-09 from the published file: Inicio, Palabra,
   PalabraCategoria, PalabraHistorial, Frase, FraseOferta, Flexión, SinResultado, SinResultadoIA,
   SinResultadoIAFallo, SinResultadoSinPista, SinEntrada, SinEntradaEstados, Sugerencias, Instalando,
   Fuente, Fallo, Registro, RegistroVacío, RegistroEstudio, RegistroEstudioEstados, Cuenta,
