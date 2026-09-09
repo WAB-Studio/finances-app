@@ -250,3 +250,32 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   foot to put a control in and the sidebar does. **This gives RNL-07 a home; it does not build it —
   RNL-07 stays unticked.** `app/theme.css:14-17` admits today that the reader does not choose: the
   OS preference alone picks the mode, and no toggle lives there yet.
+
+- **A word's photo is online-only, and it never sits behind a tap.** Decided by the user 2026-09-08,
+  on their own words: **«las fotos no es obligatorio para sesiones offline»**. Embedding one photo
+  per entry measured at **≈247 MB** for the 64,258 entries — 29 times today's asset — against an
+  average thumbnail of **3,846 bytes** for a 100 px width, sampled over 9 real words
+  (`private/reportes/investigacion-oraciones-e-imagen-2026-09-08.md`). That weight is the reason it
+  is never installed: with no connection there is no photo, and the word's answer draws exactly as it
+  does today. No count of how many entries are even photographable exists: the loose upper bound is
+  37,567 entries tagged as a noun, which does not tell `apple` from `anxiety`. The user also chose
+  that the photo **draws by itself as the answer is drawn**, never behind a tap — and that clause is
+  what **retires RL-14**: a keystroke can now reach the network, on the very screen that used to
+  touch nothing at all. `SPEC.md` opens its successors as **RL-35** (the text, unchanged) and
+  **RL-36** (the photo, the new exception).
+- **The photo goes straight to Wikimedia, with no route handler of the app's own in front of it.**
+  Decided by the user 2026-09-08, asked plainly whether it mattered that a third party sees which
+  word the reader is looking up: they chose to let it go direct, over building a fifth route handler
+  (the shape RL-09 already has for the sentence path) to hide it. Say this as the price it is, not as
+  an implementation detail: everywhere else in this app a lookup never leaves the device — RL-35 (the
+  word's text), RNL-09 (the copy), the consent the account screen already asks for — and the photo is
+  the one deliberate exception, telling Wikimedia both the word and the reader's IP address.
+- **No board draws a photo in the answer.** The canvas has no state for it in `Palabra`, in any of
+  the four combinations of light/dark × desktop/mobile. It needs an amendment to the `Palabra` board
+  before any module draws one, and until that amendment exists, none does.
+- **Wikimedia's licence is per file, and this app hides licences in a tab today.** CC BY-SA, CC0 and
+  public domain sit mixed across individual files, so every photo carries its own attribution, unlike
+  the CC BY-SA 3.0 that covers the whole dictionary asset under one credit. `/cuenta` is where this
+  app already puts a licence (RL-33's source and licence, in an information tab). A per-image credit
+  cannot hide there. A per-image attribution has to sit next to its image to mean anything, which is the
+  opposite instinct. **Open, not resolved here:** where does a photo's attribution go?
