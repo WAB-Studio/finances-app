@@ -193,13 +193,21 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
   number moves, so read it rather than trusting one written here — it said seven, then four, then
   zero inside one day.
 - `npm run harness:reap` is safe beside a running lane. It never touches a lane identity.
-- **Decided 2026-09-09, not built: e2e's magic-link flow moves to a Supabase project of its own.**
-  One `sync.spec.ts` run gave 67/1 where the next gave 68/0 on the same build, the red inside
-  `signInAs` with the test's own magic link rejected. Not reproduced since: 93 `verifyOtp` calls over
-  four attempts came back green, and CI passed that commit 68/68 on its only run. The suspect is the
-  one Auth project five lanes and two apps share. Until the second project exists, **do not serialize
-  lanes or add a retry to buy quiet** — `retries: 0` is deliberate, and the user refused the cheaper
-  cures. Chase a recurrence by saving the log; the original run's is gone.
+- **A separate Supabase project for e2e was measured and refused, 2026-09-09.** Do not propose it
+  again without one of the two triggers below. What the numbers said: `sync.spec.ts` mints **3
+  sign-ins per run** — 15 across five lanes, far under any plausible Auth rate limit; the flake that
+  raised the question was **not reproduced in 93 `verifyOtp` calls** over four attempts, and CI
+  passed that commit 68/68 on its only run. No measurement has ever shown an exhausted quota. The
+  real cost of one shared project is accumulation, not quota — that day's census read
+  `harness-member@example.invalid refresh_tokens=182`, `audit_log both-null-delete 54254`, 148 MB —
+  and `@repo/harness-registry`, `harness:census` and `harness:reap` already hold it: the census read
+  **0 unregistered rows**. A second project buys a second key set, two schemas to keep in step, new
+  CI secrets and a touch of `apps/voyager/.env.local`, which is off limits by the user's own rule.
+- **What would reopen it, and only these two.** A recurrence of the `sync.spec.ts` flake **with its
+  footprint captured** — an actual quota error code, not an inference — or the suite locking a real
+  user out of signing in. Save the log the first time; the original run's is gone.
+- **Meanwhile, never buy quiet on that flake.** No `retry`, no `waitFor`, no `sleep`, and do not
+  serialize lanes. `retries: 0` is deliberate.
 
 ## What a session spends
 
