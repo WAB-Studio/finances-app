@@ -36,11 +36,13 @@ export default defineConfig({
     },
     // docs/voyager/DESIGN.md "Viewport": the second breakpoint, 1024px, where
     // the bar becomes a sidebar. No `hasTouch`: a desktop, not a tablet.
-    // Scoped to the spec that draws the sidebar, so the eleven other specs
+    // Scoped to the specs that say something about the width, so the rest
     // never double their run time against a viewport they say nothing about.
+    // `sin-entrada.spec.ts` joined `escritorio.spec.ts` here (module 6): its
+    // own criterion names both projects, unlike its ten siblings.
     {
       name: "desktop",
-      testMatch: /escritorio\.spec\.ts$/,
+      testMatch: [/escritorio\.spec\.ts$/, /sin-entrada\.spec\.ts$/],
       testIgnore: [],
       use: {
         ...devices["Desktop Chrome"],
