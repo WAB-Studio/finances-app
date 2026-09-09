@@ -1,12 +1,53 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
+import NextLink from "next/link";
 import { useTranslations } from "next-intl";
 
 import type { Sense } from "@/lib/dictionary/index-build";
 import type { WordAnswer } from "@/lib/dictionary/lookup";
 import { speak, speechSupported } from "@/lib/speech/speak";
-import { Flex, Grid, Headword, IconButton, PosLabel, Separator, Text } from "@/components/ui";
+import { Flex, Grid, Headword, IconButton, Link, PosLabel, Separator, Text, TapTarget } from "@/components/ui";
+
+// docs/voyager/DESIGN.md "Viewport": stroke-width 1.75, round caps and
+// joins, fill none — the same glyph shape `bottom-nav.tsx` draws, sized down
+// for an inline word.
+function ChevronGlyph() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M9 6l6 6-6 6" />
+    </svg>
+  );
+}
+
+// A block's own headword, made into `wordHref`'s door back to the full
+// entry: `Headword` sets no colour of its own, so `Link`'s accent cascades
+// into it — the same route `no-entry-answer.tsx` takes for the miss line.
+// Plain when `wordHref` is absent, which is every call outside the
+// breakdown.
+function BlockHeading({ word, wordHref }: { word: string; wordHref?: string }) {
+  if (!wordHref) return <Headword>{word}</Headword>;
+  return (
+    <Link asChild underline="always">
+      <NextLink href={wordHref}>
+        <TapTarget align="center" gap="1">
+          <Headword>{word}</Headword>
+          <ChevronGlyph />
+        </TapTarget>
+      </NextLink>
+    </Link>
+  );
+}
 
 // The glyph docs/voyager/DESIGN.md "Settled" fixes exactly: a play triangle
 // and two sound arcs, 1.75px strokes, round caps and joins. Drawn here
@@ -217,9 +258,15 @@ export type SenseListVariant = "full" | "compact";
 export function SenseList({
   answer,
   variant = "full",
+  wordHref,
 }: {
   answer: WordAnswer;
   variant?: SenseListVariant;
+  // The breakdown's own door back to `/?q=<word>` (docs/voyager/DESIGN.md
+  // "Every block of the breakdown is a way back in"). Set by
+  // `no-entry-answer.tsx` alone; a direct lookup passes nothing, so its
+  // headword stays plain.
+  wordHref?: string;
 }) {
   const t = useTranslations("word");
   const tSearch = useTranslations("search");
@@ -242,7 +289,7 @@ export function SenseList({
       {answer.exact !== null && (
         <Flex direction="column" gap="3">
           <Flex align="center" gap="1">
-            <Headword>{answer.exact.headword}</Headword>
+            <BlockHeading word={answer.exact.headword} wordHref={wordHref} />
             {!compact && <SpeakButton headword={answer.exact.headword} t={t} />}
           </Flex>
           <SenseGroup senses={answer.exact.senses} compact={compact} t={t} />
@@ -257,7 +304,7 @@ export function SenseList({
               inflection too — the form line explains it, it does not replace
               it. */}
           <Flex direction="column" gap="1">
-            <Headword>{hit.lemma}</Headword>
+            <BlockHeading word={hit.lemma} wordHref={wordHref} />
             <Text size="1" color="gray">
               {t("viaInflection", { surface: hit.surface, lemma: hit.lemma })}
             </Text>

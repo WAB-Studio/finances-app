@@ -23,7 +23,7 @@
       "resolving": "Buscando cada palabra…",
       "wordMiss": "El diccionario tampoco tiene esta palabra.",
       "tooLong": "Eso son {count} palabras. Busca una, o una frase de hasta sesenta.",
-      "more": "…y {count, plural, one {# palabra más que no cabe aquí} other {# palabras más que no caben aquí}}."
+      "more": "…y {count, plural, one {# palabra más: {words}} other {# palabras más: {words}}}."
     }
   },
   "install": {
