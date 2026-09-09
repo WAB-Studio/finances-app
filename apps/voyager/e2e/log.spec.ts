@@ -370,3 +370,44 @@ test("RL-34: a word's stored translation spans senses, and the 120-char cut stil
   expect(anywayRow?.translation).not.toMatch(/[,\s]$/);
   expect(anywayRow?.translation?.length).toBeLessThanOrEqual(120);
 });
+
+test("a killed tab still commits the query it had settled on, and a fast one still groups by prefix", async ({
+  page,
+  context,
+}) => {
+  await deleteTranslator(page);
+  const assetResponse = page.waitForResponse(
+    (response) => response.url().includes(manifest.asset.path) && response.ok(),
+  );
+  await page.goto("/");
+  await assetResponse;
+  await page.waitForTimeout(1000);
+
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+
+  // Past the 800ms settle, short of the 5000ms forced flush: only the
+  // `pagehide` path below, not a timer, can be what lands this row.
+  await searchBox.fill("lemon");
+  await page.waitForTimeout(2000);
+  await page.close();
+
+  const reopened = await context.newPage();
+  await reopened.goto("/");
+  const rowsAfterClose = await readLogRows(reopened);
+  expect(rowsAfterClose.some((row) => row.normalised === "lemon")).toBe(true);
+
+  // The regression the fix must not open: four keystrokes chained well
+  // under the settle window, killed mid-chain, must still land as one row.
+  const chainedBox = reopened.getByRole("textbox", { name: messages.search.label });
+  for (const step of ["b", "bo", "boo", "book"]) {
+    await chainedBox.fill(step);
+    await reopened.waitForTimeout(150);
+  }
+  await reopened.close();
+
+  const finalPage = await context.newPage();
+  await finalPage.goto("/");
+  const rowsAfterChain = await readLogRows(finalPage);
+  expect(rowsAfterChain.filter((row) => row.normalised.startsWith("b"))).toHaveLength(1);
+  expect(rowsAfterChain.find((row) => row.normalised === "book")).toBeTruthy();
+});
