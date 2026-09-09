@@ -109,6 +109,9 @@ this gets built, and no schema, table or column is "prepared for" it.
 - [ ] **RL-32** — The reader reads their record grouped by word: one row per word, with how many
   times it was searched, ordered by frequency, case-insensitive; and tapping a word opens every one
   of its searches with its date. This replaces the chronological list.
+- [ ] **RL-34** — The record keeps, for every lookup, the word, its translation cut to 120
+  characters and at most 3 senses, and how the answer was reached; and the reader reads it inside
+  the app.
 - [x] **RL-20** — The log can be exported from the app as a single file the reader saves onto their
   device: every recorded search, with its date and the headword it reached, in a documented and
   versioned shape. The export is deliberate: it is reached from outside the search screen and

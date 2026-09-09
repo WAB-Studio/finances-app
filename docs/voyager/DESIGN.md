@@ -120,22 +120,23 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   2026-09-07. Checked 2026-09-08: the published canvas contains the string `Noche` zero times.
   Nothing on it contradicts this file any more.
 - When a board and this file disagree, **this file wins**.
-- **The canvas is 72 boards**, counted 2026-09-08 from the published file: Inicio, Palabra, Frase,
-  FraseOferta, Flexión, SinResultado, **SinResultadoIA, SinResultadoIAFallo, SinResultadoSinPista**,
-  Sugerencias, Instalando, Fuente, Fallo, Registro, RegistroVacío, Cuenta, CuentaDentro and
-  Dispositivos, each in light/dark × desktop/mobile. The three in bold arrived after the count of
-  60 that stood here, and the count is the only thing that was wrong: every family has its four.
+- **The canvas is 76 boards**, counted 2026-09-08 from the published file: Inicio, Palabra, Frase,
+  FraseOferta, Flexión, SinResultado, SinResultadoIA, SinResultadoIAFallo, SinResultadoSinPista,
+  Sugerencias, Instalando, Fuente, Fallo, Registro, RegistroVacío, Cuenta, CuentaDentro,
+  Dispositivos and **BarraSidebar**, each in light/dark × desktop/mobile. `BarraSidebar` is T1,
+  published after the count of 72 that stood here; the count is the only thing that changed.
 - **An answer the AI wrote already has boards** — `SinResultadoIA` and `SinResultadoIAFallo`, both
   in all four. Whatever RL-29 becomes, it is not drawing from nothing.
 - **Nothing is drawn for exporting or for syncing**, and this file names neither. A screen for
   either is designed from scratch, not derived from a board.
-- **Nothing is drawn for the desktop sidebar**, for a theme control, or for a record grouped by word
-  and counted. Those three are the visible work now open and every one of them starts at the canvas.
 - **This slice's boards, named.** `FraseOferta`, `SinResultadoIA`, `SinResultadoIAFallo`,
-  `SinResultadoSinPista`, `Registro`, `RegistroVacío`, `Cuenta` and `CuentaDentro` already exist,
-  each in its four faces of light/dark × desktop/mobile. **Nothing exists** for the desktop sidebar,
-  for a theme control, for the record grouped and counted by word, or for the information tab RL-33
-  puts inside `/cuenta`.
+  `SinResultadoSinPista`, `Registro`, `RegistroVacío`, `Cuenta`, `CuentaDentro`,
+  `BarraSidebarClaroMovil`, `BarraSidebarClaroEscritorio`, `BarraSidebarOscuroMovil` and
+  `BarraSidebarOscuroEscritorio` already exist. `BarraSidebar` (T1) draws the theme control at the
+  sidebar's foot, which is what the user has just approved for desktop; see `## Settled`. **Nothing
+  exists** for the record grouped and counted by word (T2), for the no-entry state (T3), for the
+  account with its automatic copy (T4), for the sense-category amendment to `Palabra` (T5), or for
+  the information tab RL-33 puts inside `/cuenta`.
 - **Reading the published canvas costs 2.7 MB**, and the head of it is the editor's own stylesheet,
   not the design. Read it to a file and grep the file for `\.dc\.html` names; never read it into a
   conversation twice.
@@ -243,3 +244,9 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   tapping a word opens every one of its searches with its date. Written as RL-32. **No board exists
   for the grouped rows or for a word's opened history**; `Registro` and `RegistroVacío` as drawn are
   the chronological list this decision retires from the reading path, not the study's boards.
+- **The theme control has two homes, one per shape of the navigation.** Decided by the user
+  2026-09-08, looking at the `BarraSidebar` board: the sidebar's foot on desktop, inside `/cuenta`
+  on the phone. Two surfaces, not one, because the bar that carries the phone's navigation has no
+  foot to put a control in and the sidebar does. **This gives RNL-07 a home; it does not build it —
+  RNL-07 stays unticked.** `app/theme.css:14-17` admits today that the reader does not choose: the
+  OS preference alone picks the mode, and no toggle lives there yet.
