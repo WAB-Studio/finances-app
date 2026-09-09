@@ -1269,3 +1269,20 @@ typed — and leave the router's own edge alone. Revisit only if a real link, sh
 found producing one.
 
 `/registro/100%25` (a properly escaped percent) works and always did.
+
+## `log.spec.ts`'s killed-tab test loses its race under a loaded machine
+
+Measured 2026-09-09, on the full voyager suite run right after `#121` landed the synchronous
+`pagehide` commit. `a killed tab still commits the query it had settled on` failed once inside a
+97-test run and **passed alone, 4/4, on the same build and server seconds later**.
+
+It is not a regression and not a bad fix. That test asserts a real race — the IndexedDB write
+against the page's own death — and the fix wins it by starting the transaction synchronously on an
+already-open handle. Under a machine running a dev server, a Chromium and a full suite, the browser
+can tear the page down before the transaction commits anyway.
+
+**Chase it with the one spec, never by repeating the suite.** `node ../../node_modules/@playwright/test/cli.js test e2e/log.spec.ts --project=mobile`
+from `apps/voyager` against a production build. If it passes alone, it is this.
+
+**Never buy quiet on it** — no `retry`, no `waitFor`, no `sleep`. Same rule as `sync.spec.ts`.
+It would reopen only with a failure that reproduces alone.
