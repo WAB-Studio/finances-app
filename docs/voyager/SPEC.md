@@ -81,7 +81,7 @@ this gets built, and no schema, table or column is "prepared for" it.
 
 - [ ] **RL-12** — The dictionary is fetched once, as a static asset, and installed onto the device. Its progress is shown and the box stays typeable throughout.
 - [x] **RL-13** — An interrupted install leaves no partial dictionary. The next open finds the dictionary whole or absent, never in between, and starts it again from zero.
-- [ ] **RL-33** — The dictionary's source, its edition and its CC BY-SA 3.0 licence are named in an
+- [x] **RL-33** — The dictionary's source, its edition and its CC BY-SA 3.0 licence are named in an
   information tab inside `/cuenta`, linking to the source and to the licence text, and stating that
   what the app ships is a reformatted extract distributed under the same licence. CC BY-SA 3.0
   conditions the credit on it staying reachable by whoever uses the work, so the tab reads without
@@ -90,7 +90,7 @@ this gets built, and no schema, table or column is "prepared for" it.
 #### The shell
 
 - [ ] **RL-16** — The app opens with no connection and shows its box, and it can be launched from the phone's home screen without a browser around it. This holds from the second time it is opened onwards: the first open needs the network to deliver the app itself.
-- [ ] **RL-21** — Every lookup a reader settles on is recorded on the device, from the app's first
+- [x] **RL-21** — Every lookup a reader settles on is recorded on the device, from the app's first
   day: what was typed, whether it was answered as a word or a sentence, the headword it actually
   reached when an inflected form was typed, whether it found anything at all, and when. The record
   only ever gains rows: nothing edits or deletes one. No screen on the read path shows it. It is read
