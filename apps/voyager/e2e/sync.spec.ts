@@ -8,7 +8,7 @@ import messages from "../messages/es.json";
 import manifest from "../public/dictionary/manifest.json";
 import { DATABASE_VERSION } from "../lib/log/record";
 import type { LookupRecord, SyncState } from "../lib/log/types";
-import { closeRun, openRun } from "../../orbit/scripts/harness/registry";
+import { closeRun, openRun } from "@repo/harness-registry";
 
 // `check:e2e` runs the bare Playwright CLI, no `--env-file`: the direct
 // Postgres access module 4 needs is not there unless this loads it itself.
