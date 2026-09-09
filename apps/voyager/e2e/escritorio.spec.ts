@@ -84,3 +84,33 @@ test("the reading column on / keeps its 620px measure and clears the sidebar", a
   const gap = mainBox!.x - (navBox!.x + navBox!.width);
   expect(gap).toBeGreaterThan(20);
 });
+
+// `measure="full"` shipped with the 660px rule's `width: 100%` still in
+// force under the 1024px rule that pushes it past the sidebar, so every one
+// of these three routes scrolled sideways by exactly the sidebar's own
+// 240px band. The suite was green: `escritorio.spec.ts` measured the
+// reading column, and `full` is the other branch of the same stylesheet.
+for (const route of ["/registro", "/registro/apple", "/cuenta"]) {
+  test(`${route} takes the width left of the sidebar without scrolling the page sideways`, async ({ page }) => {
+    await disableTranslator(page);
+    await page.goto(route);
+    await page.waitForTimeout(300);
+
+    const viewport = page.viewportSize();
+    expect(viewport).not.toBeNull();
+
+    const { scrollWidth, clientWidth } = await page.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+    }));
+    expect(scrollWidth).toBe(clientWidth);
+
+    // Starts after the sidebar and ends at the viewport's own edge: the
+    // width equality above passes just as well for a `main` that never
+    // cleared the sidebar at all.
+    const mainBox = await page.locator("main").boundingBox();
+    expect(mainBox).not.toBeNull();
+    expect(mainBox!.x).toBe(240);
+    expect(Math.round(mainBox!.x + mainBox!.width)).toBe(viewport!.width);
+  });
+}
