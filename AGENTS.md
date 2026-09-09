@@ -168,7 +168,7 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
   the table held two. A count inferred from attempts is not a measurement.
 - Clean up in the same script that probes `auth` from `apps/voyager`. It has no harness registry, so
   `harness:census` cannot see its rows and `harness:reap` cannot prune them.
-- Register every `auth.users` row a script creates through `scripts/harness/registry.ts`. An ad-hoc
+- Register every `auth.users` row a script creates through `@repo/harness-registry`. An ad-hoc
   probe that does not is a leak nothing can prune. `npm run harness:census` counts them; the
   number moves, so read it rather than trusting one written here — it said seven, then four, then
   zero inside one day.

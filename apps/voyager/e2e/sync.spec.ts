@@ -1,0 +1,345 @@
+import { randomBytes, randomUUID } from "node:crypto";
+import path from "node:path";
+
+import { expect, test, type Page } from "@playwright/test";
+import postgres from "postgres";
+
+import messages from "../messages/es.json";
+import manifest from "../public/dictionary/manifest.json";
+import { DATABASE_VERSION } from "../lib/log/record";
+import type { LookupRecord, SyncState } from "../lib/log/types";
+import { closeRun, openRun } from "@repo/harness-registry";
+
+// `check:e2e` runs the bare Playwright CLI, no `--env-file`: the direct
+// Postgres access module 4 needs is not there unless this loads it itself.
+// Silent on a missing file — a runner that already exported the five
+// variables by hand keeps working.
+try {
+  process.loadEnvFile(path.join(__dirname, "../.env.local"));
+} catch {
+  // No .env.local: fall back to whatever the shell already set.
+}
+
+// Chromium's built-in `Translator` hangs `availability()` forever
+// (docs/TRAPS.md); every test below reaches a screen that calls it.
+async function deleteTranslator(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    delete (window as unknown as { Translator?: unknown }).Translator;
+  });
+}
+
+// The only trigger `sync-on-hide.tsx` and `flushPendingLookup` listen for.
+// `document.hidden` is a getter Playwright's own headless tab never flips on
+// its own, so the property is redefined before the event fires.
+async function hideTab(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+    Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+}
+
+type SeedSyncRow = SyncState;
+type SeedLookupRow = Omit<LookupRecord, "id">;
+
+// Mirrors `record.ts`'s own `onupgradeneeded` (`export.spec.ts`'s `seedRows`,
+// same reasoning): this may race the app's own mount for who creates
+// `reading-log` first, so it stays able to build both stores itself.
+async function seedLocalDatabase(
+  page: Page,
+  rows: { sync?: SeedSyncRow; lookups?: SeedLookupRow[] },
+): Promise<void> {
+  await page.evaluate(
+    ({ version, sync, lookups }) =>
+      new Promise<void>((resolve, reject) => {
+        const request = indexedDB.open("reading-log", version);
+        request.onupgradeneeded = (event) => {
+          const database = request.result;
+          if (event.oldVersion < 1) {
+            const store = database.createObjectStore("lookups", { keyPath: "id", autoIncrement: true });
+            store.createIndex("at", "at");
+            store.createIndex("normalised", "normalised");
+          }
+          if (event.oldVersion < 2) {
+            database.createObjectStore("sync", { keyPath: "key" });
+            request.transaction!
+              .objectStore("lookups")
+              .createIndex("foreign", ["device", "deviceSeq"], { unique: true });
+          }
+        };
+        request.onsuccess = () => {
+          const db = request.result;
+          const tx = db.transaction(["lookups", "sync"], "readwrite");
+          if (sync) tx.objectStore("sync").put({ ...sync, key: "state" });
+          for (const row of lookups ?? []) tx.objectStore("lookups").add(row);
+          tx.oncomplete = () => {
+            db.close();
+            resolve();
+          };
+          tx.onerror = () => reject(tx.error);
+        };
+        request.onerror = () => reject(request.error);
+      }),
+    { version: DATABASE_VERSION, sync: rows.sync ?? null, lookups: rows.lookups ?? [] },
+  );
+}
+
+// The raw count `lib/log/record.ts`'s own `countRecords()` answers, read the
+// same way `export.spec.ts`'s `readRawRows` reads the store: no import
+// reaches into a page's own IndexedDB, so this opens it by name instead.
+async function countLocalRecords(page: Page): Promise<number> {
+  return page.evaluate(
+    () =>
+      new Promise<number>((resolve, reject) => {
+        const request = indexedDB.open("reading-log");
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => {
+          const db = request.result;
+          const count = db.transaction("lookups", "readonly").objectStore("lookups").count();
+          count.onsuccess = () => resolve(count.result);
+          count.onerror = () => reject(count.error);
+        };
+      }),
+  );
+}
+
+test("RNL-09: with no account, ten keystrokes and a hidden tab issue nothing to /api/log/sync", async ({
+  page,
+}) => {
+  await deleteTranslator(page);
+
+  const syncRequests: string[] = [];
+  page.on("request", (request) => {
+    if (request.url().includes("/api/log/sync")) syncRequests.push(request.url());
+  });
+
+  const assetResponse = page.waitForResponse(
+    (response) => response.url().includes(manifest.asset.path) && response.ok(),
+  );
+  await page.goto("/");
+  await assetResponse;
+
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+  await searchBox.pressSequentially("throughout", { delay: 40 });
+
+  await hideTab(page);
+  await page.waitForTimeout(2000);
+
+  expect(syncRequests, `sync requests seen: ${JSON.stringify(syncRequests)}`).toHaveLength(0);
+});
+
+test("RL-14: the word-path guard holds with the sync driver mounted in the layout", async ({ page }) => {
+  await deleteTranslator(page);
+
+  const assetResponse = page.waitForResponse(
+    (response) => response.url().includes(manifest.asset.path) && response.ok(),
+  );
+  await page.goto("/");
+  await assetResponse;
+  await page.waitForTimeout(1000);
+
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+  const tenKeystrokes = "throughout";
+
+  // A warm-up run first, autocomplete included, so every font any state
+  // along the way paints is already cached before the measured run — a font
+  // request belongs to painting a state for the first time, not to RL-14.
+  await searchBox.pressSequentially(tenKeystrokes, { delay: 40 });
+  await expect(page.getByRole("heading", { name: tenKeystrokes })).toBeVisible();
+  await searchBox.fill("");
+  await page.waitForTimeout(300);
+
+  const requestsWhileTyping: string[] = [];
+  page.on("request", (request) => requestsWhileTyping.push(request.url()));
+
+  await searchBox.pressSequentially(tenKeystrokes, { delay: 40 });
+
+  expect(requestsWhileTyping, `10 keystrokes issued: ${JSON.stringify(requestsWhileTyping)}`).toHaveLength(0);
+});
+
+test("RL-24: the copy fires on hide, never on a keystroke, and the request lands even unauthenticated", async ({
+  page,
+}) => {
+  await deleteTranslator(page);
+
+  const assetResponse = page.waitForResponse(
+    (response) => response.url().includes(manifest.asset.path) && response.ok(),
+  );
+  await page.goto("/");
+  await assetResponse;
+
+  // `enabled: true`, hand-seeded: no reader signs in over this suite, so this
+  // is the only way the driver ever finds a copy switched on. One local row
+  // gives `syncNow()` something to push.
+  await seedLocalDatabase(page, {
+    sync: {
+      deviceId: randomUUID(),
+      pushedThroughLocalId: null,
+      pulledThroughCursor: null,
+      lastSyncedAt: null,
+      enabled: true,
+    },
+    lookups: [
+      {
+        schema: 2,
+        at: Date.now(),
+        text: "portmanteau",
+        normalised: "portmanteau",
+        kind: "word",
+        outcome: "miss",
+        headword: null,
+        rule: null,
+        senses: 0,
+        translation: null,
+        dictionaryReady: true,
+        origin: null,
+      },
+    ],
+  });
+
+  const syncRequests: string[] = [];
+  page.on("request", (request) => {
+    if (request.url().includes("/api/log/sync")) syncRequests.push(request.url());
+  });
+
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+  await searchBox.pressSequentially("throughout", { delay: 40 });
+  expect(syncRequests, `while visible: ${JSON.stringify(syncRequests)}`).toHaveLength(0);
+
+  const syncRequest = page.waitForRequest((request) => request.url().includes("/api/log/sync"));
+  await hideTab(page);
+  await syncRequest;
+  // The route answers 401 with no session; `postBatch` throws on it and
+  // `syncNow` stops there, so nothing more should follow.
+  await page.waitForTimeout(500);
+
+  expect(syncRequests, `after hide: ${JSON.stringify(syncRequests)}`).toHaveLength(1);
+});
+
+test("RL-24: retiring a device drops its rows from the copy, never from the local log", async ({ page }) => {
+  test.setTimeout(45_000);
+  await deleteTranslator(page);
+
+  const sql = postgres(process.env.MIGRATION_DATABASE_URL!, { prepare: false, max: 1 });
+  const runId = await openRun("e2e", sql);
+  const readerId = randomUUID();
+  const readerEmail = `harness-reader-${readerId}@example.invalid`;
+  const ownDeviceId = randomUUID();
+  const foreignDeviceId = randomUUID();
+  const ownLabel = "Firefox en Linux";
+  const foreignLabel = "Chrome en Android";
+
+  try {
+    await sql.begin(async (tx) => {
+      await tx`
+        insert into auth.users (
+          id, instance_id, aud, role, email, email_confirmed_at,
+          encrypted_password, confirmation_token, recovery_token,
+          email_change, email_change_token_current, email_change_token_new,
+          email_change_confirm_status, phone_change, phone_change_token,
+          reauthentication_token, raw_app_meta_data, raw_user_meta_data,
+          is_sso_user, is_anonymous, created_at, updated_at)
+        values (
+          ${readerId}, '00000000-0000-0000-0000-000000000000', 'authenticated',
+          'authenticated', ${readerEmail}, now(),
+          '', '', '',
+          '', '', '',
+          0, '', '',
+          '', '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb,
+          false, false, now(), now())`;
+      await tx`
+        insert into harness.identities (user_id, run_id, email, disposition)
+        values (${readerId}, ${runId}, ${readerEmail}, 'ephemeral')`;
+    });
+
+    // Plain `postgres` here, no `SET ROLE authenticated`: the grant to
+    // `authenticated` names only `(user_id, device_id, label)` — `check-sync.ts`'s
+    // own S3 assertion, mirrored for `devices` — and this insert also wants
+    // `last_seen_at`, which only the connection's own superuser reaches.
+    // `foreign`'s `last_seen_at` is the more recent of the two, so the
+    // server's own `order by last_seen_at desc` always lists it first.
+    await sql`insert into reading.devices (user_id, device_id, label, last_seen_at) values
+      (${readerId}, ${ownDeviceId}, ${ownLabel}, now() - interval '1 hour'),
+      (${readerId}, ${foreignDeviceId}, ${foreignLabel}, now())`;
+
+    // Lands a real session the way `mint-reader-session.ts` proved: a hash in
+    // both `auth.users.recovery_token` and a matching `auth.one_time_tokens`
+    // row, the only pair GoTrue's `verifyOtp` accepts.
+    const hash = randomBytes(32).toString("hex");
+    await sql`
+      update auth.users
+      set recovery_token = ${hash}, recovery_sent_at = now(), updated_at = now()
+      where id = ${readerId}`;
+    await sql`
+      insert into auth.one_time_tokens
+        (id, user_id, token_type, token_hash, relates_to, created_at, updated_at)
+      values
+        (${randomUUID()}, ${readerId}, 'recovery_token', ${hash}, ${readerEmail}, now(), now())`;
+
+    // `/registro` never reads `sync`, so seeding it here cannot race the
+    // account screen's own mount effect the way seeding it on `/cuenta` would.
+    await page.goto("/registro");
+    await expect(page.getByRole("heading", { name: messages.log.title })).toBeVisible();
+
+    await seedLocalDatabase(page, {
+      sync: {
+        deviceId: ownDeviceId,
+        pushedThroughLocalId: null,
+        pulledThroughCursor: null,
+        lastSyncedAt: null,
+        enabled: true,
+      },
+      lookups: Array.from({ length: 3 }, (_, index) => ({
+        schema: 2,
+        at: Date.now() - index,
+        text: `foreign-${index}`,
+        normalised: `foreign-${index}`,
+        kind: "word" as const,
+        outcome: "miss" as const,
+        headword: null,
+        rule: null,
+        senses: 0,
+        translation: null,
+        dictionaryReady: true,
+        origin: null,
+        device: foreignDeviceId,
+        deviceSeq: index,
+      })),
+    });
+
+    const recordsBefore = await countLocalRecords(page);
+    expect(recordsBefore).toBe(3);
+
+    // `page.request` shares the browser context's cookie jar: the `Set-Cookie`
+    // on this very redirect lands in the context, so `/cuenta` below opens
+    // signed in. `maxRedirects: 0` is what keeps a followed hop from ever
+    // reading `location` after this route's own headers already answered.
+    const confirmResponse = await page.request.get(`/auth/confirm?token_hash=${hash}&type=magiclink`, {
+      maxRedirects: 0,
+    });
+    const location = confirmResponse.headers()["location"];
+    expect(location?.includes("error="), `redirected to ${location ?? "nowhere"}`).toBe(false);
+
+    await page.goto("/cuenta");
+    await expect(page.getByText(foreignLabel)).toBeVisible();
+    await expect(page.getByText(ownLabel)).toBeVisible();
+
+    await page.getByRole("button", { name: messages.account.devices.retire }).first().click();
+    const retireResponse = page.waitForResponse(
+      (response) => response.url().includes("/api/devices") && response.request().method() === "DELETE",
+    );
+    await page.getByRole("button", { name: messages.account.devices.confirm }).click();
+    expect((await retireResponse).status()).toBe(200);
+
+    await expect(page.getByText(foreignLabel)).toHaveCount(0);
+    await expect(page.getByText(ownLabel)).toBeVisible();
+
+    const recordsAfter = await countLocalRecords(page);
+    expect(recordsAfter).toBe(recordsBefore);
+  } finally {
+    await sql`delete from harness.identities where user_id = ${readerId}`;
+    await sql`delete from auth.users where id = ${readerId}`;
+    await closeRun(sql);
+    await sql.end();
+  }
+});

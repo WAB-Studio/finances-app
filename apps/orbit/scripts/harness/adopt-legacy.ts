@@ -65,7 +65,7 @@ const OWNER_TABLES = [
   "transactions",
 ] as const;
 
-// Mirrors `scripts/harness/registry.ts`'s private `harnessLane`, not imported:
+// Mirrors `@repo/harness-registry`'s private `harnessLane`, not imported:
 // that function is module-scoped there for the same reason `session.ts`'s
 // `laneSuffix` is — no file in this pair imports the other's internals.
 function harnessLane(): number {
@@ -78,7 +78,7 @@ function harnessLane(): number {
   return Number(raw);
 }
 
-// Mirrors `scripts/harness/registry.ts`'s private `currentGitBranch`: a
+// Mirrors `@repo/harness-registry`'s private `currentGitBranch`: a
 // debugging aid on the run row, not a fact anything here depends on.
 function currentGitBranch(): string | null {
   try {

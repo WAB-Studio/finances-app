@@ -4,11 +4,6 @@
 // holds BYPASSRLS. Fixtures are the ground; only the code under test meets RLS.
 import { randomUUID } from "node:crypto";
 
-import postgres from "postgres";
-import type { Sql, TransactionSql } from "postgres";
-
-import { TIME_ZONE } from "@/lib/locales";
-
 import {
   applicationName,
   closeRun,
@@ -16,7 +11,11 @@ import {
   registerEphemeralIdentity,
   registeredIdentities,
   type Suite,
-} from "./registry";
+} from "@repo/harness-registry";
+import postgres from "postgres";
+import type { Sql, TransactionSql } from "postgres";
+
+import { TIME_ZONE } from "@/lib/locales";
 
 // The suite this process runs as, read by `applicationName` and by the run this
 // process opens. `setSuite` is the entry point's job to call before the first

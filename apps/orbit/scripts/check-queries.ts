@@ -11,6 +11,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+import { openRun } from "@repo/harness-registry";
 import type { z } from "zod";
 
 // FIRST, and it has to stay first: it plants the counted pool `@/db/client` picks
@@ -162,7 +163,6 @@ import {
   track,
   YEAR_OF_MOVEMENTS,
 } from "./harness/fixtures";
-import { openRun } from "./harness/registry";
 import { HARNESS_EMAIL } from "./harness/session";
 
 // The user the decisions note as already seeded. Read once for the transcript,

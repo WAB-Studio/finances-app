@@ -12,6 +12,8 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 
+import { openRun } from "@repo/harness-registry";
+
 import messages from "@/messages/es.json";
 
 import { assert, report, skip } from "./harness/assert";
@@ -24,7 +26,6 @@ import {
   track,
   YEAR_OF_MOVEMENTS,
 } from "./harness/fixtures";
-import { openRun } from "./harness/registry";
 import {
   HARNESS_BASE_URL,
   HARNESS_EMAIL,

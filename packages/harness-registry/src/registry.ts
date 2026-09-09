@@ -17,9 +17,10 @@ type Sql = postgres.Sql;
 export type Suite = "e2e" | "queries" | "http" | "rls" | "seed" | "adopt";
 export type Disposition = "ephemeral" | "shared";
 
-// Mirrors `scripts/harness/session.ts`'s `laneSuffix`, not imported from it:
-// `session.ts` imports `fixtureSql` from `./fixtures`, and `fixtures.ts` (module
-// 3) imports from this file, so importing `session.ts` here would close a cycle.
+// Mirrors orbit's `scripts/harness/session.ts`'s `laneSuffix`, not imported
+// from it: `session.ts` imports `fixtureSql` from `./fixtures`, and
+// `fixtures.ts` imports from this package, so importing `session.ts` here
+// would close a cycle.
 function harnessLane(): number {
   const raw = process.env.HARNESS_LANE?.trim();
   if (!raw) return 1;

@@ -20,10 +20,10 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
+import { registerSharedIdentity } from "@repo/harness-registry";
 import type postgres from "postgres";
 
 import { fixtureSql } from "./fixtures";
-import { registerSharedIdentity } from "./registry";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const PUBLISHABLE_KEY = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!;

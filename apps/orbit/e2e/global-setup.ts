@@ -23,12 +23,12 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 import { test as base } from "@playwright/test";
+import { closeRun, openRun } from "@repo/harness-registry";
 import type { TransactionSql } from "postgres";
 
 import { TIME_ZONE } from "@/lib/locales";
 
 import { fixtureSql } from "../scripts/harness/fixtures";
-import { closeRun, openRun } from "../scripts/harness/registry";
 import {
   HARNESS_BASE_URL,
   HARNESS_EMAIL,
