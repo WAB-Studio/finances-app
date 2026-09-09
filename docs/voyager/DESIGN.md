@@ -468,7 +468,25 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   (800ms), which fills the record with prefix rows «bo», «boo», «book»; and rewriting RL-21 to
   promise less.
 
-- **A paused prefix keeps its suggestions on screen.** Decided by the user 2026-09-09. Typing `ru`
+- **The offer retires on an answer, never on a clock. Corrected by the user 2026-09-09**, the same
+  day, after driving the first version. «La lista nunca se retira» was too blunt: typing `word` left
+  ten suggestions stacked above the entry that was already answering it. The rule is finer — the
+  list withdraws the moment the screen holds an answer for what was typed, and stays when it holds
+  none. `ru` keeps its ten candidates, `word` closes them. `RL-18`'s underlying intent survives; only
+  its trigger changed, from a 900ms timer to the presence of an answer. This supersedes the entry
+  below, which is kept for what it measured.
+
+- **A word the dictionary carries is answered, never also guessed at. Decided by the user
+  2026-09-09.** `bed` is its own headword, and the app drew its real entry *and* two inflection
+  guesses under it — «"bed" es una forma de "b"» and «"bed" es una forma de "be"», the first
+  translating to «n.». `lookupWord` now returns no `viaInflection` at all when the exact headword
+  hits. Guessing is what a miss earns. **The measured price: `left` no longer offers `leave`.** It is
+  a real headword itself, so it is answered as itself; the reader of «he left» loses the one-tap path
+  to the verb. Taken knowingly — reversing it is one line in
+  `apps/voyager/lib/dictionary/lookup.ts`.
+
+- **A paused prefix keeps its suggestions on screen.** Decided by the user 2026-09-09. **Superseded
+  the same day by the entry above** — kept for its measurement, not as law. Typing `ru`
   and waiting left `main.innerText` empty at 900ms (`SUGGESTIONS_SETTLE_MS`,
   `components/search/search-screen.tsx:35`): **640px of nothing** on a 360×740 phone, light and
   dark, and the ten candidates the reader was reading went with it. From now the list stays until

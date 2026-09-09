@@ -29,13 +29,17 @@ function isImplausible(rule: InflectionRule, group: SenseGroup): boolean {
   return !group.senses.some((sense) => sense.pos === "adj");
 }
 
-// Exact headword first, then every inflection candidate other than the
-// query's own normalised form that the index actually carries.
+// The exact headword when the index carries it, and inflection candidates
+// only when it does not. A word the dictionary already answers is answered,
+// not guessed at: `bed` is its own entry, and the candidates it also
+// matched were "a form of `b`" and "a form of `be`", one of them
+// translating to "n.". Guessing is what a miss earns, never a hit.
 export function lookupWord(index: DictionaryIndex, query: string): WordAnswer {
   const normalised = normaliseHeadword(query);
   if (normalised.length === 0) return { query, exact: null, viaInflection: [] };
 
   const exact = groupFor(index, normalised);
+  if (exact) return { query, exact, viaInflection: [] };
 
   const viaInflection: InflectedHit[] = [];
   for (const candidate of lemmaCandidates(query)) {

@@ -454,6 +454,10 @@ export function SearchScreen({ initialQuery }: { initialQuery?: string }) {
   // with it: a non-empty list is that same proof. Suppress SenseList's
   // "not found" text for as long as one stands — the ordinary silence of no
   // answer yet, not a new state. Decided by the user 2026-09-09.
+  // An answer on screen is what retires the offer: `word` closes its list
+  // because the entry is already below it, while `ru` keeps the ten it was
+  // read from. No clock decides this — only whether there is something to
+  // read. Decided by the user 2026-09-09.
   const wordFound = wordAnswer !== null && (wordAnswer.exact !== null || wordAnswer.viaInflection.length > 0);
   const suppressNotFound = !wordFound && suggestions.length > 0;
 
@@ -472,7 +476,7 @@ export function SearchScreen({ initialQuery }: { initialQuery?: string }) {
 
       {kind.kind === "word" && (
         <Flex direction="column" gap="4">
-          <Suggestions items={suggestions} onPick={handleTextChange} />
+          {!wordFound && <Suggestions items={suggestions} onPick={handleTextChange} />}
           {wordAnswer && !suppressNotFound && <SenseList answer={wordAnswer} />}
         </Flex>
       )}
