@@ -38,15 +38,31 @@ function LogGlyph() {
   );
 }
 
+function AccountGlyph() {
+  return (
+    <svg {...GLYPH_PROPS} aria-hidden="true">
+      <circle cx="12" cy="8" r="4" />
+      <path d="M4.5 20c1.4-4 4-6 7.5-6s6.1 2 7.5 6" />
+    </svg>
+  );
+}
+
+const GLYPHS = {
+  search: SearchGlyph,
+  log: LogGlyph,
+  account: AccountGlyph,
+} as const;
+
 const items = [
   { href: "/", key: "search" } as const,
   { href: "/registro", key: "log" } as const,
+  { href: "/cuenta", key: "account" } as const,
 ];
 
-// docs/voyager/DESIGN.md "Viewport": the two sections the bar carries today
-// — Cuenta joins once `/cuenta` exists (`## Settled`). Never an action, a
-// filter or a count: `Fuente` rides as a link on the screens that carry the
-// box, not a third item here.
+// docs/voyager/DESIGN.md "Viewport": the three sections the bar carries
+// (`## Settled`: it shipped with two, Cuenta joined with the account
+// slice). Never an action, a filter or a count: `Fuente` rides as a link on
+// the screens that carry the box, not a fourth item here.
 export function BottomNav() {
   const pathname = usePathname();
   const t = useTranslations("nav");
@@ -55,6 +71,7 @@ export function BottomNav() {
     <nav className={styles.nav} aria-label={t("label")}>
       {items.map(({ href, key }) => {
         const selected = pathname === href;
+        const Glyph = GLYPHS[key];
         return (
           <Link
             key={href}
@@ -64,7 +81,7 @@ export function BottomNav() {
           >
             <NextLink href={href} aria-current={selected ? "page" : undefined}>
               <TapTarget direction="column" align="center" justify="center" gap="1" size={44}>
-                {key === "search" ? <SearchGlyph /> : <LogGlyph />}
+                <Glyph />
                 <span className={styles.label}>{t(key)}</span>
               </TapTarget>
             </NextLink>
