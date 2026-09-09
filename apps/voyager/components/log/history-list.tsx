@@ -76,17 +76,18 @@ function StudyRowItem({ row }: { row: StudyRow }) {
 }
 
 function StudySkeleton() {
+  const t = useTranslations("log");
   return (
     <Flex direction="column" gap="4">
       {Array.from({ length: 4 }, (_, index) => (
         <Flex direction="column" gap="2" key={index}>
           <Skeleton>
             <Text size="5" serif>
-              Palabra de ejemplo
+              {t("study.skeletonWord")}
             </Text>
           </Skeleton>
           <Skeleton>
-            <Text variant="translation">Su traducción de ejemplo</Text>
+            <Text variant="translation">{t("study.skeletonTranslation")}</Text>
           </Skeleton>
         </Flex>
       ))}

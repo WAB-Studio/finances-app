@@ -101,11 +101,16 @@
       "failedTitle": "No pude leer el registro",
       "failedBody": "El almacén del navegador no respondió. Tus palabras siguen ahí.",
       "failedAction": "Reintentar",
-      "download": "Descargar el registro"
+      "download": "Descargar el registro",
+      "skeletonWord": "Palabra de ejemplo",
+      "skeletonTranslation": "Su traducción de ejemplo"
     },
     "word": {
       "back": "Registro",
-      "subtitle": "{translation} · {count, plural, one {# búsqueda} other {# búsquedas}} desde el {date}."
+      "subtitle": "{translation} · {count, plural, one {# búsqueda} other {# búsquedas}} desde el {date}.",
+      "skeletonHeadword": "Palabra de ejemplo",
+      "skeletonSubtitle": "Su traducción de ejemplo · 0 búsquedas",
+      "skeletonDate": "0 de enero de 2026"
     }
   },
   "account": {
