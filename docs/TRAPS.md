@@ -1035,3 +1035,22 @@ opened in `docs/voyager/SPEC.md` is RL-29.
 Grep `RL-[0-9]*` over `SPEC.md` before trusting a number read from a code comment.
 
 Measured 2026-09-08.
+
+## `worktree.sh <n> <rama> integracion` corta de la local, no del remoto
+
+Medido 2026-09-08. `scripts/worktree.sh 3 modulo-12-contrato-foto integracion` resolvió `integracion`
+a la rama **local**, que iba cinco commits por detrás de `origin/integracion` porque su checkout
+vivía en otro carril y nadie la había adelantado. El carril nació sin el módulo que acababa de
+fusionarse, y su worker abrió los códigos siguientes contando desde un `SPEC.md` que llegaba a RL-29
+cuando la base real llegaba a RL-34.
+
+**Salió bien por casualidad**: eligió RL-35 y RL-36, que no colisionaban. El razonamiento que escribió
+para justificarlo era otro y era falso. Un número correcto por la razón equivocada vuelve a salir mal
+la próxima vez.
+
+- `git fetch` y adelanta la base **antes** de abrir el carril, no después.
+- Una rama que otro carril tiene sacada no se adelanta sola. `integracion` es la que más lo sufre.
+- Rebasa sobre la base real antes de fusionar, siempre que la rama nombre un fichero que otra tocó.
+  Aquí `SPEC.md` y `DESIGN.md` chocaron los dos, y el conflicto era la prueba de que el carril estaba
+  desfasado — no una molestia.
+- Un worker que ve un número que no cuadra con su despacho está viendo esto. Que lo diga y pare.
