@@ -1,0 +1,10 @@
+{
+  "name": "@repo/harness-registry",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "peerDependencies": {
+    "postgres": "^3.4.9"
+  }
+}
