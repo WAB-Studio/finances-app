@@ -343,3 +343,108 @@ test("RL-24: retiring a device drops its rows from the copy, never from the loca
     await sql.end();
   }
 });
+
+test("RL-24: a request whose top-level deviceId disagrees with its rows never seals or excludes that top-level id", async ({
+  page,
+}) => {
+  test.setTimeout(45_000);
+
+  const sql = postgres(process.env.MIGRATION_DATABASE_URL!, { prepare: false, max: 1 });
+  const runId = await openRun("e2e", sql);
+  const readerId = randomUUID();
+  const readerEmail = `harness-reader-${readerId}@example.invalid`;
+  // The two disagree on purpose: a request naming one `deviceId` at the top
+  // and another on its own row is exactly the shape module 36's bug shipped
+  // — sealing and excluding the top-level id, then handing the row's own
+  // device straight back down in the same response.
+  const rowDeviceId = randomUUID();
+  const topDeviceId = randomUUID();
+
+  try {
+    await sql.begin(async (tx) => {
+      await tx`
+        insert into auth.users (
+          id, instance_id, aud, role, email, email_confirmed_at,
+          encrypted_password, confirmation_token, recovery_token,
+          email_change, email_change_token_current, email_change_token_new,
+          email_change_confirm_status, phone_change, phone_change_token,
+          reauthentication_token, raw_app_meta_data, raw_user_meta_data,
+          is_sso_user, is_anonymous, created_at, updated_at)
+        values (
+          ${readerId}, '00000000-0000-0000-0000-000000000000', 'authenticated',
+          'authenticated', ${readerEmail}, now(),
+          '', '', '',
+          '', '', '',
+          0, '', '',
+          '', '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb,
+          false, false, now(), now())`;
+      await tx`
+        insert into harness.identities (user_id, run_id, email, disposition)
+        values (${readerId}, ${runId}, ${readerEmail}, 'ephemeral')`;
+    });
+
+    // Same magic-link mint as the retire test above: a hash in both
+    // `auth.users.recovery_token` and a matching `auth.one_time_tokens` row.
+    const hash = randomBytes(32).toString("hex");
+    await sql`
+      update auth.users
+      set recovery_token = ${hash}, recovery_sent_at = now(), updated_at = now()
+      where id = ${readerId}`;
+    await sql`
+      insert into auth.one_time_tokens
+        (id, user_id, token_type, token_hash, relates_to, created_at, updated_at)
+      values
+        (${randomUUID()}, ${readerId}, 'recovery_token', ${hash}, ${readerEmail}, now(), now())`;
+
+    const confirmResponse = await page.request.get(`/auth/confirm?token_hash=${hash}&type=magiclink`, {
+      maxRedirects: 0,
+    });
+    const location = confirmResponse.headers()["location"];
+    expect(location?.includes("error="), `redirected to ${location ?? "nowhere"}`).toBe(false);
+
+    const response = await page.request.post("/api/log/sync", {
+      data: {
+        deviceId: topDeviceId,
+        since: null,
+        rows: [
+          {
+            deviceId: rowDeviceId,
+            localId: 1,
+            at: Date.now(),
+            text: "regression-guard",
+            normalised: "regression-guard",
+            kind: "word",
+            outcome: "miss",
+            headword: null,
+            rule: null,
+            senses: 0,
+            translation: null,
+            dictionaryReady: true,
+            origin: null,
+            recordSchema: DATABASE_VERSION,
+          },
+        ],
+      },
+    });
+    expect(response.status()).toBe(200);
+    const body = (await response.json()) as { accepted: number; rows: Array<{ deviceId: string; localId: number }> };
+    expect(body.accepted).toBe(1);
+
+    // The half that read as a leak: the row this same request just uploaded
+    // must never come back down in `rows` of that same response.
+    const echoed = body.rows.filter((row) => row.deviceId === rowDeviceId && row.localId === 1);
+    expect(echoed, `rows echoed back: ${JSON.stringify(body.rows)}`).toHaveLength(0);
+
+    // The other half: `reading.devices` is sealed for the row's own device,
+    // never for the disagreeing top-level one.
+    const devices = await sql`select device_id from reading.devices where user_id = ${readerId}`;
+    const deviceIds = devices.map((row) => row.device_id);
+    expect(deviceIds).toEqual([rowDeviceId]);
+    expect(deviceIds).not.toContain(topDeviceId);
+  } finally {
+    await sql`delete from harness.identities where user_id = ${readerId}`;
+    await sql`delete from auth.users where id = ${readerId}`;
+    await closeRun(sql);
+    await sql.end();
+  }
+});
