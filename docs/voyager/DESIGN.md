@@ -357,8 +357,10 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   Decided by the user 2026-09-09, once the screen's real height was measured. It applies to this
   screen only: looking a word up on its own still answers in full. A reader scrolling a failed
   sentence does not need the full entry for «the». Known price: the fallback answers less completely
-  than a direct lookup, and it needs a `SenseList` variant that does not exist yet. **The four
-  `SinEntradaFrase` boards draw the full block and are stale until they are redrawn.**
+  than a direct lookup, and it needs a `SenseList` variant. **The four `SinEntradaFrase` boards were
+  redrawn to the trimmed block 2026-09-09 and are current.** The same redraw gave the word the
+  dictionary also lacks a heading of its own: it had none, so the one word that made the sentence
+  fail was the only one unfindable among the eight. Approved by the user the same day.
 - **«El diccionario no tiene esa palabra» never shows over an unfinished prefix.** Decided by the
   user 2026-09-09, after the critic drove it: typing `ru` and pausing 900ms — to think, to look back
   at the book — withdrew a correct suggestion list and left the not-found line over a prefix the
@@ -380,6 +382,10 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   measured **3508px desktop and 3805px mobile** for a nine-word failing phrase: four or five phone
   screens of scrolling to reach the word the reader wanted. Measure the page, never the artboard,
   when a screen is approved on its height.
+  **Three figures were measured for one screen and they disagree**: 3022/3155 and 3508/3805 for the
+  full block, and 2851/2944 after the trim — all on a nine-word failing phrase, all on a production
+  build, by three different agents. Nobody reconciled the method. Take none of them as the number;
+  measure it again, once, and write down how.
 - **A phrase the translation cannot answer falls back to the per-word breakdown.** Decided by the
   user 2026-09-09, closing the gap `SinEntrada`'s eight-block cut left. `schedulePhrase` sends every
   3-to-60-token phrase to `PhraseAnswer` today, so the breakdown ran at exactly two tokens and
