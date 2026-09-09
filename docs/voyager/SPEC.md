@@ -96,12 +96,12 @@ this gets built, and no schema, table or column is "prepared for" it.
   only ever gains rows: nothing edits or deletes one. No screen on the read path shows it. It is read
   to take it off the device — to a file, or to the copy held by the reader's account — and to bring
   back what the same reader's other devices recorded; never on the path that answers a lookup.
-- [ ] **RL-22** — A reader can keep their record in an account of their own: they sign in through a
+- [x] **RL-22** — A reader can keep their record in an account of their own: they sign in through a
   link sent to their address and, from then on, what this device records is copied to that account
   and what their other devices recorded comes down to this one **and stays in its local record,
   beside its own**. It is a copy: a lookup is still answered from the device, with an account or
   without one, online or offline.
-- [ ] **RL-24** — The copy never edits a row. A row names the device that recorded it and the number
+- [x] **RL-24** — The copy never edits a row. A row names the device that recorded it and the number
   it carried there, so copying it twice does not duplicate it, going up or coming down, and what one
   device copies never overwrites what another wrote. An interrupted merge leaves the record whole in
   every sense that matters: what came down is valid, what did not comes down next time.
@@ -110,7 +110,7 @@ this gets built, and no schema, table or column is "prepared for" it.
   device had copied leave the copy, and that device stops syncing. **What had already come down to
   another device stays on that device**, and leaves it by clearing the app's data in that browser.
   The app says this before confirming and promises no more.
-- [ ] **RL-25** — The reader sees the list of devices that have copied to their account: which one is
+- [x] **RL-25** — The reader sees the list of devices that have copied to their account: which one is
   in their hand, when each was last seen, and how many searches it has copied. They can retire any of
   them, their own included.
 - [ ] **RL-30** — With an account open on the device, the copy starts on its own and is never asked
