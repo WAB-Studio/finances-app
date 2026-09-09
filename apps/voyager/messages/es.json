@@ -38,7 +38,7 @@
   "word": {
     "viaInflection": "\"{surface}\" es una forma de \"{lemma}\"",
     "translations": "Traducciones",
-    "definition": "Definición",
+    "definitionEnglish": "Definición en inglés",
     "suggestions": "Sugerencias",
     "listen": "Escuchar «{headword}»",
     "pos": {

@@ -1,0 +1,21 @@
+/* Doubled to outrank `.rt-reset:where(button)` regardless of cascade order
+   (see button.module.css): a plain trigger, no border, no background, the
+   row's own text alignment instead of a button's centred default. */
+.trigger.trigger {
+  all: unset;
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* The chevron turns; nothing else about the row does. */
+.chevron {
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+
+.chevronOpen {
+  transform: rotate(90deg);
+}

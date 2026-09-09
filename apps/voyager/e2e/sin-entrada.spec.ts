@@ -200,7 +200,7 @@ test("a phrase whose translation fails falls to the per-word breakdown, capped a
   // neither draws here.
   await expect(page.getByText("/dɑɡ/")).toHaveCount(0);
   await expect(page.getByText("(transitive) To pursue with the intent to catch.")).toHaveCount(0);
-  await expect(page.getByText(messages.word.definition)).toHaveCount(0);
+  await expect(page.getByText(messages.word.definitionEnglish)).toHaveCount(0);
 
   // The voice control belongs to the word screen's own four boards alone
   // (docs/voyager/DESIGN.md), never to this breakdown.
