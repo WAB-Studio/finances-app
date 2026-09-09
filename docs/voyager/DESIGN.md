@@ -139,6 +139,17 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   landed 2026-09-09 and the user approved them the same day: `RegistroEstudio`,
   `RegistroEstudioEstados` and `PalabraHistorial` (T2); `SinEntrada` and `SinEntradaEstados` (T3);
   `CuentaCopia`, `CuentaCopiaEstados` and `CuentaInformacion` (T4); `PalabraCategoria` (T5).
+- **`/registro/<palabra>` has no empty state drawn.** `PalabraHistorial` (T2) draws the word's own
+  history full and nothing else. Module 12 shipped it reusing the strings of
+  `RegistroEstudioEstados`, so the screen a reader reaches for a word with no rows is a reuse
+  nobody approved, not a decision. Draw it before the next change to that screen.
+- **`/fuente` has boards and no way in.** `Fuente` exists in all four faces, and since module 6
+  dropped the search screen's link and module 10 gave the credit its home in `CuentaInformacion`,
+  **no screen in the app links to `/fuente`.** Verified 2026-09-09 by grep over `app/` and
+  `components/`: the only caller of `log.openLink` is `/fuente` itself, and `source.open` has no
+  caller at all. RL-33's credit is reachable — `attribution.spec.ts` drives `/cuenta` to it — so
+  nothing is broken; the route is simply orphaned, and whether it is retired or linked again is the
+  user's call, open since 2026-09-09.
 - **The one board still missing is the photo.** RL-36 draws a photo inside the word's answer and no
   board in any of the four faces has a state for it. No module of the 2026-09-08 slice draws one, so
   it blocks nothing today — and the first module that does opens the amendment before it writes a
