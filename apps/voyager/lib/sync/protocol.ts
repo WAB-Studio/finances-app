@@ -40,7 +40,15 @@ export const syncRowSchema = z.object({
 // scalar timestamp cursor either repeats or drops the rest of that group at a
 // page boundary. The route that mints and reads this string is the only file
 // that knows it also carries the tied row's `(deviceId, localId)`.
+//
+// `deviceId` is top-level, not read off `rows[0]`: a pull-only round sends an
+// empty `rows`, and the device still has to be nameable there — a reader who
+// only ever downloads must still seal its own row in `reading.devices`
+// (module 31, RL-25). Always present, never conditional on `rows` being
+// empty: one shape for every round keeps the route's own read one line, not
+// two paths that can drift apart.
 export const syncRequestSchema = z.object({
+  deviceId: z.uuid(),
   rows: z.array(syncRowSchema).max(SYNC_BATCH),
   since: z.string().min(1).nullable(),
 });
