@@ -41,8 +41,12 @@
   }
 
   /* `full` takes whatever width is left of the sidebar, not a centred
-     620px column — three classes to outrank both rules above. */
+     620px column — three classes to outrank both rules above.
+     `width: auto` is the load-bearing half: the 660px rule above sets
+     `width: 100%`, and 100% of the viewport pushed 240px right overflows by
+     exactly the sidebar's own band at every desktop width. */
   .page.page.full {
     margin-inline-start: 240px;
+    width: auto;
   }
 }

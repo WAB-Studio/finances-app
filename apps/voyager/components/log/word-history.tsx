@@ -49,23 +49,24 @@ function BackLink({ label }: { label: string }) {
 }
 
 function WordHistorySkeleton() {
+  const t = useTranslations("log");
   return (
     <Flex direction="column" gap="5">
       <Skeleton>
-        <Text size="2">← Registro</Text>
+        <Text size="2">← {t("word.back")}</Text>
       </Skeleton>
       <Flex direction="column" gap="2">
         <Skeleton>
-          <Headword>Palabra de ejemplo</Headword>
+          <Headword>{t("word.skeletonHeadword")}</Headword>
         </Skeleton>
         <Skeleton>
-          <Text size="2">Su traducción de ejemplo · 0 búsquedas</Text>
+          <Text size="2">{t("word.skeletonSubtitle")}</Text>
         </Skeleton>
       </Flex>
       <Flex direction="column" gap="3">
         {Array.from({ length: 4 }, (_, index) => (
           <Skeleton key={index}>
-            <Text size="2">0 de enero de 2026</Text>
+            <Text size="2">{t("word.skeletonDate")}</Text>
           </Skeleton>
         ))}
       </Flex>
