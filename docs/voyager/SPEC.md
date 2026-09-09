@@ -70,7 +70,11 @@ this gets built, and no schema, table or column is "prepared for" it.
 - [ ] **RL-12** — The dictionary is fetched once, as a static asset, and installed onto the device. Its progress is shown and the box stays typeable throughout.
 - [x] **RL-13** — An interrupted install leaves no partial dictionary. The next open finds the dictionary whole or absent, never in between, and starts it again from zero.
 - [x] **RL-14** — Once installed, looking a word up touches the network in no way, on no keystroke.
-- [x] **RL-15** — The dictionary's source, its edition and its CC BY-SA 3.0 licence are named in the interface, one tap from the box, linking to the source and to the licence text, and stating that what the app ships is a reformatted extract distributed under the same licence.
+- [ ] **RL-33** — The dictionary's source, its edition and its CC BY-SA 3.0 licence are named in an
+  information tab inside `/cuenta`, linking to the source and to the licence text, and stating that
+  what the app ships is a reformatted extract distributed under the same licence. CC BY-SA 3.0
+  conditions the credit on it staying reachable by whoever uses the work, so the tab reads without
+  signing in — `/cuenta` already renders with no session, and that is what keeps it reachable.
 
 #### The shell
 
@@ -86,10 +90,6 @@ this gets built, and no schema, table or column is "prepared for" it.
   and what their other devices recorded comes down to this one **and stays in its local record,
   beside its own**. It is a copy: a lookup is still answered from the device, with an account or
   without one, online or offline.
-- [ ] **RL-23** — Turning the copy on in a device sends up the record already there and brings down
-  what the reader's other devices recorded. The reader knows both figures before anything happens:
-  they are told how many searches will go up and how many will come down, and turning it on is what
-  authorises it.
 - [ ] **RL-24** — The copy never edits a row. A row names the device that recorded it and the number
   it carried there, so copying it twice does not duplicate it, going up or coming down, and what one
   device copies never overwrites what another wrote. An interrupted merge leaves the record whole in
@@ -102,6 +102,13 @@ this gets built, and no schema, table or column is "prepared for" it.
 - [ ] **RL-25** — The reader sees the list of devices that have copied to their account: which one is
   in their hand, when each was last seen, and how many searches it has copied. They can retire any of
   them, their own included.
+- [ ] **RL-30** — With an account open on the device, the copy starts on its own and is never asked
+  about: it sends up what this device already had and brings down what the others recorded, with no
+  act from the reader and no switch that turns it off. Signing out is the only way to stop it. With
+  no account, nothing leaves the device.
+- [ ] **RL-32** — The reader reads their record grouped by word: one row per word, with how many
+  times it was searched, ordered by frequency, case-insensitive; and tapping a word opens every one
+  of its searches with its date. This replaces the chronological list.
 - [x] **RL-20** — The log can be exported from the app as a single file the reader saves onto their
   device: every recorded search, with its date and the headword it reached, in a documented and
   versioned shape. The export is deliberate: it is reached from outside the search screen and
@@ -115,6 +122,10 @@ this gets built, and no schema, table or column is "prepared for" it.
 - [ ] **RL-29** — When a search finds nothing and no suggestion fits, the reader can ask for the word
   to be answered over the network, and only by asking: nothing is sent until they do. The answer says
   it did not come from the dictionary, and says plainly when it could not be produced.
+- [ ] **RL-31** — A string of more than one word that the dictionary has no entry for, and that is
+  not treated as a sentence, never gets silence: the app names what it did not find and offers,
+  underneath, the dictionary's own answer for each of its words. It answers from the device, and
+  touches the network on no keystroke.
 
 ### Non-functional requirements
 
@@ -160,6 +171,11 @@ Dead codes. The number stays burned and the tick stays as it was.
   day: what was typed, whether it was answered as a word or a sentence, the headword it actually
   reached when an inflected form was typed, whether it found anything at all, and when. The record
   is append-only and nothing in the interface shows it. _Retired 2026-09-07. Successor: RL-19._
+- [ ] **RL-23** — Turning the copy on in a device sends up the record already there and brings down
+  what the reader's other devices recorded. The reader knows both figures before anything happens:
+  they are told how many searches will go up and how many will come down, and turning it on is what
+  authorises it. _Retired 2026-09-08. Successor: RL-30._
+- [x] **RL-15** — The dictionary's source, its edition and its CC BY-SA 3.0 licence are named in the interface, one tap from the box, linking to the source and to the licence text, and stating that what the app ships is a reformatted extract distributed under the same licence. _Retired 2026-09-08. Successor: RL-33._
 
 ---
 

@@ -81,7 +81,9 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   Registro, Cuenta — three either way, and neither surface ever holds an action, a filter or a count.
   Decided by the user 2026-09-08. The earlier reading of this line — bar at every width, over a
   sidebar — was taken about the phone and is not withdrawn there; the desktop was never the case it
-  answered. The width the bar becomes a sidebar at **is not decided**; no board draws it yet.
+  answered. **The bar becomes a sidebar at 1024 px.** Decided by the user 2026-09-08; see
+  `## Settled`. This is a second breakpoint, distinct from the ~660 px the reading column centres
+  above: a vertical tablet stays on the bar, and only a wide tablet or a desktop gets the sidebar.
   The bar ships with two of its three first; see `## Settled` for which and why.
 - **The 620 px cap is a reading measure, not a page width.** It governs the screens that are prose —
   Palabra, Frase, Flexión, Sin resultado, Inicio, Instalando, Fallo, Sugerencias, Fuente. Registro,
@@ -129,6 +131,11 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   either is designed from scratch, not derived from a board.
 - **Nothing is drawn for the desktop sidebar**, for a theme control, or for a record grouped by word
   and counted. Those three are the visible work now open and every one of them starts at the canvas.
+- **This slice's boards, named.** `FraseOferta`, `SinResultadoIA`, `SinResultadoIAFallo`,
+  `SinResultadoSinPista`, `Registro`, `RegistroVacío`, `Cuenta` and `CuentaDentro` already exist,
+  each in its four faces of light/dark × desktop/mobile. **Nothing exists** for the desktop sidebar,
+  for a theme control, for the record grouped and counted by word, or for the information tab RL-33
+  puts inside `/cuenta`.
 - **Reading the published canvas costs 2.7 MB**, and the head of it is the editor's own stylesheet,
   not the design. Read it to a file and grep the file for `\.dc\.html` names; never read it into a
   conversation twice.
@@ -221,4 +228,18 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   algo que se hace solo». With an account, the copy starts by itself and is never asked about. This
   **retires RL-23**, which the 2026-09-08 slice had just built, and with it the consent screen that
   named the two figures. **RNL-09 is untouched**: with no account, nothing leaves the device — the
-  account is still the whole of the consent. **Whether an off switch survives is not decided.**
+  account is still the whole of the consent. **No switch survives.** Asked whether one does, the
+  user answered **none but signing out**: with an account, the copy runs; the only way to stop it is
+  to close the session. Written as RL-30.
+- **The licence hides in an information tab inside `/cuenta`.** Decided by the user 2026-09-08, on
+  their own words: «LA LICENCIA SE ESCONDE EN UNA PESTAÑA DE INFORMACION EN LA CUENTA DONDE NO VA
+  QUEDAR VISIBLE A LA GENTE (A MI)». It leaves the search screen, where it bothered the user, and
+  lands in `/cuenta`, which already renders with no session — so the credit CC BY-SA 3.0 requires
+  stays reachable by whoever uses the app, signed in or not. This retires RL-15 and is written as
+  RL-33. **No board exists for this tab.**
+- **`/registro` becomes the study, and a word opens its full history.** Decided by the user
+  2026-09-08. The record groups by word — one row, a count, ordered by frequency — and replaces the
+  chronological list this same slice had just settled on (`Registro`/`RegistroVacío`, above);
+  tapping a word opens every one of its searches with its date. Written as RL-32. **No board exists
+  for the grouped rows or for a word's opened history**; `Registro` and `RegistroVacío` as drawn are
+  the chronological list this decision retires from the reading path, not the study's boards.
