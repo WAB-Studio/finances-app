@@ -68,3 +68,57 @@ export async function readWordStudy(limit?: number): Promise<{ rows: StudyRow[];
   const rows = [...groups.values()].sort((a, b) => b.count - a.count || b.lastAt - a.lastAt);
   return { rows: limit === undefined ? rows : rows.slice(0, limit), total: groups.size };
 }
+
+export type WordHistoryRow = {
+  at: number;
+  text: string;
+  outcome: LookupOutcome;
+  translation: string | null;
+};
+
+type FoundRow = WordHistoryRow & { id: number };
+
+/**
+ * Every search for one `normalised` word (RL-32's other half), most recent
+ * first, in one read transaction bounded to that key alone — never a scan of
+ * the whole store. `total` counts every match, unaffected by `limit`.
+ */
+export async function readWordHistory(
+  normalised: string,
+  limit?: number,
+): Promise<{ rows: WordHistoryRow[]; total: number }> {
+  const database = await openLogDatabase();
+  const found = await new Promise<FoundRow[]>((resolve, reject) => {
+    const transaction = database.transaction(STORE_NAME, "readonly");
+    const request = transaction
+      .objectStore(STORE_NAME)
+      .index(NORMALISED_INDEX)
+      .openCursor(IDBKeyRange.only(normalised));
+    const rows: FoundRow[] = [];
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor) {
+        resolve(rows);
+        return;
+      }
+      const record = cursor.value as LookupRecord;
+      rows.push({
+        id: record.id as number,
+        at: record.at,
+        text: record.text,
+        outcome: record.outcome,
+        translation: record.translation,
+      });
+      cursor.continue();
+    };
+    request.onerror = () => reject(request.error);
+  });
+  // Same tiebreak as `foldRow` above: the autoincrement `id` orders two
+  // searches that landed in the same millisecond.
+  found.sort((a, b) => b.at - a.at || b.id - a.id);
+  const sliced = limit === undefined ? found : found.slice(0, limit);
+  return {
+    rows: sliced.map((row) => ({ at: row.at, text: row.text, outcome: row.outcome, translation: row.translation })),
+    total: found.length,
+  };
+}

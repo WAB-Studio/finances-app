@@ -4,8 +4,10 @@ import { ExportPanel } from "@/components/log/export-panel";
 import { HistoryList } from "@/components/log/history-list";
 import { Flex, Headword, Page } from "@/components/ui";
 
-// Server-rendered shell alone, like `/fuente`: the count and the download
-// belong to the client component this mounts. No `useDictionary` here, so
+// Server-rendered shell alone, like `/fuente`: the study and the download
+// belong to the client components this mounts, in the order the
+// `RegistroEstudio` board draws them — the rows carry the screen and the
+// download sits under them. No `useDictionary` here, so
 // no second Worker parses the payload on a screen that never looks a word
 // up (RNL-08). `measure="full"`: Registro is a list, not prose, so it takes
 // the width it needs (docs/voyager/DESIGN.md "Viewport").
@@ -17,9 +19,9 @@ export default async function RegistroPage() {
       <Flex direction="column" gap="5">
         <Headword>{t("title")}</Headword>
 
-        <ExportPanel />
-
         <HistoryList />
+
+        <ExportPanel />
       </Flex>
     </Page>
   );
