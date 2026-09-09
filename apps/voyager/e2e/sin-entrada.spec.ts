@@ -68,6 +68,23 @@ test("a two-token miss draws both headwords, offline, with no request", async ({
   expect(stray).toEqual([]);
 });
 
+// "zzqx" is absent from `eng-spa-2025.11.23.json` as a headword, and no
+// inflection rule in `lib/dictionary/inflect.ts` strips a suffix off it —
+// there is nothing left for `lookupWord` to find under any of its rules.
+test("a two-token miss where the dictionary lacks one word draws that word's own miss, and the other's answer", async ({
+  page,
+}) => {
+  await deleteTranslator(page);
+  await openReady(page);
+
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+  await searchBox.fill("hello zzqx");
+
+  await expect(mainHeadings(page).filter({ hasText: "hello" })).toBeVisible();
+  await expect(mainHeadings(page)).toHaveCount(1);
+  await expect(page.getByText(messages.search.noEntry.wordMiss)).toBeVisible();
+});
+
 test("a 61-token string draws one line and no heading, and asks the dictionary nothing", async ({ page }) => {
   await deleteTranslator(page);
   await openReady(page);
