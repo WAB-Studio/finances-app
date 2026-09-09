@@ -483,3 +483,11 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   Driven offline at 360px, the button sat on «Enviando…» at 2, 5, 8, 12 and **30 seconds** with no
   failure line, no retry and no way out but a reload. This is the one screen that genuinely needs
   the network, so it is the one screen allowed to say so. Everywhere else the silence holds.
+
+- **The English definition folds away behind a tap.** Decided by the user 2026-09-09. **51,622 of
+  64,258 entries (80.3%)** carry a «Definición» block whose prose is English — `her` → «The form of
+  she used after a preposition…» — under a Spanish heading, for someone who has just demonstrated
+  they did not understand an English word. Folding keeps it for the reader who does read some
+  English and shortens the app's longest screen for the one who does not. Removing it outright was
+  refused: the information is real. The fold's two states must be drawn, and which one opens is a
+  drawing decision, not a code one.
