@@ -1100,3 +1100,22 @@ y el editor recibe un documento cortado. Costó una publicación: el bloque term
   lo que escribiste no prueba nada; el corte lo hace el HTML, no el JSON.
 - La página no da ningún error visible. Se ve vacía, que es exactamente lo que un lienzo grande
   parece cuando de verdad es grande. El usuario lo diagnosticó como tamaño; era esto.
+
+## El puerto de otro carril responde por el tuyo, y los rojos no tienen patrón
+
+Medido 2026-09-09. La fórmula está en `AGENTS.md`: un carril sirve la app de lectura en
+`:310<n-1>`. El carril 4 es **:3103**; **:3102 es el carril 3**.
+
+El orquestador mandó a un agente del carril 4 correr su suite contra `:3102`. Su propio servidor
+murió a mitad de una corrida por presión de memoria, y **las peticiones siguientes las respondió el
+servidor del carril 3**, que servía otra rama. Resultado: tres corridas con fallos extendidos y sin
+patrón que no eran ningún defecto.
+
+- Cuenta el puerto desde el número de carril antes de escribirlo en un despacho. `310<n-1>`.
+- Un rojo que cambia de sitio entre corridas y no tiene patrón es un servidor equivocado, no un
+  defecto. Comprueba **de quién es el proceso** antes de perseguirlo:
+  `readlink /proc/<pid>/cwd` dice desde qué carril arrancó.
+- Con tres servidores y tres Chromium en nueve GB, un servidor **muere a mitad de una corrida** sin
+  decir nada. La suite no se entera: sigue recibiendo respuestas.
+- Mata sólo tus propios procesos, identificados uno a uno. Nunca un `pkill -f` sobre una ruta: el
+  patrón alcanza tu propia shell y los carriles de al lado.
