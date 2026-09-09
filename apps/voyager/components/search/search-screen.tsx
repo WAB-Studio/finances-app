@@ -448,6 +448,15 @@ export function SearchScreen({ initialQuery }: { initialQuery?: string }) {
     }
   }
 
+  // A prefix mid-word — "ru" on the way to "run" — has no exact or inflected
+  // hit of its own, but `suggest` only ever returns headwords that begin
+  // with it: a non-empty list is that same proof. Suppress SenseList's
+  // "not found" text for as long as one stands, list withdrawn (RL-18) or
+  // not — the ordinary silence of no answer yet, not a new state. Decided by
+  // the user 2026-09-09.
+  const wordFound = wordAnswer !== null && (wordAnswer.exact !== null || wordAnswer.viaInflection.length > 0);
+  const suppressNotFound = !wordFound && suggestions.length > 0;
+
   return (
     <Flex direction="column" gap="5">
       <Flex direction="column" gap="2">
@@ -464,7 +473,7 @@ export function SearchScreen({ initialQuery }: { initialQuery?: string }) {
       {kind.kind === "word" && (
         <Flex direction="column" gap="4">
           <Suggestions items={suggestionsWithdrawn ? [] : suggestions} onPick={handleTextChange} />
-          {wordAnswer && <SenseList answer={wordAnswer} />}
+          {wordAnswer && !suppressNotFound && <SenseList answer={wordAnswer} />}
         </Flex>
       )}
 
