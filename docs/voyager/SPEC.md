@@ -57,6 +57,18 @@ this gets built, and no schema, table or column is "prepared for" it.
 - [x] **RL-18** — While the string is being treated as a word and the typing has not settled, up to
   ten headwords that begin with it are offered. Choosing one answers it. The offer withdraws once
   the typing settles: the answer is already on screen and the list has nothing left to add.
+- [ ] **RL-35** *(successor of RL-14)* — The answer to a word comes whole from the device and never
+  waits on the network: with a connection or without one, the same text appears at the same speed,
+  and no keystroke ever leaves the device. What the network can add afterwards is decoration: it
+  arrives late, arrives only sometimes, and its absence never changes the answer or delays it.
+- [ ] **RL-36** — The answer to a concrete noun can carry an image, requested from Wikimedia Commons
+  as the answer draws and only with a connection. The image never blocks or delays the answer;
+  offline, with no result, or on failure, the answer draws just the same, with no gap left for it.
+  Asking Wikimedia directly tells it which word the reader is looking up, and the reader's IP address
+  — a known price, accepted deliberately by the user on 2026-09-08, and the one place this app lets a
+  lookup leave the device to a party of its own: everywhere else, RL-35, RNL-09 and the copy's
+  consent keep a lookup off the network entirely. The alternative declined was a route handler of the
+  app's own in front of the request, the shape RL-09 already uses for the sentence path.
 
 #### The sentence
 
@@ -69,7 +81,6 @@ this gets built, and no schema, table or column is "prepared for" it.
 
 - [ ] **RL-12** — The dictionary is fetched once, as a static asset, and installed onto the device. Its progress is shown and the box stays typeable throughout.
 - [x] **RL-13** — An interrupted install leaves no partial dictionary. The next open finds the dictionary whole or absent, never in between, and starts it again from zero.
-- [x] **RL-14** — Once installed, looking a word up touches the network in no way, on no keystroke.
 - [ ] **RL-33** — The dictionary's source, its edition and its CC BY-SA 3.0 licence are named in an
   information tab inside `/cuenta`, linking to the source and to the licence text, and stating that
   what the app ships is a reformatted extract distributed under the same licence. CC BY-SA 3.0
@@ -163,6 +174,9 @@ this gets built, and no schema, table or column is "prepared for" it.
 
 Dead codes. The number stays burned and the tick stays as it was.
 
+- [x] **RL-14** — Once installed, looking a word up touches the network in no way, on no keystroke.
+  _Retired 2026-09-08. Successor: RL-35. The word's image (RL-36), decided the same day, is the
+  reason this stopped being true: it reaches the network as the answer draws._
 - [x] **RL-19** — Every lookup a reader settles on is recorded on the device, from the app's first
   day: what was typed, whether it was answered as a word or a sentence, the headword it actually
   reached when an inflected form was typed, whether it found anything at all, and when. The record
@@ -210,7 +224,8 @@ Rules the model must always guarantee, regardless of how they are implemented:
 - The dictionary is data, never state. Nothing the reader does mutates it.
 - A headword is a group of senses, never a row. Its senses, its parts of speech,
   its pronunciations and its translations answer together or not at all.
-- The word path never touches the network.
+- A word's answer never touches the network (RL-35). Its image (RL-36) does, and only with a
+  connection: decoration, never a condition of the answer.
 - The payload is installed whole or not at all. There is no partial dictionary
   a lookup could read from.
 - The interface never asserts a browser capability it has not asked for at
@@ -227,12 +242,18 @@ A Next.js application whose data lives on the device.
 
 Principles, not recipes:
 
-- **The read path has no backend.** The dictionary ships as a static asset and is read locally;
-  looking a word up touches the network on no keystroke (RL-14). The app has two server surfaces and
-  neither is on that path: the sentence translation (RL-09), and the copy of the reader's record
-  (RL-22), which runs on the same Supabase as `apps/orbit`, in a schema of its own, and only once the
-  reader opened an account on purpose. With no account, nothing of the reader's leaves the device
-  (RNL-09).
+- **The read path has no backend for its text.** The dictionary ships as a static asset and is read
+  locally; a word's answer touches the network on no keystroke (RL-35). The app has two server
+  surfaces and neither is on that path: the sentence translation (RL-09), and the copy of the
+  reader's record (RL-22), which runs on the same Supabase as `apps/orbit`, in a schema of its own,
+  and only once the reader opened an account on purpose. With no account, nothing of the reader's
+  leaves the device (RNL-09).
+- **A word's image is the one thing on that path that does reach the network** (RL-36), and it
+  reaches a fourth party, not one of the app's own two surfaces: it is requested straight from
+  Wikimedia Commons as the answer draws, only with a connection, never blocking or delaying the
+  text. Unlike the sentence path, no route handler of the app's own sits in front of it, so Wikimedia
+  sees which word the reader is looking up and from which address. Decided by the user 2026-09-08,
+  the request itself weighed against building a fifth route handler to hide it.
 - **The server surface is four route handlers and one page**, and nothing else. Rewritten
   2026-09-08, when the account slice landed and left the old wording — "one route handler is the
   single exception" — false:
@@ -244,9 +265,11 @@ Principles, not recipes:
     the reader opened on purpose; with no account they answer 401 without opening a connection.
   - `app/auth/confirm/route.ts` — landing the sign-in link (RL-22).
   - `app/cuenta/page.tsx` — a server component that reads the session and queries nothing.
-- **The word path never passes through any of them.** That is the claim "no backend" actually
+- **The word's text never passes through any of them.** That is the claim "no backend" actually
   protects, and it is the one to check before adding a fifth: not how many handlers exist, but
-  whether looking a word up still touches none of them (RL-14, RNL-09).
+  whether the answer's text still touches none of them (RL-35, RNL-09). The word's image (RL-36)
+  touches the network too, but never through one of these four: it goes straight to Wikimedia,
+  decoration on an answer that already stands without it.
 - **A local MCP server (RL-27) is not part of the deployed app.** It is a
   script the reader runs on their own machine, over the file `/registro`
   exported (RL-20), never over the deployed app's network. It does not
