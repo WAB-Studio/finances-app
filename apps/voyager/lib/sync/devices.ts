@@ -62,7 +62,18 @@ export async function listDevices(tx: Transaction, userId: string): Promise<Devi
  * the second figure `enableWithBothCounts` shows before the reader turns the
  * copy on (RL-23). A null cursor is a device that has never synced: every
  * row the account holds would come down, so the bound falls back to
- * `-infinity` rather than comparing against nothing.
+ * `-infinity` rather than comparing against nothing. `cursorIso` is the
+ * `receivedAt` half alone — `app/api/devices/route.ts` strips the
+ * `pulledThroughCursor` tuple's `(deviceId, localId)` tiebreakers before
+ * calling this, since a count needs no tiebreak, only the clock.
+ *
+ * `::text::timestamptz`, never a bare cast: `coalesce` with a `timestamptz`
+ * literal makes Postgres describe the parameter itself as `timestamptz`
+ * (OID 1184), and postgres.js then serialises the bound value through
+ * `new Date(x).toISOString()` — dropping the stored microseconds (the same
+ * trap module 10 hit in `app/api/log/sync/route.ts`). Casting from text
+ * keeps the parameter's own OID at `text` (25), so the microseconds a
+ * cursor minted after module 10 carries reach Postgres intact.
  */
 export async function countPending(
   tx: Transaction,
@@ -73,7 +84,7 @@ export async function countPending(
     select count(*)::int as count
     from lookups
     where user_id = ${userId}
-      and received_at > coalesce(${cursorIso}, '-infinity'::timestamptz)
+      and received_at > coalesce(${cursorIso}::text::timestamptz, '-infinity'::timestamptz)
   `);
 
   return row?.count ?? 0;

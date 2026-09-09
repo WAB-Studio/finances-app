@@ -19,6 +19,10 @@ const deviceRowSchema = z.object({
 });
 const deviceListSchema = z.array(deviceRowSchema);
 type DeviceRow = z.infer<typeof deviceRowSchema>;
+// Module 15 widens the route to `{ devices, pending }` so the account
+// screen's enable button can read the second figure RL-23 asks for; `pending`
+// is that call's own concern, dropped here on arrival.
+const devicesGetResponseSchema = z.object({ devices: deviceListSchema, pending: z.number() });
 
 const DEVICES_ENDPOINT = "/api/devices";
 
@@ -155,7 +159,7 @@ export function DevicesPanel() {
       try {
         const [response, syncState] = await Promise.all([fetch(DEVICES_ENDPOINT), readSyncState()]);
         if (!response.ok) throw new Error(`devices route answered ${response.status}`);
-        const rows = deviceListSchema.parse(await response.json());
+        const { devices: rows } = devicesGetResponseSchema.parse(await response.json());
         if (cancelled) return;
         setLocalDeviceId(syncState.deviceId);
         setState(rows.length === 0 ? { kind: "empty" } : { kind: "ready", rows });
