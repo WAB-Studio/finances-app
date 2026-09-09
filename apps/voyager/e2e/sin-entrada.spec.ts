@@ -132,6 +132,10 @@ test("the cat sits still debounces to exactly one translate request, 600ms after
   await expect(page.getByText("El gato se sienta")).toBeVisible();
 });
 
+// `/fuente` itself is gone (module 10 was its last tenant), so this no
+// longer guards a live route. It still guards the search screen's own
+// markup: `SourceNote` or anything like it must never remount here, whether
+// or not a route by that name exists to receive the click.
 test("the search screen carries no link to /fuente", async ({ page }) => {
   await deleteTranslator(page);
   await openReady(page);
