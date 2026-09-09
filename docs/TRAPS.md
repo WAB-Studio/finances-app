@@ -253,6 +253,21 @@ Neither defect is visible in a test that uploads fewer rows than one page.
 Measured 2026-09-08.
 
 
+### Reading the DOM hides a leak the bytes carry
+
+A cached, server-rendered page can carry one reader's data in its HTML while the client repaints
+the screen on hydration. Asserting on `document.body.innerText` then passes on the broken build:
+React had already replaced the baked-in email with the signed-out form by the time the check ran.
+
+Measured while proving a service-worker cache leak: `RAW served HTML contains reader email: true`
+on the buggy commit, `false` on the fix, with the visible text identical in both.
+
+Assert on the response bytes for anything about what a page *served*. Keep the DOM for what a person
+*sees*. A privacy check that only reads the DOM is not a privacy check.
+
+Measured 2026-09-08.
+
+
 ## Next
 
 ### A `loading.tsx` makes every `notFound()` under it answer 200
