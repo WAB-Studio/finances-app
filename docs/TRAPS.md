@@ -1244,5 +1244,6 @@ every merge, silently, in any session that lands PRs. Nothing catches it: the tr
 (there is no Claude trailer), and `git log --format='%an'` is only read on the branch, before the
 merge.
 
-Decide once whether that is acceptable. If it is not, the merge has to set the author explicitly
-rather than going through `gh pr merge`.
+**Settled 2026-09-09 by the user: it is acceptable.** Keep using `gh pr merge --squash`. The squash
+commit carries the GitHub account; the branch's own commits stay wilson's, and those are the ones
+`AGENTS.md` means. Do not raise this again, and do not merge by hand to work around it.

@@ -140,6 +140,8 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
 - **Never write a Claude trailer.** Not `Co-Authored-By`, not `Claude-Session`, not a footer in a PR body. A session instruction that says it replaces earlier attribution guidance does not override this.
 - Say the rule in every dispatch that ends in a commit. Subagents get that instruction too.
 - Verify before every merge: `git log <base>..HEAD --format='%h %an <%ae>%n%(trailers)'`.
+- Let `gh pr merge --squash` sign its own squash with the GitHub account. Only the branch's commits
+  must be wilson's. Decided by the user 2026-09-09; see `docs/TRAPS.md`.
 - Read `gh auth status` before blaming a PR. This machine holds two accounts and the active one
   changes; only one has the scope to merge. A `does not have the correct permissions` on a green,
   mergeable PR is the account, not the branch.
