@@ -285,10 +285,15 @@ export async function POST(request: Request): Promise<Response> {
   const parsed = syncRequestSchema.safeParse(raw);
   if (!parsed.success) return json({ error: "invalid" }, 400);
 
-  // `deviceId` is top-level and required on `syncRequestSchema` (`protocol.ts`):
-  // an empty batch — a download-only round, RL-22 — carries no row to read it
-  // off, but still has to name the device sealing `reading.devices`.
-  const { deviceId, rows, since } = parsed.data;
+  const { rows, since } = parsed.data;
+
+  // Nothing ties the top-level `deviceId` to the one on each row: both are
+  // `z.uuid()` and a request may disagree with itself. A batch with rows has
+  // always spoken for `rows[0]`'s device — sealing and excluding any other
+  // sends the rows just uploaded straight back down in the same response — so
+  // it keeps doing that. The top-level field answers only the empty batch, a
+  // download-only round (RL-22) with no row to read a device off.
+  const deviceId = rows.length > 0 ? rows[0].deviceId : parsed.data.deviceId;
   const label = deviceLabel(request.headers.get("user-agent"));
 
   const [accepted, downloaded] = await withReaderDb(async (tx) => {
