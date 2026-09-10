@@ -190,8 +190,15 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
   session's own footprint.
 - Verify a number a subagent reports before repeating it. One reported seven leaked `auth.users` rows;
   the table held two. A count inferred from attempts is not a measurement.
+- Never type an address into `apps/voyager`'s `/cuenta`. It sends a real email through the user's
+  own Gmail and mints a real `auth.users` row, whatever the domain. Say so in every dispatch that
+  drives that app. Measured 2026-09-10: a critic typed `lector.prueba@example.com`, the send bounced
+  into the user's inbox, and the census found **seven** ghost rows from three separate days —
+  `lector@example.com` and five `nietoc0595+voyager-rate-N@gmail.com`. All seven deleted that day.
 - Clean up in the same script that probes `auth` from `apps/voyager`. It has no harness registry, so
-  `harness:census` cannot see its rows and `harness:reap` cannot prune them.
+  `harness:census` cannot see its rows and `harness:reap` cannot prune them. The census matches
+  `harness%@example.invalid` and null emails only, so a `/cuenta` row is invisible to it: read
+  `auth.users` directly when you suspect one.
 - Register every `auth.users` row a script creates through `@repo/harness-registry`. An ad-hoc
   probe that does not is a leak nothing can prune. `npm run harness:census` counts them; the
   number moves, so read it rather than trusting one written here — it said seven, then four, then
