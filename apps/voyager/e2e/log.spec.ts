@@ -637,3 +637,110 @@ test("the same word typed at ordinary speed, 120ms per keystroke, still lands as
   expect(rows.filter((row) => row.normalised.startsWith("w"))).toHaveLength(1);
   expect(rows.find((row) => row.normalised === "weight")).toBeTruthy();
 });
+
+// Regression for the list-based relay (2026-09-10): `flushPendingLookup` can
+// commit two rows in the same synchronous pass — "book", displaced from
+// `pending` by a non-prefix word, and "cat", the word that displaced it. A
+// relay holding one key overwrote "book" with "cat" before "book"'s own
+// IndexedDB transaction had a chance to survive the teardown that follows,
+// and the next document recovered only "cat". Six variants: three delays
+// short of the 800ms settle, crossed by the two teardowns that lose a row a
+// killed tab does not (docs/TRAPS.md) — a URL navigation and a reload.
+for (const waitMs of [0, 200, 400] as const) {
+  for (const teardown of ["goto", "reload"] as const) {
+    test(`book, then cat with no empty box between them, torn down by a ${teardown} at ${waitMs}ms, leaves both rows`, async ({
+      page,
+    }) => {
+      await deleteTranslator(page);
+      const assetResponse = page.waitForResponse(
+        (response) => response.url().includes(manifest.asset.path) && response.ok(),
+      );
+      await page.goto("/");
+      await assetResponse;
+      await page.waitForTimeout(1000);
+
+      const searchBox = page.getByRole("textbox", { name: messages.search.label });
+      await searchBox.fill("book");
+      // Past the 800ms settle: "book" is `pending`, not `latestCandidate`,
+      // before "cat" ever displaces it.
+      await page.waitForTimeout(1200);
+      // The reported reproduction: replace the box's whole content, the way
+      // selecting all and typing over it does, never emptying it first.
+      await searchBox.fill("cat");
+      await page.waitForTimeout(waitMs);
+
+      if (teardown === "goto") {
+        await page.goto("/registro");
+      } else {
+        await page.reload();
+      }
+
+      const rows = await readLogRows(page);
+      expect(rows.find((row) => row.normalised === "book")).toBeTruthy();
+      expect(rows.find((row) => row.normalised === "cat")).toBeTruthy();
+    });
+  }
+}
+
+test("three words answered in a row with no empty box between them, abandoned cold, leave three rows", async ({
+  page,
+}) => {
+  await deleteTranslator(page);
+  const assetResponse = page.waitForResponse(
+    (response) => response.url().includes(manifest.asset.path) && response.ok(),
+  );
+  await page.goto("/");
+  await assetResponse;
+  await page.waitForTimeout(1000);
+
+  // Each word given its own full settle before the next replaces it: the
+  // relay never has to hold more than one row at a time here, unlike the
+  // matrix above. This is the ordinary chain the list-based relay must
+  // still not break — three separate words, three separate rows.
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+  await searchBox.fill("book");
+  await page.waitForTimeout(1200);
+  await searchBox.fill("cat");
+  await page.waitForTimeout(1200);
+  await searchBox.fill("lemon");
+  await page.waitForTimeout(1200);
+  await page.goto("/registro");
+
+  const rows = await readLogRows(page);
+  expect(rows).toHaveLength(3);
+  expect(rows.find((row) => row.normalised === "book")).toBeTruthy();
+  expect(rows.find((row) => row.normalised === "cat")).toBeTruthy();
+  expect(rows.find((row) => row.normalised === "lemon")).toBeTruthy();
+});
+
+test("one word, no navigating away, leaves exactly one row, not a duplicate from the relay", async ({ page }) => {
+  await deleteTranslator(page);
+  const assetResponse = page.waitForResponse(
+    (response) => response.url().includes(manifest.asset.path) && response.ok(),
+  );
+  await page.goto("/");
+  await assetResponse;
+  await page.waitForTimeout(1000);
+
+  // Emptying the box is what commits "lemon" here, the same trigger the
+  // "book, an emptied box, then cat" test above uses: nothing tears the
+  // page down, so `writeRowSync`'s own `oncomplete` clears its relay entry
+  // well within this wait.
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+  await searchBox.fill("lemon");
+  await expect(page.getByRole("heading", { name: "lemon" })).toBeVisible({ timeout: 5000 });
+  await searchBox.fill("");
+  await page.waitForTimeout(300);
+
+  const relayed = await page.evaluate(() => window.localStorage.getItem("voyager:pending-log-row"));
+  expect(relayed).toBeNull();
+
+  // A later reload is not the teardown "lemon" was ever at risk from — its
+  // own relay entry already cleared once `oncomplete` ran — so
+  // `recoverRelayedRow` on this next document finds nothing to replay. A
+  // relay that failed to drop a landed row would write it a second time.
+  await page.reload();
+
+  const rows = await readLogRows(page);
+  expect(rows.filter((row) => row.normalised === "lemon")).toHaveLength(1);
+});
