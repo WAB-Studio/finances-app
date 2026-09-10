@@ -334,9 +334,11 @@ Principles, not recipes:
   what RL-09 already does for the sentence path, and it is what keeps a third party from learning
   which word a reader is looking up. Both requests reach the network only as the answer draws and only
   with a connection, and neither blocks or delays the text.
-- **The server surface is seven route handlers and one page**, and nothing else. Rewritten
-  2026-09-10, when the decoration slice added two more and the count was already short one before
-  that — `app/api/log/clear/route.ts` existed and had never been listed:
+- **The server surface is five route handlers and one page, and nothing else.** It becomes seven
+  when RL-36, RL-41 and RL-42 land: those three are unticked, and the two handlers they need are
+  **not written yet** — do not read the list below as though they were. Rewritten 2026-09-10, when
+  the decoration slice claimed two more and the count turned out to have been short one all along:
+  `app/api/log/clear/route.ts` existed and had never been listed.
   - `app/api/translate/route.ts` — the sentence path (RL-09). Justified by two things a client
     cannot do: keep the provider's identity and key off the client, and make swapping the provider a
     one-file change.
