@@ -30,8 +30,15 @@ type Stage =
  * never on either destructive option. Decided by the user 2026-09-09,
  * against the usual habit of accenting the default action: a reader who
  * taps out of habit here keeps their record, never loses it.
+ *
+ * `hasReader` (`RegistroVaciarConfirmarSinCuenta`, approved 2026-09-10):
+ * without a session the account option never draws — `/api/log/clear`
+ * always answers 401 there — and the one action left reads «Vaciar el
+ * registro», not «...sólo en este dispositivo», since there is no
+ * alternative to contrast it with. The caller passes a boolean, never the
+ * reader itself: this component has no use for an id or an email.
  */
-export function ClearPanel() {
+export function ClearPanel({ hasReader }: { hasReader: boolean }) {
   const t = useTranslations("log.clear");
   const [count, setCount] = useState<CountState>({ kind: "loading" });
   const [stage, setStage] = useState<Stage>({ kind: "idle" });
@@ -120,51 +127,78 @@ export function ClearPanel() {
         </Button>
       </Flex>
 
-      <Flex direction="column" gap="1" align="start">
-        <Link asChild underline="always" muted>
-          <button type="button" disabled={wiping} onClick={() => void wipeLocal()}>
-            <TapTarget size={44} align="center" px="1">
-              {stage.kind === "wiping" && stage.scope === "local" ? t("wiping") : t("localAction")}
-            </TapTarget>
-          </button>
-        </Link>
-        <Text variant="caption" muted="quietest">
-          {t("localBody")}
-        </Text>
-        {stage.kind === "failed" && stage.scope === "local" && (
-          <Flex direction="column" gap="2" align="start">
-            <Text size="2" weight="bold">
-              {t("failed")}
+      {hasReader ? (
+        <>
+          <Flex direction="column" gap="1" align="start">
+            <Link asChild underline="always" muted>
+              <button type="button" disabled={wiping} onClick={() => void wipeLocal()}>
+                <TapTarget size={44} align="center" px="1">
+                  {stage.kind === "wiping" && stage.scope === "local" ? t("wiping") : t("localAction")}
+                </TapTarget>
+              </button>
+            </Link>
+            <Text variant="caption" muted="quietest">
+              {t("localBody")}
             </Text>
-            <Button size="2" tap onClick={() => void wipeLocal()}>
-              {t("retry")}
-            </Button>
+            {stage.kind === "failed" && stage.scope === "local" && (
+              <Flex direction="column" gap="2" align="start">
+                <Text size="2" weight="bold">
+                  {t("failed")}
+                </Text>
+                <Button size="2" tap onClick={() => void wipeLocal()}>
+                  {t("retry")}
+                </Button>
+              </Flex>
+            )}
           </Flex>
-        )}
-      </Flex>
 
-      <Flex direction="column" gap="1" align="start">
-        <Link asChild underline="always" muted>
-          <button type="button" disabled={wiping} onClick={() => void wipeAccount()}>
-            <TapTarget size={44} align="center" px="1">
-              {stage.kind === "wiping" && stage.scope === "account" ? t("wiping") : t("accountAction")}
-            </TapTarget>
-          </button>
-        </Link>
-        <Text variant="caption" muted="quietest">
-          {t("accountBody")}
-        </Text>
-        {stage.kind === "failed" && stage.scope === "account" && (
-          <Flex direction="column" gap="2" align="start">
-            <Text size="2" weight="bold">
-              {t("failed")}
+          <Flex direction="column" gap="1" align="start">
+            <Link asChild underline="always" muted>
+              <button type="button" disabled={wiping} onClick={() => void wipeAccount()}>
+                <TapTarget size={44} align="center" px="1">
+                  {stage.kind === "wiping" && stage.scope === "account" ? t("wiping") : t("accountAction")}
+                </TapTarget>
+              </button>
+            </Link>
+            <Text variant="caption" muted="quietest">
+              {t("accountBody")}
             </Text>
-            <Button size="2" tap onClick={() => void wipeAccount()}>
-              {t("retry")}
-            </Button>
+            {stage.kind === "failed" && stage.scope === "account" && (
+              <Flex direction="column" gap="2" align="start">
+                <Text size="2" weight="bold">
+                  {t("failed")}
+                </Text>
+                <Button size="2" tap onClick={() => void wipeAccount()}>
+                  {t("retry")}
+                </Button>
+              </Flex>
+            )}
           </Flex>
-        )}
-      </Flex>
+        </>
+      ) : (
+        // No account to reach without a reader: `wipeAccount` never runs
+        // here, and no caption sits under the link — `confirmBody` above
+        // already says what is lost (`RegistroVaciarConfirmarSinCuenta`).
+        <Flex direction="column" gap="1" align="start">
+          <Link asChild underline="always" muted>
+            <button type="button" disabled={wiping} onClick={() => void wipeLocal()}>
+              <TapTarget size={44} align="center" px="1">
+                {wiping ? t("wiping") : t("soleAction")}
+              </TapTarget>
+            </button>
+          </Link>
+          {stage.kind === "failed" && (
+            <Flex direction="column" gap="2" align="start">
+              <Text size="2" weight="bold">
+                {t("failed")}
+              </Text>
+              <Button size="2" tap onClick={() => void wipeLocal()}>
+                {t("retry")}
+              </Button>
+            </Flex>
+          )}
+        </Flex>
+      )}
     </Flex>
   );
 }

@@ -347,6 +347,7 @@ test("with the store broken, /registro draws the failure, with no system red and
 test("at rest, /registro shows «Vaciar el registro» muted beside «Descargar el registro» accent, and its confirm keeps the accent off both destructive options — no red, in light and dark", async ({
   page,
 }) => {
+  test.setTimeout(45_000);
   await deleteTranslator(page);
 
   const assetResponse = page.waitForResponse(
@@ -361,41 +362,82 @@ test("at rest, /registro shows «Vaciar el registro» muted beside «Descargar e
   await searchBox.fill("");
   await page.waitForTimeout(300);
 
-  // `docs/voyager/DESIGN.md` "Tokens" fixes a different hex per mode for
-  // both roles this reads — the accent and the muted tone both change
-  // between the two passes below, not just which token wins.
-  const palette = {
-    light: { accent: "#9A3B24", muted: "#6B675A" },
-    dark: { accent: "#D9805F", muted: "#9A9484" },
-  } as const;
+  // A reader, so the confirm block draws both destructive options: the
+  // colours below belong to `RegistroVaciarConfirmar`, the signed-in board,
+  // not the single-action one a session-less reader gets.
+  const sql = postgres(process.env.MIGRATION_DATABASE_URL!, { prepare: false, max: 1 });
+  const runId = await openRun("e2e", sql);
+  const reader = await mintReaderIdentity(sql, runId);
 
-  for (const scheme of ["light", "dark"] as const) {
-    await page.emulateMedia({ colorScheme: scheme });
-    await page.goto("/registro");
+  try {
+    await signInAs(page, reader.hash);
 
-    const download = page.getByRole("button", { name: messages.log.study.download });
-    const clearTrigger = page.getByRole("button", { name: messages.log.clear.trigger });
-    await expect(download).toBeVisible();
-    await expect(clearTrigger).toBeVisible();
+    // `docs/voyager/DESIGN.md` "Tokens" fixes a different hex per mode for
+    // both roles this reads — the accent and the muted tone both change
+    // between the two passes below, not just which token wins.
+    const palette = {
+      light: { accent: "#9A3B24", muted: "#6B675A" },
+      dark: { accent: "#D9805F", muted: "#9A9484" },
+    } as const;
 
-    expect(await computedColor(download)).toBe(hexToRgb(palette[scheme].accent));
-    expect(await computedColor(clearTrigger)).toBe(hexToRgb(palette[scheme].muted));
+    for (const scheme of ["light", "dark"] as const) {
+      await page.emulateMedia({ colorScheme: scheme });
+      await page.goto("/registro");
 
-    await clearTrigger.click();
-    const keep = page.getByRole("button", { name: messages.log.clear.keep });
-    const localAction = page.getByRole("button", { name: messages.log.clear.localAction });
-    const accountAction = page.getByRole("button", { name: messages.log.clear.accountAction });
-    await expect(keep).toBeVisible();
-    await expect(localAction).toBeVisible();
-    await expect(accountAction).toBeVisible();
+      const download = page.getByRole("button", { name: messages.log.study.download });
+      const clearTrigger = page.getByRole("button", { name: messages.log.clear.trigger });
+      await expect(download).toBeVisible();
+      await expect(clearTrigger).toBeVisible();
 
-    // No red anywhere the break draws (`docs/voyager/DESIGN.md` "Failure"):
-    // the accent lives only on «Conservarlo», never on either destructive
-    // option, in neither mode.
-    expect(await computedColor(keep, "backgroundColor")).toBe(hexToRgb(palette[scheme].accent));
-    expect(await computedColor(localAction)).toBe(hexToRgb(palette[scheme].muted));
-    expect(await computedColor(accountAction)).toBe(hexToRgb(palette[scheme].muted));
+      expect(await computedColor(download)).toBe(hexToRgb(palette[scheme].accent));
+      expect(await computedColor(clearTrigger)).toBe(hexToRgb(palette[scheme].muted));
+
+      await clearTrigger.click();
+      const keep = page.getByRole("button", { name: messages.log.clear.keep });
+      const localAction = page.getByRole("button", { name: messages.log.clear.localAction });
+      const accountAction = page.getByRole("button", { name: messages.log.clear.accountAction });
+      await expect(keep).toBeVisible();
+      await expect(localAction).toBeVisible();
+      await expect(accountAction).toBeVisible();
+
+      // No red anywhere the break draws (`docs/voyager/DESIGN.md` "Failure"):
+      // the accent lives only on «Conservarlo», never on either destructive
+      // option, in neither mode.
+      expect(await computedColor(keep, "backgroundColor")).toBe(hexToRgb(palette[scheme].accent));
+      expect(await computedColor(localAction)).toBe(hexToRgb(palette[scheme].muted));
+      expect(await computedColor(accountAction)).toBe(hexToRgb(palette[scheme].muted));
+    }
+  } finally {
+    await dropReaderIdentity(sql, reader.id);
+    await closeRun(sql);
+    await sql.end();
   }
+});
+
+test("without a session, the confirm panel draws no account option at all, and the one action left reads «Vaciar el registro»", async ({
+  page,
+}) => {
+  await deleteTranslator(page);
+
+  const assetResponse = page.waitForResponse(
+    (response) => response.url().includes(manifest.asset.path) && response.ok(),
+  );
+  await page.goto("/");
+  await assetResponse;
+  await page.waitForTimeout(1000);
+
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+  await searchBox.fill("apple");
+  await searchBox.fill("");
+  await page.waitForTimeout(300);
+
+  await page.goto("/registro");
+  await page.getByRole("button", { name: messages.log.clear.trigger }).click();
+
+  await expect(page.getByRole("button", { name: messages.log.clear.keep })).toBeVisible();
+  await expect(page.getByRole("button", { name: messages.log.clear.soleAction })).toBeVisible();
+  await expect(page.getByRole("button", { name: messages.log.clear.accountAction })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: messages.log.clear.localAction })).toHaveCount(0);
 });
 
 test("«Conservarlo» closes the confirmation without deleting anything", async ({ page }) => {
@@ -427,7 +469,7 @@ test("«Conservarlo» closes the confirmation without deleting anything", async 
   expect(rows).toHaveLength(1);
 });
 
-test("«Vaciar sólo en este dispositivo» empties IndexedDB, falls to the existing empty state, and a lookup made afterwards still lands", async ({
+test("without a session, «Vaciar el registro» empties IndexedDB, falls to the existing empty state, and a lookup made afterwards still lands", async ({
   page,
 }) => {
   await deleteTranslator(page);
@@ -446,7 +488,7 @@ test("«Vaciar sólo en este dispositivo» empties IndexedDB, falls to the exist
 
   await page.goto("/registro");
   await page.getByRole("button", { name: messages.log.clear.trigger }).click();
-  await page.getByRole("button", { name: messages.log.clear.localAction }).click();
+  await page.getByRole("button", { name: messages.log.clear.soleAction }).click();
 
   await expect(page.getByText(messages.log.study.emptyTitle)).toBeVisible();
   expect(await readLogRows(page)).toHaveLength(0);
@@ -468,7 +510,7 @@ test("«Vaciar sólo en este dispositivo» empties IndexedDB, falls to the exist
   await expect(page.locator('a[href="/registro/banana"]')).toBeVisible();
 });
 
-test("«Vaciar sólo en este dispositivo» drops the download link too, with no reload", async ({ page }) => {
+test("without a session, «Vaciar el registro» drops the download link too, with no reload", async ({ page }) => {
   await deleteTranslator(page);
 
   const firstAsset = page.waitForResponse(
@@ -488,7 +530,7 @@ test("«Vaciar sólo en este dispositivo» drops the download link too, with no 
   await expect(download).toBeVisible();
 
   await page.getByRole("button", { name: messages.log.clear.trigger }).click();
-  await page.getByRole("button", { name: messages.log.clear.localAction }).click();
+  await page.getByRole("button", { name: messages.log.clear.soleAction }).click();
 
   // No `page.reload()` anywhere here: `ExportPanel` has to notice the wipe
   // on its own, the same way the study above it already does.
