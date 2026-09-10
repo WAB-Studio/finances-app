@@ -158,6 +158,13 @@ test("on a real connection the happy path is unchanged: no wait for the offline 
 // so seeing neither, alongside the new copy, is the proof the call never
 // went out — the only branch that returns `domainUndeliverable` is the one
 // before `signInWithOtp`.
+//
+// NEVER disable that guard while these two run. They submit the real form to
+// the real Supabase, and the guard is the only thing standing between them
+// and a live send: it mints an `auth.users` row and mails the user's own
+// Gmail, which bounces back to their inbox. It happened on 2026-09-10 —
+// these exact two addresses, mutated to prove the guard bites. Prove it by
+// calling `isDomainDeliverable` directly, the way the tests below already do.
 test("a domain with a null MX (RFC 7505) is rejected on-screen, never reaching Supabase", async ({ page }) => {
   await submit(page, "lector.prueba@example.com");
 
