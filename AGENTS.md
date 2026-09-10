@@ -229,6 +229,13 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
   user out of signing in. Save the log the first time; the original run's is gone.
 - **Meanwhile, never buy quiet on that flake.** No `retry`, no `waitFor`, no `sleep`, and do not
   serialize lanes. `retries: 0` is deliberate.
+- **Copy `private/playwright-results/` out before rerunning a suite that went red.** A passing run
+  wipes it, and the failure's `error-context.md` goes with it. Measured 2026-09-10: a `signInAs`
+  red in `registro.spec.ts` under load — the redirect came back carrying `error=` — was gone before
+  it could be read, because the rerun that proved it a flake deleted the directory. That is the
+  second footprint this repo has lost the same way; the first is the reason the separate-project
+  question cannot be reopened. `cp -r apps/voyager/private/playwright-results /tmp/<name>` first,
+  then rerun.
 
 ## What a session spends
 
