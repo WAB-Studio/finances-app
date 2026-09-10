@@ -21,6 +21,13 @@ const SETTLE_MS = 800;
 // a reload, a URL navigation or history traversal never gets to run. A row
 // lands here the instant it is at risk, and is read back the moment the
 // next document loads.
+//
+// Holds a list, not one row: `flushPendingLookup` can call `commit` twice in
+// the same synchronous pass — once for the prefix chain's displaced row,
+// once for the row that displaced it — and both are at risk from the same
+// navigation. A second commit used to overwrite the first's key outright
+// before its IndexedDB transaction had a chance to survive the teardown
+// (docs/TRAPS.md); the list is what lets both wait out that teardown.
 const PENDING_RELAY_KEY = "voyager:pending-log-row";
 
 let databasePromise: Promise<IDBDatabase> | null = null;
@@ -88,30 +95,56 @@ if (typeof indexedDB !== "undefined") void openDatabase();
 // of its own and overwrite the key first.
 recoverRelayedRow();
 
-// Mirrors `row` into `localStorage`, replacing whatever was relayed before
-// it: this module ever holds one pending row, so the relay holds at most one.
+// Parses whatever is under `PENDING_RELAY_KEY` as a list. A single stray
+// object from a build before this list existed is read as empty rather than
+// thrown on: a mixed-version rollout is not a crash, just a row this
+// document cannot recover — the next commit still relays fine.
+function readRelayedRows(): LookupRecord[] {
+  const raw = localStorage.getItem(PENDING_RELAY_KEY);
+  if (!raw) return [];
+  const parsed = JSON.parse(raw) as unknown;
+  if (Array.isArray(parsed)) return parsed as LookupRecord[];
+  // The relay held one bare object until 2026-09-10. A reader whose row was
+  // in flight across that deploy has that shape on disk and one document
+  // left to recover it in: read it as a list of one rather than dropping it.
+  return parsed !== null && typeof parsed === "object" ? [parsed as LookupRecord] : [];
+}
+
+// Appends `row` to whatever list was already relayed: a flush that commits
+// two rows in one synchronous pass must not have the second erase the
+// first, only the write itself can fail. `setItem` never partially writes —
+// it replaces the key whole or, on a full or disabled store, not at all —
+// so a row already resting there survives a sibling's own failed relay.
 function relayPendingRow(row: LookupRecord): void {
   if (typeof localStorage === "undefined") return;
   try {
-    localStorage.setItem(PENDING_RELAY_KEY, JSON.stringify(row));
+    const relayed = readRelayedRows();
+    relayed.push(row);
+    localStorage.setItem(PENDING_RELAY_KEY, JSON.stringify(relayed));
   } catch {
-    // A full or disabled store still leaves the IndexedDB attempt standing.
+    // The IndexedDB attempt still stands on its own; see above.
   }
 }
 
-// Drops the relay once `row`'s own fate — committed or failed — is known,
-// but only the relay that is still naming `row`: a second commit can start
-// and overwrite the key while this one's callback is still in flight.
+// Drops `row` alone from the relayed list, once its own fate — committed or
+// failed — is known. Leaves every other row named there untouched: two rows
+// can be in flight at once, each with its own `writeRow`/`writeRowSync`
+// callback racing the next navigation, and one landing must never take a
+// companion's spot in the list down with it.
 function clearRelayedRow(row: LookupRecord): void {
   if (typeof localStorage === "undefined") return;
   try {
-    const raw = localStorage.getItem(PENDING_RELAY_KEY);
-    if (!raw) return;
-    const relayed = JSON.parse(raw) as LookupRecord;
-    if (relayed.at === row.at && relayed.normalised === row.normalised) {
+    const relayed = readRelayedRows();
+    const remaining = relayed.filter((r) => !(r.at === row.at && r.normalised === row.normalised));
+    if (remaining.length === relayed.length) return;
+    if (remaining.length === 0) {
       localStorage.removeItem(PENDING_RELAY_KEY);
+    } else {
+      localStorage.setItem(PENDING_RELAY_KEY, JSON.stringify(remaining));
     }
   } catch {
+    // A list this document cannot parse cannot be trimmed row by row
+    // either: drop the whole key rather than keep guessing at it.
     localStorage.removeItem(PENDING_RELAY_KEY);
   }
 }
@@ -134,16 +167,19 @@ async function writeRow(row: LookupRecord): Promise<void> {
   }
 }
 
-// Reads back whatever the previous document relayed and never got to clear
-// — the sign its own IndexedDB write did not survive it — and writes that
-// row here instead. `writeRow` clears the relay itself once this lands, the
-// same as it would for a row committed the ordinary way.
+// Reads back every row the previous document relayed and never got to clear
+// — the sign its own IndexedDB write did not survive it — and writes each
+// one here instead, oldest first. `writeRow` clears its own row out of the
+// list once it lands, the same as it would for a row committed the
+// ordinary way, so one row's write never waits on another's.
 function recoverRelayedRow(): void {
   if (typeof localStorage === "undefined") return;
   const raw = localStorage.getItem(PENDING_RELAY_KEY);
   if (!raw) return;
   try {
-    void writeRow(JSON.parse(raw) as LookupRecord).then(notifyFlushed);
+    for (const row of readRelayedRows()) {
+      void writeRow(row).then(notifyFlushed);
+    }
   } catch {
     localStorage.removeItem(PENDING_RELAY_KEY);
   }

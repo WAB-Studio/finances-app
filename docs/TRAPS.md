@@ -1356,3 +1356,45 @@ either, or a reload can resurrect exactly the row this guard exists to drop.
 Fixed in the `prefijo-abandonado` branch. Proven by mutating the fix back to a call-site guard and
 rerunning `e2e/log.spec.ts -g "headword typed on into nonsense"` alone: it reds with the exact `asd
 | exact | TEA` row above, and goes green again once the guard moves back to `commit`.
+
+## A single-key relay loses a row when one flush commits two
+
+Found 2026-09-10 in `apps/voyager/lib/log/record.ts`, a gap in module 22's own relay (PR #130), not
+a regression from anything landed since.
+
+`flushPendingLookup` can call `commit` twice in the same synchronous pass: `settleCandidate` commits
+the *displaced* `pending` row first, then the caller commits the *new* `pending` it just set. Typing
+"book", letting it settle, then replacing the whole box with "cat" (select-all and type over it, no
+clearing in between) and leaving before "cat" itself settles is exactly that shape — "book" is
+committed, then "cat" is committed, both before either navigation.
+
+`relayPendingRow` held one key, `voyager:pending-log-row`, and each call replaced whatever was there.
+The second call ("cat") overwrote the first ("book") before "book"'s own IndexedDB transaction had
+survived the teardown a reload, a URL navigation or a history traversal brings — a killed tab gives
+that transaction's callback a later task to run in; the other three teardowns do not
+(`log.spec.ts`'s killed-tab test above already proves that difference). `recoverRelayedRow` on the
+next document then found only "cat" and wrote just that, silently. Measured on production
+`integracion`: typing "book", waiting past the 800ms settle, replacing the box with "cat" and
+navigating away 0, 200 or 400ms later — by `goto` or by `reload` — always left `["cat"]` in IndexedDB
+after the navigation, never `["book", "cat"]`. `page.goBack()` does not reproduce it, for the same
+reason the killed-tab path does not: both give "book"'s IndexedDB transaction a later task to finish
+in. Letting "cat" settle on its own before leaving does not reproduce it either, but for a different
+reason — `onSettleTimer` then commits "book" on its own clock, well before "cat" is even typed
+forward, so the two commits are never in the same synchronous pass and never share the relay key at
+the same instant.
+
+The relay now holds a list under that one key: `relayPendingRow` reads it, appends, writes it back;
+`clearRelayedRow` reads it, drops the one row whose `at` and `normalised` match, writes back what is
+left (or removes the key once it is empty); `recoverRelayedRow` replays every row still in the list,
+oldest first, each clearing itself out once its own `writeRow` lands — same as it always did, just
+per row instead of once. A failed `setItem` (a full or disabled store) never touches the key at all,
+so a row already resting there survives a sibling's own failed relay.
+
+Measured the read-append-write list against the old single `setItem`, 2000 iterations each in the
+same page: **0.0045ms/op for the single key, 0.0055ms/op for the list** — about a microsecond more
+per relay call, immaterial next to the 800ms settle window this all runs behind (RNL-06).
+
+Proven by reverting `relayPendingRow`/`clearRelayedRow` to the single-key version and rerunning the
+new case: it reds losing "book" exactly as described, and passes again once the list comes back.
+Never touched `SETTLE_MS` or `MAX_PENDING_MS` to fix this — both are settled questions elsewhere in
+this file and in `docs/voyager/SPEC.md`'s `RL-39`.
