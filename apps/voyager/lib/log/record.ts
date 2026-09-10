@@ -1,4 +1,4 @@
-import { LOOKUP_SCHEMA, type LookupRecord, type SyncState } from "./types";
+import { LOOKUP_SCHEMA, type LookupOutcome, type LookupRecord, type SyncState } from "./types";
 
 // A separate database from `reading-dictionary`: an IndexedDB transaction is
 // scoped to one database, so a write here never queues behind a read of the
@@ -188,6 +188,13 @@ function notifyFlushed(): void {
   if (typeof window !== "undefined") window.dispatchEvent(new Event(LOG_FLUSHED_EVENT));
 }
 
+// RL-39: a word that matched nothing and a sentence that could not be
+// translated leave no row. The guard lives here, at the one place every
+// settled candidate — hit or miss — ends up, never at the call that reports
+// it: `recordLookup` still has to run for a miss, so it can displace
+// whatever prefix was pending and let the chain keep extending past it.
+const LOGGED_OUTCOMES: ReadonlySet<LookupOutcome> = new Set(["exact", "inflected", "translated"]);
+
 // Relays to `localStorage` before either IndexedDB path is even tried: a
 // killed tab still lets its transaction commit (measured), but a reload, a
 // URL navigation or a history traversal tears the document down before its
@@ -200,7 +207,12 @@ function notifyFlushed(): void {
 // path a dying page can still complete. Falls back to the awaited path
 // only while the connection is still opening, a gap that closes once,
 // early, at load.
+//
+// The outcome check runs before the relay is even touched: a miss must
+// never sit in `localStorage` waiting for a load that would resurrect it,
+// the same as it must never reach IndexedDB.
 function commit(row: LookupRecord): void {
+  if (!LOGGED_OUTCOMES.has(row.outcome)) return;
   relayPendingRow(row);
   if (writeRowSync(row)) return;
   void writeRow(row).then(notifyFlushed);
@@ -239,9 +251,11 @@ function onSettleTimer(): void {
 }
 
 /**
- * Buffers one keystroke's answer. Returns `void`, never a promise, so no
- * caller can put a write on the path that produces an answer (RNL-06). The
- * guard below decides whether and when this ever reaches IndexedDB.
+ * Buffers one keystroke's answer, hit or miss alike — a miss still has to
+ * pass through here to displace whatever prefix was pending. Returns
+ * `void`, never a promise, so no caller can put a write on the path that
+ * produces an answer (RNL-06). `commit`'s own guard, above, decides whether
+ * and when this ever reaches IndexedDB.
  */
 export function recordLookup(row: Omit<LookupRecord, "id" | "schema">): void {
   latestCandidate = { ...row, schema: LOOKUP_SCHEMA };

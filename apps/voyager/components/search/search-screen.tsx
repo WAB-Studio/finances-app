@@ -298,9 +298,11 @@ export function SearchScreen({ initialQuery }: { initialQuery?: string }) {
       // RL-37: a phrase in range that cannot be translated falls to the same
       // per-word breakdown RL-31 draws for one that was never tried — the
       // trigger is this `failed` state, never a `done` with empty text.
-      // RL-39: a translation that failed is not an answer, so nothing is
-      // logged for it.
+      // RL-39 still logs the call: `commit` in record.ts is what drops an
+      // "untranslated" outcome, so the chain keeps advancing past it instead
+      // of leaving an earlier, answered prefix stranded in `pending`.
       setPhraseState({ kind: "failed" });
+      setLogPayload(phraseLogPayload(phraseText, dictionaryReady, "untranslated", null, null));
       resolveWordBreakdown(phraseText, "translationFailed");
     } finally {
       if (phraseAbortRef.current === controller) phraseAbortRef.current = null;
@@ -310,8 +312,10 @@ export function SearchScreen({ initialQuery }: { initialQuery?: string }) {
   // Looks every word of `phraseText` up on the device, one `lookup` call
   // each, with no debounce and no network — shared by RL-31's miss and
   // RL-37's translation failure, which differ only in which line names what
-  // went wrong (`reason`, read by `NoEntryAnswer`'s title).
-  function resolveWordBreakdown(phraseText: string, reason: NoEntryReason): void {
+  // went wrong (`reason`, read by `NoEntryAnswer`'s title). `onResolved`
+  // fires once the breakdown itself is in, so a caller that owes the log a
+  // row waits for the same tick the screen does instead of racing it.
+  function resolveWordBreakdown(phraseText: string, reason: NoEntryReason, onResolved?: () => void): void {
     setNoEntryState({ kind: "resolving", query: phraseText });
     const words = phraseText.trim().replace(/\s+/g, " ").split(" ");
     void Promise.all(words.map((word) => lookup(word).catch(() => null))).then((answers) => {
@@ -320,25 +324,31 @@ export function SearchScreen({ initialQuery }: { initialQuery?: string }) {
       if (latestTextRef.current !== phraseText) return;
       const parts: NoEntryPart[] = words.map((word, index) => ({ token: word, answer: answers[index] ?? null }));
       setNoEntryState({ kind: "words", query: phraseText, parts, reason });
+      onResolved?.();
     });
   }
 
   // RL-31: below the floor, every token is looked up on the device, with no
   // debounce — RNL-05 only throttles the network path, and this one never
-  // reaches it. Above the ceiling, nothing is asked at all. RL-39: neither
-  // branch found an answer, so neither logs one.
-  function scheduleNoEntry(phraseText: string, tokens: number): void {
+  // reaches it. Above the ceiling, nothing is asked at all. Both branches
+  // still log the call, as a "miss": `commit` in record.ts is what drops it,
+  // so an abandoned phrase can't leave an earlier, answered prefix behind
+  // (the same reasoning as RL-39's word path).
+  function scheduleNoEntry(phraseText: string, tokens: number, dictionaryReady: boolean): void {
     if (tokens > PHRASE_MAX_TOKENS) {
       setNoEntryState({ kind: "tooLong", query: phraseText, tokens });
+      setLogPayload(phraseLogPayload(phraseText, dictionaryReady, "miss", null, null));
       return;
     }
 
-    resolveWordBreakdown(phraseText, "noEntry");
+    resolveWordBreakdown(phraseText, "noEntry", () => {
+      setLogPayload(phraseLogPayload(phraseText, dictionaryReady, "miss", null, null));
+    });
   }
 
   function schedulePhrase(phraseText: string, tokens: number, dictionaryReady: boolean): void {
     if (tokens < PHRASE_MIN_TOKENS || tokens > PHRASE_MAX_TOKENS) {
-      scheduleNoEntry(phraseText, tokens);
+      scheduleNoEntry(phraseText, tokens, dictionaryReady);
       return;
     }
 
@@ -385,10 +395,13 @@ export function SearchScreen({ initialQuery }: { initialQuery?: string }) {
       if (latestTextRef.current !== queryText || !answer) return;
       setWordAnswer(answer);
       setSuggestions(items);
-      // RL-39: a miss is not an answer, so nothing is logged for it.
-      if (answer.exact || answer.viaInflection.length > 0) {
-        setLogPayload(wordLogPayload(queryText, answer, dictionaryReady));
-      }
+      // RL-39: a miss leaves no row, but the call still happens — `commit`
+      // in record.ts is what drops a "miss" outcome, not this call site. A
+      // guard here would leave the last *answered* prefix stuck in
+      // `pending` forever, to be written once the reader had moved on to
+      // something else entirely (measured: "asdkjhqwe" left `asd | exact |
+      // TEA` behind).
+      setLogPayload(wordLogPayload(queryText, answer, dictionaryReady));
       return;
     }
 
