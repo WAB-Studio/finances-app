@@ -31,7 +31,7 @@ export function GeneratedText({ state }: { state: GeneratedTextState }) {
         <Separator size="4" />
         <Box pt="2" pb="1">
           <Text variant="pendingHint" serif muted>
-            {t("definitionGenerated")}
+            {t("definitionGenerating")}
           </Text>
         </Box>
         <Separator size="4" />

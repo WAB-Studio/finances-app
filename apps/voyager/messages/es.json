@@ -42,6 +42,7 @@
     "translations": "Traducciones",
     "definitionEnglish": "Definición en inglés",
     "definitionGenerated": "Definición generada",
+    "definitionGenerating": "Escribiendo una definición…",
     "generatedMark": "Generado por IA",
     "example": "Ejemplo",
     "exampleTranslation": "Traducción",
