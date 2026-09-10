@@ -411,3 +411,95 @@ test("a killed tab still commits the query it had settled on, and a fast one sti
   expect(rowsAfterChain.filter((row) => row.normalised.startsWith("b"))).toHaveLength(1);
   expect(rowsAfterChain.find((row) => row.normalised === "book")).toBeTruthy();
 });
+
+// The killed-tab test above proves only `page.close()`: a document torn
+// down by a reload, a URL navigation or a history traversal is a different
+// death, one `pagehide`'s own IndexedDB write can lose even after it starts
+// (docs/TRAPS.md). Each of the three gets its own test, never one shared
+// one, so a regression in a single path still fails on its own.
+
+test("a reload still commits the query it had settled on", async ({ page }) => {
+  await deleteTranslator(page);
+  const assetResponse = page.waitForResponse(
+    (response) => response.url().includes(manifest.asset.path) && response.ok(),
+  );
+  await page.goto("/");
+  await assetResponse;
+  await page.waitForTimeout(1000);
+
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+  // Past the 800ms settle, short of the 5000ms forced flush: only the
+  // reload path below, not a timer, can be what lands this row.
+  await searchBox.fill("lemon");
+  await page.waitForTimeout(2000);
+  await page.reload();
+
+  const rows = await readLogRows(page);
+  expect(rows.some((row) => row.normalised === "lemon")).toBe(true);
+});
+
+test("a URL navigation to another route still commits the query it had settled on", async ({ page }) => {
+  await deleteTranslator(page);
+  const assetResponse = page.waitForResponse(
+    (response) => response.url().includes(manifest.asset.path) && response.ok(),
+  );
+  await page.goto("/");
+  await assetResponse;
+  await page.waitForTimeout(1000);
+
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+  await searchBox.fill("lemon");
+  await page.waitForTimeout(2000);
+  await page.goto("/cuenta");
+
+  const rows = await readLogRows(page);
+  expect(rows.some((row) => row.normalised === "lemon")).toBe(true);
+});
+
+test("going back in the history still commits the query it had settled on", async ({ page }) => {
+  await deleteTranslator(page);
+  const assetResponse = page.waitForResponse(
+    (response) => response.url().includes(manifest.asset.path) && response.ok(),
+  );
+  await page.goto("/");
+  await assetResponse;
+  await page.waitForTimeout(1000);
+
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+  await searchBox.fill("lemon");
+  await page.waitForTimeout(2000);
+  await page.goto("/cuenta");
+  await page.goBack();
+  // `goBack()` itself resolves once the browser commits the navigation;
+  // the app's own client router still re-renders `/` a task after that,
+  // which is a second, brief execution-context churn `readLogRows` below
+  // must not race.
+  await page.waitForURL((url) => url.pathname === "/");
+
+  const rows = await readLogRows(page);
+  expect(rows.some((row) => row.normalised === "lemon")).toBe(true);
+});
+
+test("a reload still groups four keystrokes chained under the settle window into one row", async ({ page }) => {
+  await deleteTranslator(page);
+  const assetResponse = page.waitForResponse(
+    (response) => response.url().includes(manifest.asset.path) && response.ok(),
+  );
+  await page.goto("/");
+  await assetResponse;
+  await page.waitForTimeout(1000);
+
+  // The regression the relay must not open: four keystrokes chained well
+  // under the settle window, killed by a reload mid-chain, must still land
+  // as the one row the last of them named, never four.
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+  for (const step of ["b", "bo", "boo", "book"]) {
+    await searchBox.fill(step);
+    await page.waitForTimeout(150);
+  }
+  await page.reload();
+
+  const rows = await readLogRows(page);
+  expect(rows.filter((row) => row.normalised.startsWith("b"))).toHaveLength(1);
+  expect(rows.find((row) => row.normalised === "book")).toBeTruthy();
+});
