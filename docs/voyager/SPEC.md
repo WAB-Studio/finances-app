@@ -46,8 +46,11 @@ this gets built, and no schema, table or column is "prepared for" it.
 #### The word
 
 - [ ] **RL-04** — A headword's answer shows every sense the dictionary carries for it, grouped by part of speech, each with its IPA when one exists and all of its Spanish translations.
-- [x] **RL-06** — An inflected form resolves to its headword, and the answer names both the form typed and the headword reached: `left` finds `leave`, `went` finds `go`, `children` finds `child`, `studies` finds `study`.
-  - Measured 2026-09-07 by `apps/voyager/scripts/check-dictionary.ts` (D9), over a sample of 2,345 regular surface forms generated from 301 stride-sampled single-word letter headwords by applying the regular suffix rules, plus all 386 `IRREGULAR_FORMS` surfaces: the real coverage figure is the **irregular-only rate, 367/386 = 95.1%**, the only non-circular signal since those surfaces come from a hand-written table no rule can reach. The generated forms resolve at 2345/2345 = 100.0%, a closed loop that proves the resolver inverts its own suffix rules, not real coverage. Blended (generated + irregular together, the number that includes the closed loop): 2712/2731 = 99.3%.
+- [ ] **RL-40** — An inflected form resolves to its headword, and the answer names both the form
+  typed and the headword reached: `went` finds `go`, `children` finds `child`, `studies` finds
+  `study`. When the form typed is itself a headword, its own entry answers first and the headword it
+  also inflects from is **offered below it, never instead of it**: `left` answers as «izquierda» and
+  offers `leave` under it. Board: `PalabraConFlexion`.
 - [ ] **RL-07** — Autocomplete appears only while the string is being treated as a word. A sentence never raises it.
 - [x] **RL-26** — A headword's answer can be heard. The device speaks it with the voice the browser
   already carries, so a headword with no IPA is spoken exactly like one that has it. Decided by the
@@ -182,6 +185,20 @@ this gets built, and no schema, table or column is "prepared for" it.
 ### Retired
 
 Dead codes. The number stays burned and the tick stays as it was.
+
+- [x] **RL-06** — An inflected form resolves to its headword, and the answer names both the form typed and the headword reached: `left` finds `leave`, `went` finds `go`, `children` finds `child`, `studies` finds `study`.
+  - Measured 2026-09-07 by `apps/voyager/scripts/check-dictionary.ts` (D9), over a sample of 2,345 regular surface forms generated from 301 stride-sampled single-word letter headwords by applying the regular suffix rules, plus all 386 `IRREGULAR_FORMS` surfaces: the real coverage figure is the **irregular-only rate, 367/386 = 95.1%**, the only non-circular signal since those surfaces come from a hand-written table no rule can reach. The generated forms resolve at 2345/2345 = 100.0%, a closed loop that proves the resolver inverts its own suffix rules, not real coverage. Blended (generated + irregular together, the number that includes the closed loop): 2712/2731 = 99.3%.
+  _Retired 2026-09-10. Successor: RL-40. `#128` stopped guessing at a word the dictionary already
+  carries, which was right for `bed` — it was drawing «"bed" es una forma de "b"» — and wrong for
+  every surface form that is also a headword. Measured that day: **19 of the 53 `INFLECTION_FIXTURE`
+  pairs stopped resolving** and `check:dict`'s D7 sat red on `integracion` for a day, unseen because
+  `check:dict` was not in CI. The reader of «he ran faster» was answered «ayunador»; of «he has
+  gone», «ido, ha muerto»; of `women`, «Femenil». RL-40 keeps the exact entry first and puts the
+  inflection back underneath it._
+  _Its D9 numbers above are what 2026-09-07 measured and are kept as that. Read today they differ —
+  generated 1881/2345 = 80.2%, blended 2248/2731 = 82.3%, irregular unchanged at 95.1% — and **that
+  drift is not `#128`'s**: the three figures come out identical with and without its line. Whatever
+  moved them is older and unfound. RL-40 takes no number from here; it measures its own._
 
 - [x] **RL-38** — A lookup a reader settles on is recorded on the device, from the app's first day,
   only when it found something: what was typed, whether it was answered as a word or a sentence, the

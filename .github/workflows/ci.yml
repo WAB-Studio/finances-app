@@ -37,6 +37,58 @@ jobs:
       - run: npm ci
       - run: npm run lint
 
+  # Seconds, over files already in the tree: the dictionary asset is committed,
+  # so this needs no build, no browser and no secret. It runs on its own rather
+  # than inside `voyager-e2e` because a red here should answer in seconds, not
+  # behind a 20-minute suite. It was absent until 2026-09-10, and `D7` sat red
+  # on `integracion` for a day with nothing to say so.
+  dictionary:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run check:dict -w apps/voyager
+
+  # Drives the policies on `reading` against the real database, DELETE included
+  # — the only proof RNL-10 has. One transaction that always rolls back, so it
+  # leaves no row and `harness:census` does not move. Also absent until
+  # 2026-09-10: the role that makes every policy apply is settled by one shared
+  # statement, and nothing in CI watched it.
+  policies:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      MIGRATION_DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
+      NEXT_PUBLIC_SITE_URL: ${{ secrets.NEXT_PUBLIC_SITE_URL }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # `check:sync` reads `--env-file=.env.local`, not the job environment.
+      - name: Write .env.local from the secrets
+        working-directory: apps/voyager
+        run: |
+          missing=""
+          for name in DATABASE_URL MIGRATION_DATABASE_URL NEXT_PUBLIC_SUPABASE_URL \
+                      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY NEXT_PUBLIC_SITE_URL; do
+            [ -n "${!name}" ] || missing="$missing $name"
+            printf '%s=%s\n' "$name" "${!name}" >> .env.local
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::missing repository secrets:$missing"
+            exit 1
+          fi
+      - run: npm run check:sync -w apps/voyager
+
   # The 12-minute suite runs here so a laptop is not holding a dev server and a
   # Chromium for it. One at a time: every run drives the one remote Postgres, and
   # a second concurrent run would contend with it and with a lane running locally.
