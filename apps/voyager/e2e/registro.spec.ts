@@ -26,6 +26,28 @@ async function deleteLogDatabase(page: Page): Promise<void> {
   });
 }
 
+// Same store, read instead of wiped. Call this before any further
+// navigation on `page`: `addInitScript` reinjects on every document `page`
+// loads, not once (docs/TRAPS.md), so a `deleteLogDatabase`'d page that
+// navigates again before this runs reads back nothing regardless of what
+// was actually written.
+async function readLogRows(page: Page): Promise<Array<{ normalised: string }>> {
+  return page.evaluate(
+    () =>
+      new Promise((resolve, reject) => {
+        const request = indexedDB.open("reading-log");
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => {
+          const db = request.result;
+          const tx = db.transaction("lookups", "readonly");
+          const getAll = tx.objectStore("lookups").getAll();
+          getAll.onsuccess = () => resolve(getAll.result);
+          getAll.onerror = () => reject(getAll.error);
+        };
+      }),
+  );
+}
+
 // `record.ts`'s own guard (`typeof indexedDB === "undefined"`) is what a
 // broken store looks like to this app; `open` throwing synchronously turns
 // every read the screen makes into a rejected promise, the same way a real
@@ -100,8 +122,8 @@ test("tapping \"Registro\" in the nav bar draws the search that motivated the tr
     .click();
   await expect(page).toHaveURL(/\/registro$/);
 
-  // Well under the 5000ms ceiling `record.ts`'s `MAX_PENDING_MS` would
-  // otherwise force the row to wait out.
+  // No ceiling forces this row to wait: the unmount flush this tap triggers
+  // is the only thing that has to land before the count shows.
   await expect(page.getByText(t("log.study.header", { lookups: 1, words: 1 }))).toBeVisible({ timeout: 2500 });
 
   const row = page.locator('a[href="/registro/apple"]');
@@ -125,6 +147,41 @@ test("with no rows, /registro draws the study's empty state and its action retur
 
   await page.getByRole("button", { name: messages.log.study.emptyAction }).click();
   await expect(page).toHaveURL(/\/$/);
+});
+
+test("a reader who only ever missed leaves no row, and /registro still shows the empty state, not a dead screen", async ({
+  page,
+}) => {
+  await deleteTranslator(page);
+  await deleteLogDatabase(page);
+
+  const assetResponse = page.waitForResponse(
+    (response) => response.url().includes(manifest.asset.path) && response.ok(),
+  );
+  await page.goto("/");
+  await assetResponse;
+  await page.waitForTimeout(1000);
+
+  // RL-38: a word the dictionary carries nothing for leaves no row. A
+  // multi-character nonsense string, not a single letter, so it stays a
+  // miss regardless of the other lane's own change to one-character
+  // queries.
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+  await searchBox.fill("xyzzy");
+  await searchBox.fill("");
+  await page.waitForTimeout(300);
+
+  // Read here, on this same document, before anything navigates again:
+  // `deleteLogDatabase`'s `addInitScript` reinjects on the `goto` below too
+  // and would wipe whatever RL-38's guard left behind before the assertion
+  // ever got to see it.
+  const rows = await readLogRows(page);
+  expect(rows).toHaveLength(0);
+
+  await page.goto("/registro");
+  await expect(page.getByText(messages.log.study.emptyTitle)).toBeVisible();
+  await expect(page.getByText(messages.log.study.emptyBody)).toBeVisible();
+  await expect(page.getByText(t("log.study.header", { lookups: 0, words: 0 }))).toHaveCount(0);
 });
 
 test("with the store broken, /registro draws the failure, with no system red and a retry", async ({ page }) => {
