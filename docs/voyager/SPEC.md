@@ -46,11 +46,21 @@ this gets built, and no schema, table or column is "prepared for" it.
 #### The word
 
 - [ ] **RL-04** — A headword's answer shows every sense the dictionary carries for it, grouped by part of speech, each with its IPA when one exists and all of its Spanish translations.
-- [ ] **RL-40** — An inflected form resolves to its headword, and the answer names both the form
+- [x] **RL-40** — An inflected form resolves to its headword, and the answer names both the form
   typed and the headword reached: `went` finds `go`, `children` finds `child`, `studies` finds
   `study`. When the form typed is itself a headword, its own entry answers first and the headword it
   also inflects from is **offered below it, never instead of it**: `left` answers as «izquierda» and
   offers `leave` under it. Board: `PalabraConFlexion`.
+  - Measured 2026-09-10 by `apps/voyager/scripts/check-dictionary.ts`: **D7 back to 53/53** from the
+    34 that `#128` left, and **D12 new — 27 candidates carried a defect before the filter, 0 after**.
+    The filter is two rules, both driven against the shipped asset: a one-letter lemma is not a lemma
+    (`bed` → `b`), and a regular suffix rule loses to `IRREGULAR_FORMS` where the table governs that
+    category (`bed` → `be`, whose real past is `was`/`were`). Matched by rule family, not blindly:
+    `running` → `run` survives, because `-ing` has no irregular family to lose to even though `run`
+    is in the table for `ran`.
+  - Driven, not asserted: `bed` answers with its own entry and offers nothing; `left` offers `leave`,
+    `faster` offers `fast`, `gone` offers `go`, `women` offers `woman`, `people` offers `person`.
+    `word` offers nothing, so an answered query gains no clutter.
 - [ ] **RL-07** — Autocomplete appears only while the string is being treated as a word. A sentence never raises it.
 - [x] **RL-26** — A headword's answer can be heard. The device speaks it with the voice the browser
   already carries, so a headword with no IPA is spoken exactly like one that has it. Decided by the

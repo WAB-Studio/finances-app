@@ -1423,3 +1423,30 @@ To republish it, serialise with the settings that round-trip this page byte for 
 page already does, `</script` → `<\/script`, 164 of them as of version 24. Assert the count and the
 absence of a bare `</script` before publishing: a missed escape truncates the page into one that
 looks empty rather than broken.
+
+### A server-rendered session turns a precached shell route into a leak
+
+`apps/voyager/public/sw.js` precaches three shell routes and rewrites each one's cache entry on
+every online navigation, so a route that opens offline never goes stale. `/cuenta` is the documented
+exception: its HTML carries `getReader()`'s answer, so a signed-in render replayed after the cookie
+is gone would hand the next person on the device the previous reader's email out of Cache Storage.
+It sits in `NO_OVERWRITE_ROUTES`, which does two things at once — `install` fetches it with
+`credentials: "omit"`, and `navigate` never writes it back.
+
+That comment says `/cuenta` is "the only shell route that does". **Any change that makes a second
+shell route call `getReader()` on the server makes it false, and the new route inherits neither
+protection.** Measured 2026-09-10: passing `hasReader` into `/registro`'s panel — to stop offering a
+wipe-account button that always answers 401 without a session — put session state into
+`/registro`'s HTML while it stayed out of `NO_OVERWRITE_ROUTES`. The signed-in render would be
+precached at install and rewritten on every visit, so the button the change removes comes back from
+the cache for a reader who has no session, and 401s when tapped.
+
+Before adding `getReader()` to a page, check `SHELL_ROUTES`. If the page is in it, put it in
+`NO_OVERWRITE_ROUTES` in the same change, and correct the comment that names `/cuenta` as the only
+one. For `/registro` the cached signed-out render is the right answer rather than a degradation:
+the account wipe calls `DELETE /api/log/clear`, which cannot work offline anyway.
+
+**The same change also moves a route from static to dynamic, and the build output is where you see
+it.** `npm run build -w apps/voyager` prints `○ /registro` before and `ƒ /registro` after. Nothing
+fails; the route just starts costing a server render per visit. Diff the route table against the
+base branch whenever a page gains a call that reads cookies or headers.
