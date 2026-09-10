@@ -86,6 +86,14 @@ this gets built, and no schema, table or column is "prepared for" it.
   resolved and cached the same way and under the same decoration clause. This is not RL-08's path:
   RL-08 translates a sentence the reader typed, this shows the word in use.
 
+  **The daily cap is the on-switch, not just a limit.** `WORD_TEXT_DAILY_CALL_CAP` is optional, and
+  left unset the route answers `204` to every cold word: generated text is off until a number is set.
+  **That number is 50, decided by the user 2026-09-10.** It bounds distinct new words per day, not
+  words lacking a definition — the example generates for every word looked up, so a word that already
+  has a definition still costs one call. A cap that bites costs nothing: the reader gets the screen
+  RL-35 already draws. `WORD_PHOTO_DAILY_CAP` is the opposite by design — left unset it means no
+  limit, which is right because Openverse is free.
+
 - [ ] **RL-36** — The answer to a concrete noun can carry an image, requested as the answer draws and
   only with a connection. The image never blocks or delays the answer; offline, with no result, or on
   failure, the answer draws just the same, with no gap left for it. The image comes from Openverse, a
