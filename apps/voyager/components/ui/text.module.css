@@ -15,3 +15,27 @@
 .muted.muted {
   color: var(--rl-muted);
 }
+
+/* The table's second, dimmer muted role — reserved there since 2026-09-07,
+   first reached by `RegistroVaciarConfirmar`'s own captions. */
+.mutedQuietest.mutedQuietest {
+  color: var(--rl-muted-quiet);
+}
+
+/* `RegistroVaciarConfirmar`'s own break title: 15px/600, no Radix step. */
+.breakTitle.breakTitle {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/* Its body line: 15px/1.6. */
+.breakBody.breakBody {
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+/* Its two destructive options' own captions underneath: 13px/1.5. */
+.caption.caption {
+  font-size: 13px;
+  line-height: 1.5;
+}
