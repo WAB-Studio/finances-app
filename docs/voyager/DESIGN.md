@@ -427,6 +427,27 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   **Never send a flagship for a task like this.** One `gpt-5.5` call was spent on an opinion during
   this session and it bought nothing the measurement did not already say.
 
+- **The photo's bytes go to a Supabase Storage bucket, and the project gains its first storage
+  credential.** Decided by the user 2026-09-10, told plainly that `apps/voyager/lib/env.ts:3-7`
+  forbids a server-side Supabase key in writing, citing RNL-10, and told the alternative that needed
+  no credential at all — the bytes as `bytea` in the `reading` schema, written over the
+  `DATABASE_URL` connection that already exists. They chose the bucket: a database is scarcer and
+  more expensive space than a file store, and at a measured ~24 KB a thumbnail it grows fast.
+  **The prohibition in `env.ts` is narrowed, not deleted.** What RNL-10 protects is a reader's record,
+  and the photo cache is not one. So the rule becomes: **no privileged key may reach Postgres**, and
+  the storage credential must be
+  **scoped to Storage alone** — Supabase's S3 access keys are, and `service_role` is not, because
+  `service_role` bypasses every RLS policy in the database as well. One file may read it. It never
+  builds a client that touches the `reading` schema, and RNL-10 is still proved by driving it.
+  Hotlinking straight to Openverse was offered as a third way and refused: it is exactly the leak the
+  user closed on 2026-09-08 — the image host would see the reader's IP and the word looked up.
+
+- **Our own server now sees which word each reader looks up, and that is new.** On 2026-09-08 the
+  user accepted that Wikimedia would see the word and the reader's IP, over building a route of the
+  app's own. Openverse behind our route reverses that: the image host sees nothing, and the server
+  sees everything. Better against third parties, worse against us. Written down because the earlier
+  decision went the other way and nobody should read this file and think it never changed.
+
 - **Generated text is marked «generada»; a dictionary definition is not.** The dictionary's own
   definitions come from Wiktionary under CC BY-SA and have been reviewed by people; a generated one
   was written by a model that mis-defined `abies` in a test of twelve. Without the mark the reader
