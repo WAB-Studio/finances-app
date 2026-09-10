@@ -175,7 +175,7 @@ this gets built, and no schema, table or column is "prepared for" it.
   one request leaves while typing; the copy fires only when the tab is hidden or when the reader asks
   for it; and a lookup answers in the same time with a ten-thousand-row merge in flight as without
   one.
-- [ ] **RNL-10** — A reader's record is read and written by that reader alone. The access policies in
+- [x] **RNL-10** — A reader's record is read and written by that reader alone. The access policies in
   the database decide it, not the query, and they are proved by driving them. No service path evades
   them.
 

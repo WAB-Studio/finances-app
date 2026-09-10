@@ -5,10 +5,12 @@ import { createHash, randomUUID } from "node:crypto";
 
 import { getTableColumns, is, sql as dsql } from "drizzle-orm";
 import { CasingCache } from "drizzle-orm/casing";
-import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
+import { getTableConfig, PgDialect, PgTable } from "drizzle-orm/pg-core";
 import type { PgColumn } from "drizzle-orm/pg-core";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
+
+import { settleSessionSql } from "@repo/supabase-auth/settle";
 
 import {
   applicationName,
@@ -9000,6 +9002,37 @@ async function checkAccountStatementShape() {
     afterUser === "postgres" && probeCount === "0",
     `current_user = ${afterUser}, rows named 'rls account statement%' = ${probeCount}`,
   );
+
+  // Every assertion above runs as `authenticated` because `enterUserContext`
+  // puts it there itself. The app does not: it goes through
+  // `settleSessionSql`, and the login role `postgres` holds BYPASSRLS. Drop
+  // the role line from that one shared statement and this whole file stays
+  // green while no policy fires in either app. So drive the statement rather
+  // than mirror it, in a transaction that has not already been re-roled —
+  // `set_config(…, true)` is transaction-local.
+  await sql.begin(async (tx) => {
+    const [before] = await tx<{ current_user: string }[]>`select current_user`;
+    const claims = JSON.stringify({
+      sub: randomUUID(),
+      role: "authenticated",
+      aud: "authenticated",
+    });
+    const settle = new PgDialect().sqlToQuery(
+      settleSessionSql({ claims, searchPath: "finances, public" }),
+    );
+    await tx.unsafe(settle.sql, settle.params as string[]);
+    const [after] = await tx<{ current_user: string; bypasses: boolean }[]>`
+      select current_user,
+             (select rolbypassrls from pg_roles where rolname = current_user) as bypasses`;
+    assert(
+      "295. the shared settle statement is what lands the un-bypassing role",
+      before.current_user !== "authenticated" &&
+        after.current_user === "authenticated" &&
+        after.bypasses === false,
+      `role ${before.current_user} -> ${after.current_user}, bypassrls = ${after.bypasses}`,
+    );
+    await tx`reset role`;
+  });
 }
 
 // Wrapped in an async IIFE (not top-level await) so the runner can transpile
