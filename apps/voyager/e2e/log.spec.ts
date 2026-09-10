@@ -744,3 +744,40 @@ test("one word, no navigating away, leaves exactly one row, not a duplicate from
   const rows = await readLogRows(page);
   expect(rows.filter((row) => row.normalised === "lemon")).toHaveLength(1);
 });
+
+// The relay held one bare object until 2026-09-10, when it became a list so
+// a flush that commits two rows stops losing the first. A reader whose row
+// was in flight across that deploy has the old shape on disk and exactly one
+// document left to recover it in: reading it as a list of one is what keeps
+// that row instead of dropping it on the version boundary.
+test("a relay left in the pre-list shape is still recovered, not discarded", async ({ page }) => {
+  await deleteTranslator(page);
+  await page.goto("/");
+  await page.waitForFunction(() => document.querySelector("input") !== null);
+
+  await page.evaluate(() => {
+    window.localStorage.setItem(
+      "voyager:pending-log-row",
+      JSON.stringify({
+        at: Date.now(),
+        text: "relayshape",
+        normalised: "relayshape",
+        kind: "word",
+        outcome: "exact",
+        headword: "relayshape",
+        rule: null,
+        senses: 1,
+        translation: "forma del relevo",
+        dictionaryReady: true,
+        origin: null,
+        schema: 2,
+      }),
+    );
+  });
+
+  await page.reload();
+  await expect
+    .poll(async () => (await readLogRows(page)).filter((row) => row.normalised === "relayshape").length)
+    .toBe(1);
+  expect(await page.evaluate(() => window.localStorage.getItem("voyager:pending-log-row"))).toBeNull();
+});

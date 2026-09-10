@@ -103,7 +103,11 @@ function readRelayedRows(): LookupRecord[] {
   const raw = localStorage.getItem(PENDING_RELAY_KEY);
   if (!raw) return [];
   const parsed = JSON.parse(raw) as unknown;
-  return Array.isArray(parsed) ? (parsed as LookupRecord[]) : [];
+  if (Array.isArray(parsed)) return parsed as LookupRecord[];
+  // The relay held one bare object until 2026-09-10. A reader whose row was
+  // in flight across that deploy has that shape on disk and one document
+  // left to recover it in: read it as a list of one rather than dropping it.
+  return parsed !== null && typeof parsed === "object" ? [parsed as LookupRecord] : [];
 }
 
 // Appends `row` to whatever list was already relayed: a flush that commits
