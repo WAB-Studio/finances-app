@@ -383,20 +383,26 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   an implementation detail: everywhere else in this app a lookup never leaves the device — RL-35 (the
   word's text), RNL-09 (the copy), the consent the account screen already asks for — and the photo is
   the one deliberate exception, telling Wikimedia both the word and the reader's IP address.
-- **The photo's three states are drawn, on the dark mobile face** — canvas version 28, 2026-09-10:
-  `PalabraFotoOscuroMovil` (resolved), `PalabraFotoCargandoOscuroMovil` (asked for, not yet back) and
-  `PalabraSinFotoOscuroMovil` (the 42% with nothing behind them). Dark, not light, because a
-  photograph on `#14130F` is a real design difference and not the token table applied — the one place
-  in this app where the dark face is not derivable from the light one. **No desktop face was drawn:**
-  the answer is one column at both widths and the photo takes that column's full measure, so a desktop
-  board would repeat the decision instead of taking one.
-  What the boards propose, still **open for the user to take or refuse**:
-  **the photo goes last in the answer**, after every sense, so a lazily-resolved image never pushes
-  text the reader is already reading, and its slot holds its final height while it is pending, so
-  nothing jumps when it lands; **the credit sits over the image's own foot**, on a scrim, not in a
-  caption under it — Wikimedia's licence is per file, so it has to travel with the picture; and
-  **no photo means no slot, no placeholder and no apology** — the 42% draws exactly the screen it
-  draws today, because a «sin imagen» marker turns the commonest case into a visible failure.
+- **The photo is drawn on the dark face, in five boards** — canvas version 29, 2026-09-10:
+  `PalabraFotoOscuroMovil` (resolved), `PalabraFotoCargandoOscuroMovil` (asked for, not yet back),
+  `PalabraSinFotoOscuroMovil` (the 42% with nothing behind them), `PalabraFotoOscuroEscritorio` and
+  `CuentaInformacionFotosOscuroMovil` (the credits). Dark, not light, because a photograph on
+  `#14130F` is a real design difference and not the token table applied — the one place in this app
+  where the dark face is not derivable from the light one.
+- **The pending square is silent, not spinning.** A 76px ornament that the reader is not waiting on
+  must not advertise itself as a task; a spinner would turn it into one. The whole answer reads
+  without it.
+- **The photo sits beside the headword, small and square, not in the body of the answer.** Decided by
+  the user 2026-09-10, over placing it last after every sense and over placing it under the first
+  translation. The header already has that height, so a lazily-resolved image **pushes nothing** —
+  the reason the other two placements needed a reserved slot disappears with this one. The price the
+  user took knowingly: at that size a photograph of an object reads poorly, and **it forces a desktop
+  face**, because the header is the one band of this screen whose proportions really change between
+  360px and a wide column. Both faces are drawn.
+- **No photo means no slot, no placeholder and no apology.** The 42% with nothing behind them —
+  measured over 300 nouns against Wikimedia — draws exactly the screen it draws today, headword flush
+  left as though the photo had never been a possibility. A «sin imagen» marker would turn the
+  commonest single case into a visible failure.
 - **Wikimedia's licence is per file, and this app hides licences in a tab today.** CC BY-SA, CC0 and
   public domain sit mixed across individual files, so every photo carries its own attribution, unlike
   the CC BY-SA 3.0 that covers the whole dictionary asset under one credit. `/cuenta` is where this
@@ -404,9 +410,17 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   cannot hide there. A per-image attribution has to sit next to its image to mean anything, which is the
   opposite instinct. **Now obligatory, not optional:** the user chose 2026-09-10 to keep the bytes in
   a Supabase bucket rather than hotlink, and re-serving a CC BY-SA file is redistribution, which
-  carries its share-alike with it. **The canvas proposes an answer and the user has not taken it
-  yet:** the credit rides on the image's own foot, over a scrim — author, licence, Wikimedia Commons
-  — so it cannot be separated from the file it covers. See the photo-board bullet above.
+  carries its share-alike with it.
+  **Resolved 2026-09-10: the credits go where the other licences already are** — the information tab
+  inside `/cuenta`, `CuentaInformacion`, beside RL-33's source and edition. Chosen by the user over
+  riding on the image's foot and over hiding behind a tap on the image. The instinct this file
+  recorded on 2026-09-08 — that a per-image credit cannot live in a collection's licence tab — was
+  **too strong, and is corrected here**: a credits page satisfies CC BY-SA when it names each file
+  individually and the reader can reach it. **What that costs, and it is not optional:** every photo
+  gets **its own entry** — author, licence, link to the file — and one blanket line covering «the
+  photos» does not discharge it, because the licence is per file and the files differ (CC BY-SA, CC0
+  and public domain sit mixed). The list is the reader's own resolved photos, so it is finite and
+  grows only as they look words up.
 
 - **A sense group carries one category label, and the group's IPA sits on that label's row.**
   Decided by the user 2026-09-09, looking at `PalabraCategoria`, over the alternative of giving every
