@@ -3,6 +3,7 @@ import { getTranslations } from "next-intl/server";
 import { ClearPanel } from "@/components/log/clear-panel";
 import { ExportPanel } from "@/components/log/export-panel";
 import { HistoryList } from "@/components/log/history-list";
+import { getReader } from "@/lib/session";
 import { Flex, Headword, Page } from "@/components/ui";
 
 // Server-rendered shell alone, like `/fuente`: the study and the two actions
@@ -14,6 +15,9 @@ import { Flex, Headword, Page } from "@/components/ui";
 // takes the width it needs (docs/voyager/DESIGN.md "Viewport").
 export default async function RegistroPage() {
   const t = await getTranslations("log");
+  // A boolean only, never the reader itself: `ClearPanel` decides whether
+  // to draw the account option from this alone (`RegistroVaciarConfirmarSinCuenta`).
+  const reader = await getReader();
 
   return (
     <Page measure="full">
@@ -29,7 +33,7 @@ export default async function RegistroPage() {
             below the row, never inside it). */}
         <Flex gap="4" wrap="wrap">
           <ExportPanel />
-          <ClearPanel />
+          <ClearPanel hasReader={reader !== null} />
         </Flex>
       </Flex>
     </Page>

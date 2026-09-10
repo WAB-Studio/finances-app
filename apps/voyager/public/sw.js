@@ -1,7 +1,7 @@
 // Hand-written, no build step (RL-16). Bump this by hand on every change: it
 // names the one cache the app is allowed to hold, and `activate` deletes any
 // other cache it finds under this origin.
-const CACHE_NAME = "reading-shell-v6";
+const CACHE_NAME = "reading-shell-v7";
 
 // How long a navigation waits for the network before it falls back to the
 // cached shell. Short enough that a dead connection does not stall the box.
@@ -14,14 +14,19 @@ const NAVIGATION_TIMEOUT_MS = 3000;
 // still draw the app's own screen, not the browser's error page.
 const SHELL_ROUTES = ["/", "/registro", "/cuenta"];
 
-// "/cuenta"'s document bakes the session cookie into its HTML (`getReader()`
-// on the server, `readerEmail` in the markup) — the only shell route that
-// does. A cached copy of a signed-in render, replayed after the cookie is
-// gone, hands the next person on the device the previous reader's email
-// straight out of Cache Storage. So its cache entry is written exactly once,
-// with credentials withheld (see `install`), and `navigate` below never
-// overwrites it — not with a signed-in render, not with any other.
-const NO_OVERWRITE_ROUTES = new Set(["/cuenta"]);
+// Both routes call `getReader()` on the server and let a signed-in render
+// draw more than a signed-out one does: "/cuenta" bakes the email itself
+// into the markup, "/registro" bakes which actions its confirm panel
+// offers (`ClearPanel`'s `hasReader` — the account wipe only ever draws for
+// a reader with a session, since it calls `DELETE /api/log/clear`, which a
+// session-less request always refuses). A cached copy of either signed-in
+// render, replayed after the cookie is gone, hands the next person on the
+// device the previous reader's own state straight out of Cache Storage —
+// an email for "/cuenta", a button that always 401s for "/registro". So
+// both cache entries are written exactly once, with credentials withheld
+// (see `install`), and `navigate` below never overwrites either — not with
+// a signed-in render, not with any other.
+const NO_OVERWRITE_ROUTES = new Set(["/cuenta", "/registro"]);
 
 self.addEventListener("install", (event) => {
   self.skipWaiting();
@@ -66,9 +71,9 @@ function rejectAfter(ms) {
 // offline open of "/" would serve the study instead of the search box. Also
 // keeps SHELL_ROUTES fresh with whatever the network last answered, so a
 // precached route never goes stale once it has been visited online — except
-// "/cuenta" (`NO_OVERWRITE_ROUTES`), whose live render may carry a session
-// this cache must never hold: the network still answers it every time, the
-// response just never gets written back.
+// the two `NO_OVERWRITE_ROUTES`, whose live render may carry a session this
+// cache must never hold: the network still answers each of them every time,
+// the response just never gets written back.
 async function navigate(request) {
   const cache = await caches.open(CACHE_NAME);
   const path = new URL(request.url).pathname;
