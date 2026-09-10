@@ -1,0 +1,14 @@
+/* docs/voyager/DESIGN.md "PalabraConFlexion": the offer's own indent — a 2px
+   rule of `--rl-border` down the side and 12px of padding, widening to 16px
+   above the ~660px desktop breakpoint `page.module.css` centres the reading
+   column at. */
+.rail.rail {
+  border-inline-start: 2px solid var(--rl-border);
+  padding-inline-start: 12px;
+}
+
+@media (min-width: 660px) {
+  .rail.rail {
+    padding-inline-start: 16px;
+  }
+}

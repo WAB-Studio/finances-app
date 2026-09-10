@@ -119,11 +119,11 @@ test("an installed dictionary answers offline, fast, and within a thumb's reach"
   await searchBox.fill("throughout");
   await expect(page.getByRole("heading", { name: "throughout" })).toBeVisible({ timeout: 5000 });
 
-  // `left` is its own headword, so it is answered as itself and never as a
-  // guess at `leave`: a hit ends the guessing (`lookup.ts`).
+  // `left` is its own headword, so it answers first — RL-40 offers `leave`
+  // beneath it, never in its place (`PalabraConFlexion`, `lookup.ts`).
   await searchBox.fill("left");
   await expect(page.getByRole("heading", { name: "left" })).toBeVisible({ timeout: 5000 });
-  await expect(page.getByRole("heading", { name: "leave" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "leave" })).toBeVisible();
 
   const durations = await measureWorkerRoundTrips(page, 200, "throughout");
   expect(durations).toHaveLength(200);
@@ -323,15 +323,16 @@ test("`left` (one of the 34 entries whose definition is a bare '.') never folds 
   const searchBox = page.getByRole("textbox", { name: messages.search.label });
   await searchBox.fill("left");
   await expect(page.getByRole("heading", { name: "left", exact: true })).toBeVisible({ timeout: 5000 });
-  // A hit ends the guessing, so `leave` is no longer drawn under it and
-  // `left`'s own group runs to the end of the page.
-  await expect(page.getByRole("heading", { name: "leave", exact: true })).toHaveCount(0);
+  // RL-40 offers `leave` beneath `left`'s own entry — its own senses carry
+  // no definition at all, so bounding the count to `left`'s own block below
+  // proves the period-only filter without depending on that separately.
+  await expect(page.getByRole("heading", { name: "leave", exact: true })).toBeVisible();
 
   // Four senses of "left" carry a definition in the source: adj (null,
   // never had one), adv ("On the left side."), n ("The left side or
   // direction.") and v ("."). Only the two real ones fold; the bare period
   // is filtered to no definition, same as adj's null.
-  const folds = await countFoldsBetween(page, "left", null, messages.word.definitionEnglish);
+  const folds = await countFoldsBetween(page, "left", "leave", messages.word.definitionEnglish);
   expect(folds).toBe(2);
 });
 
@@ -379,11 +380,15 @@ test("the English definition opens on tap and folds back on the next one, reacha
   await expect(page.getByText(englishText)).toHaveCount(0);
 });
 
-// `bed` is a headword the dictionary carries. It also matched two inflection
-// candidates — "a form of `b`" and "a form of `be`", the first translating to
-// "n." — and both were drawn under the real answer. A hit is answered, never
-// guessed at.
-test("a word the dictionary carries is never also split into inflection guesses", async ({ page }) => {
+// `bed` is a headword the dictionary carries. It also matched two false
+// inflection candidates — "a form of `b`", a bare single-letter lemma
+// `lookupWord` never answers on its own, and "a form of `be`", a regular
+// `-ed` guess the irregular table overrides (`be`'s real past is
+// `was`/`were`, never `bed`). Neither ships, with or without `bed`'s own
+// entry standing above them.
+test("a word the dictionary carries never offers a one-letter lemma or an irregular table override", async ({
+  page,
+}) => {
   await deleteTranslator(page);
 
   const assetResponse = page.waitForResponse(
@@ -398,11 +403,14 @@ test("a word the dictionary carries is never also split into inflection guesses"
   await searchBox.fill("bed");
   await expect(page.getByRole("heading", { name: "bed" })).toBeVisible({ timeout: 5000 });
   await expect(page.getByText('es una forma de', { exact: false })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "b", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "be", exact: true })).toHaveCount(0);
 
-  // A miss still earns its guess: `zzqxbeds` is nothing, and the machinery
-  // that finds a lemma is untouched for the case it exists to serve.
+  // `running` is its own entry too, and still offers `run` beneath it — the
+  // `-ing` family has no irregular past-tense entry to lose to, so the
+  // filter that blocks `be` never touches it.
   await searchBox.fill("running");
-  await expect(page.getByRole("heading", { name: "run" })).toBeVisible({ timeout: 5000 });
+  await expect(page.getByRole("heading", { name: "run", exact: true })).toBeVisible({ timeout: 5000 });
 });
 
 // The index carries a one-letter key for 12 stripped abbreviations, suffix
@@ -457,4 +465,53 @@ test("a one-character query answers only `a` and `i`, never the other ten single
   expect(bSuggestions).not.toContain("b");
   const aSuggestions = await askWorkerToSuggest(page, "a", 10);
   expect(aSuggestions).toContain("a");
+});
+
+// RL-40, board `PalabraConFlexion`: a word that is itself a headword answers
+// first, and a lemma it also inflects from is offered beneath it, never in
+// its place. `left` carries both — its own entry and the offer of `leave`.
+// `bed` carries only the first: its two false candidates, "b" (a one-letter
+// lemma) and "be" (a regular guess the irregular table overrides), earn no
+// offer at all.
+test("RL-40: a word's own entry answers first, and a plausible inflection is offered beneath it", async ({
+  page,
+}) => {
+  await deleteTranslator(page);
+
+  const assetResponse = page.waitForResponse(
+    (response) => response.url().includes(manifest.asset.path) && response.ok(),
+  );
+  await page.goto("/");
+  await assetResponse;
+  await page.waitForTimeout(1000);
+
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+
+  await searchBox.fill("left");
+  const leftHeading = page.getByRole("heading", { name: "left", exact: true });
+  const leaveHeading = page.getByRole("heading", { name: "leave", exact: true });
+  await expect(leftHeading).toBeVisible({ timeout: 5000 });
+  // The own entry's own senses, above any offer.
+  await expect(page.getByText("izquierda", { exact: true }).first()).toBeVisible();
+  // The offer's own label and heading, naming both the surface and the
+  // lemma it also inflects from.
+  await expect(page.getByText('"left" también es una forma de "leave"', { exact: false })).toBeVisible();
+  await expect(leaveHeading).toBeVisible();
+  await expect(page.getByText("dejar", { exact: true }).first()).toBeVisible();
+  // `left`'s own entry sits above the offer in document order — it answers
+  // first, the offer never replaces it.
+  const order = await page.evaluate(() => {
+    const headings = Array.from(document.querySelectorAll("h1"));
+    const left = headings.find((h) => h.textContent === "left");
+    const leave = headings.find((h) => h.textContent === "leave");
+    if (!left || !leave) return null;
+    return Boolean(left.compareDocumentPosition(leave) & Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+  expect(order).toBe(true);
+
+  await searchBox.fill("bed");
+  await expect(page.getByRole("heading", { name: "bed", exact: true })).toBeVisible({ timeout: 5000 });
+  await expect(page.getByText("también es una forma de", { exact: false })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "b", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "be", exact: true })).toHaveCount(0);
 });

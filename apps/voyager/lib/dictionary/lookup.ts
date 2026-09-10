@@ -1,6 +1,7 @@
 import { normaliseHeadword } from "./format";
 import { groupFor, type DictionaryIndex, type SenseGroup } from "./index-build";
 import { lemmaCandidates, type InflectionRule } from "./inflect";
+import { IRREGULAR_FORMS } from "./irregular-forms";
 
 export type InflectedHit = {
   surface: string;
@@ -41,25 +42,52 @@ function isImplausible(rule: InflectionRule, group: SenseGroup): boolean {
   return !group.senses.some((sense) => sense.pos === "adj");
 }
 
-// The exact headword when the index carries it, and inflection candidates
-// only when it does not. A word the dictionary already answers is answered,
-// not guessed at: `bed` is its own entry, and the candidates it also
-// matched were "a form of `b`" and "a form of `be`", one of them
-// translating to "n.". Guessing is what a miss earns, never a hit.
+// Every lemma some surface in the table already governs — "run" via "ran",
+// "be" via "was"/"were"/"been" — so a regular rule's own guess toward one
+// of these can be told apart from a guess toward a lemma the table never
+// touches at all.
+const IRREGULAR_TABLE_LEMMAS: ReadonlySet<string> = new Set(Array.from(IRREGULAR_FORMS.values()).flat());
+
+const PAST_TENSE_RULES: ReadonlySet<InflectionRule> = new Set(["past-ed", "past-ied", "past-doubled"]);
+const PLURAL_RULES: ReadonlySet<InflectionRule> = new Set(["plural-s", "plural-es", "plural-ies"]);
+
+// A regular suffix rule and the irregular table can each name a lemma for
+// the same surface, and disagree: "bed" strips to "be" by -ed, but "be"'s
+// real past is "was"/"were" — a form no suffix rule here ever produces.
+// Only the rule families whose category the table actually replaces are
+// checked, each against the matching sense: a past-tense guess against a
+// lemma the table governs as a verb, or a plural guess against one it
+// governs as a noun. "running" -> "run" is untouched: -ing has no
+// irregular family to lose to, so "run" carrying a past-tense entry
+// ("ran") never enters this check.
+function isOverriddenByIrregularTable(rule: InflectionRule, lemma: string, group: SenseGroup): boolean {
+  if (!IRREGULAR_TABLE_LEMMAS.has(lemma)) return false;
+  if (PAST_TENSE_RULES.has(rule)) return group.senses.some((sense) => sense.pos === "v");
+  if (PLURAL_RULES.has(rule)) return group.senses.some((sense) => sense.pos === "n");
+  return false;
+}
+
+// The exact headword when the index carries it, offered alongside every
+// plausible inflection candidate — never instead of them: a reader who
+// typed "left" gets its own entry and the offer of "leave" beneath it, and
+// a reader who typed "bed" gets its own entry and nothing else, because
+// `b` fails `isAnswerableHeadword` and `be`'s regular "-ed" guess loses to
+// the irregular table's own "was"/"were".
 export function lookupWord(index: DictionaryIndex, query: string): WordAnswer {
   const normalised = normaliseHeadword(query);
   if (normalised.length === 0) return { query, exact: null, viaInflection: [] };
   if (!isAnswerableHeadword(normalised)) return { query, exact: null, viaInflection: [] };
 
   const exact = groupFor(index, normalised);
-  if (exact) return { query, exact, viaInflection: [] };
 
   const viaInflection: InflectedHit[] = [];
   for (const candidate of lemmaCandidates(query)) {
     if (candidate.lemma === normalised) continue;
+    if (!isAnswerableHeadword(candidate.lemma)) continue;
     const group = groupFor(index, candidate.lemma);
     if (!group) continue;
     if (isImplausible(candidate.rule, group)) continue;
+    if (isOverriddenByIrregularTable(candidate.rule, candidate.lemma, group)) continue;
     viaInflection.push({ surface: normalised, lemma: candidate.lemma, rule: candidate.rule, group });
     if (viaInflection.length === MAX_INFLECTED_HITS) break;
   }

@@ -331,4 +331,49 @@ assert(
     : `${postFilterFalseHeadwords} headwords still carry one: ${stillFalseExamples.join(", ")}`,
 );
 
+// D12 — no shipped inflected hit is a bare single-letter lemma outside
+// "a"/"i", or a regular guess toward a lemma the irregular table already
+// governs for the matching part of speech: "bed" is not a form of "b" nor
+// of "be" — "be"'s real past is "was"/"were", a form no suffix rule here
+// produces. Reimplements both checks inline, against only `lemmaCandidates`
+// and `IRREGULAR_FORMS`, the same way D11 reimplements its own adj check —
+// so this proves the filter at `lookupWord`'s boundary, not through the
+// private helper that already enforces it.
+const ANSWERABLE_SINGLE_CHAR = new Set(["a", "i"]);
+const IRREGULAR_TABLE_LEMMAS = new Set(Array.from(IRREGULAR_FORMS.values()).flat());
+const PAST_TENSE_RULES = new Set(["past-ed", "past-ied", "past-doubled"]);
+const PLURAL_RULES = new Set(["plural-s", "plural-es", "plural-ies"]);
+
+let preFilterBadCandidates = 0;
+let postFilterBadHits = 0;
+const stillBadExamples: string[] = [];
+for (const headword of index.sortedHeadwords) {
+  const candidates = lemmaCandidates(headword).filter((c) => c.lemma !== headword);
+  const bad = candidates.filter((c) => {
+    const group = groupFor(index, c.lemma);
+    if (!group) return false;
+    const oneLetterLemma = c.lemma.length === 1 && !ANSWERABLE_SINGLE_CHAR.has(c.lemma);
+    const overriddenByTable =
+      IRREGULAR_TABLE_LEMMAS.has(c.lemma) &&
+      ((PAST_TENSE_RULES.has(c.rule) && group.senses.some((s) => s.pos === "v")) ||
+        (PLURAL_RULES.has(c.rule) && group.senses.some((s) => s.pos === "n")));
+    return oneLetterLemma || overriddenByTable;
+  });
+  preFilterBadCandidates += bad.length;
+
+  const shipped = lookupWord(index, headword).viaInflection;
+  const stillBad = bad.filter((c) => shipped.some((h) => h.lemma === c.lemma && h.rule === c.rule));
+  if (stillBad.length > 0) {
+    postFilterBadHits += stillBad.length;
+    if (stillBadExamples.length < 10) stillBadExamples.push(`${headword}->${stillBad[0].lemma}`);
+  }
+}
+assert(
+  next("no shipped inflected hit is a one-letter lemma or overridden by the irregular table"),
+  postFilterBadHits === 0,
+  postFilterBadHits === 0
+    ? `${preFilterBadCandidates} candidates carried one of these two defects before the filter, 0 after`
+    : `${postFilterBadHits} still shipped: ${stillBadExamples.join(", ")}`,
+);
+
 report();

@@ -38,6 +38,7 @@
   },
   "word": {
     "viaInflection": "\"{surface}\" es una forma de \"{lemma}\"",
+    "viaInflectionWithEntry": "\"{surface}\" también es una forma de \"{lemma}\"",
     "translations": "Traducciones",
     "definitionEnglish": "Definición en inglés",
     "suggestions": "Sugerencias",
