@@ -507,6 +507,81 @@ test("a reload still groups four keystrokes chained under the settle window into
   expect(rows.find((row) => row.normalised === "book")).toBeTruthy();
 });
 
+// Regression for PR #132: its guard sat on the call to `recordLookup`
+// instead of on `commit`, so a miss never displaced the last *answered*
+// prefix out of `pending` — that prefix sat there until the reader
+// abandoned the box for something else entirely, and was written then.
+// "asd" is `ASD`'s own headword, lower-cased (`normaliseHeadword`), and a
+// real entry — translation "TEA" — so typing on to "asdkjhqwe" (a miss)
+// and leaving reproduces exactly what a live drive of `integracion` found:
+// `asd | exact | TEA`, a row the reader never searched for.
+test("a headword typed on into nonsense and abandoned leaves no row, not the headword it passed through", async ({
+  page,
+}) => {
+  await deleteTranslator(page);
+  const assetResponse = page.waitForResponse(
+    (response) => response.url().includes(manifest.asset.path) && response.ok(),
+  );
+  await page.goto("/");
+  await assetResponse;
+  await page.waitForTimeout(1000);
+
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+  await searchBox.pressSequentially("asdkjhqwe", { delay: 30 });
+  // Past the 800ms settle: "asd" (a hit) has already been displaced from
+  // `pending` by "asdkjhqwe" (a miss) through the strict-prefix merge in
+  // `settleCandidate`, well before either navigation below runs.
+  await page.waitForTimeout(1000);
+
+  // The relay `commit` would otherwise write before either IndexedDB path
+  // is tried (`record.ts`): a miss must never reach it, or a reload could
+  // resurrect the very row this test proves never lands.
+  const relayedBeforeLeaving = await page.evaluate(() => window.localStorage.getItem("voyager:pending-log-row"));
+  expect(relayedBeforeLeaving).toBeNull();
+
+  // The reported reproduction itself: leave for `/registro` with the box
+  // still full of "asdkjhqwe" — a full navigation, so `pagehide` is what
+  // fires `flushPendingLookup`, the same path a reload or a killed tab
+  // takes, never a client-side route change this screen would just unmount
+  // from instead.
+  await page.goto("/registro");
+
+  const rows = await readLogRows(page);
+  expect(rows.find((row) => row.normalised === "asd")).toBeUndefined();
+  expect(rows.find((row) => row.normalised === "asdkjhqwe")).toBeUndefined();
+  expect(rows).toHaveLength(0);
+
+  const relayedAfterLeaving = await page.evaluate(() => window.localStorage.getItem("voyager:pending-log-row"));
+  expect(relayedAfterLeaving).toBeNull();
+});
+
+test("book, an emptied box, then cat leaves exactly two rows, one per word", async ({ page }) => {
+  await deleteTranslator(page);
+  const assetResponse = page.waitForResponse(
+    (response) => response.url().includes(manifest.asset.path) && response.ok(),
+  );
+  await page.goto("/");
+  await assetResponse;
+  await page.waitForTimeout(1000);
+
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+
+  await searchBox.fill("book");
+  await expect(page.getByRole("heading", { name: "book" })).toBeVisible({ timeout: 5000 });
+  await searchBox.fill("");
+  await page.waitForTimeout(300);
+
+  await searchBox.fill("cat");
+  await expect(page.getByRole("heading", { name: "cat" })).toBeVisible({ timeout: 5000 });
+  await searchBox.fill("");
+  await page.waitForTimeout(300);
+
+  const rows = await readLogRows(page);
+  expect(rows).toHaveLength(2);
+  expect(rows.find((row) => row.normalised === "book")).toBeTruthy();
+  expect(rows.find((row) => row.normalised === "cat")).toBeTruthy();
+});
+
 test("a word typed slowly enough to have crossed the retired 5s ceiling still lands as one row", async ({
   page,
 }) => {
@@ -530,6 +605,31 @@ test("a word typed slowly enough to have crossed the retired 5s ceiling still la
     await searchBox.fill(word.slice(0, length));
     await page.waitForTimeout(2200);
   }
+  await searchBox.fill("");
+  await page.waitForTimeout(300);
+
+  const rows = await readLogRows(page);
+  expect(rows.filter((row) => row.normalised.startsWith("w"))).toHaveLength(1);
+  expect(rows.find((row) => row.normalised === "weight")).toBeTruthy();
+});
+
+test("the same word typed at ordinary speed, 120ms per keystroke, still lands as one row", async ({ page }) => {
+  await deleteTranslator(page);
+  const assetResponse = page.waitForResponse(
+    (response) => response.url().includes(manifest.asset.path) && response.ok(),
+  );
+  await page.goto("/");
+  await assetResponse;
+  await page.waitForTimeout(1000);
+
+  // The other timing named in the regression: fast enough that every
+  // intermediate prefix's own lookup answer can still land before the next
+  // keystroke, none of it past the 800ms settle — the strict-prefix merge
+  // in `settleCandidate` is what has to fold "w" through "weight" into one
+  // row here, not a gap wide enough to let each settle on its own.
+  const word = "weight";
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+  await searchBox.pressSequentially(word, { delay: 120 });
   await searchBox.fill("");
   await page.waitForTimeout(300);
 

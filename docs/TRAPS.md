@@ -1324,3 +1324,35 @@ that entry's module, it is tied to any lane opened `--app voyager`.
 Run `npm run typecheck -w apps/voyager` in a voyager-only lane, never the root script. `npx next
 typegen` in `apps/orbit` would clear it too, but there is nothing to typecheck there if the lane was
 never meant to touch orbit.
+
+## A guard on `recordLookup`'s own call breaks the prefix chain it feeds
+
+Found 2026-09-10 in `apps/voyager/components/search/search-screen.tsx`, a regression from the same
+day's earlier PR #132. That PR moved RL-39's guard ("a miss leaves no row") onto the *call* to
+`recordLookup` — the word path only called it when `answer.exact || answer.viaInflection.length >
+0`, and the phrase path dropped its `"untranslated"`/`"miss"` calls outright.
+
+The call is not only what logs a lookup. It is also what advances `lib/log/record.ts`'s own chain:
+`recordLookup` writes `latestCandidate` and rearms the settle timer; `settleCandidate` later folds
+that candidate into `pending` when it strictly extends the pending word, or commits the displaced
+row and starts a new chain. Skip the call on a miss and `pending` never advances past the last
+prefix that *did* answer — every keystroke after it is invisible to the chain, however far the
+reader types past it. That stale `pending` still gets written, eventually, whenever the reader
+finally abandons the box for something else.
+
+Measured against production `integracion`: typing `asdkjhqwe` letter by letter — `asd` is `ASD`'s
+own headword, lower-cased, translation "TEA" — and leaving without clearing the box wrote `asd |
+exact | TEA`. The reader never searched "asd"; they typed nine characters and left. Before PR #132
+the same drive wrote `asdkjhqwe | miss`, itself wrong under RL-39, but at least true to what was
+typed.
+
+The guard belongs at `commit`, the one place every settled candidate — hit or miss — ends up, never
+at the call that reports it. `recordLookup` has to run for every settled query regardless of
+outcome, so a miss can still displace whatever prefix was pending; `commit` is what then drops it
+before it reaches `relayPendingRow` or IndexedDB. Checking the outcome before the `localStorage`
+relay write matters too — a row `commit` is going to discard must never sit in the PR #130 relay
+either, or a reload can resurrect exactly the row this guard exists to drop.
+
+Fixed in the `prefijo-abandonado` branch. Proven by mutating the fix back to a call-site guard and
+rerunning `e2e/log.spec.ts -g "headword typed on into nonsense"` alone: it reds with the exact `asd
+| exact | TEA` row above, and goes green again once the guard moves back to `commit`.
