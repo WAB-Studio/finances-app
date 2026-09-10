@@ -7,6 +7,8 @@ import { manifestSchema } from "@/lib/dictionary/format";
 import packageJson from "@/package.json";
 import { Flex, Link, MetaLabel, Separator, Text } from "@/components/ui";
 
+import { PhotoCredits } from "./photo-credits";
+
 // Imported, not fetched: the manifest is on disk at build time (RNL-04),
 // so this tab pays no request.
 const manifest = manifestSchema.parse(manifestJson);
@@ -66,6 +68,8 @@ export function AccountInfo() {
           {t("appVersion", { version: packageJson.version })}
         </Text>
       </Flex>
+
+      <PhotoCredits />
     </Flex>
   );
 }
