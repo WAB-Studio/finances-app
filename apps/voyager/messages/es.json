@@ -121,6 +121,7 @@
     "signOut": "Cerrar sesión",
     "errors": {
       "emailInvalid": "Escribe un correo válido",
+      "domainUndeliverable": "Ese dominio no recibe correo",
       "sendFailed": "No se pudo enviar el enlace",
       "rateLimited": "Demasiados intentos. Prueba de nuevo en unos minutos.",
       "offline": "Sin conexión. No se pudo enviar el enlace.",
