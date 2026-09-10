@@ -298,7 +298,7 @@ export function SearchScreen({ initialQuery }: { initialQuery?: string }) {
       // RL-37: a phrase in range that cannot be translated falls to the same
       // per-word breakdown RL-31 draws for one that was never tried — the
       // trigger is this `failed` state, never a `done` with empty text.
-      // RL-38: a translation that failed is not an answer, so nothing is
+      // RL-39: a translation that failed is not an answer, so nothing is
       // logged for it.
       setPhraseState({ kind: "failed" });
       resolveWordBreakdown(phraseText, "translationFailed");
@@ -325,7 +325,7 @@ export function SearchScreen({ initialQuery }: { initialQuery?: string }) {
 
   // RL-31: below the floor, every token is looked up on the device, with no
   // debounce — RNL-05 only throttles the network path, and this one never
-  // reaches it. Above the ceiling, nothing is asked at all. RL-38: neither
+  // reaches it. Above the ceiling, nothing is asked at all. RL-39: neither
   // branch found an answer, so neither logs one.
   function scheduleNoEntry(phraseText: string, tokens: number): void {
     if (tokens > PHRASE_MAX_TOKENS) {
@@ -385,7 +385,7 @@ export function SearchScreen({ initialQuery }: { initialQuery?: string }) {
       if (latestTextRef.current !== queryText || !answer) return;
       setWordAnswer(answer);
       setSuggestions(items);
-      // RL-38: a miss is not an answer, so nothing is logged for it.
+      // RL-39: a miss is not an answer, so nothing is logged for it.
       if (answer.exact || answer.viaInflection.length > 0) {
         setLogPayload(wordLogPayload(queryText, answer, dictionaryReady));
       }

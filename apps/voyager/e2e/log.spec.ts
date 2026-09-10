@@ -207,7 +207,7 @@ test("every lookup that finds an answer is recorded, a miss leaves no row, a fat
   expect(afterWord.filter((row) => row.normalised === "throughout")).toHaveLength(1);
   expect(afterWord).toHaveLength(1);
 
-  // A word the dictionary carries nothing for: RL-38 leaves no row for a
+  // A word the dictionary carries nothing for: RL-39 leaves no row for a
   // miss, so the log stays at the one row "throughout" already wrote.
   await searchBox.fill("zzqxplorph");
   await searchBox.fill("");
@@ -219,7 +219,7 @@ test("every lookup that finds an answer is recorded, a miss leaves no row, a fat
 
   // A query typed while the install is still running: a second page shares
   // the same origin's storage, so its row lands beside the first one. A
-  // real headword, not a miss — RL-38 leaves nothing to inspect on a miss,
+  // real headword, not a miss — RL-39 leaves nothing to inspect on a miss,
   // and this row's `dictionaryReady` is the whole point of the test.
   const installingPage = await context.newPage();
   await deleteTranslator(installingPage);

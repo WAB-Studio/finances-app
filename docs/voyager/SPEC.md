@@ -90,15 +90,16 @@ this gets built, and no schema, table or column is "prepared for" it.
 #### The shell
 
 - [ ] **RL-16** — The app opens with no connection and shows its box, and it can be launched from the phone's home screen without a browser around it. This holds from the second time it is opened onwards: the first open needs the network to deliver the app itself.
-- [x] **RL-38** — A lookup a reader settles on is recorded on the device, from the app's first day,
-  only when it found something: what was typed, whether it was answered as a word or a sentence, the
-  headword it actually reached when an inflected form was typed, and when. A word that matched
-  nothing and a sentence that could not be translated leave no row — neither had an answer to record.
-  The record only ever gains rows: nothing edits or deletes one. No screen on the read path shows it.
-  It is read to take it off the device — to a file, or to the copy held by the reader's account — and
-  to bring back what the same reader's other devices recorded; never on the path that answers a
-  lookup. Decided by the user 2026-09-09: a miss counted as a word in `/registro`'s own header and
-  drew as a blank row between real ones.
+- [x] **RL-39** *(successor of RL-38)* — A lookup a reader settles on is recorded on the device,
+  from the app's first day, only when it found something: what was typed, whether it was answered as
+  a word or a sentence, the headword it actually reached when an inflected form was typed, and when.
+  A word that matched nothing and a sentence that could not be translated leave no row — neither had
+  an answer to record. The record gains rows on its own and nothing edits one, but the reader can
+  empty it whole: on this device alone, or in the copy their account holds as well. Emptying this
+  device alone leaves the account's copy standing, and a device that signs in afterwards sees it
+  again. No screen on the read path shows the record. It is read to take it off the device — to a
+  file, or to the copy held by the reader's account — and to bring back what the same reader's other
+  devices recorded; never on the path that answers a lookup. Decided by the user 2026-09-10.
 - [x] **RL-22** — A reader can keep their record in an account of their own: they sign in through a
   link sent to their address and, from then on, what this device records is copied to that account
   and what their other devices recorded comes down to this one **and stays in its local record,
@@ -181,6 +182,17 @@ this gets built, and no schema, table or column is "prepared for" it.
 ### Retired
 
 Dead codes. The number stays burned and the tick stays as it was.
+
+- [x] **RL-38** — A lookup a reader settles on is recorded on the device, from the app's first day,
+  only when it found something: what was typed, whether it was answered as a word or a sentence, the
+  headword it actually reached when an inflected form was typed, and when. A word that matched
+  nothing and a sentence that could not be translated leave no row — neither had an answer to record.
+  The record only ever gains rows: nothing edits or deletes one. No screen on the read path shows it.
+  It is read to take it off the device — to a file, or to the copy held by the reader's account — and
+  to bring back what the same reader's other devices recorded; never on the path that answers a
+  lookup.
+  _Retired 2026-09-10. Successor: RL-39. The reader's own way to empty the record, decided the same
+  day, is the reason "nothing edits or deletes one" stopped being true._
 
 - [x] **RL-14** — Once installed, looking a word up touches the network in no way, on no keystroke.
   _Retired 2026-09-08. Successor: RL-35. The word's image (RL-36), decided the same day, is the

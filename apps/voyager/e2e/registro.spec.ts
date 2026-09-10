@@ -312,7 +312,7 @@ test("a reader who only ever missed leaves no row, and /registro still shows the
   await assetResponse;
   await page.waitForTimeout(1000);
 
-  // RL-38: a word the dictionary carries nothing for leaves no row. A
+  // RL-39: a word the dictionary carries nothing for leaves no row. A
   // multi-character nonsense string, not a single letter, so it stays a
   // miss regardless of the other lane's own change to one-character
   // queries.
@@ -323,7 +323,7 @@ test("a reader who only ever missed leaves no row, and /registro still shows the
 
   // Read here, on this same document, before anything navigates again:
   // `deleteLogDatabase`'s `addInitScript` reinjects on the `goto` below too
-  // and would wipe whatever RL-38's guard left behind before the assertion
+  // and would wipe whatever RL-39's guard left behind before the assertion
   // ever got to see it.
   const rows = await readLogRows(page);
   expect(rows).toHaveLength(0);
