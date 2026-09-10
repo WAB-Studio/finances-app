@@ -468,6 +468,34 @@ test("«Vaciar sólo en este dispositivo» empties IndexedDB, falls to the exist
   await expect(page.locator('a[href="/registro/banana"]')).toBeVisible();
 });
 
+test("«Vaciar sólo en este dispositivo» drops the download link too, with no reload", async ({ page }) => {
+  await deleteTranslator(page);
+
+  const firstAsset = page.waitForResponse(
+    (response) => response.url().includes(manifest.asset.path) && response.ok(),
+  );
+  await page.goto("/");
+  await firstAsset;
+  await page.waitForTimeout(1000);
+
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+  await searchBox.fill("apple");
+  await searchBox.fill("");
+  await page.waitForTimeout(300);
+
+  await page.goto("/registro");
+  const download = page.getByRole("button", { name: messages.log.study.download });
+  await expect(download).toBeVisible();
+
+  await page.getByRole("button", { name: messages.log.clear.trigger }).click();
+  await page.getByRole("button", { name: messages.log.clear.localAction }).click();
+
+  // No `page.reload()` anywhere here: `ExportPanel` has to notice the wipe
+  // on its own, the same way the study above it already does.
+  await expect(page.getByText(messages.log.study.emptyTitle)).toBeVisible();
+  await expect(download).toHaveCount(0);
+});
+
 test("«Vaciar sólo en este dispositivo» does not come back on the next sync", async ({ page }) => {
   test.setTimeout(45_000);
   await deleteTranslator(page);
