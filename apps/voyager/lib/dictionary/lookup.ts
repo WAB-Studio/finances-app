@@ -17,6 +17,18 @@ export type WordAnswer = {
 
 const MAX_INFLECTED_HITS = 3;
 
+// The only one-letter normalised forms the dictionary means to answer: the
+// indefinite article and the pronoun "I" (which normalises to "i"). Every
+// other one-letter key in the index — "b", "p", "c", "e", "o", "s", "u",
+// "x", "y", "4" — is an abbreviation's stripped period, a bare letter-name
+// entry or a suffix list, not a headword a reader typing one key meant to
+// reach.
+const ANSWERABLE_SINGLE_CHAR_HEADWORDS: ReadonlySet<string> = new Set(["a", "i"]);
+
+function isAnswerableHeadword(normalised: string): boolean {
+  return normalised.length !== 1 || ANSWERABLE_SINGLE_CHAR_HEADWORDS.has(normalised);
+}
+
 // Stripping "-er"/"-r" off any word that ends that way, then checking the
 // result is a headword, catches a noun or a pronoun whose stem happens to
 // coincide with a real word: "her" -> "he", "beer" -> "be"/"bee", "baker"
@@ -37,6 +49,7 @@ function isImplausible(rule: InflectionRule, group: SenseGroup): boolean {
 export function lookupWord(index: DictionaryIndex, query: string): WordAnswer {
   const normalised = normaliseHeadword(query);
   if (normalised.length === 0) return { query, exact: null, viaInflection: [] };
+  if (!isAnswerableHeadword(normalised)) return { query, exact: null, viaInflection: [] };
 
   const exact = groupFor(index, normalised);
   if (exact) return { query, exact, viaInflection: [] };
@@ -76,6 +89,10 @@ export function suggest(index: DictionaryIndex, prefix: string, limit: number): 
   for (let i = lowerBound(sortedHeadwords, normalised); i < sortedHeadwords.length && results.length < limit; i++) {
     const headword = sortedHeadwords[i];
     if (!headword.startsWith(normalised)) break;
+    // A one-letter headword lookupWord no longer answers is not a suggestion
+    // either: offering "b" only to have the reader tap it and see nothing
+    // change is worse than one fewer item in the list.
+    if (!isAnswerableHeadword(headword)) continue;
     results.push(headword);
   }
   return results;

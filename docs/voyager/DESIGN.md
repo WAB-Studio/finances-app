@@ -515,3 +515,24 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   English and shortens the app's longest screen for the one who does not. Removing it outright was
   refused: the information is real. The fold's two states must be drawn, and which one opens is a
   drawing decision, not a code one.
+
+- **A one-character query answers only `a` and `i`, everything else falls through to
+  suggestions. Decided by the user 2026-09-09.** Typing `b` against the production build drew
+  «b / ADJETIVO / Traducciones / n. / Abbreviation of born.» — the index's own key for the headword
+  **`b.`**, whose period `normaliseHeadword` strips. 12 of the index's keys are one letter, 15
+  entries behind them: `a` (un, una) and `I`→`i` (yo) are real headwords; the other ten —
+  `b.`→«n.», `p.`→«p., pp.», `C` (the programming language), `s` (a suffix), `y` (a suffix list),
+  `u`/`o`/`e` (letter names), `x` (the letter or the messaging «x»), `4` (a messaging «x») — are
+  abbreviations, suffix lists and letter-name entries a reader typing one key never meant to reach.
+  `lookupWord` now answers only `a` and `i` at length one; every other one-letter query falls
+  through to the suggestion list a mid-word prefix already draws — no new screen state, the same
+  `suppressNotFound` a paused `ru` already stands on. `suggest()` drops the same ten from its own
+  list, so tapping the top suggestion for `b` never lands on `b` itself. Measured against the
+  built index, `limit=10`: `suggest("b", 10)` returned `b, b major, b-flat, b-flat major, b-side,
+  baa, bab el mandeb, baba ganoush, baba yaga, babalawo` before the filter and drops only the
+  first; `suggest("a", 10)`, `suggest("i", 10)`, `suggest("p", 10)` and `suggest("s", 10)` each
+  keep one or zero one-letter entries at their head, so the visible list past the fix is at most
+  one item shorter, never empty. The price, taken knowingly: the ten entries behind those keys
+  become unreachable by any typed query — `normaliseHeadword` strips a trailing period before the
+  index is ever consulted, so `b.` already collapsed to the same `b` the bare letter did; there was
+  no second spelling to fall back to, and this fix removes the only one that reached them.
