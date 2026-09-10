@@ -39,7 +39,7 @@ type EmailFormState =
   | { kind: "idle" }
   | { kind: "sending" }
   | { kind: "sent" }
-  | { kind: "failed"; error: "emailInvalid" | "sendFailed" | "rateLimited" | "offline" };
+  | { kind: "failed"; error: "emailInvalid" | "domainUndeliverable" | "sendFailed" | "rateLimited" | "offline" };
 
 // Driven against a production build, `context.setOffline(true)` rejects the
 // browser's own POST to this Server Action outright (`TypeError: Failed to

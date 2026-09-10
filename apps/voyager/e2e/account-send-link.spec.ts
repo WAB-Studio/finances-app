@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
+import { isDomainDeliverable } from "../app/actions/account";
 import messages from "../messages/es.json";
 
 // `sendSignInLink` (app/actions/account.ts) is a Server Action: the browser
@@ -147,4 +148,69 @@ test("on a real connection the happy path is unchanged: no wait for the offline 
   // Well inside `SEND_LINK_TIMEOUT_MS`: a working request must never wait on
   // the offline clock to answer.
   await expect(page.getByText(messages.account.sent)).toBeVisible({ timeout: 2_000 });
+});
+
+// From here down: `example.com` (RFC 7505 §6 gives it as the null-MX
+// example, and a live lookup confirms it: `[{"exchange":"","priority":0}]`)
+// and a domain guaranteed never to exist. No `page.route` mock on either —
+// the real action has to reject them itself, before it ever reaches
+// Supabase. `sendFailed`/`rateLimited` only come back from a Supabase error,
+// so seeing neither, alongside the new copy, is the proof the call never
+// went out — the only branch that returns `domainUndeliverable` is the one
+// before `signInWithOtp`.
+test("a domain with a null MX (RFC 7505) is rejected on-screen, never reaching Supabase", async ({ page }) => {
+  await submit(page, "lector.prueba@example.com");
+
+  await expect(page.getByText(messages.account.errors.domainUndeliverable)).toBeVisible();
+  await expect(page.getByText(messages.account.errors.sendFailed)).toHaveCount(0);
+  await expect(page.getByText(messages.account.errors.rateLimited)).toHaveCount(0);
+});
+
+test("a domain with no DNS records at all is rejected the same way", async ({ page }) => {
+  await submit(page, "reader@asdkjhqwe-no-existe-1234.com");
+
+  await expect(page.getByText(messages.account.errors.domainUndeliverable)).toBeVisible();
+  await expect(page.getByText(messages.account.errors.sendFailed)).toHaveCount(0);
+});
+
+// The acceptance path is proved against `isDomainDeliverable` directly, not
+// through `submit`: calling the action for a domain the check lets through
+// would ask Supabase for a real send, spending the project's send quota and
+// (for an address Supabase has never seen) leaving a row in `auth.users`.
+test("a domain with no MX but an A record is deliverable (RFC 5321 §5.1's implicit MX)", async () => {
+  // GitHub's raw-content host: publishes A/AAAA, no MX (confirmed live,
+  // 2026-09-10 — `dns.resolveMx` answers `ENODATA`).
+  await expect(isDomainDeliverable("raw.githubusercontent.com")).resolves.toBe(true);
+});
+
+test("an ordinary domain with a real MX is deliverable", async () => {
+  await expect(isDomainDeliverable("gmail.com")).resolves.toBe(true);
+});
+
+test("a resolver error that is not 'no such record' fails open", async () => {
+  const brokenResolvers = {
+    resolveMx: () => Promise.reject(Object.assign(new Error("queryMx ESERVFAIL"), { code: "ESERVFAIL" })),
+    resolve4: () => Promise.reject(Object.assign(new Error("queryA ESERVFAIL"), { code: "ESERVFAIL" })),
+    resolve6: () => Promise.reject(Object.assign(new Error("queryAaaa ESERVFAIL"), { code: "ESERVFAIL" })),
+  };
+
+  await expect(isDomainDeliverable("broken-resolver.invalid", brokenResolvers)).resolves.toBe(true);
+});
+
+test("a resolver that never answers still gives an answer, on its own clock", async () => {
+  const hangingResolvers = {
+    resolveMx: () => new Promise<never>(() => {}),
+    resolve4: () => new Promise<never>(() => {}),
+    resolve6: () => new Promise<never>(() => {}),
+  };
+
+  const startedAt = Date.now();
+  const result = await isDomainDeliverable("never-answers.invalid", hangingResolvers);
+  const elapsedMs = Date.now() - startedAt;
+  console.log(`isDomainDeliverable hanging resolver: answered after ${elapsedMs}ms`);
+
+  expect(result).toBe(true);
+  // Bounded by its own timeout, not by the test's patience: comfortably
+  // under it, and never anywhere near `SEND_LINK_TIMEOUT_MS` (8s).
+  expect(elapsedMs).toBeLessThan(3_000);
 });
