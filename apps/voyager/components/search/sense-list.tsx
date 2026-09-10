@@ -9,7 +9,6 @@ import type { WordAnswer } from "@/lib/dictionary/lookup";
 import { speak, speechSupported } from "@/lib/speech/speak";
 import {
   Box,
-  Collapsible,
   Flex,
   Grid,
   Headword,
@@ -133,9 +132,9 @@ function SpeakButton({ headword, t }: { headword: string; t: ReturnType<typeof u
 }
 
 // One sense's own body: every translation on its own line, its English
-// definition folded behind a tap when the entry carries one
-// (docs/voyager/DESIGN.md "The English definition folds away behind a
-// tap"), and its own IPA only when it differs from the one already drawn on
+// definition drawn open beneath its own label when the entry carries one
+// (docs/voyager/DESIGN.md "The English definition draws open, always"), and
+// its own IPA only when it differs from the one already drawn on
 // its segment's label row — repeating an identical IPA on every sense would
 // say nothing a reader does not already have. `compact` drops the IPA and
 // the definition (docs/voyager/DESIGN.md "A word block on `SinEntradaFrase`
@@ -172,11 +171,20 @@ function SenseDetail({
         ))}
       </Flex>
       {!compact && sense.definition !== null && (
-        <Collapsible label={t("definitionEnglish")}>
-          <Text size="2" serif muted>
-            {sense.definition}
-          </Text>
-        </Collapsible>
+        <Flex direction="column" data-definition-block="">
+          <Separator size="4" />
+          <Box pt="2" pb="1">
+            <Flex direction="column" gap="1">
+              <Text variant="definitionLabel" muted>
+                {t("definitionEnglish")}
+              </Text>
+              <Text size="2" serif muted>
+                {sense.definition}
+              </Text>
+            </Flex>
+          </Box>
+          <Separator size="4" />
+        </Flex>
       )}
     </Flex>
   );

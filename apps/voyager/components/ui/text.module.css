@@ -39,3 +39,11 @@
   font-size: 13px;
   line-height: 1.5;
 }
+
+/* docs/voyager/DESIGN.md "The English definition draws open, always": the
+   label above the prose, 13px/600/0.06em, sans. */
+.definitionLabel.definitionLabel {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}

@@ -12,8 +12,10 @@ type SerifProps = {
   // `translation`: 21px / 1.5, a translation line. `breakTitle`/`breakBody`:
   // `RegistroVaciarConfirmar`'s own break — 15px/600 and 15px/1.6 — neither
   // a Radix step covers. `caption`: its two destructive options' own lines
-  // underneath, 13px/1.5.
-  variant?: "translation" | "breakTitle" | "breakBody" | "caption";
+  // underneath, 13px/1.5. `definitionLabel`: the label sitting above the
+  // always-open English definition, 13px/600/0.06em (docs/voyager/DESIGN.md
+  // "The English definition draws open, always").
+  variant?: "translation" | "breakTitle" | "breakBody" | "caption" | "definitionLabel";
   // The muted tone every caption, status line and secondary link takes
   // (docs/voyager/DESIGN.md "Tokens"), so a screen never reaches for Radix's
   // own `color="gray"`. `"quietest"` is the second, dimmer muted role the
@@ -33,6 +35,7 @@ function withSerif(
     variant === "breakTitle" ? styles.breakTitle : undefined,
     variant === "breakBody" ? styles.breakBody : undefined,
     variant === "caption" ? styles.caption : undefined,
+    variant === "definitionLabel" ? styles.definitionLabel : undefined,
     muted === true ? styles.muted : undefined,
     muted === "quietest" ? styles.mutedQuietest : undefined,
     className,
