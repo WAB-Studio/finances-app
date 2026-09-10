@@ -96,6 +96,19 @@
       "emptyBody": "No has buscado «{word}» todavía.",
       "emptyAction": "Buscarla",
       "skeletonAnswer": "Su respuesta de ejemplo"
+    },
+    "clear": {
+      "trigger": "Vaciar el registro",
+      "confirmTitle": "¿Vaciar el registro?",
+      "confirmBody": "Se borran {words, plural, one {la # palabra} other {las # palabras}} que has buscado, con {lookups, plural, one {su # búsqueda} other {sus # búsquedas}}. No se puede deshacer.",
+      "keep": "Conservarlo",
+      "localAction": "Vaciar sólo en este dispositivo",
+      "localBody": "Tu cuenta conserva su copia, y un dispositivo nuevo que entre a ella volverá a verla.",
+      "accountAction": "Vaciar aquí y en mi cuenta",
+      "accountBody": "Se lleva también lo que registraron tus otros dispositivos.",
+      "wiping": "Vaciando…",
+      "failed": "No se pudo vaciar el registro",
+      "retry": "Reintentar"
     }
   },
   "account": {

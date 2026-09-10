@@ -9,24 +9,32 @@ type SerifProps = {
   // Sets the family to Newsreader; the size and weight stay whatever `size`
   // and `weight` already say.
   serif?: boolean;
-  // The exact 21px / 1.5 a translation line runs, no Radix step covers it.
-  variant?: "translation";
+  // `translation`: 21px / 1.5, a translation line. `breakTitle`/`breakBody`:
+  // `RegistroVaciarConfirmar`'s own break — 15px/600 and 15px/1.6 — neither
+  // a Radix step covers. `caption`: its two destructive options' own lines
+  // underneath, 13px/1.5.
+  variant?: "translation" | "breakTitle" | "breakBody" | "caption";
   // The muted tone every caption, status line and secondary link takes
   // (docs/voyager/DESIGN.md "Tokens"), so a screen never reaches for Radix's
-  // own `color="gray"`.
-  muted?: boolean;
+  // own `color="gray"`. `"quietest"` is the second, dimmer muted role the
+  // same table names — first needed by `RegistroVaciarConfirmar`'s captions.
+  muted?: boolean | "quietest";
 };
 
 function withSerif(
   serif: boolean | undefined,
   variant: SerifProps["variant"],
-  muted: boolean | undefined,
+  muted: SerifProps["muted"],
   className: string | undefined,
 ): string | undefined {
   const classes = [
     serif || variant === "translation" ? styles.serif : undefined,
     variant === "translation" ? styles.translation : undefined,
-    muted ? styles.muted : undefined,
+    variant === "breakTitle" ? styles.breakTitle : undefined,
+    variant === "breakBody" ? styles.breakBody : undefined,
+    variant === "caption" ? styles.caption : undefined,
+    muted === true ? styles.muted : undefined,
+    muted === "quietest" ? styles.mutedQuietest : undefined,
     className,
   ].filter(Boolean);
   return classes.length > 0 ? classes.join(" ") : undefined;

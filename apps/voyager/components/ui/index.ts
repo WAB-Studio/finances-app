@@ -12,7 +12,6 @@ export {
   Progress,
   Spinner,
   Skeleton,
-  Link,
   VisuallyHidden,
 } from "@radix-ui/themes";
 
@@ -29,6 +28,8 @@ export { TapTarget } from "./tap-target";
 export { Button, IconButton } from "./button";
 
 export { Text } from "./text";
+
+export { Link } from "./link";
 
 export { Headword } from "./headword";
 

@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 
 import { readWordStudy, type StudyRow } from "@/lib/log/summary";
-import { countRecords, LOG_FLUSHED_EVENT } from "@/lib/log/record";
+import { countRecords, LOG_CLEARED_EVENT, LOG_FLUSHED_EVENT } from "@/lib/log/record";
 import { Box, Button, Flex, Grid, Link, MetaLabel, Separator, Skeleton, TapTarget, Text } from "@/components/ui";
 
 // Reachable through `useEffect` alone (module 25's own store, IndexedDB),
@@ -140,9 +140,9 @@ export function HistoryList() {
         });
     }
 
-    function onFlush(): void {
+    function onChange(): void {
       // Already mid-read: its own reply is what's stale, not this event —
-      // one rerun once it lands covers whatever the flush added.
+      // one rerun once it lands covers whatever the flush or the clear did.
       if (reading) {
         rerunQueued = true;
         return;
@@ -151,16 +151,21 @@ export function HistoryList() {
     }
 
     read();
-    // RL-21's row can still be in flight to IndexedDB when this screen
+    // RL-39's row can still be in flight to IndexedDB when this screen
     // mounts: the search that motivated the trip only settles in
     // `record.ts` once the reader leaves `/`, and that write is async even
     // once forced. This rereads the moment it lands, instead of waiting on
     // a reload — `read` only ever calls `setState` with a finished answer,
     // so an already-populated list never drops back to the skeleton.
-    window.addEventListener(LOG_FLUSHED_EVENT, onFlush);
+    // `LOG_CLEARED_EVENT` rereads the same way: a wipe empties the store
+    // this effect never touches directly, so it needs the same nudge a
+    // landed row does to drop back to the empty state.
+    window.addEventListener(LOG_FLUSHED_EVENT, onChange);
+    window.addEventListener(LOG_CLEARED_EVENT, onChange);
     return () => {
       cancelled = true;
-      window.removeEventListener(LOG_FLUSHED_EVENT, onFlush);
+      window.removeEventListener(LOG_FLUSHED_EVENT, onChange);
+      window.removeEventListener(LOG_CLEARED_EVENT, onChange);
     };
   }, [attempt]);
 

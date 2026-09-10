@@ -305,6 +305,34 @@ export function openLogDatabase(): Promise<IDBDatabase> {
   return openDatabase();
 }
 
+// `history-list.tsx` listens for this the same way it listens for
+// `LOG_FLUSHED_EVENT`: a reread, not a diff. Kept separate from that event
+// rather than reused — a row landing and the whole store emptying are not
+// the same fact, and a listener added later for one should not have to
+// filter out the other.
+export const LOG_CLEARED_EVENT = "voyager:log-cleared";
+
+/**
+ * Empties `lookups` on this device only. Never touches `sync`: `pushedThroughLocalId`
+ * and `pulledThroughCursor` stay where they were, which is what keeps a wiped
+ * row from coming back on the next `syncNow()` — IndexedDB's own `clear()`
+ * does not rewind the store's key generator, so a search recorded after this
+ * still mints an `id` past every cursor already written, and a stale
+ * `pulledThroughCursor` still names everything the account already sent down
+ * as already seen. Measured driving `syncNow()` in `e2e/registro.spec.ts`.
+ */
+export async function clearLocalLookups(): Promise<void> {
+  const database = await openDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const transaction = database.transaction(STORE_NAME, "readwrite");
+    transaction.objectStore(STORE_NAME).clear();
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
+  });
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(LOG_CLEARED_EVENT));
+}
+
 function defaultSyncState(): SyncState {
   return {
     deviceId: crypto.randomUUID(),
