@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 
 import { buildExport } from "@/lib/log/export";
-import { countRecords } from "@/lib/log/record";
+import { countRecords, LOG_CLEARED_EVENT, LOG_FLUSHED_EVENT } from "@/lib/log/record";
 import { Flex, Link, Spinner, TapTarget, Text } from "@/components/ui";
 
 type CountState = { kind: "loading" } | { kind: "ready"; count: number } | { kind: "failed" };
@@ -40,15 +40,33 @@ export function ExportPanel() {
 
   useEffect(() => {
     let cancelled = false;
-    countRecords()
-      .then((count) => {
-        if (!cancelled) setCountState({ kind: "ready", count });
-      })
-      .catch(() => {
-        if (!cancelled) setCountState({ kind: "failed" });
-      });
+    // Bumped on every count this effect starts, so a reply superseded by a
+    // newer one — a clear firing mid-count — never overwrites it.
+    let requestId = 0;
+
+    function count(): void {
+      const thisRequest = ++requestId;
+      countRecords()
+        .then((value) => {
+          if (cancelled || thisRequest !== requestId) return;
+          setCountState({ kind: "ready", count: value });
+        })
+        .catch(() => {
+          if (!cancelled && thisRequest === requestId) setCountState({ kind: "failed" });
+        });
+    }
+
+    count();
+    // A clear or a flush changes what this panel offers to download without
+    // reloading the page: `LOG_CLEARED_EVENT` can drop the count to zero,
+    // which hides the link (`history-list.tsx` rereads its own list the
+    // same way).
+    window.addEventListener(LOG_CLEARED_EVENT, count);
+    window.addEventListener(LOG_FLUSHED_EVENT, count);
     return () => {
       cancelled = true;
+      window.removeEventListener(LOG_CLEARED_EVENT, count);
+      window.removeEventListener(LOG_FLUSHED_EVENT, count);
     };
   }, []);
 
