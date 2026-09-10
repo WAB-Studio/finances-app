@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useTranslations } from "next-intl";
 
 import { readCredits, type Credit } from "@/lib/word/credits-store";
@@ -43,24 +43,31 @@ export function PhotoCredits() {
           </Text>
         )}
 
-        {credits?.map((credit) => (
-          <Flex key={credit.headword} direction="column" gap="1">
-            <Link href={credit.sourceUrl} target="_blank" rel="noreferrer">
-              <Text size="2">{t("photoLink", { headword: credit.headword })}</Text>
+        {credits?.map((credit) => {
+          // The route's own enum (`by`, `by-sa`, `cc0`, `pdm`) names no
+          // licence a reader would recognise; `photoLicence` is the map
+          // that turns the code into "CC BY-SA".
+          const licenceName = t(`photoLicence.${credit.licence}`);
+          const licenceLink = (chunks: ReactNode) => (
+            <Link href={credit.licenceUrl} target="_blank" rel="noreferrer">
+              {chunks}
             </Link>
-            <Text size="2" muted>
-              {t.rich("photoAttribution", {
-                author: credit.author,
-                licence: credit.licence,
-                licenceLink: (chunks) => (
-                  <Link href={credit.licenceUrl} target="_blank" rel="noreferrer">
-                    {chunks}
-                  </Link>
-                ),
-              })}
-            </Text>
-          </Flex>
-        ))}
+          );
+          const hasAuthor = credit.author.trim().length > 0;
+
+          return (
+            <Flex key={credit.headword} direction="column" gap="1">
+              <Link href={credit.sourceUrl} target="_blank" rel="noreferrer">
+                <Text size="2">{t("photoLink", { headword: credit.headword })}</Text>
+              </Link>
+              <Text size="2" muted>
+                {hasAuthor
+                  ? t.rich("photoAttribution", { author: credit.author, licence: licenceName, licenceLink })
+                  : t.rich("photoAttributionNoAuthor", { licence: licenceName, licenceLink })}
+              </Text>
+            </Flex>
+          );
+        })}
       </Flex>
     </>
   );

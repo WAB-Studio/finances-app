@@ -163,7 +163,7 @@
       "photosEmpty": "Todavía no has resuelto ninguna foto.",
       "photoLink": "la foto {headword}",
       "photoAttribution": "{author} · <licenceLink>{licence}</licenceLink>",
-      "photoCredit": "«{word}»: foto de {author}, bajo licencia {licence}.",
+      "photoAttributionNoAuthor": "<licenceLink>{licence}</licenceLink>",
       "photoLicence": {
         "by": "CC BY",
         "by-sa": "CC BY-SA",

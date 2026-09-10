@@ -1,10 +1,14 @@
+import type { WordPhoto } from "./protocol";
+
 // Its own database, isolated from `reading-log`: a credit is metadata about
 // a photo already shown, never a lookup a sync or a deck reads.
 
 export type Credit = {
   headword: string;
   author: string;
-  licence: string;
+  // The bare code `/api/word/photo` emits, not a display name: `account.info.photoLicence`
+  // is what turns `by-sa` into "CC BY-SA", and it does that at render time.
+  licence: WordPhoto["licence"];
   licenceUrl: string;
   sourceUrl: string;
   at: number; // Date.now(), when the photo resolved
