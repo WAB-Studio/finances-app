@@ -78,6 +78,28 @@ function percentile(durations: readonly number[], p: number): number {
   return sorted[index];
 }
 
+// Drives `suggest()` through the worker directly, past `exposeDictionaryWorker`,
+// so the measured list is the same one `suggest.ts` builds for the running
+// screen — not a re-implementation of its filter in the test file.
+async function askWorkerToSuggest(page: Page, prefix: string, limit: number): Promise<string[]> {
+  const id = nextProbeId++;
+  return page.evaluate(
+    async ({ id, prefix, limit }) => {
+      const worker = (window as unknown as { __dictionaryWorker: Worker }).__dictionaryWorker;
+      return new Promise<string[]>((resolve) => {
+        const onMessage = (event: MessageEvent<{ id?: number; kind: string; items?: string[] }>) => {
+          if (event.data.id !== id || event.data.kind !== "suggestions") return;
+          worker.removeEventListener("message", onMessage);
+          resolve(event.data.items ?? []);
+        };
+        worker.addEventListener("message", onMessage);
+        worker.postMessage({ id, kind: "suggest", prefix, limit });
+      });
+    },
+    { id, prefix, limit },
+  );
+}
+
 test("an installed dictionary answers offline, fast, and within a thumb's reach", async ({ page, context }) => {
   await deleteTranslator(page);
   await exposeDictionaryWorker(page);
@@ -381,4 +403,58 @@ test("a word the dictionary carries is never also split into inflection guesses"
   // that finds a lemma is untouched for the case it exists to serve.
   await searchBox.fill("running");
   await expect(page.getByRole("heading", { name: "run" })).toBeVisible({ timeout: 5000 });
+});
+
+// The index carries a one-letter key for 12 stripped abbreviations, suffix
+// lists and bare letter-names besides the two real headwords, `a` and `i`
+// (`I` normalises to it). `lookup.ts` answers only the two; everything else
+// a single keystroke reaches now falls through to the same silence a
+// mid-word prefix already draws.
+test("a one-character query answers only `a` and `i`, never the other ten single-letter keys", async ({
+  page,
+}) => {
+  await deleteTranslator(page);
+  await exposeDictionaryWorker(page);
+
+  const assetResponse = page.waitForResponse(
+    (response) => response.url().includes(manifest.asset.path) && response.ok(),
+  );
+  await page.goto("/");
+  await assetResponse;
+  await page.waitForTimeout(1000);
+
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+  const suggestionsLabel = page.getByText(messages.word.suggestions);
+  const notFound = page.getByText(messages.search.notFound);
+
+  // "b" is not answerable: no heading, no "not found" (a suggestion list
+  // stands in for it, same as any other unmatched prefix), suggestions only.
+  await searchBox.fill("b");
+  await page.waitForTimeout(SUGGESTIONS_SETTLE_MS + 200);
+  await expect(page.getByRole("heading", { name: "b", exact: true })).toHaveCount(0);
+  await expect(notFound).toHaveCount(0);
+  await expect(suggestionsLabel).toBeVisible();
+
+  // "a" is one of the two: its own entry answers, translations included.
+  await searchBox.fill("a");
+  await expect(page.getByRole("heading", { name: "a", exact: true })).toBeVisible({ timeout: 5000 });
+  await expect(page.getByText("una", { exact: true })).toBeVisible();
+  await expect(suggestionsLabel).toHaveCount(0);
+
+  // "I" is the other: it normalises to "i" and answers with "yo".
+  await searchBox.fill("I");
+  await expect(page.getByRole("heading", { name: "i", exact: true })).toBeVisible({ timeout: 5000 });
+  await expect(page.getByText("yo", { exact: true })).toBeVisible();
+
+  // Two or more characters are untouched: `be` and `bed` answer as before.
+  await searchBox.fill("be");
+  await expect(page.getByRole("heading", { name: "be", exact: true })).toBeVisible({ timeout: 5000 });
+  await searchBox.fill("bed");
+  await expect(page.getByRole("heading", { name: "bed", exact: true })).toBeVisible({ timeout: 5000 });
+
+  // The suggestion list itself: "b" no longer offers itself, "a" still does.
+  const bSuggestions = await askWorkerToSuggest(page, "b", 10);
+  expect(bSuggestions).not.toContain("b");
+  const aSuggestions = await askWorkerToSuggest(page, "a", 10);
+  expect(aSuggestions).toContain("a");
 });
