@@ -7,3 +7,9 @@
   text-transform: uppercase;
   color: var(--rl-accent);
 }
+
+/* docs/voyager/DESIGN.md "PalabraConFlexion": the offer label's own colour —
+   apagado, never the accent, so it reads as a pointer and not a category. */
+.muted.muted {
+  color: var(--rl-muted);
+}
