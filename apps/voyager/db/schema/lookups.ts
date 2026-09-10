@@ -42,7 +42,7 @@ export const lookups = reading.table(
     rule: text(),
     senses: integer().notNull().default(0),
     // The translation taught to the reader, so `/registro` draws a row without
-    // reopening the dictionary (RL-36). Bounded at 120: see module 23.
+    // reopening the dictionary (RL-34). Bounded at 120: see module 23.
     translation: text(),
     dictionaryReady: boolean().notNull(),
     // A sentence lookup only; a word lookup never touches the network and carries none.
