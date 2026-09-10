@@ -209,6 +209,48 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
 
 ## Settled
 
+- **A word the dictionary carries is answered first, and the form it also inflects from is offered
+  underneath — never instead of it. Decided by the user 2026-09-10**, written as `RL-40`, which
+  retired `RL-06`. This corrects the 2026-09-09 decision without reversing it: an exact hit still
+  wins the top of the screen, `bed` still does not draw «"bed" es una forma de "b"», and the
+  inflection is no longer thrown away to get there.
+  - **The price of throwing it away, measured the next day: 19 of the 53 `INFLECTION_FIXTURE`
+    pairs.** `check:dict`'s D7 was red on `integracion` for a full day and nothing said so, because
+    `check:dict` was in no workflow. It has its own CI job now.
+  - **What the reader was actually being handed**, measured against the shipped asset: `faster` →
+    «ayunador, ayunadora»; `running` → «administración, control»; `gone` → «ido, ha muerto»;
+    `women` → «Femenil, Femenino»; `people` → «poblar con, poblarse»; `left` → «sobrado, sobras»
+    before «izquierda»; `written`, `spoken`, `driven` and `chosen` → the adjective only, never the
+    verb. Not a lost shortcut — a wrong answer for the sentence in front of them.
+  - Board: `PalabraConFlexion`. The offer sits behind a 2px rule and a left border, its headword at
+    27px against the entry's 34px. **It is never folded**, however many senses the entry itself
+    carries — decided the same day against folding it at three or more.
+  - `Flexion` stays the board for the other case, where the form typed is not a headword of its own
+    and there is no entry above the offer.
+
+- **With no account, the wipe offers one action, not two. Decided by the user 2026-09-10.** The
+  account option is **not drawn at all** — not drawn and disabled with a hint, which was refused
+  because `/cuenta` is already where this app says «you have no account».
+  - What it fixed: `DELETE /api/log/clear` answers 401 with no reader, so a signed-out reader got
+    «No se pudo vaciar el registro» and a «Reintentar» that could never succeed, with nothing naming
+    the working option directly above it. The account is opt-in (`RL-22`), so signed-out is the
+    default state. Found by the critic driving the app.
+  - **The remaining action reads «Vaciar el registro», not «Vaciar sólo en este dispositivo».** With
+    one action, «sólo» contrasts with a choice that reader does not have. `localAction` keeps its
+    wording for the reader who does have an account.
+  - It also retires `localBody` for that reader — «Tu cuenta conserva su copia» is false when there
+    is no account.
+  - Board: `RegistroVaciarConfirmarSinCuenta`, one face. `RegistroVaciarConfirmar` still governs the
+    signed-in panel and is unchanged.
+
+- **A phrase the translator cannot answer still falls straight to the word-by-word breakdown, with
+  no retry of its own. Reaffirmed by the user 2026-09-10**, with the cost measured this time: the
+  breakdown of a nine-word sentence is **2851–3574 px on a 390 px screen**, four phone-screens of
+  scrolling, and a one-second network failure costs the reader exactly what a genuinely
+  untranslatable phrase costs. Taken knowingly: the breakdown always answers, offline included, and
+  a retry button would fail as often as the provider does — **3 of 12 measured**. Do not raise it
+  again without a new number.
+
 - **A search with no result offers two things, and they are not the same thing.** Decided by the
   user 2026-09-08, written as RL-28 and RL-29.
   - **A typo gets a correction, computed on the device.** Edit distance over the 58,944 headwords:
