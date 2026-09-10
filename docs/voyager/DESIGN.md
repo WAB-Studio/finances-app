@@ -120,10 +120,30 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   2026-09-07. Checked 2026-09-08: the published canvas contains the string `Noche` zero times.
   Nothing on it contradicts this file any more.
 - When a board and this file disagree, **this file wins**.
-- **The canvas is 164 boards**, counted 2026-09-10 by parsing the published file's `appifact-doc`
-  block: 165 entries, of which one is `canvas.json`. The last eight are `RegistroVaciar` and
-  `RegistroVaciarConfirmar`, light and dark × desktop and mobile, drawn before module 17 was
-  dispatched. The counts below are the earlier readings, kept for what each measured:
+- **The canvas is 126 boards**, counted 2026-09-10 from the published file's `appifact-doc` block.
+  It was 168 that morning. **42 dark boards were deleted the same day**, on the user's decision, and
+  the four-faces-per-state rule went with them (`AGENTS.md`, "Design").
+- **What was deleted, and how it was chosen.** A dark board was deleted when it is an exact colour
+  substitution of its light twin under this file's own token table — `#9A3B24`→`#D9805F`,
+  `#17160F`→`#F0EBDD`, `#FAF8F2`→`#14130F`, `#FFFFFF`→`#1C1B16`, `#DED8C8`→`#302E25`,
+  `#6B675A`→`#9A9484`, `#E4DFD2`→`#2A2820` — and nothing else. That test is exact, so the list is a
+  measurement, not a judgement. **21 families of 42 were mechanical**: `CuentaDentro`, `CuentaSinRed`,
+  `ErrorGlobal`, `Fallo`, `Flexion`, `Frase`, `FraseOferta`, `Fuente`, `Instalando`, `Palabra`,
+  `PalabraConFlexion`, `PalabraDefinicionAbierta`, `PalabraDefinicionPlegada`, `RegistroVacio`,
+  `SinEntradaFraseEnlaces`, `SinResultado`, `SinResultadoIA`, `SinResultadoIAFallo`,
+  `SinResultadoSinPista`, `Sugerencias`, `SugerenciasPausadas`. **Their dark face is this file's
+  token table and nothing more. Read it there.** The other 21 families keep both faces: their dark
+  carries something the light does not.
+- **The mobile faces were not pruned, and the reason is that the measurement failed.** Three
+  attempts at telling "only narrower" from "really reflowed" apart automatically kept marking
+  boards as different that change nothing but padding. A mobile face restructures legitimately, so
+  the difference is not mechanical the way the colour swap is. Prune them family by family with a
+  human eye, or leave them.
+- **`Main.dc.html` is now Palabra · light · mobile.** It was Palabra · dark · mobile, which the prune
+  would have deleted — but it is the canvas entry file, so it kept its name and took the light
+  mobile's content instead, and the duplicate `PalabraClaroMovil.dc.html` went in its place. A
+  search for `PalabraClaroMovil` still finds nothing; the board is there, under the entry's name.
+- The counts below are the earlier readings, kept for what each measured:
 - **The canvas was 156 boards**, counted 2026-09-09 from the published file after the critic's drive.
   The twenty before those are the five decisions of that afternoon, each drawn light and dark ×
   desktop and mobile before any worker was dispatched, each carrying an annotation that says what was
@@ -156,10 +176,10 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   landed 2026-09-09 and the user approved them the same day: `RegistroEstudio`,
   `RegistroEstudioEstados` and `PalabraHistorial` (T2); `SinEntrada` and `SinEntradaEstados` (T3);
   `CuentaCopia`, `CuentaCopiaEstados` and `CuentaInformacion` (T4); `PalabraCategoria` (T5).
-- **`/registro/<palabra>` has no empty state drawn.** `PalabraHistorial` (T2) draws the word's own
-  history full and nothing else. Module 12 shipped it reusing the strings of
-  `RegistroEstudioEstados`, so the screen a reader reaches for a word with no rows is a reuse
-  nobody approved, not a decision. Draw it before the next change to that screen.
+- **`/registro/<palabra>`'s empty state is drawn now.** `PalabraHistorialVacio` exists in all four
+  faces, and its dark carries its own decision, so the prune left it whole. The note that said this
+  screen had no board was true when module 12 shipped it as a reuse of `RegistroEstudioEstados`'s
+  strings; it stopped being true and nobody moved it.
 - **`Fuente`'s four boards draw a route that is being retired.** The decision below takes `/fuente`
   out; `CuentaInformacion` (T4) is the credit's only board from now on. The `Fuente` boards stay on
   the canvas as stale — never cite one in a dispatch.
@@ -170,8 +190,9 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
 - **The two dark `BarraSidebar` boards marked «Claro» selected in the theme control**, drawn dark.
   Fixed in place 2026-09-09. A worker copying that builds a control that contradicts the page it
   sits on.
-- **The canvas is seven pages, one per area of the app, and each carries light and dark side by
-  side.** Instalación, Buscar · la palabra, Buscar · sin respuesta, Buscar · la frase, Registro,
+- **The canvas is seven pages, one per area of the app. Light sits on the left, dark on the right
+  where a dark face still exists** — since the 2026-09-10 prune, half the rows have no right half,
+  and that gap is the token table doing the work, not a missing board. Instalación, Buscar · la palabra, Buscar · sin respuesta, Buscar · la frase, Registro,
   Cuenta, Cáscara. It was two pages — `Claro` and `Oscuro` — of 56 boards each, stacked over
   25,000 px, and at that height the user could not read it: «demasiadas pantallas que ya no se ve
   nada», 2026-09-09. Light sits at x 0 and 480, dark at 1900 and 2380, so a board and its dark twin
@@ -180,9 +201,10 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
 - **Reading the published canvas costs 2.7 MB**, and the head of it is the editor's own stylesheet,
   not the design. Read it to a file and grep the file for `\.dc\.html` names; never read it into a
   conversation twice.
-- **`Main.dc.html` is Palabra · dark · mobile.** It carries no `Palabra` in its name because it is
-  the canvas entry file, so a search for `PalabraOscuroMovil` finds nothing and the set looks short
-  by one. It is not: all four of light/dark × desktop/mobile exist for every state. Grep the boards
+- **`Main.dc.html` carries no `Palabra` in its name because it is the canvas entry file.** A search
+  for the board by a `Palabra…` name finds nothing; the board is there. See the entry above for what
+  it holds now. The claim that once followed here — that all four faces exist for every state — was
+  retired by the 2026-09-10 prune, and only ever describes the 21 families that kept both. Grep the boards
   for a token with a case-insensitive match — they are written lowercase (`#14130f`).
 
 ## Settled

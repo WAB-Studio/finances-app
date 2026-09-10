@@ -58,8 +58,13 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
 - Put the board in front of the user and take their answer before dispatching. A screen the user
   first sees as code is a screen they review too late to change cheaply.
 - Draw every state the screen really has — empty, loading, failed, full — not the happy one.
-- Draw light and dark, desktop and mobile. A board missing one of the four is a hole a worker fills
-  by guessing.
+- Draw one board per state, on the app's primary face. Add a second face only where the design
+  really changes — a different layout, a different control, a different order. Never where only the
+  colours or the padding change: the `DESIGN.md` token table already says what dark is, and drawing
+  it again repeats a decision instead of taking one. Decided by the user 2026-09-10, after four
+  faces of one state went up and three of them were a regex over the fourth.
+- Say in the board's own note what it takes for granted. A face nobody drew must read as a face
+  nobody needed, never as one somebody forgot.
 - Name the board in the dispatch. A module that draws a screen cites its board or it is not ready.
 - Write the decision into the app's `DESIGN.md` the moment the user takes it, with its date. The
   canvas shows what was drawn; only `DESIGN.md` says what was chosen.
