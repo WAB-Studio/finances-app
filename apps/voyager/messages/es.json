@@ -159,8 +159,11 @@
       "licenceLabel": "Licencia",
       "licenceCredit": "Obra derivada de DBnary, bajo <cc>CC BY-SA 3.0</cc>. Esta app la distribuye bajo la misma licencia.",
       "photosLabel": "Fotos",
+      "photosIntro": "Cada foto que has visto, con su autor y su licencia.",
       "photosEmpty": "Todavía no has resuelto ninguna foto.",
-      "photoCredit": "«{word}»: foto de {author}, bajo licencia {licence}.",
+      "photoLink": "la foto {headword}",
+      "photoAttribution": "{author} · <licenceLink>{licence}</licenceLink>",
+      "photoAttributionNoAuthor": "<licenceLink>{licence}</licenceLink>",
       "photoLicence": {
         "by": "CC BY",
         "by-sa": "CC BY-SA",
