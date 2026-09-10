@@ -1286,3 +1286,41 @@ from `apps/voyager` against a production build. If it passes alone, it is this.
 
 **Never buy quiet on it** — no `retry`, no `waitFor`, no `sleep`. Same rule as `sync.spec.ts`.
 It would reopen only with a failure that reproduces alone.
+
+## `addInitScript` reinjects on every navigation, not once
+
+Found 2026-09-10 in `apps/voyager/e2e/registro.spec.ts:130` (`a reader who only ever missed still
+sees the empty state, not a dead screen`). The test called `deleteLogDatabase` — an `addInitScript`
+wrapping `indexedDB.deleteDatabase("reading-log")` — once at the top, typed a query, then did a
+second `page.goto("/registro")` and asserted on what that screen drew.
+
+Playwright's `addInitScript` runs before **every** document the page loads, not once at
+registration time — the same script fires again on the second `goto`, wiping whatever row the
+query under test just wrote **before** the destination screen ever gets to read it. The assertion
+that followed passed identically whether the code under test worked or not, because the store was
+already empty again by the time anything looked at it.
+
+**Found by mutating production code, not by reading the test.** Removing the guard in
+`search-screen.tsx` that RL-38 depends on and rerunning that one spec still passed, 3/3. Reading
+IndexedDB directly right after typing — before the second navigation — showed the row the guard
+should have suppressed sitting right there; the second `goto` was what erased the evidence, not the
+guard doing its job.
+
+A test that deletes a store from an `addInitScript` and then navigates the same page again cannot
+prove anything about what that second navigation found there. Read the store directly, in the same
+document, before any further navigation — mirroring the raw `page.evaluate` reads `log.spec.ts`
+already uses — or restructure the test so nothing after the write navigates at all.
+
+## `npm run typecheck` from the root reddens in a lane that never built the other app
+
+A voyager-only lane (`scripts/worktree.sh <n> <rama> <base> --app voyager`) copies no
+`apps/orbit/.env.local` and never runs `next build` or `next dev` there, so `.next/types` is never
+written for orbit. The root `typecheck` script runs `tsgo` over both apps and fails with ~20
+`TS2304: Cannot find name 'PageProps'`/`'LayoutProps'` errors, none of them naming a file the lane
+touched. This is the same family as "A lane born for one app cannot typecheck the other until
+typegen runs there" above, reproduced 2026-09-10 in an unrelated voyager lane — it is not tied to
+that entry's module, it is tied to any lane opened `--app voyager`.
+
+Run `npm run typecheck -w apps/voyager` in a voyager-only lane, never the root script. `npx next
+typegen` in `apps/orbit` would clear it too, but there is nothing to typecheck there if the lane was
+never meant to touch orbit.
