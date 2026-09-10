@@ -188,11 +188,11 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   board families cover all of them. A handoff carried «four screens from yesterday still have no
   board» from 2026-09-09 into 2026-09-10 — it named none of them, and by the time it was checked
   every route was drawn. **Name the screen or do not carry the claim.**
-- **The one board still missing is the photo, and that was checked, not assumed.** Searched every
-  board's source 2026-09-10 for `<img`, `background-image`, `foto` and `photo`: **zero hits across
-  all 127**. RL-36 draws a photo inside the word's answer and no board has a state for it. No module of the 2026-09-08 slice draws one, so
-  it blocks nothing today — and the first module that does opens the amendment before it writes a
-  line.
+- **This canvas has since drawn every board this slice needs, and this line no longer holds.**
+  Searched every board's source 2026-09-10, that morning, for `<img`, `background-image`, `foto` and
+  `photo`: **zero hits across all 127**. That afternoon the photo gained five boards (canvas version
+  29) and the generated definition and example gained three more (canvas version 30) — eight in all,
+  named under **Settled** below. RL-36 no longer draws from nothing, and neither do RL-41 and RL-42.
 - **The two dark `BarraSidebar` boards marked «Claro» selected in the theme control**, drawn dark.
   Fixed in place 2026-09-09. A worker copying that builds a control that contradicts the page it
   sits on.
@@ -396,9 +396,13 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
 
   Openverse is WordPress's CC image search over Flickr, Wikimedia and others. **It needs no key and
   no model.** Restricted to permissive licences only — `by`, `by-sa`, `cc0`, `pdm`, no NC and no ND,
-  which matters because the bytes are re-served from our own bucket — it still answers **95.0%**
-  (285 of 300). Licences seen: `by` 139, `by-sa` 127, `cc0` 11, `pdm` 8. Every result carries its
-  author and licence, which is what feeds the per-image list in `/cuenta`.
+  which matters because the bytes are re-served from our own bucket — the search itself still answers
+  95.0% (285 of 300). Licences seen: `by` 139, `by-sa` 127, `cc0` 11, `pdm` 8.
+  **The 95.7% and 95.0% above count Openverse's search results, not the bytes that actually arrive,
+  and a result can point to a dead thumbnail** (`abeyance`, `HTTP 424`). **The real coverage is 93.3%,
+  not 95.7%** — measured 2026-09-10 over 60 words, requesting five candidates per word and falling
+  back from `thumbnail` to `url` on a dead one (`docs/TRAPS.md`). Every image that does arrive carries
+  its author and licence, which is what feeds the per-image list in `/cuenta`.
   **The whole `gpt-5-nano` article-choosing design is dropped.** It bought 3.3 points of coverage for
   a paid call and 3.7s of latency per word.
 
@@ -483,10 +487,17 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
 
 - **The photo is drawn on the dark face, in five boards** — canvas version 29, 2026-09-10:
   `PalabraFotoOscuroMovil` (resolved), `PalabraFotoCargandoOscuroMovil` (asked for, not yet back),
-  `PalabraSinFotoOscuroMovil` (the 42% with nothing behind them), `PalabraFotoOscuroEscritorio` and
+  `PalabraSinFotoOscuroMovil` (the 6.7% with nothing behind them), `PalabraFotoOscuroEscritorio` and
   `CuentaInformacionFotosOscuroMovil` (the credits). Dark, not light, because a photograph on
   `#14130F` is a real design difference and not the token table applied — the one place in this app
   where the dark face is not derivable from the light one.
+- **The generated definition and example are drawn on the dark face too, in three boards** — canvas
+  version 30, 2026-09-10: `PalabraGeneradaOscuroMovil` (resolved, the definition and example marked
+  «generada»), `PalabraGenerandoOscuroMovil` (asked for, not yet back — the translation above is
+  already whole, so this block reserves no height for it) and `PalabraSinDefinicionOscuroMovil` (no
+  connection, no result, or the daily ceiling reached — exactly today's screen, with no gap left for
+  what did not arrive). Same reason as the photo: a generated block on `#14130F` is a real design
+  difference, not the token table applied.
 - **The pending square is silent, not spinning.** A 76px ornament that the reader is not waiting on
   must not advertise itself as a task; a spinner would turn it into one. The whole answer reads
   without it.
@@ -497,10 +508,11 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   user took knowingly: at that size a photograph of an object reads poorly, and **it forces a desktop
   face**, because the header is the one band of this screen whose proportions really change between
   360px and a wide column. Both faces are drawn.
-- **No photo means no slot, no placeholder and no apology.** The 42% with nothing behind them —
-  measured over 300 nouns against Wikimedia — draws exactly the screen it draws today, headword flush
-  left as though the photo had never been a possibility. A «sin imagen» marker would turn the
-  commonest single case into a visible failure.
+- **No photo means no slot, no placeholder and no apology.** The 6.7% with nothing behind them — the
+  complement of the 93.3% that actually downloads, measured 2026-09-10 over 60 words with five
+  candidates each and a thumbnail-then-`url` fallback (`docs/TRAPS.md`) — draws exactly the screen it
+  draws today, headword flush left as though the photo had never been a possibility. A «sin imagen»
+  marker would turn the commonest case into a visible failure.
 - **Wikimedia's licence is per file, and this app hides licences in a tab today.** CC BY-SA, CC0 and
   public domain sit mixed across individual files, so every photo carries its own attribution, unlike
   the CC BY-SA 3.0 that covers the whole dictionary asset under one credit. `/cuenta` is where this
@@ -518,7 +530,9 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   gets **its own entry** — author, licence, link to the file — and one blanket line covering «the
   photos» does not discharge it, because the licence is per file and the files differ (CC BY-SA, CC0
   and public domain sit mixed). The list is the reader's own resolved photos, so it is finite and
-  grows only as they look words up.
+  grows only as they look words up. **It is a device's list, not an account's**: it lives in the
+  browser's own storage, never in `reading`, and that is why `CuentaInformacion` keeps drawing it with
+  no session — the same reason RL-33's credit already draws there without one.
 
 - **A sense group carries one category label, and the group's IPA sits on that label's row.**
   Decided by the user 2026-09-09, looking at `PalabraCategoria`, over the alternative of giving every
