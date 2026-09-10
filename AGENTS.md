@@ -22,6 +22,8 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
 - Put the critic's questions to the user, in their own words. Never answer one for them.
 - Never close a slice on a report of greens alone. A slice with no criticism in it was not reviewed.
 - Keep plans in `private/`.
+- Use the credential the user hands you. Configure with it and move on.
+- Never tell the user to rotate, revoke or replace a credential. Decided by the user 2026-09-10.
 - Ship one slice at a time.
 - Work five tracks at once, one per lane. See `## Parallel tracks`.
 - Start the dev server on :3000 yourself and keep it running. Restart it when you must.
@@ -56,8 +58,13 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
 - Put the board in front of the user and take their answer before dispatching. A screen the user
   first sees as code is a screen they review too late to change cheaply.
 - Draw every state the screen really has — empty, loading, failed, full — not the happy one.
-- Draw light and dark, desktop and mobile. A board missing one of the four is a hole a worker fills
-  by guessing.
+- Draw one board per state, on the app's primary face. Add a second face only where the design
+  really changes — a different layout, a different control, a different order. Never where only the
+  colours or the padding change: the `DESIGN.md` token table already says what dark is, and drawing
+  it again repeats a decision instead of taking one. Decided by the user 2026-09-10, after four
+  faces of one state went up and three of them were a regex over the fourth.
+- Say in the board's own note what it takes for granted. A face nobody drew must read as a face
+  nobody needed, never as one somebody forgot.
 - Name the board in the dispatch. A module that draws a screen cites its board or it is not ready.
 - Write the decision into the app's `DESIGN.md` the moment the user takes it, with its date. The
   canvas shows what was drawn; only `DESIGN.md` says what was chosen.
@@ -188,8 +195,20 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
   session's own footprint.
 - Verify a number a subagent reports before repeating it. One reported seven leaked `auth.users` rows;
   the table held two. A count inferred from attempts is not a measurement.
+- Never type an address into `apps/voyager`'s `/cuenta`. It sends a real email through the user's
+  own Gmail and mints a real `auth.users` row, whatever the domain. Say so in every dispatch that
+  drives that app. Measured 2026-09-10: a critic typed `lector.prueba@example.com`, the send bounced
+  into the user's inbox, and the census found **seven** ghost rows from three separate days —
+  `lector@example.com` and five `nietoc0595+voyager-rate-N@gmail.com`. All seven deleted that day.
+- Never mutate the deliverability guard in `app/actions/account.ts` while a spec submits that form.
+  With the guard on, a dead domain is refused before Supabase and the spec is safe; with it off, the
+  same spec sends for real. Prove that guard bites by calling `isDomainDeliverable` directly, never
+  by disabling it and driving the screen. Measured 2026-09-10, two hours after the rule above: a
+  worker did exactly that and minted two more rows and two more bounces.
 - Clean up in the same script that probes `auth` from `apps/voyager`. It has no harness registry, so
-  `harness:census` cannot see its rows and `harness:reap` cannot prune them.
+  `harness:census` cannot see its rows and `harness:reap` cannot prune them. The census matches
+  `harness%@example.invalid` and null emails only, so a `/cuenta` row is invisible to it: read
+  `auth.users` directly when you suspect one.
 - Register every `auth.users` row a script creates through `@repo/harness-registry`. An ad-hoc
   probe that does not is a leak nothing can prune. `npm run harness:census` counts them; the
   number moves, so read it rather than trusting one written here — it said seven, then four, then
@@ -210,6 +229,13 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
   user out of signing in. Save the log the first time; the original run's is gone.
 - **Meanwhile, never buy quiet on that flake.** No `retry`, no `waitFor`, no `sleep`, and do not
   serialize lanes. `retries: 0` is deliberate.
+- **Copy `private/playwright-results/` out before rerunning a suite that went red.** A passing run
+  wipes it, and the failure's `error-context.md` goes with it. Measured 2026-09-10: a `signInAs`
+  red in `registro.spec.ts` under load — the redirect came back carrying `error=` — was gone before
+  it could be read, because the rerun that proved it a flake deleted the directory. That is the
+  second footprint this repo has lost the same way; the first is the reason the separate-project
+  question cannot be reopened. `cp -r apps/voyager/private/playwright-results /tmp/<name>` first,
+  then rerun.
 
 ## What a session spends
 

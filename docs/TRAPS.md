@@ -1269,3 +1269,184 @@ typed — and leave the router's own edge alone. Revisit only if a real link, sh
 found producing one.
 
 `/registro/100%25` (a properly escaped percent) works and always did.
+
+## `log.spec.ts`'s killed-tab test loses its race under a loaded machine
+
+Measured 2026-09-09, on the full voyager suite run right after `#121` landed the synchronous
+`pagehide` commit. `a killed tab still commits the query it had settled on` failed once inside a
+97-test run and **passed alone, 4/4, on the same build and server seconds later**.
+
+It is not a regression and not a bad fix. That test asserts a real race — the IndexedDB write
+against the page's own death — and the fix wins it by starting the transaction synchronously on an
+already-open handle. Under a machine running a dev server, a Chromium and a full suite, the browser
+can tear the page down before the transaction commits anyway.
+
+**Chase it with the one spec, never by repeating the suite.** `node ../../node_modules/@playwright/test/cli.js test e2e/log.spec.ts --project=mobile`
+from `apps/voyager` against a production build. If it passes alone, it is this.
+
+**Never buy quiet on it** — no `retry`, no `waitFor`, no `sleep`. Same rule as `sync.spec.ts`.
+It would reopen only with a failure that reproduces alone.
+
+## `addInitScript` reinjects on every navigation, not once
+
+Found 2026-09-10 in `apps/voyager/e2e/registro.spec.ts:130` (`a reader who only ever missed still
+sees the empty state, not a dead screen`). The test called `deleteLogDatabase` — an `addInitScript`
+wrapping `indexedDB.deleteDatabase("reading-log")` — once at the top, typed a query, then did a
+second `page.goto("/registro")` and asserted on what that screen drew.
+
+Playwright's `addInitScript` runs before **every** document the page loads, not once at
+registration time — the same script fires again on the second `goto`, wiping whatever row the
+query under test just wrote **before** the destination screen ever gets to read it. The assertion
+that followed passed identically whether the code under test worked or not, because the store was
+already empty again by the time anything looked at it.
+
+**Found by mutating production code, not by reading the test.** Removing the guard in
+`search-screen.tsx` that RL-38 depends on and rerunning that one spec still passed, 3/3. Reading
+IndexedDB directly right after typing — before the second navigation — showed the row the guard
+should have suppressed sitting right there; the second `goto` was what erased the evidence, not the
+guard doing its job.
+
+A test that deletes a store from an `addInitScript` and then navigates the same page again cannot
+prove anything about what that second navigation found there. Read the store directly, in the same
+document, before any further navigation — mirroring the raw `page.evaluate` reads `log.spec.ts`
+already uses — or restructure the test so nothing after the write navigates at all.
+
+## `npm run typecheck` from the root reddens in a lane that never built the other app
+
+A voyager-only lane (`scripts/worktree.sh <n> <rama> <base> --app voyager`) copies no
+`apps/orbit/.env.local` and never runs `next build` or `next dev` there, so `.next/types` is never
+written for orbit. The root `typecheck` script runs `tsgo` over both apps and fails with ~20
+`TS2304: Cannot find name 'PageProps'`/`'LayoutProps'` errors, none of them naming a file the lane
+touched. This is the same family as "A lane born for one app cannot typecheck the other until
+typegen runs there" above, reproduced 2026-09-10 in an unrelated voyager lane — it is not tied to
+that entry's module, it is tied to any lane opened `--app voyager`.
+
+Run `npm run typecheck -w apps/voyager` in a voyager-only lane, never the root script. `npx next
+typegen` in `apps/orbit` would clear it too, but there is nothing to typecheck there if the lane was
+never meant to touch orbit.
+
+## A guard on `recordLookup`'s own call breaks the prefix chain it feeds
+
+Found 2026-09-10 in `apps/voyager/components/search/search-screen.tsx`, a regression from the same
+day's earlier PR #132. That PR moved RL-39's guard ("a miss leaves no row") onto the *call* to
+`recordLookup` — the word path only called it when `answer.exact || answer.viaInflection.length >
+0`, and the phrase path dropped its `"untranslated"`/`"miss"` calls outright.
+
+The call is not only what logs a lookup. It is also what advances `lib/log/record.ts`'s own chain:
+`recordLookup` writes `latestCandidate` and rearms the settle timer; `settleCandidate` later folds
+that candidate into `pending` when it strictly extends the pending word, or commits the displaced
+row and starts a new chain. Skip the call on a miss and `pending` never advances past the last
+prefix that *did* answer — every keystroke after it is invisible to the chain, however far the
+reader types past it. That stale `pending` still gets written, eventually, whenever the reader
+finally abandons the box for something else.
+
+Measured against production `integracion`: typing `asdkjhqwe` letter by letter — `asd` is `ASD`'s
+own headword, lower-cased, translation "TEA" — and leaving without clearing the box wrote `asd |
+exact | TEA`. The reader never searched "asd"; they typed nine characters and left. Before PR #132
+the same drive wrote `asdkjhqwe | miss`, itself wrong under RL-39, but at least true to what was
+typed.
+
+The guard belongs at `commit`, the one place every settled candidate — hit or miss — ends up, never
+at the call that reports it. `recordLookup` has to run for every settled query regardless of
+outcome, so a miss can still displace whatever prefix was pending; `commit` is what then drops it
+before it reaches `relayPendingRow` or IndexedDB. Checking the outcome before the `localStorage`
+relay write matters too — a row `commit` is going to discard must never sit in the PR #130 relay
+either, or a reload can resurrect exactly the row this guard exists to drop.
+
+Fixed in the `prefijo-abandonado` branch. Proven by mutating the fix back to a call-site guard and
+rerunning `e2e/log.spec.ts -g "headword typed on into nonsense"` alone: it reds with the exact `asd
+| exact | TEA` row above, and goes green again once the guard moves back to `commit`.
+
+## A single-key relay loses a row when one flush commits two
+
+Found 2026-09-10 in `apps/voyager/lib/log/record.ts`, a gap in module 22's own relay (PR #130), not
+a regression from anything landed since.
+
+`flushPendingLookup` can call `commit` twice in the same synchronous pass: `settleCandidate` commits
+the *displaced* `pending` row first, then the caller commits the *new* `pending` it just set. Typing
+"book", letting it settle, then replacing the whole box with "cat" (select-all and type over it, no
+clearing in between) and leaving before "cat" itself settles is exactly that shape — "book" is
+committed, then "cat" is committed, both before either navigation.
+
+`relayPendingRow` held one key, `voyager:pending-log-row`, and each call replaced whatever was there.
+The second call ("cat") overwrote the first ("book") before "book"'s own IndexedDB transaction had
+survived the teardown a reload, a URL navigation or a history traversal brings — a killed tab gives
+that transaction's callback a later task to run in; the other three teardowns do not
+(`log.spec.ts`'s killed-tab test above already proves that difference). `recoverRelayedRow` on the
+next document then found only "cat" and wrote just that, silently. Measured on production
+`integracion`: typing "book", waiting past the 800ms settle, replacing the box with "cat" and
+navigating away 0, 200 or 400ms later — by `goto` or by `reload` — always left `["cat"]` in IndexedDB
+after the navigation, never `["book", "cat"]`. `page.goBack()` does not reproduce it, for the same
+reason the killed-tab path does not: both give "book"'s IndexedDB transaction a later task to finish
+in. Letting "cat" settle on its own before leaving does not reproduce it either, but for a different
+reason — `onSettleTimer` then commits "book" on its own clock, well before "cat" is even typed
+forward, so the two commits are never in the same synchronous pass and never share the relay key at
+the same instant.
+
+The relay now holds a list under that one key: `relayPendingRow` reads it, appends, writes it back;
+`clearRelayedRow` reads it, drops the one row whose `at` and `normalised` match, writes back what is
+left (or removes the key once it is empty); `recoverRelayedRow` replays every row still in the list,
+oldest first, each clearing itself out once its own `writeRow` lands — same as it always did, just
+per row instead of once. A failed `setItem` (a full or disabled store) never touches the key at all,
+so a row already resting there survives a sibling's own failed relay.
+
+Measured the read-append-write list against the old single `setItem`, 2000 iterations each in the
+same page: **0.0045ms/op for the single key, 0.0055ms/op for the list** — about a microsecond more
+per relay call, immaterial next to the 800ms settle window this all runs behind (RNL-06).
+
+Proven by reverting `relayPendingRow`/`clearRelayedRow` to the single-key version and rerunning the
+new case: it reds losing "book" exactly as described, and passes again once the list comes back.
+Never touched `SETTLE_MS` or `MAX_PENDING_MS` to fix this — both are settled questions elsewhere in
+this file and in `docs/voyager/SPEC.md`'s `RL-39`.
+
+### Reading the design canvas spends 30k tokens before the file exists
+
+`Artifact` with `action: "read"` saves the 3.3 MB page to a file, but it also returns a "head" —
+and the head of this page is the canvas editor's own stylesheet plus a base64 WOFF2 font. Measured
+2026-09-10: **about 30,000 tokens landed in the conversation** and not one of them was a board. The
+saved file was correct and complete; the head was pure cost.
+
+There is no flag to suppress it. So read the canvas **once per session, from the main session**,
+and take everything else from the saved file, whose path the result names. To go from that file to
+the boards, parse rather than grep — the whole design is one JSON document:
+
+```python
+files = json.loads(re.search(r'<script[^>]*id="appifact-doc"[^>]*>(.*?)</script>',
+                             open(F, encoding='utf-8').read(), re.S).group(1))['content']['files']
+```
+
+`files` is `{"NombreDelTablero.dc.html": "<html>…"}` plus one `canvas.json`, so the board count is
+`len(files) - 1` and a board's markup is a plain string to search and edit.
+
+To republish it, serialise with the settings that round-trip this page byte for byte —
+`json.dumps(doc, ensure_ascii=False)`, default separators — then escape the script tags the way the
+page already does, `</script` → `<\/script`, 164 of them as of version 24. Assert the count and the
+absence of a bare `</script` before publishing: a missed escape truncates the page into one that
+looks empty rather than broken.
+
+### A server-rendered session turns a precached shell route into a leak
+
+`apps/voyager/public/sw.js` precaches three shell routes and rewrites each one's cache entry on
+every online navigation, so a route that opens offline never goes stale. `/cuenta` is the documented
+exception: its HTML carries `getReader()`'s answer, so a signed-in render replayed after the cookie
+is gone would hand the next person on the device the previous reader's email out of Cache Storage.
+It sits in `NO_OVERWRITE_ROUTES`, which does two things at once — `install` fetches it with
+`credentials: "omit"`, and `navigate` never writes it back.
+
+That comment says `/cuenta` is "the only shell route that does". **Any change that makes a second
+shell route call `getReader()` on the server makes it false, and the new route inherits neither
+protection.** Measured 2026-09-10: passing `hasReader` into `/registro`'s panel — to stop offering a
+wipe-account button that always answers 401 without a session — put session state into
+`/registro`'s HTML while it stayed out of `NO_OVERWRITE_ROUTES`. The signed-in render would be
+precached at install and rewritten on every visit, so the button the change removes comes back from
+the cache for a reader who has no session, and 401s when tapped.
+
+Before adding `getReader()` to a page, check `SHELL_ROUTES`. If the page is in it, put it in
+`NO_OVERWRITE_ROUTES` in the same change, and correct the comment that names `/cuenta` as the only
+one. For `/registro` the cached signed-out render is the right answer rather than a degradation:
+the account wipe calls `DELETE /api/log/clear`, which cannot work offline anyway.
+
+**The same change also moves a route from static to dynamic, and the build output is where you see
+it.** `npm run build -w apps/voyager` prints `○ /registro` before and `ƒ /registro` after. Nothing
+fails; the route just starts costing a server render per visit. Diff the route table against the
+base branch whenever a page gains a call that reads cookies or headers.

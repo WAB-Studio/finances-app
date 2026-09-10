@@ -31,8 +31,8 @@ async function exposeDictionaryWorker(page: Page): Promise<void> {
 
 // The pause these tests hold past a keystroke before checking the offer:
 // long enough that the old, retired withdrawal timer would have fired.
-// RL-18 no longer withdraws on any timer — the list stays until the text
-// itself changes — so this constant is the tests' own clock, not the
+// RL-18 withdraws on the answer, never on a timer, so this constant is the
+// tests' own clock — long enough to prove no timer fires — not the
 // component's.
 const SUGGESTIONS_SETTLE_MS = 900;
 
@@ -78,6 +78,28 @@ function percentile(durations: readonly number[], p: number): number {
   return sorted[index];
 }
 
+// Drives `suggest()` through the worker directly, past `exposeDictionaryWorker`,
+// so the measured list is the same one `suggest.ts` builds for the running
+// screen — not a re-implementation of its filter in the test file.
+async function askWorkerToSuggest(page: Page, prefix: string, limit: number): Promise<string[]> {
+  const id = nextProbeId++;
+  return page.evaluate(
+    async ({ id, prefix, limit }) => {
+      const worker = (window as unknown as { __dictionaryWorker: Worker }).__dictionaryWorker;
+      return new Promise<string[]>((resolve) => {
+        const onMessage = (event: MessageEvent<{ id?: number; kind: string; items?: string[] }>) => {
+          if (event.data.id !== id || event.data.kind !== "suggestions") return;
+          worker.removeEventListener("message", onMessage);
+          resolve(event.data.items ?? []);
+        };
+        worker.addEventListener("message", onMessage);
+        worker.postMessage({ id, kind: "suggest", prefix, limit });
+      });
+    },
+    { id, prefix, limit },
+  );
+}
+
 test("an installed dictionary answers offline, fast, and within a thumb's reach", async ({ page, context }) => {
   await deleteTranslator(page);
   await exposeDictionaryWorker(page);
@@ -97,8 +119,11 @@ test("an installed dictionary answers offline, fast, and within a thumb's reach"
   await searchBox.fill("throughout");
   await expect(page.getByRole("heading", { name: "throughout" })).toBeVisible({ timeout: 5000 });
 
+  // `left` is its own headword, so it answers first — RL-40 offers `leave`
+  // beneath it, never in its place (`PalabraConFlexion`, `lookup.ts`).
   await searchBox.fill("left");
-  await expect(page.getByRole("heading", { name: "leave" })).toBeVisible({ timeout: 5000 });
+  await expect(page.getByRole("heading", { name: "left" })).toBeVisible({ timeout: 5000 });
+  await expect(page.getByRole("heading", { name: "leave" })).toBeVisible();
 
   const durations = await measureWorkerRoundTrips(page, 200, "throughout");
   expect(durations).toHaveLength(200);
@@ -126,7 +151,7 @@ test("an installed dictionary answers offline, fast, and within a thumb's reach"
   expect(undersized).toEqual([]);
 });
 
-test("RL-18: a paused prefix keeps its offer, coexisting with the word answer", async ({ page }) => {
+test("RL-18: the offer retires the moment an answer stands under it", async ({ page }) => {
   await deleteTranslator(page);
 
   const assetResponse = page.waitForResponse(
@@ -142,18 +167,20 @@ test("RL-18: a paused prefix keeps its offer, coexisting with the word answer", 
 
   await searchBox.fill("throughout");
 
-  // RNL-05: the answer and the offer both land on the same keystroke.
+  // RNL-05: the answer lands on the keystroke, and it is the answer — not a
+  // timer — that takes the offer away.
   await expect(heading).toBeVisible({ timeout: SUGGESTIONS_SETTLE_MS - 400 });
-  await expect(suggestionsLabel).toBeVisible({ timeout: SUGGESTIONS_SETTLE_MS - 400 });
+  await expect(suggestionsLabel).toHaveCount(0);
 
-  // Decided by the user 2026-09-09: the offer stays put past the pause,
-  // the price of also being a real word, taken knowingly.
   await page.waitForTimeout(SUGGESTIONS_SETTLE_MS + 200);
-  await expect(suggestionsLabel).toBeVisible();
+  await expect(suggestionsLabel).toHaveCount(0);
   await expect(heading).toBeVisible();
 
-  // A fresh keystroke still updates the offer straight away.
+  // Cut back to a prefix that answers nothing and the offer returns, and
+  // stays — this is the pause that used to leave the page blank.
   await searchBox.fill("throughou");
+  await expect(suggestionsLabel).toBeVisible();
+  await page.waitForTimeout(SUGGESTIONS_SETTLE_MS + 200);
   await expect(suggestionsLabel).toBeVisible();
 });
 
@@ -296,9 +323,10 @@ test("`left` (one of the 34 entries whose definition is a bare '.') never folds 
   const searchBox = page.getByRole("textbox", { name: messages.search.label });
   await searchBox.fill("left");
   await expect(page.getByRole("heading", { name: "left", exact: true })).toBeVisible({ timeout: 5000 });
-  // "left" also resolves as the past tense of "leave" (RL-06): that group's
-  // own heading is the boundary countFoldsBetween must stop at.
-  await expect(page.getByRole("heading", { name: "leave", exact: true })).toBeVisible({ timeout: 5000 });
+  // RL-40 offers `leave` beneath `left`'s own entry — its own senses carry
+  // no definition at all, so bounding the count to `left`'s own block below
+  // proves the period-only filter without depending on that separately.
+  await expect(page.getByRole("heading", { name: "leave", exact: true })).toBeVisible();
 
   // Four senses of "left" carry a definition in the source: adj (null,
   // never had one), adv ("On the left side."), n ("The left side or
@@ -350,4 +378,140 @@ test("the English definition opens on tap and folds back on the next one, reacha
   await fold.press("Enter");
   await expect(fold).toHaveAttribute("aria-expanded", "false");
   await expect(page.getByText(englishText)).toHaveCount(0);
+});
+
+// `bed` is a headword the dictionary carries. It also matched two false
+// inflection candidates — "a form of `b`", a bare single-letter lemma
+// `lookupWord` never answers on its own, and "a form of `be`", a regular
+// `-ed` guess the irregular table overrides (`be`'s real past is
+// `was`/`were`, never `bed`). Neither ships, with or without `bed`'s own
+// entry standing above them.
+test("a word the dictionary carries never offers a one-letter lemma or an irregular table override", async ({
+  page,
+}) => {
+  await deleteTranslator(page);
+
+  const assetResponse = page.waitForResponse(
+    (response) => response.url().includes(manifest.asset.path) && response.ok(),
+  );
+  await page.goto("/");
+  await assetResponse;
+  await page.waitForTimeout(1000);
+
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+
+  await searchBox.fill("bed");
+  await expect(page.getByRole("heading", { name: "bed" })).toBeVisible({ timeout: 5000 });
+  await expect(page.getByText('es una forma de', { exact: false })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "b", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "be", exact: true })).toHaveCount(0);
+
+  // `running` is its own entry too, and still offers `run` beneath it — the
+  // `-ing` family has no irregular past-tense entry to lose to, so the
+  // filter that blocks `be` never touches it.
+  await searchBox.fill("running");
+  await expect(page.getByRole("heading", { name: "run", exact: true })).toBeVisible({ timeout: 5000 });
+});
+
+// The index carries a one-letter key for 12 stripped abbreviations, suffix
+// lists and bare letter-names besides the two real headwords, `a` and `i`
+// (`I` normalises to it). `lookup.ts` answers only the two; everything else
+// a single keystroke reaches now falls through to the same silence a
+// mid-word prefix already draws.
+test("a one-character query answers only `a` and `i`, never the other ten single-letter keys", async ({
+  page,
+}) => {
+  await deleteTranslator(page);
+  await exposeDictionaryWorker(page);
+
+  const assetResponse = page.waitForResponse(
+    (response) => response.url().includes(manifest.asset.path) && response.ok(),
+  );
+  await page.goto("/");
+  await assetResponse;
+  await page.waitForTimeout(1000);
+
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+  const suggestionsLabel = page.getByText(messages.word.suggestions);
+  const notFound = page.getByText(messages.search.notFound);
+
+  // "b" is not answerable: no heading, no "not found" (a suggestion list
+  // stands in for it, same as any other unmatched prefix), suggestions only.
+  await searchBox.fill("b");
+  await page.waitForTimeout(SUGGESTIONS_SETTLE_MS + 200);
+  await expect(page.getByRole("heading", { name: "b", exact: true })).toHaveCount(0);
+  await expect(notFound).toHaveCount(0);
+  await expect(suggestionsLabel).toBeVisible();
+
+  // "a" is one of the two: its own entry answers, translations included.
+  await searchBox.fill("a");
+  await expect(page.getByRole("heading", { name: "a", exact: true })).toBeVisible({ timeout: 5000 });
+  await expect(page.getByText("una", { exact: true })).toBeVisible();
+  await expect(suggestionsLabel).toHaveCount(0);
+
+  // "I" is the other: it normalises to "i" and answers with "yo".
+  await searchBox.fill("I");
+  await expect(page.getByRole("heading", { name: "i", exact: true })).toBeVisible({ timeout: 5000 });
+  await expect(page.getByText("yo", { exact: true })).toBeVisible();
+
+  // Two or more characters are untouched: `be` and `bed` answer as before.
+  await searchBox.fill("be");
+  await expect(page.getByRole("heading", { name: "be", exact: true })).toBeVisible({ timeout: 5000 });
+  await searchBox.fill("bed");
+  await expect(page.getByRole("heading", { name: "bed", exact: true })).toBeVisible({ timeout: 5000 });
+
+  // The suggestion list itself: "b" no longer offers itself, "a" still does.
+  const bSuggestions = await askWorkerToSuggest(page, "b", 10);
+  expect(bSuggestions).not.toContain("b");
+  const aSuggestions = await askWorkerToSuggest(page, "a", 10);
+  expect(aSuggestions).toContain("a");
+});
+
+// RL-40, board `PalabraConFlexion`: a word that is itself a headword answers
+// first, and a lemma it also inflects from is offered beneath it, never in
+// its place. `left` carries both — its own entry and the offer of `leave`.
+// `bed` carries only the first: its two false candidates, "b" (a one-letter
+// lemma) and "be" (a regular guess the irregular table overrides), earn no
+// offer at all.
+test("RL-40: a word's own entry answers first, and a plausible inflection is offered beneath it", async ({
+  page,
+}) => {
+  await deleteTranslator(page);
+
+  const assetResponse = page.waitForResponse(
+    (response) => response.url().includes(manifest.asset.path) && response.ok(),
+  );
+  await page.goto("/");
+  await assetResponse;
+  await page.waitForTimeout(1000);
+
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+
+  await searchBox.fill("left");
+  const leftHeading = page.getByRole("heading", { name: "left", exact: true });
+  const leaveHeading = page.getByRole("heading", { name: "leave", exact: true });
+  await expect(leftHeading).toBeVisible({ timeout: 5000 });
+  // The own entry's own senses, above any offer.
+  await expect(page.getByText("izquierda", { exact: true }).first()).toBeVisible();
+  // The offer's own label and heading, naming both the surface and the
+  // lemma it also inflects from.
+  await expect(page.getByText('"left" también es una forma de "leave"', { exact: false })).toBeVisible();
+  await expect(leaveHeading).toBeVisible();
+  await expect(page.getByText("dejar", { exact: true }).first()).toBeVisible();
+  // `left`'s own entry sits above the offer in document order — it answers
+  // first, the offer never replaces it.
+  const order = await page.evaluate(() => {
+    const headings = Array.from(document.querySelectorAll("h1"));
+    const left = headings.find((h) => h.textContent === "left");
+    const leave = headings.find((h) => h.textContent === "leave");
+    if (!left || !leave) return null;
+    return Boolean(left.compareDocumentPosition(leave) & Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+  expect(order).toBe(true);
+
+  await searchBox.fill("bed");
+  await expect(page.getByRole("heading", { name: "bed", exact: true })).toBeVisible({ timeout: 5000 });
+  await expect(page.getByText("también es una forma de", { exact: false })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "b", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "be", exact: true })).toHaveCount(0);
 });

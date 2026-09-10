@@ -11,6 +11,8 @@
  */
 import { randomUUID } from "node:crypto";
 
+import { settleSessionSql } from "@repo/supabase-auth/settle";
+import { PgDialect } from "drizzle-orm/pg-core";
 import postgres from "postgres";
 
 const sql = postgres(process.env.DATABASE_URL!, {
@@ -243,6 +245,34 @@ async function main() {
         `main device retired ${retiredMain?.lookups} lookups; other device untouched: lookups ${otherLookupsBefore} -> ${otherLookupsAfter}, device ${otherDeviceBefore} -> ${otherDeviceAfter}`,
       );
 
+      throw forcedRollback;
+    })
+    .catch((error: unknown) => {
+      if (error !== forcedRollback) throw error;
+    });
+
+  // Everything above proves the policies decide, but only because the session
+  // runs as `authenticated`. The login role is `postgres`, which holds
+  // BYPASSRLS: drop the role line from `settleSessionSql` and every policy
+  // stops applying, in both apps, with all twelve assertions above still
+  // green — they settle the role themselves. So this one drives the shared
+  // statement instead of mirroring it, in its own transaction, because
+  // `set_config(…, true)` is transaction-local and the role the block above
+  // set would answer for it.
+  await sql
+    .begin(async (tx) => {
+      const [before] = await tx<{ role: string }[]>`select current_user as role`;
+      const claims = JSON.stringify({ sub: randomUUID(), role: "authenticated", aud: "authenticated" });
+      const settle = new PgDialect().sqlToQuery(settleSessionSql({ claims, searchPath: "reading, public" }));
+      await tx.unsafe(settle.sql, settle.params as string[]);
+      const [after] = await tx<{ role: string; bypasses: boolean }[]>`
+        select current_user as role,
+               (select rolbypassrls from pg_roles where rolname = current_user) as bypasses`;
+      assert(
+        "S13",
+        before.role !== "authenticated" && after.role === "authenticated" && after.bypasses === false,
+        `role ${before.role} -> ${after.role}, bypassrls = ${after.bypasses}`,
+      );
       throw forcedRollback;
     })
     .catch((error: unknown) => {

@@ -33,10 +33,12 @@
     "pending": "«{query}» se responderá en cuanto termine la instalación",
     "failed": "No se pudo instalar el diccionario",
     "failedPending": "«{query}» no tendrá respuesta hasta que reintentes",
-    "retry": "Reintentar"
+    "retry": "Reintentar",
+    "preparingReadOnly": "Instalando el diccionario en el dispositivo"
   },
   "word": {
     "viaInflection": "\"{surface}\" es una forma de \"{lemma}\"",
+    "viaInflectionWithEntry": "\"{surface}\" también es una forma de \"{lemma}\"",
     "translations": "Traducciones",
     "definitionEnglish": "Definición en inglés",
     "suggestions": "Sugerencias",
@@ -88,12 +90,27 @@
     },
     "word": {
       "back": "Registro",
-      "subtitle": "{translation} · {count, plural, one {# búsqueda} other {# búsquedas}} desde el {date}.",
+      "subtitle": "{count, plural, one {# búsqueda} other {# búsquedas}} desde el {date}.",
       "skeletonHeadword": "Palabra de ejemplo",
-      "skeletonSubtitle": "Su traducción de ejemplo · 0 búsquedas",
+      "skeletonSubtitle": "0 búsquedas desde el 0 de enero de 2026",
       "skeletonDate": "0 de enero de 2026",
       "emptyBody": "No has buscado «{word}» todavía.",
-      "emptyAction": "Buscarla"
+      "emptyAction": "Buscarla",
+      "skeletonAnswer": "Su respuesta de ejemplo"
+    },
+    "clear": {
+      "trigger": "Vaciar el registro",
+      "confirmTitle": "¿Vaciar el registro?",
+      "confirmBody": "Se borran {words, plural, one {la # palabra} other {las # palabras}} que has buscado, con {lookups, plural, one {su # búsqueda} other {sus # búsquedas}}. No se puede deshacer.",
+      "keep": "Conservarlo",
+      "soleAction": "Vaciar el registro",
+      "localAction": "Vaciar sólo en este dispositivo",
+      "localBody": "Tu cuenta conserva su copia, y un dispositivo nuevo que entre a ella volverá a verla.",
+      "accountAction": "Vaciar aquí y en mi cuenta",
+      "accountBody": "Se lleva también lo que registraron tus otros dispositivos.",
+      "wiping": "Vaciando…",
+      "failed": "No se pudo vaciar el registro",
+      "retry": "Reintentar"
     }
   },
   "account": {
@@ -106,6 +123,7 @@
     "signOut": "Cerrar sesión",
     "errors": {
       "emailInvalid": "Escribe un correo válido",
+      "domainUndeliverable": "Ese dominio no recibe correo",
       "sendFailed": "No se pudo enviar el enlace",
       "rateLimited": "Demasiados intentos. Prueba de nuevo en unos minutos.",
       "offline": "Sin conexión. No se pudo enviar el enlace.",

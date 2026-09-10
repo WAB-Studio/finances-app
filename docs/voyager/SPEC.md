@@ -46,8 +46,21 @@ this gets built, and no schema, table or column is "prepared for" it.
 #### The word
 
 - [ ] **RL-04** — A headword's answer shows every sense the dictionary carries for it, grouped by part of speech, each with its IPA when one exists and all of its Spanish translations.
-- [x] **RL-06** — An inflected form resolves to its headword, and the answer names both the form typed and the headword reached: `left` finds `leave`, `went` finds `go`, `children` finds `child`, `studies` finds `study`.
-  - Measured 2026-09-07 by `apps/voyager/scripts/check-dictionary.ts` (D9), over a sample of 2,345 regular surface forms generated from 301 stride-sampled single-word letter headwords by applying the regular suffix rules, plus all 386 `IRREGULAR_FORMS` surfaces: the real coverage figure is the **irregular-only rate, 367/386 = 95.1%**, the only non-circular signal since those surfaces come from a hand-written table no rule can reach. The generated forms resolve at 2345/2345 = 100.0%, a closed loop that proves the resolver inverts its own suffix rules, not real coverage. Blended (generated + irregular together, the number that includes the closed loop): 2712/2731 = 99.3%.
+- [x] **RL-40** — An inflected form resolves to its headword, and the answer names both the form
+  typed and the headword reached: `went` finds `go`, `children` finds `child`, `studies` finds
+  `study`. When the form typed is itself a headword, its own entry answers first and the headword it
+  also inflects from is **offered below it, never instead of it**: `left` answers as «izquierda» and
+  offers `leave` under it. Board: `PalabraConFlexion`.
+  - Measured 2026-09-10 by `apps/voyager/scripts/check-dictionary.ts`: **D7 back to 53/53** from the
+    34 that `#128` left, and **D12 new — 27 candidates carried a defect before the filter, 0 after**.
+    The filter is two rules, both driven against the shipped asset: a one-letter lemma is not a lemma
+    (`bed` → `b`), and a regular suffix rule loses to `IRREGULAR_FORMS` where the table governs that
+    category (`bed` → `be`, whose real past is `was`/`were`). Matched by rule family, not blindly:
+    `running` → `run` survives, because `-ing` has no irregular family to lose to even though `run`
+    is in the table for `ran`.
+  - Driven, not asserted: `bed` answers with its own entry and offers nothing; `left` offers `leave`,
+    `faster` offers `fast`, `gone` offers `go`, `women` offers `woman`, `people` offers `person`.
+    `word` offers nothing, so an answered query gains no clutter.
 - [ ] **RL-07** — Autocomplete appears only while the string is being treated as a word. A sentence never raises it.
 - [x] **RL-26** — A headword's answer can be heard. The device speaks it with the voice the browser
   already carries, so a headword with no IPA is spoken exactly like one that has it. Decided by the
@@ -90,12 +103,16 @@ this gets built, and no schema, table or column is "prepared for" it.
 #### The shell
 
 - [ ] **RL-16** — The app opens with no connection and shows its box, and it can be launched from the phone's home screen without a browser around it. This holds from the second time it is opened onwards: the first open needs the network to deliver the app itself.
-- [x] **RL-21** — Every lookup a reader settles on is recorded on the device, from the app's first
-  day: what was typed, whether it was answered as a word or a sentence, the headword it actually
-  reached when an inflected form was typed, whether it found anything at all, and when. The record
-  only ever gains rows: nothing edits or deletes one. No screen on the read path shows it. It is read
-  to take it off the device — to a file, or to the copy held by the reader's account — and to bring
-  back what the same reader's other devices recorded; never on the path that answers a lookup.
+- [x] **RL-39** *(successor of RL-38)* — A lookup a reader settles on is recorded on the device,
+  from the app's first day, only when it found something: what was typed, whether it was answered as
+  a word or a sentence, the headword it actually reached when an inflected form was typed, and when.
+  A word that matched nothing and a sentence that could not be translated leave no row — neither had
+  an answer to record. The record gains rows on its own and nothing edits one, but the reader can
+  empty it whole: on this device alone, or in the copy their account holds as well. Emptying this
+  device alone leaves the account's copy standing, and a device that signs in afterwards sees it
+  again. No screen on the read path shows the record. It is read to take it off the device — to a
+  file, or to the copy held by the reader's account — and to bring back what the same reader's other
+  devices recorded; never on the path that answers a lookup. Decided by the user 2026-09-10.
 - [x] **RL-22** — A reader can keep their record in an account of their own: they sign in through a
   link sent to their address and, from then on, what this device records is copied to that account
   and what their other devices recorded comes down to this one **and stays in its local record,
@@ -171,13 +188,38 @@ this gets built, and no schema, table or column is "prepared for" it.
   one request leaves while typing; the copy fires only when the tab is hidden or when the reader asks
   for it; and a lookup answers in the same time with a ten-thousand-row merge in flight as without
   one.
-- [ ] **RNL-10** — A reader's record is read and written by that reader alone. The access policies in
+- [x] **RNL-10** — A reader's record is read and written by that reader alone. The access policies in
   the database decide it, not the query, and they are proved by driving them. No service path evades
   them.
 
 ### Retired
 
 Dead codes. The number stays burned and the tick stays as it was.
+
+- [x] **RL-06** — An inflected form resolves to its headword, and the answer names both the form typed and the headword reached: `left` finds `leave`, `went` finds `go`, `children` finds `child`, `studies` finds `study`.
+  - Measured 2026-09-07 by `apps/voyager/scripts/check-dictionary.ts` (D9), over a sample of 2,345 regular surface forms generated from 301 stride-sampled single-word letter headwords by applying the regular suffix rules, plus all 386 `IRREGULAR_FORMS` surfaces: the real coverage figure is the **irregular-only rate, 367/386 = 95.1%**, the only non-circular signal since those surfaces come from a hand-written table no rule can reach. The generated forms resolve at 2345/2345 = 100.0%, a closed loop that proves the resolver inverts its own suffix rules, not real coverage. Blended (generated + irregular together, the number that includes the closed loop): 2712/2731 = 99.3%.
+  _Retired 2026-09-10. Successor: RL-40. `#128` stopped guessing at a word the dictionary already
+  carries, which was right for `bed` — it was drawing «"bed" es una forma de "b"» — and wrong for
+  every surface form that is also a headword. Measured that day: **19 of the 53 `INFLECTION_FIXTURE`
+  pairs stopped resolving** and `check:dict`'s D7 sat red on `integracion` for a day, unseen because
+  `check:dict` was not in CI. The reader of «he ran faster» was answered «ayunador»; of «he has
+  gone», «ido, ha muerto»; of `women`, «Femenil». RL-40 keeps the exact entry first and puts the
+  inflection back underneath it._
+  _Its D9 numbers above are what 2026-09-07 measured and are kept as that. Read today they differ —
+  generated 1881/2345 = 80.2%, blended 2248/2731 = 82.3%, irregular unchanged at 95.1% — and **that
+  drift is not `#128`'s**: the three figures come out identical with and without its line. Whatever
+  moved them is older and unfound. RL-40 takes no number from here; it measures its own._
+
+- [x] **RL-38** — A lookup a reader settles on is recorded on the device, from the app's first day,
+  only when it found something: what was typed, whether it was answered as a word or a sentence, the
+  headword it actually reached when an inflected form was typed, and when. A word that matched
+  nothing and a sentence that could not be translated leave no row — neither had an answer to record.
+  The record only ever gains rows: nothing edits or deletes one. No screen on the read path shows it.
+  It is read to take it off the device — to a file, or to the copy held by the reader's account — and
+  to bring back what the same reader's other devices recorded; never on the path that answers a
+  lookup.
+  _Retired 2026-09-10. Successor: RL-39. The reader's own way to empty the record, decided the same
+  day, is the reason "nothing edits or deletes one" stopped being true._
 
 - [x] **RL-14** — Once installed, looking a word up touches the network in no way, on no keystroke.
   _Retired 2026-09-08. Successor: RL-35. The word's image (RL-36), decided the same day, is the
@@ -198,6 +240,13 @@ Dead codes. The number stays burned and the tick stays as it was.
   they are told how many searches will go up and how many will come down, and turning it on is what
   authorises it. _Retired 2026-09-08. Successor: RL-30._
 - [x] **RL-15** — The dictionary's source, its edition and its CC BY-SA 3.0 licence are named in the interface, one tap from the box, linking to the source and to the licence text, and stating that what the app ships is a reformatted extract distributed under the same licence. _Retired 2026-09-08. Successor: RL-33._
+- [x] **RL-21** — Every lookup a reader settles on is recorded on the device, from the app's first
+  day: what was typed, whether it was answered as a word or a sentence, the headword it actually
+  reached when an inflected form was typed, whether it found anything at all, and when. The record
+  only ever gains rows: nothing edits or deletes one. No screen on the read path shows it. It is read
+  to take it off the device — to a file, or to the copy held by the reader's account — and to bring
+  back what the same reader's other devices recorded; never on the path that answers a lookup.
+  _Retired 2026-09-09. Successor: RL-38._
 
 ---
 

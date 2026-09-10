@@ -120,10 +120,34 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   2026-09-07. Checked 2026-09-08: the published canvas contains the string `Noche` zero times.
   Nothing on it contradicts this file any more.
 - When a board and this file disagree, **this file wins**.
-- **The canvas is 156 boards**, counted 2026-09-09 from the published file after the critic's drive.
-  The last twenty are the five decisions of that afternoon, each drawn light and dark × desktop and
-  mobile before any worker was dispatched, each carrying an annotation that says what was refused:
-  `SugerenciasPausadas` (the prefix that keeps its list), `SinEntradaFraseEnlaces` (every block a way
+- **The canvas is 126 boards**, counted 2026-09-10 from the published file's `appifact-doc` block.
+  It was 168 that morning. **42 dark boards were deleted the same day**, on the user's decision, and
+  the four-faces-per-state rule went with them (`AGENTS.md`, "Design").
+- **What was deleted, and how it was chosen.** A dark board was deleted when it is an exact colour
+  substitution of its light twin under this file's own token table — `#9A3B24`→`#D9805F`,
+  `#17160F`→`#F0EBDD`, `#FAF8F2`→`#14130F`, `#FFFFFF`→`#1C1B16`, `#DED8C8`→`#302E25`,
+  `#6B675A`→`#9A9484`, `#E4DFD2`→`#2A2820` — and nothing else. That test is exact, so the list is a
+  measurement, not a judgement. **21 families of 42 were mechanical**: `CuentaDentro`, `CuentaSinRed`,
+  `ErrorGlobal`, `Fallo`, `Flexion`, `Frase`, `FraseOferta`, `Fuente`, `Instalando`, `Palabra`,
+  `PalabraConFlexion`, `PalabraDefinicionAbierta`, `PalabraDefinicionPlegada`, `RegistroVacio`,
+  `SinEntradaFraseEnlaces`, `SinResultado`, `SinResultadoIA`, `SinResultadoIAFallo`,
+  `SinResultadoSinPista`, `Sugerencias`, `SugerenciasPausadas`. **Their dark face is this file's
+  token table and nothing more. Read it there.** The other 21 families keep both faces: their dark
+  carries something the light does not.
+- **The mobile faces were not pruned, and the reason is that the measurement failed.** Three
+  attempts at telling "only narrower" from "really reflowed" apart automatically kept marking
+  boards as different that change nothing but padding. A mobile face restructures legitimately, so
+  the difference is not mechanical the way the colour swap is. Prune them family by family with a
+  human eye, or leave them.
+- **`Main.dc.html` is now Palabra · light · mobile.** It was Palabra · dark · mobile, which the prune
+  would have deleted — but it is the canvas entry file, so it kept its name and took the light
+  mobile's content instead, and the duplicate `PalabraClaroMovil.dc.html` went in its place. A
+  search for `PalabraClaroMovil` still finds nothing; the board is there, under the entry's name.
+- The counts below are the earlier readings, kept for what each measured:
+- **The canvas was 156 boards**, counted 2026-09-09 from the published file after the critic's drive.
+  The twenty before those are the five decisions of that afternoon, each drawn light and dark ×
+  desktop and mobile before any worker was dispatched, each carrying an annotation that says what was
+  refused: `SugerenciasPausadas`, `SinEntradaFraseEnlaces` (every block a way
   back in), `CuentaSinRed` (the one screen allowed to name the connection), `PalabraDefinicionPlegada`
   and `PalabraDefinicionAbierta` (the English definition's two states). The older count follows:
 - **The canvas was 112 boards**, counted 2026-09-09 from the published file: Inicio, Palabra,
@@ -133,6 +157,13 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   CuentaDentro, CuentaCopia, CuentaCopiaEstados, CuentaInformacion, Dispositivos and
   **BarraSidebar**, each in light/dark × desktop/mobile. The nine that arrived 2026-09-09 are T2,
   T3, T4 and T5; the count is the only thing that changed.
+- **`SugerenciasPausadas`'s four boards were re-annotated 2026-09-10, canvas version 24.** They drew
+  the right screen and said the wrong rule: «La lista no se retira al asentarse el prefijo. Se queda
+  hasta que el texto cambie», which `#128` made false the day it was written. The drawing never
+  needed changing — `ru` has no entry, so it does keep its ten. Only the sentence moved, to: the list
+  withdraws when an answer is on screen, never on a clock. **No board draws the other half of that
+  rule** — `word`, answered, with the list gone — because it is an ordinary `Palabra` board and the
+  `Palabra` family already draws it.
 - **An answer the AI wrote already has boards** — `SinResultadoIA` and `SinResultadoIAFallo`, both
   in all four. Whatever RL-29 becomes, it is not drawing from nothing.
 - **Nothing is drawn for exporting or for syncing**, and this file names neither. A screen for
@@ -145,10 +176,10 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   landed 2026-09-09 and the user approved them the same day: `RegistroEstudio`,
   `RegistroEstudioEstados` and `PalabraHistorial` (T2); `SinEntrada` and `SinEntradaEstados` (T3);
   `CuentaCopia`, `CuentaCopiaEstados` and `CuentaInformacion` (T4); `PalabraCategoria` (T5).
-- **`/registro/<palabra>` has no empty state drawn.** `PalabraHistorial` (T2) draws the word's own
-  history full and nothing else. Module 12 shipped it reusing the strings of
-  `RegistroEstudioEstados`, so the screen a reader reaches for a word with no rows is a reuse
-  nobody approved, not a decision. Draw it before the next change to that screen.
+- **`/registro/<palabra>`'s empty state is drawn now.** `PalabraHistorialVacio` exists in all four
+  faces, and its dark carries its own decision, so the prune left it whole. The note that said this
+  screen had no board was true when module 12 shipped it as a reuse of `RegistroEstudioEstados`'s
+  strings; it stopped being true and nobody moved it.
 - **`Fuente`'s four boards draw a route that is being retired.** The decision below takes `/fuente`
   out; `CuentaInformacion` (T4) is the credit's only board from now on. The `Fuente` boards stay on
   the canvas as stale — never cite one in a dispatch.
@@ -159,8 +190,9 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
 - **The two dark `BarraSidebar` boards marked «Claro» selected in the theme control**, drawn dark.
   Fixed in place 2026-09-09. A worker copying that builds a control that contradicts the page it
   sits on.
-- **The canvas is seven pages, one per area of the app, and each carries light and dark side by
-  side.** Instalación, Buscar · la palabra, Buscar · sin respuesta, Buscar · la frase, Registro,
+- **The canvas is seven pages, one per area of the app. Light sits on the left, dark on the right
+  where a dark face still exists** — since the 2026-09-10 prune, half the rows have no right half,
+  and that gap is the token table doing the work, not a missing board. Instalación, Buscar · la palabra, Buscar · sin respuesta, Buscar · la frase, Registro,
   Cuenta, Cáscara. It was two pages — `Claro` and `Oscuro` — of 56 boards each, stacked over
   25,000 px, and at that height the user could not read it: «demasiadas pantallas que ya no se ve
   nada», 2026-09-09. Light sits at x 0 and 480, dark at 1900 and 2380, so a board and its dark twin
@@ -169,12 +201,55 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
 - **Reading the published canvas costs 2.7 MB**, and the head of it is the editor's own stylesheet,
   not the design. Read it to a file and grep the file for `\.dc\.html` names; never read it into a
   conversation twice.
-- **`Main.dc.html` is Palabra · dark · mobile.** It carries no `Palabra` in its name because it is
-  the canvas entry file, so a search for `PalabraOscuroMovil` finds nothing and the set looks short
-  by one. It is not: all four of light/dark × desktop/mobile exist for every state. Grep the boards
+- **`Main.dc.html` carries no `Palabra` in its name because it is the canvas entry file.** A search
+  for the board by a `Palabra…` name finds nothing; the board is there. See the entry above for what
+  it holds now. The claim that once followed here — that all four faces exist for every state — was
+  retired by the 2026-09-10 prune, and only ever describes the 21 families that kept both. Grep the boards
   for a token with a case-insensitive match — they are written lowercase (`#14130f`).
 
 ## Settled
+
+- **A word the dictionary carries is answered first, and the form it also inflects from is offered
+  underneath — never instead of it. Decided by the user 2026-09-10**, written as `RL-40`, which
+  retired `RL-06`. This corrects the 2026-09-09 decision without reversing it: an exact hit still
+  wins the top of the screen, `bed` still does not draw «"bed" es una forma de "b"», and the
+  inflection is no longer thrown away to get there.
+  - **The price of throwing it away, measured the next day: 19 of the 53 `INFLECTION_FIXTURE`
+    pairs.** `check:dict`'s D7 was red on `integracion` for a full day and nothing said so, because
+    `check:dict` was in no workflow. It has its own CI job now.
+  - **What the reader was actually being handed**, measured against the shipped asset: `faster` →
+    «ayunador, ayunadora»; `running` → «administración, control»; `gone` → «ido, ha muerto»;
+    `women` → «Femenil, Femenino»; `people` → «poblar con, poblarse»; `left` → «sobrado, sobras»
+    before «izquierda»; `written`, `spoken`, `driven` and `chosen` → the adjective only, never the
+    verb. Not a lost shortcut — a wrong answer for the sentence in front of them.
+  - Board: `PalabraConFlexion`. The offer sits behind a 2px rule and a left border, its headword at
+    27px against the entry's 34px. **It is never folded**, however many senses the entry itself
+    carries — decided the same day against folding it at three or more.
+  - `Flexion` stays the board for the other case, where the form typed is not a headword of its own
+    and there is no entry above the offer.
+
+- **With no account, the wipe offers one action, not two. Decided by the user 2026-09-10.** The
+  account option is **not drawn at all** — not drawn and disabled with a hint, which was refused
+  because `/cuenta` is already where this app says «you have no account».
+  - What it fixed: `DELETE /api/log/clear` answers 401 with no reader, so a signed-out reader got
+    «No se pudo vaciar el registro» and a «Reintentar» that could never succeed, with nothing naming
+    the working option directly above it. The account is opt-in (`RL-22`), so signed-out is the
+    default state. Found by the critic driving the app.
+  - **The remaining action reads «Vaciar el registro», not «Vaciar sólo en este dispositivo».** With
+    one action, «sólo» contrasts with a choice that reader does not have. `localAction` keeps its
+    wording for the reader who does have an account.
+  - It also retires `localBody` for that reader — «Tu cuenta conserva su copia» is false when there
+    is no account.
+  - Board: `RegistroVaciarConfirmarSinCuenta`, one face. `RegistroVaciarConfirmar` still governs the
+    signed-in panel and is unchanged.
+
+- **A phrase the translator cannot answer still falls straight to the word-by-word breakdown, with
+  no retry of its own. Reaffirmed by the user 2026-09-10**, with the cost measured this time: the
+  breakdown of a nine-word sentence is **2851–3574 px on a 390 px screen**, four phone-screens of
+  scrolling, and a one-second network failure costs the reader exactly what a genuinely
+  untranslatable phrase costs. Taken knowingly: the breakdown always answers, offline included, and
+  a retry button would fail as often as the provider does — **3 of 12 measured**. Do not raise it
+  again without a new number.
 
 - **A search with no result offers two things, and they are not the same thing.** Decided by the
   user 2026-09-08, written as RL-28 and RL-29.
@@ -468,7 +543,25 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   (800ms), which fills the record with prefix rows «bo», «boo», «book»; and rewriting RL-21 to
   promise less.
 
-- **A paused prefix keeps its suggestions on screen.** Decided by the user 2026-09-09. Typing `ru`
+- **The offer retires on an answer, never on a clock. Corrected by the user 2026-09-09**, the same
+  day, after driving the first version. «La lista nunca se retira» was too blunt: typing `word` left
+  ten suggestions stacked above the entry that was already answering it. The rule is finer — the
+  list withdraws the moment the screen holds an answer for what was typed, and stays when it holds
+  none. `ru` keeps its ten candidates, `word` closes them. `RL-18`'s underlying intent survives; only
+  its trigger changed, from a 900ms timer to the presence of an answer. This supersedes the entry
+  below, which is kept for what it measured.
+
+- **A word the dictionary carries is answered, never also guessed at. Decided by the user
+  2026-09-09.** `bed` is its own headword, and the app drew its real entry *and* two inflection
+  guesses under it — «"bed" es una forma de "b"» and «"bed" es una forma de "be"», the first
+  translating to «n.». `lookupWord` now returns no `viaInflection` at all when the exact headword
+  hits. Guessing is what a miss earns. **The measured price: `left` no longer offers `leave`.** It is
+  a real headword itself, so it is answered as itself; the reader of «he left» loses the one-tap path
+  to the verb. Taken knowingly — reversing it is one line in
+  `apps/voyager/lib/dictionary/lookup.ts`.
+
+- **A paused prefix keeps its suggestions on screen.** Decided by the user 2026-09-09. **Superseded
+  the same day by the entry above** — kept for its measurement, not as law. Typing `ru`
   and waiting left `main.innerText` empty at 900ms (`SUGGESTIONS_SETTLE_MS`,
   `components/search/search-screen.tsx:35`): **640px of nothing** on a 360×740 phone, light and
   dark, and the ten candidates the reader was reading went with it. From now the list stays until
@@ -497,3 +590,24 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   English and shortens the app's longest screen for the one who does not. Removing it outright was
   refused: the information is real. The fold's two states must be drawn, and which one opens is a
   drawing decision, not a code one.
+
+- **A one-character query answers only `a` and `i`, everything else falls through to
+  suggestions. Decided by the user 2026-09-09.** Typing `b` against the production build drew
+  «b / ADJETIVO / Traducciones / n. / Abbreviation of born.» — the index's own key for the headword
+  **`b.`**, whose period `normaliseHeadword` strips. 12 of the index's keys are one letter, 15
+  entries behind them: `a` (un, una) and `I`→`i` (yo) are real headwords; the other ten —
+  `b.`→«n.», `p.`→«p., pp.», `C` (the programming language), `s` (a suffix), `y` (a suffix list),
+  `u`/`o`/`e` (letter names), `x` (the letter or the messaging «x»), `4` (a messaging «x») — are
+  abbreviations, suffix lists and letter-name entries a reader typing one key never meant to reach.
+  `lookupWord` now answers only `a` and `i` at length one; every other one-letter query falls
+  through to the suggestion list a mid-word prefix already draws — no new screen state, the same
+  `suppressNotFound` a paused `ru` already stands on. `suggest()` drops the same ten from its own
+  list, so tapping the top suggestion for `b` never lands on `b` itself. Measured against the
+  built index, `limit=10`: `suggest("b", 10)` returned `b, b major, b-flat, b-flat major, b-side,
+  baa, bab el mandeb, baba ganoush, baba yaga, babalawo` before the filter and drops only the
+  first; `suggest("a", 10)`, `suggest("i", 10)`, `suggest("p", 10)` and `suggest("s", 10)` each
+  keep one or zero one-letter entries at their head, so the visible list past the fix is at most
+  one item shorter, never empty. The price, taken knowingly: the ten entries behind those keys
+  become unreachable by any typed query — `normaliseHeadword` strips a trailing period before the
+  index is ever consulted, so `b.` already collapsed to the same `b` the bare letter did; there was
+  no second spelling to fall back to, and this fix removes the only one that reached them.

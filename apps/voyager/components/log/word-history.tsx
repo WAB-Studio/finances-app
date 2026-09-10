@@ -7,6 +7,10 @@ import { useFormatter, useTranslations } from "next-intl";
 
 import { readWordHistory, type WordHistoryRow } from "@/lib/log/summary";
 import type { LookupOutcome } from "@/lib/log/types";
+import { useDictionary } from "@/lib/dictionary/use-dictionary";
+import type { WordAnswer } from "@/lib/dictionary/lookup";
+import { InstallStatus } from "@/components/search/install-status";
+import { SenseList } from "@/components/search/sense-list";
 import {
   Button,
   Flex,
@@ -21,8 +25,11 @@ import {
 } from "@/components/ui";
 
 // The other half of RL-32: one word's own searches, read off the same
-// `normalised` index `HistoryList` groups by (RNL-08 — no `lib/dictionary`
-// import, no Worker mounted here either).
+// `normalised` index `HistoryList` groups by. The reader came here to see
+// again what the search box showed them, so this mounts the same
+// dictionary `SenseList` draws for `/?q=` — its own Worker, its own lookup,
+// keyed on the segment's own `normalised` rather than on a box this screen
+// never has.
 
 type ViewState =
   | { kind: "loading" }
@@ -82,6 +89,10 @@ export function WordHistory({ normalised }: { normalised: string }) {
   // Bumped by the failed state's own retry, since the read runs in an
   // effect and a click cannot call it directly.
   const [attempt, setAttempt] = useState(0);
+  const { status: dictionaryStatus, lookup, retry: retryDictionary } = useDictionary();
+  // Set once the Worker answers, however long that takes — `dictionaryStatus`
+  // is what the render below reads meanwhile.
+  const [answer, setAnswer] = useState<WordAnswer | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -97,6 +108,23 @@ export function WordHistory({ normalised }: { normalised: string }) {
       cancelled = true;
     };
   }, [normalised, attempt]);
+
+  useEffect(() => {
+    let cancelled = false;
+    lookup(normalised)
+      .then((result) => {
+        if (!cancelled) setAnswer(result);
+      })
+      .catch(() => {
+        // Only reachable in the instant before this hook's own mount
+        // effect builds its Worker. A lookup issued after a failed install
+        // sits queued instead — no rejection, nothing to show here beyond
+        // what `InstallStatus`'s own failed branch already says.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [normalised, lookup]);
 
   if (state.kind === "loading") {
     return <WordHistorySkeleton />;
@@ -163,7 +191,6 @@ export function WordHistory({ normalised }: { normalised: string }) {
         <Headword>{latest.text}</Headword>
         <Text size="2" muted>
           {t("word.subtitle", {
-            translation: latest.translation ?? "",
             count: state.total,
             date: format.dateTime(new Date(earliest.at), { dateStyle: "medium" }),
           })}
@@ -172,13 +199,36 @@ export function WordHistory({ normalised }: { normalised: string }) {
 
       <Separator size="4" />
 
+      {/* The reason the reader opened this screen: the same answer the box
+          gave them, `showExactHeadword` off since the heading above already
+          names this word. */}
+      {dictionaryStatus.state !== "ready" ? (
+        <InstallStatus status={dictionaryStatus} onRetry={retryDictionary} query="" hasBox={false} />
+      ) : answer ? (
+        <SenseList answer={answer} showExactHeadword={false} />
+      ) : (
+        <Skeleton>
+          <Text size="2">{t("word.skeletonAnswer")}</Text>
+        </Skeleton>
+      )}
+
+      <Separator size="4" />
+
+      {/* Every past search, kept below the answer rather than above it or
+          folded away: the answer is why the reader tapped this word, the
+          count and dates in the line above already answer "how many, since
+          when" for a reader who stops there, and this list stays a plain
+          scroll rather than a second tap for the reader who wants every
+          date. Each one now carries its own time, not only its own day —
+          `dateStyle` alone read identically across a same-day run and told
+          the reader nothing the count above had not already said. */}
       <Flex direction="column" gap="3">
         {state.rows.map((row, index) => (
           <Flex direction="column" gap="3" key={`${row.at}-${index}`}>
             {index > 0 && <Separator size="4" />}
             <Grid columns="1fr auto" gap="3" align="center">
               <Text size="2" muted>
-                {format.dateTime(new Date(row.at), { dateStyle: "medium" })}
+                {format.dateTime(new Date(row.at), { dateStyle: "medium", timeStyle: "short" })}
               </Text>
               <MetaLabel>{t(`outcome.${outcomeKey(row.outcome)}`)}</MetaLabel>
             </Grid>

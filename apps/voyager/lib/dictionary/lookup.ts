@@ -1,6 +1,7 @@
 import { normaliseHeadword } from "./format";
 import { groupFor, type DictionaryIndex, type SenseGroup } from "./index-build";
 import { lemmaCandidates, type InflectionRule } from "./inflect";
+import { IRREGULAR_FORMS } from "./irregular-forms";
 
 export type InflectedHit = {
   surface: string;
@@ -17,6 +18,18 @@ export type WordAnswer = {
 
 const MAX_INFLECTED_HITS = 3;
 
+// The only one-letter normalised forms the dictionary means to answer: the
+// indefinite article and the pronoun "I" (which normalises to "i"). Every
+// other one-letter key in the index — "b", "p", "c", "e", "o", "s", "u",
+// "x", "y", "4" — is an abbreviation's stripped period, a bare letter-name
+// entry or a suffix list, not a headword a reader typing one key meant to
+// reach.
+const ANSWERABLE_SINGLE_CHAR_HEADWORDS: ReadonlySet<string> = new Set(["a", "i"]);
+
+function isAnswerableHeadword(normalised: string): boolean {
+  return normalised.length !== 1 || ANSWERABLE_SINGLE_CHAR_HEADWORDS.has(normalised);
+}
+
 // Stripping "-er"/"-r" off any word that ends that way, then checking the
 // result is a headword, catches a noun or a pronoun whose stem happens to
 // coincide with a real word: "her" -> "he", "beer" -> "be"/"bee", "baker"
@@ -29,20 +42,52 @@ function isImplausible(rule: InflectionRule, group: SenseGroup): boolean {
   return !group.senses.some((sense) => sense.pos === "adj");
 }
 
-// Exact headword first, then every inflection candidate other than the
-// query's own normalised form that the index actually carries.
+// Every lemma some surface in the table already governs — "run" via "ran",
+// "be" via "was"/"were"/"been" — so a regular rule's own guess toward one
+// of these can be told apart from a guess toward a lemma the table never
+// touches at all.
+const IRREGULAR_TABLE_LEMMAS: ReadonlySet<string> = new Set(Array.from(IRREGULAR_FORMS.values()).flat());
+
+const PAST_TENSE_RULES: ReadonlySet<InflectionRule> = new Set(["past-ed", "past-ied", "past-doubled"]);
+const PLURAL_RULES: ReadonlySet<InflectionRule> = new Set(["plural-s", "plural-es", "plural-ies"]);
+
+// A regular suffix rule and the irregular table can each name a lemma for
+// the same surface, and disagree: "bed" strips to "be" by -ed, but "be"'s
+// real past is "was"/"were" — a form no suffix rule here ever produces.
+// Only the rule families whose category the table actually replaces are
+// checked, each against the matching sense: a past-tense guess against a
+// lemma the table governs as a verb, or a plural guess against one it
+// governs as a noun. "running" -> "run" is untouched: -ing has no
+// irregular family to lose to, so "run" carrying a past-tense entry
+// ("ran") never enters this check.
+function isOverriddenByIrregularTable(rule: InflectionRule, lemma: string, group: SenseGroup): boolean {
+  if (!IRREGULAR_TABLE_LEMMAS.has(lemma)) return false;
+  if (PAST_TENSE_RULES.has(rule)) return group.senses.some((sense) => sense.pos === "v");
+  if (PLURAL_RULES.has(rule)) return group.senses.some((sense) => sense.pos === "n");
+  return false;
+}
+
+// The exact headword when the index carries it, offered alongside every
+// plausible inflection candidate — never instead of them: a reader who
+// typed "left" gets its own entry and the offer of "leave" beneath it, and
+// a reader who typed "bed" gets its own entry and nothing else, because
+// `b` fails `isAnswerableHeadword` and `be`'s regular "-ed" guess loses to
+// the irregular table's own "was"/"were".
 export function lookupWord(index: DictionaryIndex, query: string): WordAnswer {
   const normalised = normaliseHeadword(query);
   if (normalised.length === 0) return { query, exact: null, viaInflection: [] };
+  if (!isAnswerableHeadword(normalised)) return { query, exact: null, viaInflection: [] };
 
   const exact = groupFor(index, normalised);
 
   const viaInflection: InflectedHit[] = [];
   for (const candidate of lemmaCandidates(query)) {
     if (candidate.lemma === normalised) continue;
+    if (!isAnswerableHeadword(candidate.lemma)) continue;
     const group = groupFor(index, candidate.lemma);
     if (!group) continue;
     if (isImplausible(candidate.rule, group)) continue;
+    if (isOverriddenByIrregularTable(candidate.rule, candidate.lemma, group)) continue;
     viaInflection.push({ surface: normalised, lemma: candidate.lemma, rule: candidate.rule, group });
     if (viaInflection.length === MAX_INFLECTED_HITS) break;
   }
@@ -72,6 +117,10 @@ export function suggest(index: DictionaryIndex, prefix: string, limit: number): 
   for (let i = lowerBound(sortedHeadwords, normalised); i < sortedHeadwords.length && results.length < limit; i++) {
     const headword = sortedHeadwords[i];
     if (!headword.startsWith(normalised)) break;
+    // A one-letter headword lookupWord no longer answers is not a suggestion
+    // either: offering "b" only to have the reader tap it and see nothing
+    // change is worse than one fewer item in the list.
+    if (!isAnswerableHeadword(headword)) continue;
     results.push(headword);
   }
   return results;

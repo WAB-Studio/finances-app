@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 import messages from "../messages/es.json";
+import manifest from "../public/dictionary/manifest.json";
 import type { LookupOutcome } from "../lib/log/types";
 
 // The module 12 done criterion: `/registro/<normalised>` lists every search
@@ -124,9 +125,10 @@ test("a word's history lists every one of its searches with its date, and no oth
   await expect(page.getByText("Word", { exact: true })).toHaveCount(0);
   await expect(page.getByText("palabra", { exact: true })).toHaveCount(0);
 
-  // RNL-08: this screen is IndexedDB-only, never the dictionary Worker.
+  // This screen answers with the dictionary too now: exactly one Worker,
+  // the same single mount the search box gets — never one per row rendered.
   const workers = await page.evaluate(() => (window as unknown as { __workersBuilt: number }).__workersBuilt);
-  expect(workers).toBe(0);
+  expect(workers).toBe(1);
 
   await page.goto("/registro/word");
   await expect(page.getByRole("heading", { name: "Word" })).toBeVisible();
@@ -345,4 +347,70 @@ test("a single-word normalised with nothing to decode is unchanged", async ({ pa
   await page.goto("/registro/book");
   await expect(page.getByRole("heading", { name: "book" })).toBeVisible();
   await expect(page.getByText(messages.log.outcome.exact, { exact: true })).toHaveCount(1);
+});
+
+// The module's own done criterion: entering a word from the record answers
+// with the dictionary itself, not with a truncated copy of a translation
+// the log already cut to 120 characters. "bed" carries two senses, a noun
+// and a verb, both sharing one IPA — real entries this dictionary edition
+// holds, read straight from `public/dictionary` rather than trusted from a
+// seeded row, so a change to the payload would fail this test loudly
+// rather than pass on a fixture that no longer matches it.
+test("/registro/bed answers with the same senses, translations and IPA /?q=bed does", async ({ page }) => {
+  await deleteTranslator(page);
+  await page.goto("/registro");
+  await seedRows(page, [{ at: Date.now(), text: "bed", normalised: "bed", translation: "cama" }]);
+
+  await page.goto("/registro/bed");
+  await expect(page.getByRole("heading", { name: "bed" })).toBeVisible();
+  await expect(page.getByText("/bed/").first()).toBeVisible();
+  await expect(page.getByText("cama", { exact: true })).toBeVisible();
+  await expect(page.getByText("lecho", { exact: true })).toBeVisible();
+  await expect(page.getByText("encamarse", { exact: true })).toBeVisible();
+  // The one heading on the page is the word itself: `SenseList`'s own copy
+  // of "bed" stays suppressed, or this locator would be ambiguous.
+  await expect(page.getByRole("heading", { name: "bed" })).toHaveCount(1);
+  // RNL-03's own board, at this project's 360px: two full senses, an IPA
+  // and a translation list are more prose than the record ever drew here
+  // before, and the first thing more prose does is overflow.
+  const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
+  const clientWidth = await page.evaluate(() => document.documentElement.clientWidth);
+  expect(scrollWidth).toBe(clientWidth);
+
+  await page.goto("/?q=bed");
+  await expect(page.getByRole("heading", { name: "bed" })).toBeVisible();
+  await expect(page.getByText("/bed/").first()).toBeVisible();
+  await expect(page.getByText("cama", { exact: true })).toBeVisible();
+  await expect(page.getByText("lecho", { exact: true })).toBeVisible();
+  await expect(page.getByText("encamarse", { exact: true })).toBeVisible();
+});
+
+// RNL-09: the dictionary is a local asset once installed, so re-entering a
+// word off the record must read it from the device exactly as `/?q=` does
+// — never fetch its payload again, and never reach a server route this
+// screen has no business calling.
+test("opening /registro/bed, with the dictionary already on the device, reaches the network zero times", async ({
+  page,
+}) => {
+  await deleteTranslator(page);
+  await page.goto("/?q=bed");
+  await expect(page.getByText("cama", { exact: true })).toBeVisible();
+
+  await page.goto("/registro");
+  await seedRows(page, [{ at: Date.now(), text: "bed", normalised: "bed", translation: "cama" }]);
+
+  const assetPath = manifest.asset.path;
+  let assetRequests = 0;
+  let apiRequests = 0;
+  page.on("request", (request) => {
+    const url = request.url();
+    if (url.includes(assetPath)) assetRequests++;
+    if (url.includes("/api/")) apiRequests++;
+  });
+
+  await page.goto("/registro/bed");
+  await expect(page.getByText("lecho", { exact: true })).toBeVisible();
+
+  expect(assetRequests, "the dictionary asset is read off the device, never fetched again").toBe(0);
+  expect(apiRequests, "no server route fires on this screen").toBe(0);
 });

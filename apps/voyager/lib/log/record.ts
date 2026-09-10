@@ -1,4 +1,4 @@
-import { LOOKUP_SCHEMA, type LookupRecord, type SyncState } from "./types";
+import { LOOKUP_SCHEMA, type LookupOutcome, type LookupRecord, type SyncState } from "./types";
 
 // A separate database from `reading-dictionary`: an IndexedDB transaction is
 // scoped to one database, so a write here never queues behind a read of the
@@ -12,11 +12,23 @@ const SYNC_KEY = "state";
 // The sync store's single row, keyed for `keyPath: "key"`.
 type SyncRow = SyncState & { key: typeof SYNC_KEY };
 
-// The box is quiet this long before a query counts as settled, and a settled
-// row waits no longer than this before it is written even if the chain keeps
-// extending.
+// The box is quiet this long before a query counts as settled.
 const SETTLE_MS = 800;
-const MAX_PENDING_MS = 5000;
+
+// `localStorage.setItem` is the one storage write the platform guarantees
+// finishes before the calling script returns — unlike an IndexedDB
+// transaction, which commits on a later task that a document torn down by
+// a reload, a URL navigation or history traversal never gets to run. A row
+// lands here the instant it is at risk, and is read back the moment the
+// next document loads.
+//
+// Holds a list, not one row: `flushPendingLookup` can call `commit` twice in
+// the same synchronous pass — once for the prefix chain's displaced row,
+// once for the row that displaced it — and both are at risk from the same
+// navigation. A second commit used to overwrite the first's key outright
+// before its IndexedDB transaction had a chance to survive the teardown
+// (docs/TRAPS.md); the list is what lets both wait out that teardown.
+const PENDING_RELAY_KEY = "voyager:pending-log-row";
 
 let databasePromise: Promise<IDBDatabase> | null = null;
 
@@ -78,6 +90,64 @@ function openDatabase(): Promise<IDBDatabase> {
 // Starts the connection the moment this module loads, well before any query
 // settles, so `openDatabaseHandle` is already warm by the time a tab dies.
 if (typeof indexedDB !== "undefined") void openDatabase();
+// Same moment: claim whatever the document this one replaced could not
+// deliver, before anything in this document has a chance to relay a row
+// of its own and overwrite the key first.
+recoverRelayedRow();
+
+// Parses whatever is under `PENDING_RELAY_KEY` as a list. A single stray
+// object from a build before this list existed is read as empty rather than
+// thrown on: a mixed-version rollout is not a crash, just a row this
+// document cannot recover — the next commit still relays fine.
+function readRelayedRows(): LookupRecord[] {
+  const raw = localStorage.getItem(PENDING_RELAY_KEY);
+  if (!raw) return [];
+  const parsed = JSON.parse(raw) as unknown;
+  if (Array.isArray(parsed)) return parsed as LookupRecord[];
+  // The relay held one bare object until 2026-09-10. A reader whose row was
+  // in flight across that deploy has that shape on disk and one document
+  // left to recover it in: read it as a list of one rather than dropping it.
+  return parsed !== null && typeof parsed === "object" ? [parsed as LookupRecord] : [];
+}
+
+// Appends `row` to whatever list was already relayed: a flush that commits
+// two rows in one synchronous pass must not have the second erase the
+// first, only the write itself can fail. `setItem` never partially writes —
+// it replaces the key whole or, on a full or disabled store, not at all —
+// so a row already resting there survives a sibling's own failed relay.
+function relayPendingRow(row: LookupRecord): void {
+  if (typeof localStorage === "undefined") return;
+  try {
+    const relayed = readRelayedRows();
+    relayed.push(row);
+    localStorage.setItem(PENDING_RELAY_KEY, JSON.stringify(relayed));
+  } catch {
+    // The IndexedDB attempt still stands on its own; see above.
+  }
+}
+
+// Drops `row` alone from the relayed list, once its own fate — committed or
+// failed — is known. Leaves every other row named there untouched: two rows
+// can be in flight at once, each with its own `writeRow`/`writeRowSync`
+// callback racing the next navigation, and one landing must never take a
+// companion's spot in the list down with it.
+function clearRelayedRow(row: LookupRecord): void {
+  if (typeof localStorage === "undefined") return;
+  try {
+    const relayed = readRelayedRows();
+    const remaining = relayed.filter((r) => !(r.at === row.at && r.normalised === row.normalised));
+    if (remaining.length === relayed.length) return;
+    if (remaining.length === 0) {
+      localStorage.removeItem(PENDING_RELAY_KEY);
+    } else {
+      localStorage.setItem(PENDING_RELAY_KEY, JSON.stringify(remaining));
+    }
+  } catch {
+    // A list this document cannot parse cannot be trimmed row by row
+    // either: drop the whole key rather than keep guessing at it.
+    localStorage.removeItem(PENDING_RELAY_KEY);
+  }
+}
 
 async function writeRow(row: LookupRecord): Promise<void> {
   try {
@@ -92,6 +162,26 @@ async function writeRow(row: LookupRecord): Promise<void> {
   } catch {
     // A caller learns nothing about whether a write succeeded, by design.
     databasePromise = null;
+  } finally {
+    clearRelayedRow(row);
+  }
+}
+
+// Reads back every row the previous document relayed and never got to clear
+// — the sign its own IndexedDB write did not survive it — and writes each
+// one here instead, oldest first. `writeRow` clears its own row out of the
+// list once it lands, the same as it would for a row committed the
+// ordinary way, so one row's write never waits on another's.
+function recoverRelayedRow(): void {
+  if (typeof localStorage === "undefined") return;
+  const raw = localStorage.getItem(PENDING_RELAY_KEY);
+  if (!raw) return;
+  try {
+    for (const row of readRelayedRows()) {
+      void writeRow(row).then(notifyFlushed);
+    }
+  } catch {
+    localStorage.removeItem(PENDING_RELAY_KEY);
   }
 }
 
@@ -104,12 +194,17 @@ function writeRowSync(row: LookupRecord): boolean {
   try {
     const transaction = openDatabaseHandle.transaction(STORE_NAME, "readwrite");
     transaction.objectStore(STORE_NAME).add(row);
-    transaction.oncomplete = notifyFlushed;
+    transaction.oncomplete = () => {
+      clearRelayedRow(row);
+      notifyFlushed();
+    };
     transaction.onerror = () => {
+      clearRelayedRow(row);
       databasePromise = null;
       openDatabaseHandle = null;
     };
     transaction.onabort = () => {
+      clearRelayedRow(row);
       databasePromise = null;
       openDatabaseHandle = null;
     };
@@ -129,11 +224,32 @@ function notifyFlushed(): void {
   if (typeof window !== "undefined") window.dispatchEvent(new Event(LOG_FLUSHED_EVENT));
 }
 
-// Tries the same-task path first — it costs nothing when the connection is
-// already warm, which is nearly always, and it is the only path a dying
-// page can still complete. Falls back to the awaited path only while the
-// connection is still opening, a gap that closes once, early, at load.
+// RL-39: a word that matched nothing and a sentence that could not be
+// translated leave no row. The guard lives here, at the one place every
+// settled candidate — hit or miss — ends up, never at the call that reports
+// it: `recordLookup` still has to run for a miss, so it can displace
+// whatever prefix was pending and let the chain keep extending past it.
+const LOGGED_OUTCOMES: ReadonlySet<LookupOutcome> = new Set(["exact", "inflected", "translated"]);
+
+// Relays to `localStorage` before either IndexedDB path is even tried: a
+// killed tab still lets its transaction commit (measured), but a reload, a
+// URL navigation or a history traversal tears the document down before its
+// transaction's own callback ever runs, and the add() beneath it is lost
+// with it. The relay is this commit's only copy until that callback proves
+// the write landed and clears it.
+//
+// Tries the same-task IndexedDB path first — it costs nothing when the
+// connection is already warm, which is nearly always, and it is the only
+// path a dying page can still complete. Falls back to the awaited path
+// only while the connection is still opening, a gap that closes once,
+// early, at load.
+//
+// The outcome check runs before the relay is even touched: a miss must
+// never sit in `localStorage` waiting for a load that would resurrect it,
+// the same as it must never reach IndexedDB.
 function commit(row: LookupRecord): void {
+  if (!LOGGED_OUTCOMES.has(row.outcome)) return;
+  relayPendingRow(row);
   if (writeRowSync(row)) return;
   void writeRow(row).then(notifyFlushed);
 }
@@ -142,14 +258,17 @@ function isStrictPrefix(previous: string, next: string): boolean {
   return next !== previous && next.startsWith(previous);
 }
 
-// The one pending row this module ever holds, and the timers that govern it.
+// The one pending row this module ever holds, and the timer that governs it.
 let pending: LookupRecord | null = null;
 let latestCandidate: LookupRecord | null = null;
 let settleTimer: ReturnType<typeof setTimeout> | null = null;
-let maxPendingTimer: ReturnType<typeof setTimeout> | null = null;
 
 // Folds the most recent, not-yet-settled call into `pending`: merges it into
 // a same-word chain, or commits the displaced row and starts a new chain.
+// The chain closes only where `flushPendingLookup` is called from — the box
+// emptying, this screen unmounting, the tab hiding or the page unloading —
+// never on a clock: a reader who pauses mid-word for longer than that keeps
+// one row, not one per pause.
 function settleCandidate(): void {
   const candidate = latestCandidate;
   latestCandidate = null;
@@ -159,9 +278,7 @@ function settleCandidate(): void {
     return;
   }
   if (pending) commit(pending);
-  if (maxPendingTimer) clearTimeout(maxPendingTimer);
   pending = candidate;
-  maxPendingTimer = setTimeout(flushPendingLookup, MAX_PENDING_MS);
 }
 
 function onSettleTimer(): void {
@@ -170,9 +287,11 @@ function onSettleTimer(): void {
 }
 
 /**
- * Buffers one keystroke's answer. Returns `void`, never a promise, so no
- * caller can put a write on the path that produces an answer (RNL-06). The
- * guard below decides whether and when this ever reaches IndexedDB.
+ * Buffers one keystroke's answer, hit or miss alike — a miss still has to
+ * pass through here to displace whatever prefix was pending. Returns
+ * `void`, never a promise, so no caller can put a write on the path that
+ * produces an answer (RNL-06). `commit`'s own guard, above, decides whether
+ * and when this ever reaches IndexedDB.
  */
 export function recordLookup(row: Omit<LookupRecord, "id" | "schema">): void {
   latestCandidate = { ...row, schema: LOOKUP_SCHEMA };
@@ -184,8 +303,11 @@ export function recordLookup(row: Omit<LookupRecord, "id" | "schema">): void {
  * Forces the pending row to IndexedDB now. Call this when the box empties:
  * the guard has no other way to learn a query was abandoned mid-word. Also
  * fires on tab hide and page hide, where `commit` above starts the write in
- * the same task instead of behind a promise, so a killed tab still commits
- * the one row this module ever holds pending.
+ * the same task instead of behind a promise and relays a copy to
+ * `localStorage` first — a killed tab lets the IndexedDB write finish on
+ * its own, but a reload, a URL navigation or a history traversal can tear
+ * the document down before it does, and the next document's own load is
+ * what actually lands the row then.
  */
 export function flushPendingLookup(): void {
   if (settleTimer) {
@@ -193,10 +315,6 @@ export function flushPendingLookup(): void {
     settleTimer = null;
   }
   settleCandidate();
-  if (maxPendingTimer) {
-    clearTimeout(maxPendingTimer);
-    maxPendingTimer = null;
-  }
   if (pending) {
     commit(pending);
     pending = null;
@@ -235,6 +353,34 @@ export async function readAll(): Promise<LookupRecord[]> {
 /** The open connection, for the merge module's transactions on `lookups`. */
 export function openLogDatabase(): Promise<IDBDatabase> {
   return openDatabase();
+}
+
+// `history-list.tsx` listens for this the same way it listens for
+// `LOG_FLUSHED_EVENT`: a reread, not a diff. Kept separate from that event
+// rather than reused — a row landing and the whole store emptying are not
+// the same fact, and a listener added later for one should not have to
+// filter out the other.
+export const LOG_CLEARED_EVENT = "voyager:log-cleared";
+
+/**
+ * Empties `lookups` on this device only. Never touches `sync`: `pushedThroughLocalId`
+ * and `pulledThroughCursor` stay where they were, which is what keeps a wiped
+ * row from coming back on the next `syncNow()` — IndexedDB's own `clear()`
+ * does not rewind the store's key generator, so a search recorded after this
+ * still mints an `id` past every cursor already written, and a stale
+ * `pulledThroughCursor` still names everything the account already sent down
+ * as already seen. Measured driving `syncNow()` in `e2e/registro.spec.ts`.
+ */
+export async function clearLocalLookups(): Promise<void> {
+  const database = await openDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const transaction = database.transaction(STORE_NAME, "readwrite");
+    transaction.objectStore(STORE_NAME).clear();
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
+  });
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(LOG_CLEARED_EVENT));
 }
 
 function defaultSyncState(): SyncState {
