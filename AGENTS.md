@@ -195,6 +195,11 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
   drives that app. Measured 2026-09-10: a critic typed `lector.prueba@example.com`, the send bounced
   into the user's inbox, and the census found **seven** ghost rows from three separate days —
   `lector@example.com` and five `nietoc0595+voyager-rate-N@gmail.com`. All seven deleted that day.
+- Never mutate the deliverability guard in `app/actions/account.ts` while a spec submits that form.
+  With the guard on, a dead domain is refused before Supabase and the spec is safe; with it off, the
+  same spec sends for real. Prove that guard bites by calling `isDomainDeliverable` directly, never
+  by disabling it and driving the screen. Measured 2026-09-10, two hours after the rule above: a
+  worker did exactly that and minted two more rows and two more bounces.
 - Clean up in the same script that probes `auth` from `apps/voyager`. It has no harness registry, so
   `harness:census` cannot see its rows and `harness:reap` cannot prune them. The census matches
   `harness%@example.invalid` and null emails only, so a `/cuenta` row is invisible to it: read
