@@ -120,10 +120,14 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   2026-09-07. Checked 2026-09-08: the published canvas contains the string `Noche` zero times.
   Nothing on it contradicts this file any more.
 - When a board and this file disagree, **this file wins**.
-- **The canvas is 156 boards**, counted 2026-09-09 from the published file after the critic's drive.
-  The last twenty are the five decisions of that afternoon, each drawn light and dark × desktop and
-  mobile before any worker was dispatched, each carrying an annotation that says what was refused:
-  `SugerenciasPausadas` (the prefix that keeps its list), `SinEntradaFraseEnlaces` (every block a way
+- **The canvas is 164 boards**, counted 2026-09-10 by parsing the published file's `appifact-doc`
+  block: 165 entries, of which one is `canvas.json`. The last eight are `RegistroVaciar` and
+  `RegistroVaciarConfirmar`, light and dark × desktop and mobile, drawn before module 17 was
+  dispatched. The counts below are the earlier readings, kept for what each measured:
+- **The canvas was 156 boards**, counted 2026-09-09 from the published file after the critic's drive.
+  The twenty before those are the five decisions of that afternoon, each drawn light and dark ×
+  desktop and mobile before any worker was dispatched, each carrying an annotation that says what was
+  refused: `SugerenciasPausadas`, `SinEntradaFraseEnlaces` (every block a way
   back in), `CuentaSinRed` (the one screen allowed to name the connection), `PalabraDefinicionPlegada`
   and `PalabraDefinicionAbierta` (the English definition's two states). The older count follows:
 - **The canvas was 112 boards**, counted 2026-09-09 from the published file: Inicio, Palabra,
@@ -133,6 +137,13 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   CuentaDentro, CuentaCopia, CuentaCopiaEstados, CuentaInformacion, Dispositivos and
   **BarraSidebar**, each in light/dark × desktop/mobile. The nine that arrived 2026-09-09 are T2,
   T3, T4 and T5; the count is the only thing that changed.
+- **`SugerenciasPausadas`'s four boards were re-annotated 2026-09-10, canvas version 24.** They drew
+  the right screen and said the wrong rule: «La lista no se retira al asentarse el prefijo. Se queda
+  hasta que el texto cambie», which `#128` made false the day it was written. The drawing never
+  needed changing — `ru` has no entry, so it does keep its ten. Only the sentence moved, to: the list
+  withdraws when an answer is on screen, never on a clock. **No board draws the other half of that
+  rule** — `word`, answered, with the list gone — because it is an ordinary `Palabra` board and the
+  `Palabra` family already draws it.
 - **An answer the AI wrote already has boards** — `SinResultadoIA` and `SinResultadoIAFallo`, both
   in all four. Whatever RL-29 becomes, it is not drawing from nothing.
 - **Nothing is drawn for exporting or for syncing**, and this file names neither. A screen for

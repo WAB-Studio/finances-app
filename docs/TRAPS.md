@@ -1398,3 +1398,28 @@ Proven by reverting `relayPendingRow`/`clearRelayedRow` to the single-key versio
 new case: it reds losing "book" exactly as described, and passes again once the list comes back.
 Never touched `SETTLE_MS` or `MAX_PENDING_MS` to fix this — both are settled questions elsewhere in
 this file and in `docs/voyager/SPEC.md`'s `RL-39`.
+
+### Reading the design canvas spends 30k tokens before the file exists
+
+`Artifact` with `action: "read"` saves the 3.3 MB page to a file, but it also returns a "head" —
+and the head of this page is the canvas editor's own stylesheet plus a base64 WOFF2 font. Measured
+2026-09-10: **about 30,000 tokens landed in the conversation** and not one of them was a board. The
+saved file was correct and complete; the head was pure cost.
+
+There is no flag to suppress it. So read the canvas **once per session, from the main session**,
+and take everything else from the saved file, whose path the result names. To go from that file to
+the boards, parse rather than grep — the whole design is one JSON document:
+
+```python
+files = json.loads(re.search(r'<script[^>]*id="appifact-doc"[^>]*>(.*?)</script>',
+                             open(F, encoding='utf-8').read(), re.S).group(1))['content']['files']
+```
+
+`files` is `{"NombreDelTablero.dc.html": "<html>…"}` plus one `canvas.json`, so the board count is
+`len(files) - 1` and a board's markup is a plain string to search and edit.
+
+To republish it, serialise with the settings that round-trip this page byte for byte —
+`json.dumps(doc, ensure_ascii=False)`, default separators — then escape the script tags the way the
+page already does, `</script` → `<\/script`, 164 of them as of version 24. Assert the count and the
+absence of a bare `</script` before publishing: a missed escape truncates the page into one that
+looks empty rather than broken.
