@@ -383,15 +383,30 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   an implementation detail: everywhere else in this app a lookup never leaves the device — RL-35 (the
   word's text), RNL-09 (the copy), the consent the account screen already asks for — and the photo is
   the one deliberate exception, telling Wikimedia both the word and the reader's IP address.
-- **No board draws a photo in the answer.** The canvas has no state for it in `Palabra`, in any of
-  the four combinations of light/dark × desktop/mobile. It needs an amendment to the `Palabra` board
-  before any module draws one, and until that amendment exists, none does.
+- **The photo's three states are drawn, on the dark mobile face** — canvas version 28, 2026-09-10:
+  `PalabraFotoOscuroMovil` (resolved), `PalabraFotoCargandoOscuroMovil` (asked for, not yet back) and
+  `PalabraSinFotoOscuroMovil` (the 42% with nothing behind them). Dark, not light, because a
+  photograph on `#14130F` is a real design difference and not the token table applied — the one place
+  in this app where the dark face is not derivable from the light one. **No desktop face was drawn:**
+  the answer is one column at both widths and the photo takes that column's full measure, so a desktop
+  board would repeat the decision instead of taking one.
+  What the boards propose, still **open for the user to take or refuse**:
+  **the photo goes last in the answer**, after every sense, so a lazily-resolved image never pushes
+  text the reader is already reading, and its slot holds its final height while it is pending, so
+  nothing jumps when it lands; **the credit sits over the image's own foot**, on a scrim, not in a
+  caption under it — Wikimedia's licence is per file, so it has to travel with the picture; and
+  **no photo means no slot, no placeholder and no apology** — the 42% draws exactly the screen it
+  draws today, because a «sin imagen» marker turns the commonest case into a visible failure.
 - **Wikimedia's licence is per file, and this app hides licences in a tab today.** CC BY-SA, CC0 and
   public domain sit mixed across individual files, so every photo carries its own attribution, unlike
   the CC BY-SA 3.0 that covers the whole dictionary asset under one credit. `/cuenta` is where this
   app already puts a licence (RL-33's source and licence, in an information tab). A per-image credit
   cannot hide there. A per-image attribution has to sit next to its image to mean anything, which is the
-  opposite instinct. **Open, not resolved here:** where does a photo's attribution go?
+  opposite instinct. **Now obligatory, not optional:** the user chose 2026-09-10 to keep the bytes in
+  a Supabase bucket rather than hotlink, and re-serving a CC BY-SA file is redistribution, which
+  carries its share-alike with it. **The canvas proposes an answer and the user has not taken it
+  yet:** the credit rides on the image's own foot, over a scrim — author, licence, Wikimedia Commons
+  — so it cannot be separated from the file it covers. See the photo-board bullet above.
 
 - **A sense group carries one category label, and the group's IPA sits on that label's row.**
   Decided by the user 2026-09-09, looking at `PalabraCategoria`, over the alternative of giving every
@@ -591,13 +606,17 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   failure line, no retry and no way out but a reload. This is the one screen that genuinely needs
   the network, so it is the one screen allowed to say so. Everywhere else the silence holds.
 
-- **The English definition folds away behind a tap.** Decided by the user 2026-09-09. **51,622 of
-  64,258 entries (80.3%)** carry a «Definición» block whose prose is English — `her` → «The form of
-  she used after a preposition…» — under a Spanish heading, for someone who has just demonstrated
-  they did not understand an English word. Folding keeps it for the reader who does read some
-  English and shortens the app's longest screen for the one who does not. Removing it outright was
-  refused: the information is real. The fold's two states must be drawn, and which one opens is a
-  drawing decision, not a code one.
+- **The English definition draws open, always.** Decided by the user 2026-09-10, over folding it
+  and over opening it only under a length threshold. **This reverses the fold decided 2026-09-09**,
+  whose stated reason was to shorten the app's longest screen. Measured before the question was put:
+  the definition is **a sentence**, not a paragraph — median **75 characters**, p75 114, p90 161,
+  p95 194, p99 270, max 657; senses carrying one at all have a median of **1** per word, max 4. A
+  fold costs a tap in the **80.3%** of lookups that carry a definition (51,622 of 64,258 entries) to
+  save two lines. The counter-argument was put to the user and refused: it is English prose under a
+  Spanish heading, for someone who has just demonstrated they did not understand an English word, so
+  opening it always does not make it more useful, it makes it more visible. Removing it outright was
+  refused 2026-09-09 and stays refused: the information is real.
+  **`PalabraDefinicionPlegada` is retired as a board** — there is no folded state left to draw.
 
 - **A one-character query answers only `a` and `i`, everything else falls through to
   suggestions. Decided by the user 2026-09-09.** Typing `b` against the production build drew
