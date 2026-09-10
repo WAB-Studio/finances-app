@@ -427,6 +427,18 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   **Never send a flagship for a task like this.** One `gpt-5.5` call was spent on an opinion during
   this session and it bought nothing the measurement did not already say.
 
+- **Generated text is marked «generada»; a dictionary definition is not.** The dictionary's own
+  definitions come from Wiktionary under CC BY-SA and have been reviewed by people; a generated one
+  was written by a model that mis-defined `abies` in a test of twelve. Without the mark the reader
+  cannot tell which is which, and has no way to know when to doubt one. Taken 2026-09-10 on the
+  user's «déjalo como consideres», against the cost of one more 10px line on the screen.
+
+- **The route carries a hard daily spend ceiling, and refuses past it.** Lazy generation means the
+  bill follows use, and use has no ceiling of its own. Past the cap the route stops calling the model
+  and answers as if there were no connection — which RL-35 already makes safe, and which the
+  «sin red» board already draws, so no new state is invented for it. Taken 2026-09-10 on the same
+  instruction. The number lives in an env var, not in code, so moving it costs no deploy.
+
 - **Both are resolved lazily and cached, never in a pass over the dictionary.** Decided by the user
   2026-09-10, explicitly: «que se gaste poco a poco pero que no se ponga a buscar todo el diccionario
   de un tacazo». A word is generated the first time somebody looks it up, and cached so it costs once
