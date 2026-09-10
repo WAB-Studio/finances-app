@@ -183,8 +183,14 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
 - **`Fuente`'s four boards draw a route that is being retired.** The decision below takes `/fuente`
   out; `CuentaInformacion` (T4) is the credit's only board from now on. The `Fuente` boards stay on
   the canvas as stale — never cite one in a dispatch.
-- **The one board still missing is the photo.** RL-36 draws a photo inside the word's answer and no
-  board in any of the four faces has a state for it. No module of the 2026-09-08 slice draws one, so
+- **Every route this app serves has a board, checked 2026-09-10 against `app/`'s own files.** The
+  routes are `/`, `/cuenta`, `/registro`, `/registro/[palabra]` and the three error screens; the 43
+  board families cover all of them. A handoff carried «four screens from yesterday still have no
+  board» from 2026-09-09 into 2026-09-10 — it named none of them, and by the time it was checked
+  every route was drawn. **Name the screen or do not carry the claim.**
+- **The one board still missing is the photo, and that was checked, not assumed.** Searched every
+  board's source 2026-09-10 for `<img`, `background-image`, `foto` and `photo`: **zero hits across
+  all 127**. RL-36 draws a photo inside the word's answer and no board has a state for it. No module of the 2026-09-08 slice draws one, so
   it blocks nothing today — and the first module that does opens the amendment before it writes a
   line.
 - **The two dark `BarraSidebar` boards marked «Claro» selected in the theme control**, drawn dark.
@@ -476,7 +482,9 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   3-to-60-token phrase to `PhraseAnswer` today, so the breakdown ran at exactly two tokens and
   `MAX_BLOCKS = 8` never fired. From now on, a 3-to-60-token phrase whose translation comes back
   empty drops to `NoEntryAnswer`: at most eight word blocks, the rest one line. The cut and the «N
-  más» line become reachable, and the board that draws that fallback does not exist yet.
+  más» line become reachable. **The board for it does exist** — `SinEntradaFraseEnlaces`, which
+  draws the eight blocks, the «y 2 palabras más» line and the links out of each one. This sentence
+  said otherwise until 2026-09-10; it was written before that board landed and nobody moved it.
 - **`/fuente` is retired, and the credit lives in `/cuenta` alone.** Decided by the user 2026-09-09.
   The route was orphaned from module 6 — no screen linked it, `source.open` had no caller — and it
   is a leftover of RL-15, retired 2026-09-08. RL-33 already puts the source, the edition and the CC
