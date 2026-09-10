@@ -6,6 +6,28 @@ file, the measurement and the date. Read the ones that touch what you are about 
 Working rules live in `AGENTS.md`. Session state lives in `private/handoffs/`. This file
 holds only what a person could not guess from the code.
 
+
+## A test seeded with the answer passes whether or not the code works
+
+Measured 2026-09-10, module 8 (the photo credits in `/cuenta`).
+
+`/api/word/photo` stores and returns **bare licence codes** — `by`, `by-sa`, `cc0`, `pdm`. The
+component was supposed to turn those into a name a reader recognises, using the
+`account.info.photoLicence` map module 3 had already shipped. It never did: it interpolated
+`credit.licence` verbatim, so a real row rendered «osde8info · by-sa» where the board says
+«CC BY-SA». Naming the licence is the part of CC BY-SA that redistribution requires, so this was a
+licence defect, not a cosmetic one.
+
+The worker verified it and reported a pass. Its seed set `licence` to the already-formatted string
+`"CC BY-SA 4.0"` instead of the enum code the route emits, so the assertion held whether or not the
+mapping existed. **Seed a probe with what the producer really writes, never with the string you
+expect to read.** The same shape caught the repo twice before — module 16 read a mark no writer
+sets, module 14 drew data no query selects.
+
+The durable fix was a type, not a lookup: `Credit["licence"]` is now `WordPhoto["licence"]`, so a
+pre-formatted string can no longer be stored by mistake. Prefer the type that makes the bad seed
+impossible over the test that catches it.
+
 ## Drizzle
 
 ### An embedded column renders bare in a projection
