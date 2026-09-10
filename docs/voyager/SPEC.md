@@ -74,6 +74,18 @@ this gets built, and no schema, table or column is "prepared for" it.
   waits on the network: with a connection or without one, the same text appears at the same speed,
   and no keystroke ever leaves the device. What the network can add afterwards is decoration: it
   arrives late, arrives only sometimes, and its absence never changes the answer or delays it.
+- [ ] **RL-41** — A word whose dictionary entry carries **no definition at all** can be given one
+  over the network: one English sentence, in the dictionary's own register. **12,670 of the 64,258
+  entries (19.7%) carry none** — 6,989 nouns, 2,664 verbs, 2,098 adjectives — and today those words
+  answer with translations alone. It is **decoration under RL-35**: it is resolved the first time
+  someone looks that word up, never in a pass over the dictionary, it is cached so a word costs once
+  for every reader ever, and with no connection the answer is exactly the one the device already
+  draws. A word that already has a definition never asks for one.
+
+- [ ] **RL-42** — A word can carry **one example sentence using it**, with its Spanish translation,
+  resolved and cached the same way and under the same decoration clause. This is not RL-08's path:
+  RL-08 translates a sentence the reader typed, this shows the word in use.
+
 - [ ] **RL-36** — The answer to a concrete noun can carry an image, requested from Wikimedia Commons
   as the answer draws and only with a connection. The image never blocks or delays the answer;
   offline, with no result, or on failure, the answer draws just the same, with no gap left for it.

@@ -383,6 +383,50 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   an implementation detail: everywhere else in this app a lookup never leaves the device — RL-35 (the
   word's text), RNL-09 (the copy), the consent the account screen already asks for — and the photo is
   the one deliberate exception, telling Wikimedia both the word and the reader's IP address.
+- **The photo comes from Openverse, not from Wikimedia, and no model chooses it.** Decided by the
+  user 2026-09-10 after the Wikimedia path was measured and found to be the wrong question: this file
+  had assumed Wikipedia as the source, and the user had never asked for that constraint — «a mí no me
+  importaba la fuente». Measured over the same 300 nouns:
+
+  | | coverage | wrong-subject redirects | LLM calls |
+  |---|---|---|---|
+  | Wikipedia article images | 55.0% | 11.7% | 0 |
+  | Wikipedia + `gpt-5-nano` choosing the article | 58.3% | 6.0% | 100% |
+  | **Openverse image search** | **95.7%** | — | **0** |
+
+  Openverse is WordPress's CC image search over Flickr, Wikimedia and others. **It needs no key and
+  no model.** Restricted to permissive licences only — `by`, `by-sa`, `cc0`, `pdm`, no NC and no ND,
+  which matters because the bytes are re-served from our own bucket — it still answers **95.0%**
+  (285 of 300). Licences seen: `by` 139, `by-sa` 127, `cc0` 11, `pdm` 8. Every result carries its
+  author and licence, which is what feeds the per-image list in `/cuenta`.
+  **The whole `gpt-5-nano` article-choosing design is dropped.** It bought 3.3 points of coverage for
+  a paid call and 3.7s of latency per word.
+
+- **The model moves to what the dictionary is actually missing: definitions and example sentences.**
+  Decided by the user 2026-09-10. **RL-41** fills the 19.7% of entries that carry no definition at
+  all; **RL-42** adds one example sentence with its translation.
+
+- **Both are resolved lazily and cached, never in a pass over the dictionary.** Decided by the user
+  2026-09-10, explicitly: «que se gaste poco a poco pero que no se ponga a buscar todo el diccionario
+  de un tacazo». A word is generated the first time somebody looks it up, and cached so it costs once
+  for every reader there will ever be. **This is what bounds the bill**, and the bound is real usage,
+  not the 64,258 entries.
+  **It also keeps the asset where it is.** Baking the generated text into the downloaded dictionary
+  would take it from **8.00 MiB to 14.14 MiB** — measured — and that cost is paid by every reader on
+  every install, in an offline-first app. Caching server-side pays nothing at install.
+
+- **RL-35 does not need retiring for this, and was not.** Its own text already allows it: «what the
+  network can add afterwards is decoration: it arrives late, arrives only sometimes, and its absence
+  never changes the answer or delays it». A definition for a word that has none, and a sentence, only
+  ever add. With no connection the screen is exactly the one the device draws today.
+
+- **Dollar figures in this repo's AI reports before 2026-09-10 were assumed, not verified, and were
+  wrong by about 7x.** The per-token prices were never checked against a bill; the account balance
+  moved **USD 9.96 → 9.68** while the estimates for the same work summed to USD 0.04. The key cannot
+  read `api.usage.read`, so **the balance is the only ground truth available** — read it, do not
+  compute it. What that corrects: the 300-noun photo run cost **~USD 0.25, not 0.035**, and resolving
+  the whole dictionary with a model would have been **~USD 20, not 2.89**.
+
 - **The photo is drawn on the dark face, in five boards** — canvas version 29, 2026-09-10:
   `PalabraFotoOscuroMovil` (resolved), `PalabraFotoCargandoOscuroMovil` (asked for, not yet back),
   `PalabraSinFotoOscuroMovil` (the 42% with nothing behind them), `PalabraFotoOscuroEscritorio` and
