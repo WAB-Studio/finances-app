@@ -1203,6 +1203,46 @@ para explicar por qué.
 - El mecanismo que inventó era plausible y estaba mal: `width: auto` en un hijo de una columna flex
   **sí** resta los márgenes al estirarse. Eso es lo que arregla el desbordamiento.
 
+**Medido otra vez el 2026-09-10, y esta vez enrojeció una suite, no a un crítico.** Un módulo quitó
+el plegado de la definición; `word.spec.ts` dio dos rojos y el `error-context.md` del fallo mostraba
+`button "Definición en inglés"` — el control que el cambio elimina. El código estaba bien.
+
+Lo nuevo, y es lo que cuesta encontrar: **el build estaba fresco y el servidor no.** `BUILD_ID`
+marcaba las 14:33 y el fuente las 13:52, así que el `npm run build` sí había corrido. Faltaba el
+reinicio, porque `next start` lee el `.next` **al arrancar**.
+
+- **`Another next dev server is already running` no aplica a un `next start`.** Esa regla de
+  `AGENTS.md` es correcta para un `dev`, que recompila solo, y **falsa para un build de producción**,
+  que no. El worker intentó reiniciar :3100, la regla lo mandó a reusar el que había, y midió JS
+  viejo. Tras reconstruir, **reinicia siempre**, aunque el puerto responda.
+- Diagnóstico en un solo paso: `stat -c '%y' apps/voyager/.next/BUILD_ID` contra el `%y` del fichero
+  que editaste. Si el build es posterior y la página sigue mostrando lo viejo, es el servidor.
+- El snapshot del `error-context.md` dice qué se estaba sirviendo de verdad. Léelo antes de dudar
+  del código: ahí se vio el `button` que ya no existía en el fuente.
+
+## La `e2e` de orbit sale «cancelled» en el push a `main`, y no es un defecto
+
+Medido 2026-09-10 sobre el run 34511136317, el merge de la PR #140. Los otros siete jobs en verde
+(`policies`, `typecheck`, `changes`, `dictionary`, `lint`, `voyager-e2e`, `build-orbit`); sólo `e2e`
+cancelada, a los 102 s.
+
+La causa está en el propio workflow:
+
+```yaml
+concurrency:
+  group: e2e-remote-db
+  cancel-in-progress: false
+```
+
+`cancel-in-progress: false` no toca al run que está corriendo, pero **GitHub sólo admite un run
+pendiente por grupo**: un tercero encolado detrás cancela al que ya esperaba. Es el interlock
+funcionando — el grupo existe para que dos runs no toquen la base remota a la vez.
+
+No hay nada que arreglar. La cobertura existe: el mismo árbol pasó la `e2e` en verde dentro de la
+PR #140, y `AGENTS.md` ya dice que la `e2e` de orbit es informativa y que ningún check la exige en
+`main`. Lo único que se pierde es la señal en el push cuando los runs se amontonan. **Escrito para
+que nadie lo investigue una cuarta vez.**
+
 ## This machine cannot test a reserved scrollbar
 
 Measured 2026-09-09 while fixing `components/ui/page.module.css`'s `100vw` centring. Chromium here
