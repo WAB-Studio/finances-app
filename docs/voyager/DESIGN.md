@@ -406,6 +406,27 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   Decided by the user 2026-09-10. **RL-41** fills the 19.7% of entries that carry no definition at
   all; **RL-42** adds one example sentence with its translation.
 
+- **The model is `gpt-5-nano` with `reasoning_effort: low`.** Decided by the user 2026-09-10, over
+  `minimal`, with the fallback stated plainly: «si lo vemos muy mal pues se prueba en otra».
+  Measured on the same 12 entries that carry no definition:
+
+  | | output tokens | reasoning | time | quality |
+  |---|---|---|---|---|
+  | `gpt-5-nano` `low` | 2,695 | 2,240 | 17.6s | correct |
+  | `gpt-5-nano` `minimal` | **607** | 0 | 4.5s | **invented one definition** |
+  | `gpt-4.1-nano` | 460 | 0 | 7.3s | **rejected** |
+
+  `minimal` is 4.4x cheaper and defined `abies` as «the embryonic or immature forms of certain
+  trees»; it is the fir genus, which `low` got right. **A false definition in a dictionary is worse
+  than no definition** — the same test the photo had to pass. The saving is not worth it because
+  **lazy caching already makes a word cost once for the life of the app**: 4x on cents.
+  `gpt-4.1-nano` was rejected outright — in 12 of 12 it returned the bare word where the sentence's
+  translation was asked for, and invented «antivario» as Spanish.
+  **`reasoning_effort` is where the bill actually was**: 83% of the output tokens in the first test
+  were reasoning, spent to write dictionary sentences that need none. Never leave it unset.
+  **Never send a flagship for a task like this.** One `gpt-5.5` call was spent on an opinion during
+  this session and it bought nothing the measurement did not already say.
+
 - **Both are resolved lazily and cached, never in a pass over the dictionary.** Decided by the user
   2026-09-10, explicitly: «que se gaste poco a poco pero que no se ponga a buscar todo el diccionario
   de un tacazo». A word is generated the first time somebody looks it up, and cached so it costs once
