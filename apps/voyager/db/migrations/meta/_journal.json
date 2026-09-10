@@ -8,6 +8,13 @@
       "when": 1788900219073,
       "tag": "0000_shallow_hammerhead",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1789073968498,
+      "tag": "0001_typical_nova",
+      "breakpoints": true
     }
   ]
 }
