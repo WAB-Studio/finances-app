@@ -1490,3 +1490,39 @@ the account wipe calls `DELETE /api/log/clear`, which cannot work offline anyway
 it.** `npm run build -w apps/voyager` prints `○ /registro` before and `ƒ /registro` after. Nothing
 fails; the route just starts costing a server render per visit. Diff the route table against the
 base branch whenever a page gains a call that reads cookies or headers.
+
+
+## Openverse y el bucket de Supabase: tres cosas que muerden al escribir el módulo
+
+Medido 2026-09-10 conduciendo la cadena entera —buscar, bajar, subir— antes de despachar nada.
+Las tres salieron en las primeras cinco palabras.
+
+### Los metadatos de S3 sólo admiten ASCII, y los autores de Openverse no lo son
+
+`put_object` con `Metadata={"creator": ...}` revienta con
+`ParamValidationError: Non ascii characters found in S3 metadata`. El autor que lo destapó venía
+como **`☺ Lee J Haywood`** — un emoticono dentro del nombre, en el primer resultado de `kettle`.
+
+**La atribución no va pegada al objeto en S3. Va a Postgres**, que además es de donde lee la lista
+por imagen de `/cuenta`. Pegarla al objeto era la arquitectura equivocada y el error lo dice antes.
+
+### Un resultado de Openverse puede apuntar a una imagen muerta
+
+`abeyance` devolvió un resultado válido cuya miniatura dio **`HTTP 424 Failed Dependency`** — el
+proxy de miniaturas de Openverse contesta 424 cuando el original de aguas arriba ya no está.
+
+- Pide **varios candidatos** (`page_size=5`), no uno.
+- Por cada candidato prueba `thumbnail` y, si falla, `url`.
+- Con eso, medido sobre 60 palabras: **93,3% bajan**, y en el 100% de las que tenían resultado
+  **sirvió el primer candidato**. El 424 es ocasional, no sistemático — pero sin reintento se lleva
+  por delante una palabra que sí tenía foto.
+- **La cobertura real es 93,3%, no el 95,7%** que salió al contar resultados en vez de descargas.
+  Contar resultados cuenta también los muertos.
+
+### Una «miniatura» de Openverse puede pesar 5,3 MB
+
+Sobre las mismas 60: mediana **44.117 B**, p90 **154.415 B**, **máximo 5.338.962 B**. No hay
+garantía de tamaño en el campo `thumbnail`.
+
+Guardar 5 MB para dibujar un cuadro de 76 px es tirar el bucket. **Pon un tope de bytes y descarta
+el candidato que lo pase**, pasando al siguiente — no lo recortes después de haberlo subido.
