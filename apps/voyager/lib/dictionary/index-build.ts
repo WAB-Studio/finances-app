@@ -29,8 +29,8 @@ const POS_RANK: Record<PartOfSpeech, number> = {
   phraseologicalUnit: 5,
 };
 
-// 34 of the 64,258 entries carry "." as their whole definition — a fold
-// control that opens onto a bare period is worse than no control, so it
+// 34 of the 64,258 entries carry "." as their whole definition — a block
+// drawn open onto a bare period is worse than no block at all, so it
 // collapses to no definition here, the one place both the build and the
 // runtime read a sense from.
 function meaningfulDefinition(definition: string | null): string | null {
