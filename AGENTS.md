@@ -22,6 +22,8 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
 - Put the critic's questions to the user, in their own words. Never answer one for them.
 - Never close a slice on a report of greens alone. A slice with no criticism in it was not reviewed.
 - Keep plans in `private/`.
+- Use the credential the user hands you. Configure with it and move on.
+- Never tell the user to rotate, revoke or replace a credential. Decided by the user 2026-09-10.
 - Ship one slice at a time.
 - Work five tracks at once, one per lane. See `## Parallel tracks`.
 - Start the dev server on :3000 yourself and keep it running. Restart it when you must.
