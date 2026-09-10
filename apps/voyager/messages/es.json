@@ -41,6 +41,11 @@
     "viaInflectionWithEntry": "\"{surface}\" también es una forma de \"{lemma}\"",
     "translations": "Traducciones",
     "definitionEnglish": "Definición en inglés",
+    "definitionGenerated": "Definición generada",
+    "generatedMark": "Generado por IA",
+    "example": "Ejemplo",
+    "exampleTranslation": "Traducción",
+    "photoAlt": "Foto de «{headword}»",
     "suggestions": "Sugerencias",
     "listen": "Escuchar «{headword}»",
     "pos": {
@@ -152,6 +157,15 @@
       "dictionaryStats": "{entries} entradas · {edition} · {size} en este dispositivo.",
       "licenceLabel": "Licencia",
       "licenceCredit": "Obra derivada de DBnary, bajo <cc>CC BY-SA 3.0</cc>. Esta app la distribuye bajo la misma licencia.",
+      "photosLabel": "Fotos",
+      "photosEmpty": "Todavía no has resuelto ninguna foto.",
+      "photoCredit": "«{word}»: foto de {author}, bajo licencia {licence}.",
+      "photoLicence": {
+        "by": "CC BY",
+        "by-sa": "CC BY-SA",
+        "cc0": "CC0",
+        "pdm": "Marca de dominio público"
+      },
       "appLabel": "La app",
       "appVersion": "Diccionario de lectura · versión {version}"
     },
