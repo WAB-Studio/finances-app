@@ -298,8 +298,9 @@ export function SearchScreen({ initialQuery }: { initialQuery?: string }) {
       // RL-37: a phrase in range that cannot be translated falls to the same
       // per-word breakdown RL-31 draws for one that was never tried — the
       // trigger is this `failed` state, never a `done` with empty text.
+      // RL-38: a translation that failed is not an answer, so nothing is
+      // logged for it.
       setPhraseState({ kind: "failed" });
-      setLogPayload(phraseLogPayload(phraseText, dictionaryReady, "untranslated", null, null));
       resolveWordBreakdown(phraseText, "translationFailed");
     } finally {
       if (phraseAbortRef.current === controller) phraseAbortRef.current = null;
@@ -310,7 +311,7 @@ export function SearchScreen({ initialQuery }: { initialQuery?: string }) {
   // each, with no debounce and no network — shared by RL-31's miss and
   // RL-37's translation failure, which differ only in which line names what
   // went wrong (`reason`, read by `NoEntryAnswer`'s title).
-  function resolveWordBreakdown(phraseText: string, reason: NoEntryReason, onResolved?: () => void): void {
+  function resolveWordBreakdown(phraseText: string, reason: NoEntryReason): void {
     setNoEntryState({ kind: "resolving", query: phraseText });
     const words = phraseText.trim().replace(/\s+/g, " ").split(" ");
     void Promise.all(words.map((word) => lookup(word).catch(() => null))).then((answers) => {
@@ -319,28 +320,25 @@ export function SearchScreen({ initialQuery }: { initialQuery?: string }) {
       if (latestTextRef.current !== phraseText) return;
       const parts: NoEntryPart[] = words.map((word, index) => ({ token: word, answer: answers[index] ?? null }));
       setNoEntryState({ kind: "words", query: phraseText, parts, reason });
-      onResolved?.();
     });
   }
 
   // RL-31: below the floor, every token is looked up on the device, with no
   // debounce — RNL-05 only throttles the network path, and this one never
-  // reaches it. Above the ceiling, nothing is asked at all.
-  function scheduleNoEntry(phraseText: string, tokens: number, dictionaryReady: boolean): void {
+  // reaches it. Above the ceiling, nothing is asked at all. RL-38: neither
+  // branch found an answer, so neither logs one.
+  function scheduleNoEntry(phraseText: string, tokens: number): void {
     if (tokens > PHRASE_MAX_TOKENS) {
       setNoEntryState({ kind: "tooLong", query: phraseText, tokens });
-      setLogPayload(phraseLogPayload(phraseText, dictionaryReady, "miss", null, null));
       return;
     }
 
-    resolveWordBreakdown(phraseText, "noEntry", () => {
-      setLogPayload(phraseLogPayload(phraseText, dictionaryReady, "miss", null, null));
-    });
+    resolveWordBreakdown(phraseText, "noEntry");
   }
 
   function schedulePhrase(phraseText: string, tokens: number, dictionaryReady: boolean): void {
     if (tokens < PHRASE_MIN_TOKENS || tokens > PHRASE_MAX_TOKENS) {
-      scheduleNoEntry(phraseText, tokens, dictionaryReady);
+      scheduleNoEntry(phraseText, tokens);
       return;
     }
 
@@ -387,7 +385,10 @@ export function SearchScreen({ initialQuery }: { initialQuery?: string }) {
       if (latestTextRef.current !== queryText || !answer) return;
       setWordAnswer(answer);
       setSuggestions(items);
-      setLogPayload(wordLogPayload(queryText, answer, dictionaryReady));
+      // RL-38: a miss is not an answer, so nothing is logged for it.
+      if (answer.exact || answer.viaInflection.length > 0) {
+        setLogPayload(wordLogPayload(queryText, answer, dictionaryReady));
+      }
       return;
     }
 

@@ -100,8 +100,8 @@ test("tapping \"Registro\" in the nav bar draws the search that motivated the tr
     .click();
   await expect(page).toHaveURL(/\/registro$/);
 
-  // Well under the 5000ms ceiling `record.ts`'s `MAX_PENDING_MS` would
-  // otherwise force the row to wait out.
+  // No ceiling forces this row to wait: the unmount flush this tap triggers
+  // is the only thing that has to land before the count shows.
   await expect(page.getByText(t("log.study.header", { lookups: 1, words: 1 }))).toBeVisible({ timeout: 2500 });
 
   const row = page.locator('a[href="/registro/apple"]');
@@ -125,6 +125,32 @@ test("with no rows, /registro draws the study's empty state and its action retur
 
   await page.getByRole("button", { name: messages.log.study.emptyAction }).click();
   await expect(page).toHaveURL(/\/$/);
+});
+
+test("a reader who only ever missed still sees the empty state, not a dead screen", async ({ page }) => {
+  await deleteTranslator(page);
+  await deleteLogDatabase(page);
+
+  const assetResponse = page.waitForResponse(
+    (response) => response.url().includes(manifest.asset.path) && response.ok(),
+  );
+  await page.goto("/");
+  await assetResponse;
+  await page.waitForTimeout(1000);
+
+  // RL-38: a word the dictionary carries nothing for leaves no row. A
+  // multi-character nonsense string, not a single letter, so it stays a
+  // miss regardless of the other lane's own change to one-character
+  // queries.
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+  await searchBox.fill("xyzzy");
+  await searchBox.fill("");
+  await page.waitForTimeout(300);
+
+  await page.goto("/registro");
+  await expect(page.getByText(messages.log.study.emptyTitle)).toBeVisible();
+  await expect(page.getByText(messages.log.study.emptyBody)).toBeVisible();
+  await expect(page.getByText(t("log.study.header", { lookups: 0, words: 0 }))).toHaveCount(0);
 });
 
 test("with the store broken, /registro draws the failure, with no system red and a retry", async ({ page }) => {

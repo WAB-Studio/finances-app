@@ -90,12 +90,15 @@ this gets built, and no schema, table or column is "prepared for" it.
 #### The shell
 
 - [ ] **RL-16** — The app opens with no connection and shows its box, and it can be launched from the phone's home screen without a browser around it. This holds from the second time it is opened onwards: the first open needs the network to deliver the app itself.
-- [x] **RL-21** — Every lookup a reader settles on is recorded on the device, from the app's first
-  day: what was typed, whether it was answered as a word or a sentence, the headword it actually
-  reached when an inflected form was typed, whether it found anything at all, and when. The record
-  only ever gains rows: nothing edits or deletes one. No screen on the read path shows it. It is read
-  to take it off the device — to a file, or to the copy held by the reader's account — and to bring
-  back what the same reader's other devices recorded; never on the path that answers a lookup.
+- [x] **RL-38** — A lookup a reader settles on is recorded on the device, from the app's first day,
+  only when it found something: what was typed, whether it was answered as a word or a sentence, the
+  headword it actually reached when an inflected form was typed, and when. A word that matched
+  nothing and a sentence that could not be translated leave no row — neither had an answer to record.
+  The record only ever gains rows: nothing edits or deletes one. No screen on the read path shows it.
+  It is read to take it off the device — to a file, or to the copy held by the reader's account — and
+  to bring back what the same reader's other devices recorded; never on the path that answers a
+  lookup. Decided by the user 2026-09-09: a miss counted as a word in `/registro`'s own header and
+  drew as a blank row between real ones.
 - [x] **RL-22** — A reader can keep their record in an account of their own: they sign in through a
   link sent to their address and, from then on, what this device records is copied to that account
   and what their other devices recorded comes down to this one **and stays in its local record,
@@ -198,6 +201,13 @@ Dead codes. The number stays burned and the tick stays as it was.
   they are told how many searches will go up and how many will come down, and turning it on is what
   authorises it. _Retired 2026-09-08. Successor: RL-30._
 - [x] **RL-15** — The dictionary's source, its edition and its CC BY-SA 3.0 licence are named in the interface, one tap from the box, linking to the source and to the licence text, and stating that what the app ships is a reformatted extract distributed under the same licence. _Retired 2026-09-08. Successor: RL-33._
+- [x] **RL-21** — Every lookup a reader settles on is recorded on the device, from the app's first
+  day: what was typed, whether it was answered as a word or a sentence, the headword it actually
+  reached when an inflected form was typed, whether it found anything at all, and when. The record
+  only ever gains rows: nothing edits or deletes one. No screen on the read path shows it. It is read
+  to take it off the device — to a file, or to the copy held by the reader's account — and to bring
+  back what the same reader's other devices recorded; never on the path that answers a lookup.
+  _Retired 2026-09-09. Successor: RL-38._
 
 ---
 

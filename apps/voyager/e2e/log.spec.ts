@@ -178,7 +178,7 @@ async function mergeForeignRows(page: Page, count: number, device: string): Prom
   );
 }
 
-test("every lookup is recorded, a fat log costs nothing, and a lost log costs nothing either", async ({
+test("every lookup that finds an answer is recorded, a miss leaves no row, a fat log costs nothing, and a lost log costs nothing either", async ({
   page,
   context,
 }) => {
@@ -207,17 +207,20 @@ test("every lookup is recorded, a fat log costs nothing, and a lost log costs no
   expect(afterWord.filter((row) => row.normalised === "throughout")).toHaveLength(1);
   expect(afterWord).toHaveLength(1);
 
-  // A word the dictionary carries nothing for.
+  // A word the dictionary carries nothing for: RL-38 leaves no row for a
+  // miss, so the log stays at the one row "throughout" already wrote.
   await searchBox.fill("zzqxplorph");
   await searchBox.fill("");
   await page.waitForTimeout(300);
 
   const afterMiss = await readLogRows(page);
-  const missRow = afterMiss.find((row) => row.normalised === "zzqxplorph");
-  expect(missRow?.outcome).toBe("miss");
+  expect(afterMiss.find((row) => row.normalised === "zzqxplorph")).toBeUndefined();
+  expect(afterMiss).toHaveLength(1);
 
   // A query typed while the install is still running: a second page shares
-  // the same origin's storage, so its row lands beside the first two.
+  // the same origin's storage, so its row lands beside the first one. A
+  // real headword, not a miss — RL-38 leaves nothing to inspect on a miss,
+  // and this row's `dictionaryReady` is the whole point of the test.
   const installingPage = await context.newPage();
   await deleteTranslator(installingPage);
   await installingPage.route(`**${manifest.asset.path}`, async (route) => {
@@ -226,19 +229,19 @@ test("every lookup is recorded, a fat log costs nothing, and a lost log costs no
   });
   await installingPage.goto("/");
   const installingBox = installingPage.getByRole("textbox", { name: messages.search.label });
-  await installingBox.fill("midinstall");
+  await installingBox.fill("apple");
   // The keystroke's own `dictionaryReady` flag is read synchronously, at
   // type time — long before this settles, however long the install takes.
-  // Waiting for the (not-found) answer to render proves the worker actually
-  // reached this query, queued behind the delayed install, before the box
-  // is cleared to force the row's flush.
-  await expect(installingPage.getByText(messages.search.notFound)).toBeVisible({ timeout: 8000 });
+  // Waiting for the answer to render proves the worker actually reached
+  // this query, queued behind the delayed install, before the box is
+  // cleared to force the row's flush.
+  await expect(installingPage.getByRole("heading", { name: "apple" })).toBeVisible({ timeout: 8000 });
   await installingBox.fill("");
   await installingPage.waitForTimeout(300);
   await installingPage.close();
 
   const afterInstalling = await readLogRows(page);
-  const installingRow = afterInstalling.find((row) => row.normalised === "midinstall");
+  const installingRow = afterInstalling.find((row) => row.normalised === "apple");
   expect(installingRow?.dictionaryReady).toBe(false);
 
   // The guard that matters: 10,000 rows already in the log, and the worker's
@@ -246,11 +249,11 @@ test("every lookup is recorded, a fat log costs nothing, and a lost log costs no
   await seedLocalRows(page, 10_000);
 
   const seededCount = (await readLogRows(page)).length;
-  expect(seededCount).toBe(10_003);
+  expect(seededCount).toBe(10_002);
 
   const durations = await measureWorkerRoundTrips(page, 200, "throughout");
   const p95 = percentile(durations, 95);
-  console.log(`RNL-01 worker round trip, 200 lookups, log at 10,003 rows — p95 ${p95.toFixed(3)} ms`);
+  console.log(`RNL-01 worker round trip, 200 lookups, log at 10,002 rows — p95 ${p95.toFixed(3)} ms`);
   expect(p95).toBeLessThan(10);
 
   // A lost log, mid-session: force-clear IndexedDB the way a browser's own
@@ -502,4 +505,35 @@ test("a reload still groups four keystrokes chained under the settle window into
   const rows = await readLogRows(page);
   expect(rows.filter((row) => row.normalised.startsWith("b"))).toHaveLength(1);
   expect(rows.find((row) => row.normalised === "book")).toBeTruthy();
+});
+
+test("a word typed slowly enough to have crossed the retired 5s ceiling still lands as one row", async ({
+  page,
+}) => {
+  await deleteTranslator(page);
+  const assetResponse = page.waitForResponse(
+    (response) => response.url().includes(manifest.asset.path) && response.ok(),
+  );
+  await page.goto("/");
+  await assetResponse;
+  await page.waitForTimeout(1000);
+
+  // The reported reproduction, unchanged: "weight" typed one letter at a
+  // time with 2200ms between keystrokes is the exact gap that used to split
+  // the chain in two ("wei", then "weight") once `record.ts`'s retired
+  // `MAX_PENDING_MS` fired mid-word. The chain now closes only where the
+  // box empties, this screen unmounts, the tab hides or the page unloads —
+  // never on a clock — so six keystrokes spanning 13s+ still owe one row.
+  const word = "weight";
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+  for (let length = 1; length <= word.length; length++) {
+    await searchBox.fill(word.slice(0, length));
+    await page.waitForTimeout(2200);
+  }
+  await searchBox.fill("");
+  await page.waitForTimeout(300);
+
+  const rows = await readLogRows(page);
+  expect(rows.filter((row) => row.normalised.startsWith("w"))).toHaveLength(1);
+  expect(rows.find((row) => row.normalised === "weight")).toBeTruthy();
 });

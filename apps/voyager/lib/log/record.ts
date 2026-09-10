@@ -12,11 +12,8 @@ const SYNC_KEY = "state";
 // The sync store's single row, keyed for `keyPath: "key"`.
 type SyncRow = SyncState & { key: typeof SYNC_KEY };
 
-// The box is quiet this long before a query counts as settled, and a settled
-// row waits no longer than this before it is written even if the chain keeps
-// extending.
+// The box is quiet this long before a query counts as settled.
 const SETTLE_MS = 800;
-const MAX_PENDING_MS = 5000;
 
 // `localStorage.setItem` is the one storage write the platform guarantees
 // finishes before the calling script returns — unlike an IndexedDB
@@ -213,14 +210,17 @@ function isStrictPrefix(previous: string, next: string): boolean {
   return next !== previous && next.startsWith(previous);
 }
 
-// The one pending row this module ever holds, and the timers that govern it.
+// The one pending row this module ever holds, and the timer that governs it.
 let pending: LookupRecord | null = null;
 let latestCandidate: LookupRecord | null = null;
 let settleTimer: ReturnType<typeof setTimeout> | null = null;
-let maxPendingTimer: ReturnType<typeof setTimeout> | null = null;
 
 // Folds the most recent, not-yet-settled call into `pending`: merges it into
 // a same-word chain, or commits the displaced row and starts a new chain.
+// The chain closes only where `flushPendingLookup` is called from — the box
+// emptying, this screen unmounting, the tab hiding or the page unloading —
+// never on a clock: a reader who pauses mid-word for longer than that keeps
+// one row, not one per pause.
 function settleCandidate(): void {
   const candidate = latestCandidate;
   latestCandidate = null;
@@ -230,9 +230,7 @@ function settleCandidate(): void {
     return;
   }
   if (pending) commit(pending);
-  if (maxPendingTimer) clearTimeout(maxPendingTimer);
   pending = candidate;
-  maxPendingTimer = setTimeout(flushPendingLookup, MAX_PENDING_MS);
 }
 
 function onSettleTimer(): void {
@@ -267,10 +265,6 @@ export function flushPendingLookup(): void {
     settleTimer = null;
   }
   settleCandidate();
-  if (maxPendingTimer) {
-    clearTimeout(maxPendingTimer);
-    maxPendingTimer = null;
-  }
   if (pending) {
     commit(pending);
     pending = null;
