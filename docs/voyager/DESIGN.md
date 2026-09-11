@@ -570,6 +570,18 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   connection, no result, or the daily ceiling reached — exactly today's screen, with no gap left for
   what did not arrive). Same reason as the photo: a generated block on `#14130F` is a real design
   difference, not the token table applied.
+- **The heading over a generated block names what is under it, and no board draws the case where
+  that is only an example. Decided and built 2026-09-11.** «Definición generada» was drawn
+  unconditionally while the definition itself was gated on `definition !== null`, so a word without
+  one was told it had a definition. Measured against `reading.word_texts` that day: **22 of 41 rows
+  carry a null definition** — two populations, not one, and both want the same answer: RL-41's
+  19.7% of headwords the dictionary ships with no definition at all, and every word that already
+  has a dictionary definition, where the route strips the generated one by design. The heading now
+  reads «Ejemplo» there, in the same treatment, and the «generada» mark stays either way.
+  **`PalabraSinDefinicion` is NOT this case** — it is the absent state: no connection, no result,
+  or the daily ceiling reached. **No board draws «resolved, no definition, has example», and one
+  was not drawn:** it reuses an existing heading treatment and an existing string, changes no
+  layout and adds no control, so it is the same board with a different word in it.
 - **The pending square is silent, not spinning.** A 76px ornament that the reader is not waiting on
   must not advertise itself as a task; a spinner would turn it into one. The whole answer reads
   without it.
