@@ -376,7 +376,7 @@ assert(
     : `${postFilterBadHits} still shipped: ${stillBadExamples.join(", ")}`,
 );
 
-// RL-43 — the measured order actually reaches `groupFor`. D6 above proves
+// D13 — RL-43: the measured order actually reaches `groupFor`. D6 above proves
 // "leave" carries both senses; nothing proved which came first, so reverting
 // the frequency table left every check green. These eleven are the words the
 // order was decided on: `grudge` is the reader's own complaint, `leave` is
@@ -420,7 +420,7 @@ assert(
         .join("; "),
 );
 
-// D13 — RL-28: a one-edit miss recovers the headword it was one edit away
+// D14 — RL-28: a one-edit miss recovers the headword it was one edit away
 // from, 100% of the time. Decided by the user 2026-09-11: no cap survives
 // on `edit-distance.ts`'s own candidate count. Sample is every 50th eligible
 // headword (length >= 4, plain a-z), its middle character deleted, so a red
@@ -448,7 +448,7 @@ assert(
   `${recovered}/${tested} recovered (${sample.length - tested} of the ${sample.length} sampled excluded as not misses), missed: ${missedExamples.join(", ") || "none"}`,
 );
 
-// D14 — `fettle` sits one substitution from four real headwords (kettle,
+// D15 and D16 — `fettle` sits one substitution from four real headwords (kettle,
 // mettle, nettle, settle) and gets all four: decided by the user 2026-09-11
 // that RL-28 corrects every one-edit miss with no cap, knowing `fettle` is
 // not a typo but a real word the dictionary lacks — RL-29 is what tells
