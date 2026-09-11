@@ -4,7 +4,7 @@ import { useTranslations } from "next-intl";
 
 import manifestJson from "@/public/dictionary/manifest.json";
 import { manifestSchema } from "@/lib/dictionary/format";
-import { POS_FREQUENCY_LICENCE_URL, POS_FREQUENCY_SOURCE_URL } from "@/lib/dictionary/pos-frequency";
+import { POS_FREQUENCY_LICENCE_URL, POS_FREQUENCY_SOURCE_URL } from "@/lib/dictionary/pos-frequency-source";
 import packageJson from "@/package.json";
 import { Flex, Link, MetaLabel, Separator, Text } from "@/components/ui";
 

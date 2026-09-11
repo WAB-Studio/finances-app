@@ -15,9 +15,6 @@
  * so "leave" (verb before noun) writes "vn" and "grudge" (noun before its
  * rare verb) writes "nv". A headword with no row here keeps POS_RANK.
  */
-export const POS_FREQUENCY_SOURCE_URL = "https://www.ugent.be/pp/experimentele-psychologie/en/research/documents/subtlexus";
-export const POS_FREQUENCY_LICENCE_URL = "https://creativecommons.org/licenses/by-nc-sa/4.0/";
-
 export const POS_FREQUENCY_ORDER: ReadonlyMap<string, string> = new Map([
   ["a", "nj"],
   ["abandon", "vn"],

@@ -773,8 +773,14 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   front of «rencor», which the user hit reading. No single rank gives both, because the right order
   is a fact about each word. Measured against the built index that day: 4,650 of 58,946 headwords
   carry more than one part of speech, SUBTLEX-US covers 3,888 of them, 2,681 can be ordered, and
-  **1,808 of those 2,681 — 67.4% — sit in the wrong order today**. The 762 headwords SUBTLEX has no
+  **1,797 of those 2,681 — 67.0% — sit in the wrong order today**. The 762 headwords SUBTLEX has no
   row for keep `POS_RANK` and change nothing.
+- **Quote the generator, never the prototype that argued for it.** The measurement that opened this
+  decision said 1,808 rows and a 40.9 KB table; what shipped is 1,797 and 54.4 KB, and for a day the
+  paragraph carrying a non-commercial licence decision described neither. The eleven rows are
+  headwords used equally often in two parts of speech, where nothing defines a winner; the kilobytes
+  are the one-entry-per-line format the repo prefers over a minified line. `npm run pos:build`
+  prints both numbers, so there is no reason to carry an older one.
 - **Its source is CC BY-NC-SA 4.0, and that price was taken knowingly.** SUBTLEX-US with
   part-of-speech information is non-commercial and share-alike, so the derived table ships under the
   same licence and the app stays non-commercial while it does. The credit goes on `/cuenta`, in

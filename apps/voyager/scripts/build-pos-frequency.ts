@@ -283,9 +283,6 @@ function writeOutput(table: Map<string, string>): void {
  * so "leave" (verb before noun) writes "vn" and "grudge" (noun before its
  * rare verb) writes "nv". A headword with no row here keeps POS_RANK.
  */
-export const POS_FREQUENCY_SOURCE_URL = ${JSON.stringify(SOURCE_URL)};
-export const POS_FREQUENCY_LICENCE_URL = ${JSON.stringify(LICENCE_URL)};
-
 export const POS_FREQUENCY_ORDER: ReadonlyMap<string, string> = new Map([
 ${entries}
 ]);

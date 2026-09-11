@@ -56,9 +56,11 @@ this gets built, and no schema, table or column is "prepared for" it.
   Taken by the user 2026-09-11, knowing what it binds: the credit is shown on `/cuenta` beside the
   dictionary's own, the derived table carries the same licence, and the app stays non-commercial
   while it ships. Measured that day: 4,650 of 58,946 headwords carry more than one part of speech,
-  SUBTLEX covers 3,888 of them, 2,681 can be ordered, and **1,808 of those 2,681 — 67.4% — are in
-  the wrong order today**. The shipped table is 40.9 KB, 10.4 KB compressed, against a 8.2 MB
-  dictionary.
+  SUBTLEX covers 3,888 of them, 2,681 can be ordered, and **1,797 of those 2,681 — 67.0% — are in
+  the wrong order today**. That figure is the generator's own, printed by `npm run pos:build`; a
+  prototype run the day the decision was taken said 1,808, and the eleven-row gap is headwords whose
+  two parts of speech are used equally often, where nothing defines which wins. The shipped table is
+  54.4 KB, 11.6 KB compressed, against a 8.2 MB dictionary.
 - [x] **RL-40** — An inflected form resolves to its headword, and the answer names both the form
   typed and the headword reached: `went` finds `go`, `children` finds `child`, `studies` finds
   `study`. When the form typed is itself a headword, its own entry answers first and the headword it
