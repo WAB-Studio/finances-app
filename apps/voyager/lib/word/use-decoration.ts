@@ -64,7 +64,10 @@ async function fetchText(headword: string, needDefinition: boolean, signal: Abor
 // Only the two outcomes render cannot know ahead of time — a request now in
 // flight, and one that just resolved — reach `setState`, and both do it
 // from an asynchronous callback (a timer firing, a promise settling), never
-// from the effect's own synchronous body.
+// from the effect's own synchronous body. The photo and the text settle on
+// their own two promises, each reaching `setState` the instant it lands —
+// neither is held for the other (RL-35's board, `PalabraTextoAntesDeFoto`:
+// the reserved 76px square, not the text, is what waits).
 export function useDecoration(headword: string | null, needDefinition: boolean): Decoration {
   const [pendingHeadword, setPendingHeadword] = useState<string | null>(null);
   const [resolved, setResolved] = useState<{ headword: string; decoration: Decoration } | null>(null);
@@ -92,14 +95,28 @@ export function useDecoration(headword: string | null, needDefinition: boolean):
       // replace this headword before the settle.
       setPendingHeadword(headword);
 
-      void Promise.all([
-        fetchPhoto(headword, controller.signal),
-        fetchText(headword, needDefinition, controller.signal),
-      ]).then(([photo, text]) => {
+      // The photo and the text are asked for together but never awaited
+      // together: whichever settles first is the one the reader sees
+      // first. `photoResult`/`textResult` live in this closure, not in
+      // `resolved` state, so the side still in flight has somewhere to
+      // read "not yet" from without a stale headword's old answer
+      // leaking into the merge.
+      let photoResult: PhotoState | null = null;
+      let textResult: TextState | null = null;
+
+      // An arrow function, not a declaration: a `function` here loses
+      // tsgo's narrowing of `headword` to `string`, since a hoisted
+      // declaration could in principle run before the null check above.
+      const commitIfSettled = () => {
+        if (photoResult === null || textResult === null) return;
+        cache.set(headword, { photo: photoResult, text: textResult });
+      };
+
+      void fetchPhoto(headword, controller.signal).then((photo) => {
         if (controller.signal.aborted) return;
-        const decoration: Decoration = { photo, text };
-        cache.set(headword, decoration);
-        setResolved({ headword, decoration });
+        photoResult = photo;
+        setResolved({ headword, decoration: { photo, text: textResult ?? PENDING.text } });
+        commitIfSettled();
         if (photo.kind === "resolved") {
           void rememberCredit({
             headword,
@@ -110,6 +127,13 @@ export function useDecoration(headword: string | null, needDefinition: boolean):
             at: Date.now(),
           });
         }
+      });
+
+      void fetchText(headword, needDefinition, controller.signal).then((text) => {
+        if (controller.signal.aborted) return;
+        textResult = text;
+        setResolved({ headword, decoration: { photo: photoResult ?? PENDING.photo, text } });
+        commitIfSettled();
       });
     }, PHRASE_DEBOUNCE_MS);
 
