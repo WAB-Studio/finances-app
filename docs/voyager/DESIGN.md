@@ -287,14 +287,20 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
     which is the same day. RL-29 is what tells that reader none of the four is what they meant; a cap
     that only ever hides the truth from `fettle` was hiding it from every genuine typo past three
     candidates too.
-  - **The board still has to draw a limit, even with no cap on what is found.** `SinResultadoClaroMovil`
-    is narrow; nine tap targets do not fit it the way `recieve`'s one or two did. The screen (not
-    `edit-distance.ts`, which keeps every candidate) draws at most five and names the rest — "boz" is
-    the sampled case with nine headwords one edit away and no autocomplete prefix of its own to hide
-    behind, and it draws five names and "y 4 más". This half is an implementation choice within the
-    2026-09-11 decision, not a second guard on the correction itself: it never drops the one candidate
-    a genuine typo needed, since a query with that many equally-close headwords is `fettle`-shaped, not
-    `recieve`-shaped, by the same 4,000-typo measurement above.
+  - **The screen draws every candidate too, with no cap of its own, and this needed a second correction
+    the same day.** A first pass capped the screen at five with "y N más" past that — wrong for two
+    reasons, not one. `suggestCorrection`'s `hits.sort()` is alphabetical, not ranked by anything the
+    reader meant, so cutting the list drops the intended word by accident of spelling, not by
+    relevance: "boz" (nine headwords one edit away, no autocomplete prefix to hide behind) would have
+    shown `boa, boaz, bob, bog, boo` and hidden `bot, bow, box, boy` for no reason a reader could act
+    on. And "y N más" is exactly the shape of text `AGENTS.md` forbids — informing the reader of a
+    gap without a tap that closes it, the same defect `notFoundHint` had. Measured 2026-09-11 over the
+    same 4,000 typos: more than five candidates happens on **0.9%**, so the cap paid this cost on
+    nearly every screen for a case that almost never shows up. `Flex`'s own `wrap="wrap"` already
+    carries nine short words into a few rows with room to spare — checked at 360px, the narrowest
+    viewport this app supports: `boz`'s nine wrap to two rows, the widest tap target's right edge at
+    324px of 360, no horizontal scroll. Nothing here is a board decision — the board never asked for a
+    cap, a worker added one and then found the reason it was wrong.
   - **The answer is labelled.** An AI answer carries `RESPONDIDO POR IA` above it; the reader always
     knows what came from the dictionary and what did not.
   - **A failure is a failure.** Measured 2026-09-08: 3 of ~12 calls failed (two 403, one 503). The

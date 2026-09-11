@@ -284,31 +284,26 @@ function SenseGroup({
   );
 }
 
-// `edit-distance.ts` has no cap of its own since 2026-09-11 — every headword
-// one edit from the miss comes back, however many there are. `SinResultadoClaroMovil`
-// is a narrow board with no room to lay out nine of them, so the screen caps
-// what it draws here, distinct from what the correction found: showing five
-// of nine is still an answer, where the old data-level cap left the reader
-// with nothing at all.
-const MAX_DISPLAYED_CORRECTIONS = 5;
-
 // RL-28: every headword `lookupWord` found one edit from the miss, each its
 // own tap back into `/?q=<word>` — the same door `BlockHeading` opens, drawn
-// smaller here because there is no entry underneath it yet to lead into.
+// smaller here because there is no entry underneath it yet to lead into. No
+// cap, on the data or on the screen: `hits.sort()` in `edit-distance.ts` is
+// alphabetical, not ranked by anything the reader meant, so cutting it after
+// five would drop the intended word by accident of spelling, not keep it —
+// measured 2026-09-11, more than five candidates happens on 0.9% of 4,000
+// real one-edit typos. `wrap="wrap"` below carries nine short words in a
+// few rows at 360px with nothing pushed off screen (checked against `boz`).
 // Silent when `words` is empty — `zzqqxv` is the only case left that reaches
 // no headword at all; a real word the dictionary lacks (`fettle`) draws its
 // wrong-looking candidates here until RL-29 gives that reader a better door.
 function CorrectionOffer({ words, t }: { words: readonly string[]; t: ReturnType<typeof useTranslations> }) {
-  const shown = words.slice(0, MAX_DISPLAYED_CORRECTIONS);
-  const remaining = words.length - shown.length;
-
   return (
     <Flex direction="column" gap="2">
       <Text size="2" color="gray">
         {t("correctionTitle")}
       </Text>
       <Flex gap="4" wrap="wrap">
-        {shown.map((word) => (
+        {words.map((word) => (
           <Link asChild underline="always" key={word}>
             <NextLink href={correctionHref(word)}>
               <TapTarget align="center" gap="1">
@@ -321,11 +316,6 @@ function CorrectionOffer({ words, t }: { words: readonly string[]; t: ReturnType
           </Link>
         ))}
       </Flex>
-      {remaining > 0 && (
-        <Text size="2" color="gray">
-          {t("correctionMore", { count: remaining })}
-        </Text>
-      )}
     </Flex>
   );
 }

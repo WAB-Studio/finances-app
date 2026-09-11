@@ -94,14 +94,14 @@ test("a word one edit from several headwords at once offers all of them", async 
   }
 });
 
-// "boz" sits one edit from nine real headwords, more than the board has
-// room for, and has no prefix match of its own to suppress the miss with
-// (RL-18). The screen draws five and names the rest, rather than either
-// dropping them silently or crowding the tap targets past what
-// `SinResultadoClaroMovil` was drawn for. Decided by the worker building
-// RL-28 (`docs/voyager/DESIGN.md`, 2026-09-11) — `edit-distance.ts` itself
-// keeps every candidate; only the screen caps what it draws.
-test("more than five candidates draws five and names how many more", async ({ page }) => {
+// "boz" sits one edit from nine real headwords, and has no prefix match of
+// its own to suppress the miss with (RL-18). `suggestCorrection` sorts
+// alphabetically, not by anything the reader meant, so cutting the list
+// would drop the intended word by accident of spelling — decided
+// 2026-09-11 (`docs/voyager/DESIGN.md`) to draw every candidate instead, at
+// 360px, the narrowest viewport this suite runs.
+test("nine candidates all draw, none of them off screen at 360px", async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 800 });
   await deleteTranslator(page);
   await openReady(page);
 
@@ -110,8 +110,16 @@ test("more than five candidates draws five and names how many more", async ({ pa
 
   await expect(page.getByText(messages.search.correctionTitle)).toBeVisible();
   const links = page.locator("main").getByRole("link");
-  await expect(links).toHaveCount(5);
-  await expect(page.getByText("4 más", { exact: false })).toBeVisible();
+  await expect(links).toHaveCount(9);
+
+  const boxes = await Promise.all((await links.all()).map((link) => link.boundingBox()));
+  for (const box of boxes) {
+    expect(box).not.toBeNull();
+    expect(box!.x).toBeGreaterThanOrEqual(0);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(360);
+  }
+  const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
+  expect(scrollWidth).toBe(360);
 });
 
 // `zzqqxv` sits no closer than two edits from any real headword: neither the
