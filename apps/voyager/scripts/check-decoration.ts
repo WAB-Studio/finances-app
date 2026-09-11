@@ -12,11 +12,29 @@
  * :3101), so it seeds and restores `model_spend`'s own row for today and a
  * `word_texts` row for a headword nothing else in this repo names.
  */
+import { createServer, type Server } from "node:http";
+
 import { settleSessionSql } from "@repo/supabase-auth/settle";
 import { PgDialect } from "drizzle-orm/pg-core";
 import postgres from "postgres";
 
 const BASE_URL = process.env.VOYAGER_BASE_URL ?? "http://localhost:3101";
+// One port per lane's own app port, never a fixed one: two lanes running
+// this check at once must not bind the same address. The server under test
+// must be started with `OPENVERSE_ENDPOINT_OVERRIDE` set to this same
+// value (`lib/word/openverse.ts`) — `.env.local`, never committed, never a
+// real build's own env.
+const STUB_PORT = Number(new URL(BASE_URL).port || "3101") + 35_000;
+const STUB_ENDPOINT = `http://127.0.0.1:${STUB_PORT}/v1/images/`;
+// Concrete, photographable (`concreteness.generated.json`) and named
+// nowhere else in this repo — free to claim without touching a real
+// reader's cache or another check's fixture.
+const SEARCH_HANG_HEADWORD = "otter";
+const DOWNLOAD_HANG_HEADWORD = "walrus";
+// Well over `OPENVERSE_TIMEOUT_MS` (5 s, `lib/word/openverse.ts`) for
+// process and DB overhead, and nowhere near the 61 s this defect let the
+// same hang run with no deadline at all.
+const TIMEOUT_MARGIN_MS = 15_000;
 // Real dictionary headword, absent from every spec and fixture this repo
 // carries — free to seed and delete without touching anyone's cache.
 const COLD_HEADWORD = "narwhal";
@@ -148,6 +166,88 @@ async function checkPhotoGate(): Promise<void> {
   }
 }
 
+// A stub Openverse: `SEARCH_HANG_HEADWORD`'s search never answers, and
+// `DOWNLOAD_HANG_HEADWORD`'s search answers at once with a candidate whose
+// thumbnail and full-size asset are the same never-answering address — one
+// deadline exercised on each of `openverse.ts`'s two `fetch` calls.
+// `requestsSeen` proves the request actually left for this stub rather than
+// the real Openverse (a server under test missing the env override would
+// otherwise pass or fail this check for the wrong reason).
+function startOpenverseStub(): { server: Server; requestsSeen: string[] } {
+  const requestsSeen: string[] = [];
+  const server = createServer((req, res) => {
+    const url = new URL(req.url ?? "/", STUB_ENDPOINT);
+    requestsSeen.push(url.pathname + url.search);
+    if (url.pathname === "/v1/images/" && url.searchParams.get("q") === DOWNLOAD_HANG_HEADWORD) {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(
+        JSON.stringify({
+          results: [
+            {
+              thumbnail: `http://127.0.0.1:${STUB_PORT}/photo.jpg`,
+              url: `http://127.0.0.1:${STUB_PORT}/photo.jpg`,
+              creator: "T17 stub",
+              license: "cc0",
+              license_url: "https://example.invalid/licence",
+              foreign_landing_url: "https://example.invalid/source",
+              width: 10,
+              height: 10,
+            },
+          ],
+        }),
+      );
+      return;
+    }
+    // Every other request — the hung search and both image downloads —
+    // gets nothing back: only `AbortSignal.timeout` may end it.
+  });
+  return { server, requestsSeen };
+}
+
+async function checkOpenverseTimeout(): Promise<void> {
+  const { server, requestsSeen } = startOpenverseStub();
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(STUB_PORT, "127.0.0.1", () => resolve());
+  });
+
+  const words = [SEARCH_HANG_HEADWORD, DOWNLOAD_HANG_HEADWORD];
+  for (const headword of words) {
+    await sql`delete from reading.word_photos where headword = ${headword}`;
+  }
+
+  const failures: string[] = [];
+  for (const headword of words) {
+    const started = Date.now();
+    const status = await requestPhoto(headword);
+    const elapsedMs = Date.now() - started;
+    const [row] = await sql<PhotoRow[]>`select headword, status from reading.word_photos where headword = ${headword}`;
+    if (status !== 204) failures.push(`${headword}: status=${status} (expected 204)`);
+    if (elapsedMs >= TIMEOUT_MARGIN_MS) failures.push(`${headword}: took ${elapsedMs}ms (expected under ${TIMEOUT_MARGIN_MS}ms)`);
+    if (row) failures.push(`${headword}: a "${row.status}" row was written (expected none, on a timeout)`);
+  }
+
+  if (!requestsSeen.some((seen) => seen.includes(`q=${SEARCH_HANG_HEADWORD}`))) {
+    failures.push(`the stub never saw the search for "${SEARCH_HANG_HEADWORD}" — is OPENVERSE_ENDPOINT_OVERRIDE set on the server under test?`);
+  }
+  if (!requestsSeen.some((seen) => seen.startsWith("/photo.jpg"))) {
+    failures.push(`the stub never saw a download for "${DOWNLOAD_HANG_HEADWORD}"'s candidate`);
+  }
+
+  assert(
+    "T17",
+    failures.length === 0,
+    failures.length === 0
+      ? `both deadlines fired inside ${TIMEOUT_MARGIN_MS}ms and wrote no row`
+      : failures.join("; "),
+  );
+
+  for (const headword of words) {
+    await sql`delete from reading.word_photos where headword = ${headword}`;
+  }
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+}
+
 async function main() {
   const subject = crypto.randomUUID();
   const forcedRollback = Symbol("forced rollback");
@@ -269,6 +369,7 @@ async function main() {
   }
 
   await checkPhotoGate();
+  await checkOpenverseTimeout();
 
   await sql.end();
   if (failed) process.exit(1);

@@ -3,7 +3,7 @@ import "server-only";
 import { normaliseHeadword } from "@/lib/dictionary/format";
 import { env } from "@/lib/env";
 import { PHOTO_ENDPOINT, photoRequestSchema, type WordPhoto } from "@/lib/word/protocol";
-import { downloadCandidate, searchOpenverse } from "@/lib/word/openverse";
+import { downloadCandidate, isOpenverseTimeout, searchOpenverse } from "@/lib/word/openverse";
 import {
   claimPhotoQuota,
   getCachedPhoto,
@@ -117,8 +117,19 @@ export async function POST(request: Request): Promise<Response> {
     return absent();
   }
 
+  // Set once a candidate's download hit its deadline: a timeout is not proof
+  // the image is missing, only that this run was too slow, so it must not
+  // land the same "none" row a confirmed absence does (contract RL-36).
+  let timedOut = false;
+
   for (const candidate of candidates) {
-    const image = await downloadCandidate(candidate).catch(() => null);
+    let image;
+    try {
+      image = await downloadCandidate(candidate);
+    } catch (error) {
+      if (isOpenverseTimeout(error)) timedOut = true;
+      continue;
+    }
     if (!image) continue;
 
     const objectPath = `${headword}.${image.ext}`;
@@ -143,6 +154,11 @@ export async function POST(request: Request): Promise<Response> {
     await writeFoundPhoto(found);
     return json(toWordPhoto(found), 200);
   }
+
+  // A timeout among the candidates leaves the word's real answer unknown:
+  // writing "none" here would cache a guess, so this request answers absent
+  // without writing anything and a later request is free to try again.
+  if (timedOut) return absent();
 
   // Every candidate's thumbnail and full-size asset either 424'd, failed the
   // content-type allowlist or blew the byte cap: a persistent absence, the
