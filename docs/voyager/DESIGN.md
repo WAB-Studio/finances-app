@@ -309,6 +309,11 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
     a reader that `name` means yam, which is worse than the alphabetical list it replaces, because
     a reader recognises `name` unaided and cannot un-read «ñame». It stays refused until something
     orders the senses within a group, which nothing does today.
+  - **No board for the ordering, and it does not need one.** `SinResultado` already draws the
+    candidate list under «Quisiste decir»; a list reordered is the same board, exactly as RL-43's
+    reordered sense stack was. A face nobody drew here is a face nobody needed. The refused gloss
+    would have needed one — a second column is a different layout — and none was drawn, because the
+    measurement killed it before it reached a canvas.
   - **The screen draws every candidate too, with no cap of its own, and this needed a second correction
     the same day.** A first pass capped the screen at five with "y N más" past that — wrong for two
     reasons, not one. `suggestCorrection`'s `hits.sort()` is alphabetical, not ranked by anything the
