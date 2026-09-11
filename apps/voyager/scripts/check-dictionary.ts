@@ -376,4 +376,48 @@ assert(
     : `${postFilterBadHits} still shipped: ${stillBadExamples.join(", ")}`,
 );
 
+// RL-43 — the measured order actually reaches `groupFor`. D6 above proves
+// "leave" carries both senses; nothing proved which came first, so reverting
+// the frequency table left every check green. These eleven are the words the
+// order was decided on: `grudge` is the reader's own complaint, `leave` is
+// the case POS_RANK was hand-tuned for, and no single fixed rank gives both.
+const FREQUENCY_ORDER_CASES: ReadonlyArray<readonly [string, readonly PartOfSpeech[]]> = [
+  ["grudge", ["n", "v"]],
+  ["leave", ["v", "n"]],
+  ["light", ["n", "adj", "v"]],
+  ["run", ["v", "n"]],
+  // Three senses, two of them scored: the unmeasured `adj` falls to POS_RANK
+  // behind both, which is the fallback this order is built on.
+  ["fire", ["n", "v", "adj"]],
+  ["record", ["n", "v"]],
+  ["bank", ["n", "v"]],
+  ["match", ["n", "v"]],
+  ["book", ["n", "v"]],
+  ["water", ["n", "v"]],
+  ["present", ["n", "v", "adj"]],
+];
+
+const wrongOrder = FREQUENCY_ORDER_CASES.filter(([headword, expected]) => {
+  const group = groupFor(index, headword);
+  if (group === null) return true;
+  // Senses repeat a part of speech; the group order is the order its
+  // categories first appear, which is what the screen draws as its labels.
+  const drawn: PartOfSpeech[] = [];
+  for (const sense of group.senses) if (!drawn.includes(sense.pos)) drawn.push(sense.pos);
+  return drawn.join(",") !== expected.join(",");
+});
+assert(
+  next("every sense group is ordered by measured frequency, not by POS_RANK"),
+  wrongOrder.length === 0,
+  wrongOrder.length === 0
+    ? `${FREQUENCY_ORDER_CASES.length} headwords in their measured order, "grudge" as n before v`
+    : wrongOrder
+        .map(([headword, expected]) => {
+          const group = groupFor(index, headword);
+          const drawn = group === null ? "absent" : [...new Set(group.senses.map((s) => s.pos))].join(",");
+          return `${headword}: drew ${drawn}, measured ${expected.join(",")}`;
+        })
+        .join("; "),
+);
+
 report();
