@@ -12,6 +12,8 @@ import { MANIFEST_PATH, manifestSchema, normaliseHeadword, type DictionaryPayloa
 import { env } from "@/lib/env";
 import type { OpenverseLicence } from "@/lib/word/openverse";
 
+import concretenessCorpus from "./concreteness.generated.json";
+
 // --- The dictionary gate -----------------------------------------------
 //
 // The closed list of headwords is the only thing bounding the bill: an
@@ -33,6 +35,20 @@ export async function isDictionaryHeadword(normalisedHeadword: string): Promise<
   headwordsPromise ??= loadHeadwords();
   const headwords = await headwordsPromise;
   return headwords.has(normalisedHeadword);
+}
+
+// --- The concreteness gate ------------------------------------------------
+//
+// RL-36 asks for a *concrete noun*, not any dictionary headword: bundled at
+// build time (`scripts/build-concreteness.ts`), never read from disk per
+// request, so the check that must run before Openverse is a Set lookup, not
+// a second file read. Every entry here already passed the dictionary gate
+// above — the generator built it from the same asset — so this replaces
+// that check for the photo route rather than adding to it.
+const PHOTOGRAPHABLE_HEADWORDS: ReadonlySet<string> = new Set(concretenessCorpus.headwords);
+
+export function isPhotographableHeadword(normalisedHeadword: string): boolean {
+  return PHOTOGRAPHABLE_HEADWORDS.has(normalisedHeadword);
 }
 
 // --- reading.word_photos and reading.model_spend -------------------------
@@ -170,7 +186,7 @@ function signingKey(secret: string, dateStamp: string, region: string): Buffer {
 
 async function signedS3Request(
   config: StorageConfig,
-  method: "GET" | "PUT",
+  method: "GET" | "PUT" | "DELETE",
   key: string,
   body: Buffer | null,
   contentType: string | null,
@@ -223,6 +239,15 @@ export async function putPhotoObject(key: string, bytes: Buffer, contentType: st
   if (!config) throw new Error("Storage is not configured");
   const response = await signedS3Request(config, "PUT", key, bytes, contentType);
   if (!response.ok) throw new Error(`S3 PUT answered ${response.status}`);
+}
+
+// Idempotent: a 404 here means the object is already gone, which is the
+// outcome the caller wanted anyway.
+export async function deletePhotoObject(key: string): Promise<void> {
+  const config = storageConfig();
+  if (!config) return;
+  const response = await signedS3Request(config, "DELETE", key, null, null);
+  if (!response.ok && response.status !== 404) throw new Error(`S3 DELETE answered ${response.status}`);
 }
 
 export async function getPhotoObject(key: string): Promise<{ bytes: Buffer; contentType: string } | null> {

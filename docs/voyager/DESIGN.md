@@ -831,3 +831,21 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   category labels, in all four faces, and a stack reordered is the same board. The attribution is the fourth repetition of a block
   `CuentaInformacion` already draws three times — same `MetaLabel`, same `Text`, same `Separator`,
   no new layout, no new control. A face nobody drew here is a face nobody needed.
+- **The photo is gated on measured concreteness, and a word with no score gets none. Decided by the
+  user 2026-09-11.** RL-36 has said «concrete noun» since it was written and the route never tested
+  either half: `openverse.ts:86` searched the bare headword, and the only guard in the chain asked
+  whether the word was in the dictionary, never what kind of word it was. The 93.3% that justified
+  the design measured whether a photo came back, never whether it had anything to do with the word —
+  coverage is not relevance, and nobody had measured relevance until this day. What it measured:
+  **20 of 36 relevant overall**, 12 of 12 for concrete nouns, **2 of 12 for abstract ones**.
+- **Filtering on part of speech alone was measured and refused.** All 12 abstract headwords probed
+  carry a noun sense in the index, so the filter RL-36's own wording seems to ask for lifts relevance
+  from 55.6% to 58.3% and leaves `grudge` exactly where it was.
+- **The price, taken knowingly: the photo becomes rare.** 9,942 of 58,946 headwords can carry one,
+  against every headword today, and 22,896 noun headwords go without because the norms have no row
+  for them. Rarity is the right failure here — `PalabraSinFoto` is already drawn, and a reader who
+  sees no photo loses nothing, while a reader who sees the wrong one stops trusting the screen.
+- **The rows already cached must go.** `reading.word_photos` has no expiry, so every word resolved
+  before this change keeps serving the photo it got under no filter at all.
+- **No board for this either.** `PalabraFoto` and `PalabraSinFoto` already draw both outcomes; this
+  decides which a word reaches, and adds no state to draw.

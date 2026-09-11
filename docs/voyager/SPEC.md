@@ -120,6 +120,20 @@ this gets built, and no schema, table or column is "prepared for" it.
   every reader after the first. Each image's author, licence, licence link and source stay attached to
   it and are credited by file in `/cuenta`, next to RL-33's own credit.
 
+  **«Concrete noun» is a test the code runs, not a phrase in this line.** Written 2026-09-11, after
+  the reader hit `grudge` and got a photograph of someone underwater. The headword must carry a noun
+  sense **and** score at least 3.0 for concreteness; a headword with no concreteness score is asked
+  for no image at all. Absence is already a screen this app draws, so a word with no photo costs the
+  reader nothing. Measured that day against the live Openverse and the built index: of 36 headwords
+  probed, concrete nouns came back relevant **12 of 12**, abstract nouns **2 of 12**, non-nouns
+  **6 of 12** — 55.6% overall. A noun-only filter buys almost nothing, because **12 of the 12
+  abstract headwords probed carry a noun sense too**; concreteness separates them cleanly, every
+  concrete probe scoring 4.58 or above and every abstract one 2.37 or below. The scores come from
+  Brysbaert, Warriner and Kuperman's 40,000-lemma norms, which cover 14,533 of the dictionary's
+  37,429 noun headwords, so at the 3.0 threshold an image is possible for **9,942 headwords — 16.9%
+  of the dictionary** rather than all of it. **That source states no licence**, unlike SUBTLEX-US in
+  RL-43; the user took it knowingly on 2026-09-11 and it is credited in `/cuenta` all the same.
+
 #### The sentence
 
 - [ ] **RL-08** — A sentence is translated by the device's own translator when the browser offers one and it is ready. Whether it does is asked of the browser at runtime, on every open, and never inferred from the browser's name or version.

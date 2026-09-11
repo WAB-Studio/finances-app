@@ -18,6 +18,12 @@ const manifest = manifestSchema.parse(manifestJson);
 // figure here is 1024^2, not the decimal megabyte.
 const BYTES_PER_MIB = 1024 * 1024;
 
+// The concreteness norms RL-36 gates the photo on (`private/concreteness.xlsx`,
+// not shipped — `scripts/build-concreteness.ts` reads it once and commits only
+// the derived headword set). No licence is declared for this source; it is
+// credited here all the same.
+const CONCRETENESS_SOURCE_URL = "https://doi.org/10.3758/s13428-013-0403-5";
+
 /**
  * `CuentaInformacion` (`docs/voyager/DESIGN.md` "Settled"): the dictionary's
  * source, its edition and its CC BY-SA 3.0 licence, plus SUBTLEX-US's own
@@ -79,6 +85,18 @@ export function AccountInfo() {
               </Link>
             ),
           })}
+        </Text>
+      </Flex>
+
+      <Separator size="4" />
+
+      <Flex direction="column" gap="1">
+        <MetaLabel>{t("concretenessLabel")}</MetaLabel>
+        <Link href={CONCRETENESS_SOURCE_URL} target="_blank" rel="noreferrer">
+          <Text size="2">{t("concretenessName")}</Text>
+        </Link>
+        <Text size="2" muted>
+          {t("concretenessCredit")}
         </Text>
       </Flex>
 
