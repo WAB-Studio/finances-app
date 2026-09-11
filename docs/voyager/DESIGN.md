@@ -636,6 +636,18 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   module built on «done with empty text» would have landed dark. Written as **RL-37**; RL-31 is
   untouched, because its own claim — a string *not* treated as a sentence never gets silence —
   stays true.
+- **The generated text draws as soon as it is ready, without waiting for the photo. Decided by the
+  user 2026-09-11.** `use-decoration.ts` settled both in one `Promise.all`, so text already sitting
+  in Postgres waited on the photo: **64 s measured** for `left`. Two readings were offered and
+  refused — leaving them coupled, and separating them with no reserved box. **Board:
+  `PalabraTextoAntesDeFoto`, óscuro × móvil**, drawn 2026-09-11 on the «Palabra» page beside
+  `PalabraGenerada` and `PalabraGenerando`. The 76 px slot is **reserved from the first paint**, so
+  nothing moves under the reader's finger when the photo lands, and the square stays **silent, not
+  spinning** — `PalabraFotoCargando`'s own reasoning holds: a 76 px ornament is not a task the
+  reader is waiting on, and a spinner would make it one.
+- **No light face and no desktop face for it, and neither is missing.** This screen's decoration
+  states were only ever drawn óscuro × móvil, and this one changes neither layout nor controls —
+  only what has arrived by the time the reader looks.
 - **`SinResultadoIAFallo` is stale in all four faces.** «La IA no pudo responder» is the state the
   decision above replaces. The boards stay on the canvas as a record of what was; never cite one in
   a dispatch. The screen a failed translation reaches from now on is `SinEntradaFrase`, and the
