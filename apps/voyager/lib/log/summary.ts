@@ -84,6 +84,9 @@ export type WordHistoryRow = {
   text: string;
   outcome: LookupOutcome;
   translation: string | null;
+  // A sentence's own row: its answer is `translation` above, never a
+  // dictionary headword — RL-34's own distinction, the caller's to read.
+  kind: LookupRecord["kind"];
 };
 
 type FoundRow = WordHistoryRow & { id: number };
@@ -118,6 +121,7 @@ export async function readWordHistory(
         text: record.text,
         outcome: record.outcome,
         translation: record.translation,
+        kind: record.kind,
       });
       cursor.continue();
     };
@@ -128,7 +132,13 @@ export async function readWordHistory(
   found.sort((a, b) => b.at - a.at || b.id - a.id);
   const sliced = limit === undefined ? found : found.slice(0, limit);
   return {
-    rows: sliced.map((row) => ({ at: row.at, text: row.text, outcome: row.outcome, translation: row.translation })),
+    rows: sliced.map((row) => ({
+      at: row.at,
+      text: row.text,
+      outcome: row.outcome,
+      translation: row.translation,
+      kind: row.kind,
+    })),
     total: found.length,
   };
 }
