@@ -3,6 +3,15 @@ import { expect, test, type Page } from "@playwright/test";
 import messages from "../messages/es.json";
 import manifest from "../public/dictionary/manifest.json";
 
+// CI's `voyager-e2e` job (`.github/workflows/ci.yml`) sets none of the five
+// `SUPABASE_STORAGE_*` variables `isStorageConfigured` checks — deliberately,
+// per `docs/TRAPS.md`: handing that key to every CI run would let any push
+// write to the user's own production bucket. Without it the GET route below
+// can never serve a bucket object, in CI or in a lane started with the same
+// override, so a test that needs real pixels from the real route can never
+// go green there. Case 3 supplies its own bytes instead of the bucket's.
+const baseURL = process.env.VOYAGER_BASE_URL ?? "http://localhost:3100";
+
 // Chromium's built-in `Translator` hangs `availability()` forever
 // (docs/TRAPS.md); the mount effect must never reach it in this suite.
 async function deleteTranslator(page: Page): Promise<void> {
@@ -11,12 +20,6 @@ async function deleteTranslator(page: Page): Promise<void> {
   });
 }
 
-// The one wait every other spec on this route stubs away: the real route,
-// not `page.route`. `dog` is cached `found` (a row and a bucket object
-// already sit in `reading.word_photos`), so this never reaches Openverse
-// and writes nothing new — the six specs that mock `/api/word/photo` never
-// prove that a `found` row actually draws pixels, only that their own
-// stub's shape does.
 async function searchAndSettle(page: Page, word: string): Promise<void> {
   const assetResponse = page.waitForResponse(
     (response) => response.url().includes(manifest.asset.path) && response.ok(),
@@ -32,17 +35,120 @@ async function searchAndSettle(page: Page, word: string): Promise<void> {
   await expect(page.getByRole("heading", { name: word, exact: true })).toBeVisible({ timeout: 5000 });
 }
 
-test("a concrete noun's cached photo draws real pixels, not just an <img> tag", async ({ page }) => {
+// A real, decodable PNG, drawn by the browser itself rather than typed in as
+// a data URI: a copied literal that fails to decode would leave case 3 green
+// while drawing nothing, which is the exact defect this file exists to
+// catch. 32x17 on purpose — no real Openverse thumbnail lands on that pair,
+// so a later assertion against it can only pass on these seeded bytes.
+const SEED_WIDTH = 32;
+const SEED_HEIGHT = 17;
+
+async function drawSeedPng(page: Page): Promise<Buffer> {
+  const base64 = await page.evaluate(
+    async ({ width, height }) => {
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d")!;
+      ctx.fillStyle = "#3366ff";
+      ctx.fillRect(0, 0, width, height);
+      const blob = await new Promise<Blob>((resolve) => canvas.toBlob((b) => resolve(b!), "image/png"));
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      let binary = "";
+      for (const byte of bytes) binary += String.fromCharCode(byte);
+      return btoa(binary);
+    },
+    { width: SEED_WIDTH, height: SEED_HEIGHT },
+  );
+  return Buffer.from(base64, "base64");
+}
+
+// Decodes the seeded bytes through a throwaway `<img>`, never the one the
+// test later asserts on — proof the bytes are a real image before they are
+// wired into the route, not proof the route drew whatever it was handed.
+async function assertPngDecodes(page: Page, bytes: Buffer): Promise<void> {
+  const measured = await page.evaluate(async (base64) => {
+    const img = new Image();
+    img.src = `data:image/png;base64,${base64}`;
+    await img.decode();
+    return { naturalWidth: img.naturalWidth, naturalHeight: img.naturalHeight };
+  }, bytes.toString("base64"));
+  expect(measured.naturalWidth).toBe(SEED_WIDTH);
+  expect(measured.naturalHeight).toBe(SEED_HEIGHT);
+}
+
+test("an abstract noun's photo request answers 204, and no <img> draws — not even an empty one", async ({
+  page,
+}) => {
+  await deleteTranslator(page);
+
+  const photoRequest = page.waitForResponse((response) => response.url().includes("/api/word/photo"));
+  // `grudge` fails `isPhotographableHeadword` — abstract, never scored
+  // concrete — so the route's own guard (route.ts:90) answers before it
+  // opens a connection to Postgres or Openverse: no row, no object. Needs
+  // no storage and no cache, so this is the one case CI runs unmodified.
+  await searchAndSettle(page, "grudge");
+
+  const response = await photoRequest;
+  expect(response.status()).toBe(204);
+
+  // `WordPhoto` returns `null` on `{ kind: "absent" }` — no square, no
+  // placeholder frame, nothing `next/image` ever mounts.
+  await expect(page.locator("img")).toHaveCount(0);
+});
+
+test("a concrete noun's photo request passes the guard, against the real route", async ({ page }) => {
   await deleteTranslator(page);
 
   const photoRequest = page.waitForResponse(
     (response) => response.url().includes("/api/word/photo") && response.request().method() === "POST",
   );
+  // Real route, real Postgres, no interception: `dog` is a photographable
+  // headword with a `found` row already sitting in the shared database (both
+  // lanes and CI point `DATABASE_URL` at the same one), so the POST answers
+  // from cache without reaching Openverse or the bucket either way.
+  //
+  // What this proves: the guard let `dog` through — a headword `grudge`'s
+  // shape never reaches. What this does NOT prove: that the bytes behind the
+  // URL are real pixels, since serving them needs the bucket and CI has no
+  // bucket credentials (see the file comment above). Case 3 covers that
+  // seam instead, without touching the bucket at all.
+  //
+  // This distinction only holds while `dog`'s row stays cached: an uncached
+  // headword with no storage configured also answers 204 (route.ts's own
+  // `isStorageConfigured` check, ahead of Openverse), the same status a
+  // guard rejection gives. Purge `dog` from `reading.word_photos` and this
+  // assertion can no longer tell "the guard passed" from "the bucket is
+  // missing" — it would need a storage-backed run to mean anything again.
   await searchAndSettle(page, "dog");
 
-  // The POST resolves 200 from cache — no Openverse call, no new row.
   const response = await photoRequest;
-  expect(response.status()).toBe(200);
+  expect(response.status()).not.toBe(204);
+});
+
+test("a concrete noun's cached photo draws real pixels, seeded rather than fetched from the bucket", async ({
+  page,
+}) => {
+  await deleteTranslator(page);
+
+  const seed = await drawSeedPng(page);
+  await assertPngDecodes(page, seed);
+
+  // Scoped to this test's own origin, not `**/api/word/photo?*`: a pattern
+  // that matched any host would still catch route.ts's old, broken absolute
+  // URL and paper over the exact regression this test exists to reproduce
+  // (see the negative control in the report). The POST is left real, so the
+  // relative URL, `next/image` and this component wire together for real —
+  // only the bucket's bytes are substituted.
+  await page.route(`${baseURL}/api/word/photo?*`, (route) => {
+    void route.fulfill({ status: 200, contentType: "image/png", body: seed });
+  });
+
+  const photoRequest = page.waitForResponse(
+    (response) => response.url().includes("/api/word/photo") && response.request().method() === "POST",
+  );
+  await searchAndSettle(page, "dog");
+  expect((await photoRequest).status()).toBe(200);
 
   const alt = messages.word.photoAlt.replace("{headword}", "dog");
   const img = page.getByRole("img", { name: alt });
@@ -52,7 +158,8 @@ test("a concrete noun's cached photo draws real pixels, not just an <img> tag", 
   // instant React commits it, before the browser has fetched a single byte
   // from the GET route below. `naturalWidth` only turns nonzero once the
   // decoded image actually has pixels — the exact gap this route's defect
-  // lived in for three modules.
+  // lived in for three modules. The exact seeded dimensions, not just
+  // `> 0`, rule out a coincidental real photo slipping past the route.
   await page.waitForFunction(
     (selector) => {
       const el = document.querySelector<HTMLImageElement>(selector);
@@ -64,28 +171,11 @@ test("a concrete noun's cached photo draws real pixels, not just an <img> tag", 
 
   const measured = await img.evaluate((el: HTMLImageElement) => ({
     naturalWidth: el.naturalWidth,
+    naturalHeight: el.naturalHeight,
     complete: el.complete,
   }));
-  console.log(`dog's photo: naturalWidth ${measured.naturalWidth}px, complete ${measured.complete}`);
+  console.log(`dog's seeded photo: ${measured.naturalWidth}x${measured.naturalHeight}px, complete ${measured.complete}`);
   expect(measured.complete).toBe(true);
-  expect(measured.naturalWidth).toBeGreaterThan(0);
-});
-
-test("an abstract noun's photo request answers 204, and no <img> draws — not even an empty one", async ({
-  page,
-}) => {
-  await deleteTranslator(page);
-
-  const photoRequest = page.waitForResponse((response) => response.url().includes("/api/word/photo"));
-  // `grudge` fails `isPhotographableHeadword` — abstract, never scored
-  // concrete — so the route's own guard (route.ts:90) answers before it
-  // opens a connection to Postgres or Openverse: no row, no object.
-  await searchAndSettle(page, "grudge");
-
-  const response = await photoRequest;
-  expect(response.status()).toBe(204);
-
-  // `WordPhoto` returns `null` on `{ kind: "absent" }` — no square, no
-  // placeholder frame, nothing `next/image` ever mounts.
-  await expect(page.locator("img")).toHaveCount(0);
+  expect(measured.naturalWidth).toBe(SEED_WIDTH);
+  expect(measured.naturalHeight).toBe(SEED_HEIGHT);
 });
