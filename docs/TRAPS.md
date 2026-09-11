@@ -1618,3 +1618,63 @@ aquí.
 - **`model_spend` sí es la cifra de esta app**, porque el único llamador reclama cupo antes de llamar.
 - Un total en dólares de la cuenta — los **$0,33** que leyó el usuario ese día — es de todo el
   proyecto junto, y dividirlo entre las llamadas de voyager da un número inventado.
+
+## Un relevo que sí llega a IndexedDB se duplica si nadie lo comprueba al recuperarlo
+
+Encontrado 2026-09-11, `apps/voyager/lib/log/record.ts`, en el fallo intermitente de
+`e2e/log.spec.ts:377`. Este defecto es primo del de "Un relevo de una sola clave pierde una fila
+cuando un `flush` compromete dos" (arriba) y de "`log.spec.ts`'s killed-tab test loses its race
+under a loaded machine": los tres hablan del mismo relevo, pero éste es una carrera distinta, y la
+de arriba de 2026-09-09 lo daba por un caso sin arreglo posible ("it would reopen only with a
+failure that reproduces alone"). No lo era.
+
+`pagehide` y `visibilitychange` disparan los dos al cerrar una pestaña, pero eso no duplica nada:
+`flushPendingLookup` pone `pending = null` en la misma pasada síncrona que comprometió la fila, así
+que una segunda llamada no encuentra nada que comprometer. Medido con `console.debug` en los dos
+manejadores: ambos disparan, y el segundo siempre ve `pending` ya vacío.
+
+La duplicación real está en el relevo:
+
+```
+commit(row)
+  → relayPendingRow(row)   escribe row en localStorage (síncrono, garantizado)
+  → writeRowSync(row)      abre la transacción IDB en la MISMA tarea, vuelve true
+la pestaña muere
+  → la transacción SÍ compromete — el propio comentario de commit() ya lo decía:
+    "a killed tab still lets its transaction commit (measured)"
+  → pero transaction.oncomplete nunca corre: el documento ya no existe
+  → así que clearRelayedRow(row) no se ejecuta, y la fila sigue en localStorage
+documento siguiente
+  → recoverRelayedRow() corre al cargar el módulo
+  → writeRow(row) la escribe OTRA VEZ, sin comprobar nada antes
+```
+
+Medido contra un build de producción, `e2e/log.spec.ts` sin ningún arreglo, `--repeat-each=20`:
+**2/20** fallan, siempre con la misma forma — dos filas `book` con el mismo `at` al milisegundo
+(viene del apunte, no del momento de escribir) e `id` consecutivo del `autoIncrement`:
+`{"at":…,"normalised":"book","id":2}` y `{"at":…,"normalised":"book","id":3}`. Coincide bit a bit
+con el fallo de CI en `private/flake-log-377/ci-155-orden-frecuencia.log` y
+`ci-156-foto-concreta.log` — ninguna de las dos ramas de esos logs toca el registro, porque el
+defecto no es de ninguna rama.
+
+**El arreglo: que `writeRow` compruebe antes de escribir, dentro de la misma transacción.**
+`writeRow` abre una transacción `readwrite`, primero pide `store.index("at").getAll(row.at)` y sólo
+llama a `store.add(row)` si ninguna fila devuelta comparte también `normalised`. La comprobación y
+la escritura comparten una transacción — nunca una lectura suelta seguida de una escritura aparte —
+porque IndexedDB nunca deja abrir una segunda transacción `readwrite` sobre `lookups` mientras ésta
+sigue viva: nada puede colarse entre las dos aquí, donde una segunda transacción sí podría ganarle
+la apertura a una comprobación hecha por separado. Se descartó una clave determinista con un índice
+único (subir `DATABASE_VERSION` a 3, `onupgradeneeded` recorriendo y borrando duplicados ya
+existentes antes de crear el índice): resuelve la misma carrera sin depender del orden de llegada,
+pero un `onupgradeneeded` que borra filas de un lector real es más riesgo del que este defecto
+merece para el tamaño de la ventana real (una comprobación en la misma transacción ya la cierra en
+la práctica, y `at` sólo colisiona con `normalised` igual cuando es este mismo defecto).
+
+Medido tras el arreglo, mismo build, mismo `--repeat-each=20`: **20/20** pasan. La suite completa,
+138 tests, **136 passed, 2 skipped, 0 failed**, 4.6 min.
+
+**No toques el relevo mismo.** Sigue siendo la única copia de una fila que un `reload`, una
+navegación de URL o un `history.back()` sí destruyen antes de que la transacción llegue a
+comprometer — a diferencia de una pestaña matada, a esos tres nunca les da tiempo ni a eso. El
+arreglo sólo hace que *recuperar* dos veces la misma fila cueste una lectura de índice, nunca una
+fila de más.
