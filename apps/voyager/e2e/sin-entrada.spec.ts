@@ -71,10 +71,18 @@ test("a two-token miss draws both headwords, offline, with no request", async ({
 // "zzqx" is absent from `eng-spa-2025.11.23.json` as a headword, and no
 // inflection rule in `lib/dictionary/inflect.ts` strips a suffix off it —
 // there is nothing left for `lookupWord` to find under any of its rules.
+// Two tokens now reaches the translator online, like any other phrase
+// (module 30) — only a failed translation still falls to this breakdown,
+// same as the "dog cat" case above, so the route is stubbed to fail here too.
 test("a two-token miss where the dictionary lacks one word draws that word's own heading and its own miss, and the other's answer", async ({
   page,
 }) => {
   await deleteTranslator(page);
+  let translateCount = 0;
+  await page.route("**/api/translate", async (route) => {
+    translateCount++;
+    await route.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({ error: "provider" }) });
+  });
   await openReady(page);
 
   const searchBox = page.getByRole("textbox", { name: messages.search.label });
@@ -87,6 +95,11 @@ test("a two-token miss where the dictionary lacks one word draws that word's own
   await expect(mainHeadings(page).filter({ hasText: "zzqx" })).toBeVisible();
   await expect(mainHeadings(page)).toHaveCount(2);
   await expect(page.getByText(messages.search.noEntry.wordMiss)).toBeVisible();
+  const failedTitle = messages.search.noEntry.titleTranslationFailed.replace("{query}", "hello zzqx");
+  await expect(page.getByText(failedTitle)).toBeVisible();
+
+  await page.waitForTimeout(PHRASE_DEBOUNCE_MS + 300);
+  expect(translateCount, "the translation is attempted once, and fails").toBe(1);
 });
 
 test("a 61-token string draws one line and no heading, and asks the dictionary nothing", async ({ page }) => {
