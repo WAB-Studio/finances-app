@@ -308,6 +308,13 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
     case that motivated RL-28 would come back unordered. The raw `private/subtlex-pos.xlsx` is not
     in the tree. Nothing was written against this decision, because the table was read before a
     worker was dispatched, not after.
+  - **What ships instead: rank the candidates the table does carry, and leave the rest alphabetical
+    behind them. Decided by the user 2026-09-11, knowing what it does not fix.** 8 of `bame`'s 13
+    move; `bae`, `bake`, `bane`, `fame` and `same` keep their alphabetical place after them. **`fettle`
+    is unchanged in every respect** — none of `kettle`, `mettle`, `nettle`, `settle` carries a row —
+    so the case that opened RL-28 still shows four candidates in alphabetical order. Building the
+    raw frequency table was offered and refused: it needs `private/subtlex-pos.xlsx` placed in the
+    tree, and the user chose the partial order over waiting for it. A new corpus was refused too.
   - **Drawing each candidate's first translation was measured and refused.** It was the first choice
     and it does not survive the data: the dictionary's first sense for `name` is «ñame» — the yam —
     with «nombre» sitting in sense 1, and `game`'s first sense leads «gancho, imán, jale» with
