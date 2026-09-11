@@ -1,50 +1,24 @@
 import "server-only";
 
 import { createHash, createHmac } from "node:crypto";
-import { readFile } from "node:fs/promises";
-import path from "node:path";
 
 import { sql } from "drizzle-orm";
 
 import { db } from "@/db/client";
 import type { WordPhotoRow } from "@/db/schema";
-import { MANIFEST_PATH, manifestSchema, normaliseHeadword, type DictionaryPayload } from "@/lib/dictionary/format";
 import { env } from "@/lib/env";
 import type { OpenverseLicence } from "@/lib/word/openverse";
 
 import concretenessCorpus from "./concreteness.generated.json";
-
-// --- The dictionary gate -----------------------------------------------
-//
-// The closed list of headwords is the only thing bounding the bill: an
-// anonymous route that fires a paid/bandwidth call on arbitrary text is how
-// someone inflates it. Loaded once per server process from the same static
-// asset the client installs, never from a pass through `reading`.
-
-let headwordsPromise: Promise<ReadonlySet<string>> | null = null;
-
-async function loadHeadwords(): Promise<ReadonlySet<string>> {
-  const manifestFsPath = path.join(process.cwd(), "public", ...MANIFEST_PATH.split("/").filter(Boolean));
-  const manifest = manifestSchema.parse(JSON.parse(await readFile(manifestFsPath, "utf8")));
-  const assetFsPath = path.join(process.cwd(), "public", ...manifest.asset.path.split("/").filter(Boolean));
-  const payload = JSON.parse(await readFile(assetFsPath, "utf8")) as DictionaryPayload;
-  return new Set(payload.entries.map((entry) => normaliseHeadword(entry[0])));
-}
-
-export async function isDictionaryHeadword(normalisedHeadword: string): Promise<boolean> {
-  headwordsPromise ??= loadHeadwords();
-  const headwords = await headwordsPromise;
-  return headwords.has(normalisedHeadword);
-}
 
 // --- The concreteness gate ------------------------------------------------
 //
 // RL-36 asks for a *concrete noun*, not any dictionary headword: bundled at
 // build time (`scripts/build-concreteness.ts`), never read from disk per
 // request, so the check that must run before Openverse is a Set lookup, not
-// a second file read. Every entry here already passed the dictionary gate
-// above — the generator built it from the same asset — so this replaces
-// that check for the photo route rather than adding to it.
+// a file read. The generator built this set from the dictionary's own
+// asset, so a hit here already implies the word is a real headword — no
+// separate dictionary lookup is needed ahead of it.
 const PHOTOGRAPHABLE_HEADWORDS: ReadonlySet<string> = new Set(concretenessCorpus.headwords);
 
 export function isPhotographableHeadword(normalisedHeadword: string): boolean {
