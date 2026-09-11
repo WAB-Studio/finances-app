@@ -272,6 +272,29 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
     Nothing leaves the device until the reader taps. Boards: `SinResultadoIA`, `SinResultadoIAFallo`.
   - **The guard between them:** the correction shows only when a candidate is within one edit of a
     headword. `zzqqxv` gets neither line, and that is the case the guard exists for.
+  - **That guard never silenced `fettle`, and this file was wrong to say it did, from 2026-09-08
+    until today.** "Edit distance answers it wrong... so the correction must not fire here" (above)
+    reads as if the one-edit guard itself withheld the offer. It does not: `fettle` sits exactly one
+    substitution from `kettle`, `mettle`, `nettle` and `settle` alike, so "within one edit of a
+    headword" is true of all four and a plain one-edit guard shows every one of them. Building RL-28
+    on 2026-09-11 found this by running it, not by reading the paragraph above, and a cap of three
+    candidates was added to make the old sentence true — with no textual basis in either the 2026-09-08
+    decision above or in `docs/voyager/SPEC.md`'s RL-28. Measured against that cap, over 4,000 real
+    one-edit typos: **90.2% have exactly one candidate**, and the cap **silenced the 2.9% with more
+    than three** — dropping recovery from 100% to 97.1% (cap 3) or 95.5% (cap 2). Put to the user with
+    that number: **decided 2026-09-11, no cap.** RL-28 corrects 100% of one-edit typos, and `fettle`
+    draws `kettle`, `mettle`, `nettle` and `settle` — wrong, and known to be wrong — until RL-29 ships,
+    which is the same day. RL-29 is what tells that reader none of the four is what they meant; a cap
+    that only ever hides the truth from `fettle` was hiding it from every genuine typo past three
+    candidates too.
+  - **The board still has to draw a limit, even with no cap on what is found.** `SinResultadoClaroMovil`
+    is narrow; nine tap targets do not fit it the way `recieve`'s one or two did. The screen (not
+    `edit-distance.ts`, which keeps every candidate) draws at most five and names the rest — "boz" is
+    the sampled case with nine headwords one edit away and no autocomplete prefix of its own to hide
+    behind, and it draws five names and "y 4 más". This half is an implementation choice within the
+    2026-09-11 decision, not a second guard on the correction itself: it never drops the one candidate
+    a genuine typo needed, since a query with that many equally-close headwords is `fettle`-shaped, not
+    `recieve`-shaped, by the same 4,000-typo measurement above.
   - **The answer is labelled.** An AI answer carries `RESPONDIDO POR IA` above it; the reader always
     knows what came from the dictionary and what did not.
   - **A failure is a failure.** Measured 2026-09-08: 3 of ~12 calls failed (two 403, one 503). The

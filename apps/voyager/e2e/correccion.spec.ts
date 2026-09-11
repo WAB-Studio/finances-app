@@ -74,12 +74,12 @@ test("tapping the offer opens the corrected word's own entry", async ({ page }) 
   await expect(searchBox).toHaveValue("receive");
 });
 
-// RL-28's guard: a real English word the dictionary lacks (`fettle`) sits
-// one substitution from four headwords at once (kettle, mettle, nettle,
-// settle) — offering any of them would look as confident as `receive` does
-// for `recieve`, and be wrong. `docs/voyager/DESIGN.md` names this exact
-// case as the reason the guard exists.
-test("a word one edit from several headwords at once gets no correction", async ({ page }) => {
+// Decided by the user 2026-09-11: no cap on the candidate count, so a real
+// English word the dictionary lacks (`fettle`) draws all four headwords one
+// substitution away (kettle, mettle, nettle, settle) — wrong, and known to
+// be wrong (`docs/voyager/DESIGN.md`, dated the same day) — until RL-29
+// gives that reader a door that isn't a guess.
+test("a word one edit from several headwords at once offers all of them", async ({ page }) => {
   await deleteTranslator(page);
   await openReady(page);
 
@@ -87,11 +87,31 @@ test("a word one edit from several headwords at once gets no correction", async 
   await searchBox.fill("fettle");
 
   await expect(page.getByText(messages.search.notFound)).toBeVisible();
-  await expect(page.getByText(messages.search.notFoundHint)).toBeVisible();
-  await expect(page.getByText(messages.search.correctionTitle)).toHaveCount(0);
+  await expect(page.getByText(messages.search.correctionTitle)).toBeVisible();
+  await expect(page.getByText(messages.search.notFoundHint)).toHaveCount(0);
   for (const word of ["kettle", "mettle", "nettle", "settle"]) {
-    await expect(page.getByRole("link", { name: word, exact: false })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: word, exact: false })).toBeVisible();
   }
+});
+
+// "boz" sits one edit from nine real headwords, more than the board has
+// room for, and has no prefix match of its own to suppress the miss with
+// (RL-18). The screen draws five and names the rest, rather than either
+// dropping them silently or crowding the tap targets past what
+// `SinResultadoClaroMovil` was drawn for. Decided by the worker building
+// RL-28 (`docs/voyager/DESIGN.md`, 2026-09-11) — `edit-distance.ts` itself
+// keeps every candidate; only the screen caps what it draws.
+test("more than five candidates draws five and names how many more", async ({ page }) => {
+  await deleteTranslator(page);
+  await openReady(page);
+
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+  await searchBox.fill("boz");
+
+  await expect(page.getByText(messages.search.correctionTitle)).toBeVisible();
+  const links = page.locator("main").getByRole("link");
+  await expect(links).toHaveCount(5);
+  await expect(page.getByText("4 más", { exact: false })).toBeVisible();
 });
 
 // `zzqqxv` sits no closer than two edits from any real headword: neither the

@@ -9,16 +9,6 @@ import type { DictionaryIndex } from "./index-build";
 // two-word headword like "give up" over one lucky insertion.
 const ALPHABET = "abcdefghijklmnopqrstuvwxyz'-";
 
-// More than this many headwords sit one edit from the query and the offer
-// stops meaning anything: `fettle` sits one substitution from `kettle`,
-// `mettle`, `nettle` and `settle` alike, and showing all four hands the
-// reader four guesses with the same confident face as `receive` gets for
-// `recieve`'s one guess. Measured against a 1,939-word synthetic sample
-// (`private/reportes/sugerir-errata.md`): capping here still shows the
-// right word for 93.7% of one-edit misses, and only ever withholds it —
-// never shows the wrong one instead.
-const MAX_CANDIDATES = 3;
-
 // Every string one delete, one transposition, one substitution or one
 // insertion away from `word` — the classic four-operation edit-1 set,
 // generated once per miss rather than compared word-by-word against the
@@ -40,8 +30,12 @@ function editsAtDistanceOne(word: string): Set<string> {
 }
 
 // Every headword one edit from `normalised` that the index actually has,
-// sorted for a stable order on screen — empty when there are none
-// (`zzqqxv`) or when there are too many to mean anything (`fettle`).
+// sorted for a stable order on screen — empty only when there is none
+// (`zzqqxv`). No cap: decided by the user 2026-09-11, against
+// `docs/voyager/DESIGN.md`'s "One edit, no cap" — a real word the
+// dictionary lacks (`fettle`) can sit one edit from several headwords at
+// once and still surface all of them here; RL-29 is what tells that reader
+// none of them is what they meant, not this function withholding the list.
 export function suggestCorrection(index: DictionaryIndex, normalised: string): string[] {
   if (normalised.length < 2 || normalised.includes(" ")) return [];
 
@@ -49,6 +43,5 @@ export function suggestCorrection(index: DictionaryIndex, normalised: string): s
   for (const candidate of editsAtDistanceOne(normalised)) {
     if (index.byHeadword.has(candidate)) hits.push(candidate);
   }
-  if (hits.length === 0 || hits.length > MAX_CANDIDATES) return [];
   return hits.sort();
 }

@@ -421,42 +421,44 @@ assert(
 );
 
 // D13 — RL-28: a one-edit miss recovers the headword it was one edit away
-// from, on a deterministic sample (every 50th eligible headword, its middle
-// character deleted) rather than a random one, so a red here reruns
-// identically. The floor is 95%, not 100%: `edit-distance.ts`'s own cap
-// withholds a correction once more than three headwords sit equally close —
-// the same guard that keeps `fettle` silent (D14) also silences a few
-// genuine typos whose middle-deletion happens to land near several real
-// words ("morning"->"moring" among them). 578/594 on this sample, measured
-// against length >= 7 so the count is not dominated by three- and
-// four-letter headwords, which are ambiguous by a wider margin still.
-const editableHeadwords = index.sortedHeadwords.filter((w) => /^[a-z]+$/.test(w) && w.length >= 7);
+// from, 100% of the time. Decided by the user 2026-09-11: no cap survives
+// on `edit-distance.ts`'s own candidate count. Sample is every 50th eligible
+// headword (length >= 4, plain a-z), its middle character deleted, so a red
+// here reruns identically. A corruption that happens to land on another
+// real answer — "grueling" reads as "gruel"+"-ing" before it ever reaches
+// `suggestCorrection`, "met" is a headword in its own right — is not a miss
+// at all, so it is excluded rather than counted as a false recovery.
+const editableHeadwords = index.sortedHeadwords.filter((w) => /^[a-z]+$/.test(w) && w.length >= 4);
 const sample = editableHeadwords.filter((_, i) => i % 50 === 0);
 let recovered = 0;
+let tested = 0;
 const missedExamples: string[] = [];
 for (const headword of sample) {
   const mid = Math.floor(headword.length / 2);
   const typo = headword.slice(0, mid) + headword.slice(mid + 1);
-  const correction = lookupWord(index, typo).correction;
-  if (correction.includes(headword)) recovered++;
+  const typoAnswer = lookupWord(index, typo);
+  if (typoAnswer.exact !== null || typoAnswer.viaInflection.length > 0) continue; // not a miss
+  tested++;
+  if (typoAnswer.correction.includes(headword)) recovered++;
   else if (missedExamples.length < 10) missedExamples.push(`${headword}->${typo}`);
 }
 assert(
-  next("a one-edit typo of a sampled headword recovers it in lookupWord's own correction field, at least 95% of the time"),
-  recovered / sample.length >= 0.95,
-  `${recovered}/${sample.length} = ${((100 * recovered) / sample.length).toFixed(1)}%, missed: ${missedExamples.join(", ") || "none"}`,
+  next("a one-edit typo of a sampled headword recovers it in lookupWord's own correction field, 100% of the time"),
+  recovered === tested,
+  `${recovered}/${tested} recovered (${sample.length - tested} of the ${sample.length} sampled excluded as not misses), missed: ${missedExamples.join(", ") || "none"}`,
 );
 
-// D14 — the guard: `fettle` sits one substitution from four real headwords
-// (kettle, mettle, nettle, settle) and none of the four should reach the
-// reader — offering any one of them would look as confident as `receive`
-// does for `recieve`, and be wrong. `zzqqxv` has no headword within one
-// edit at all, which `lookupWord` must answer the same way: nothing.
+// D14 — `fettle` sits one substitution from four real headwords (kettle,
+// mettle, nettle, settle) and gets all four: decided by the user 2026-09-11
+// that RL-28 corrects every one-edit miss with no cap, knowing `fettle` is
+// not a typo but a real word the dictionary lacks — RL-29 is what tells
+// that reader none of the four is what they meant, not this guard.
+// `zzqqxv` has no headword within one edit at all, which stays empty.
 const fettleCorrection = lookupWord(index, "fettle").correction;
 const zzqqxvCorrection = lookupWord(index, "zzqqxv").correction;
 assert(
-  next("fettle's four equally-close headwords are withheld, not offered"),
-  fettleCorrection.length === 0,
+  next("fettle's four equally-close headwords all come back, uncapped"),
+  fettleCorrection.length === 4 && ["kettle", "mettle", "nettle", "settle"].every((w) => fettleCorrection.includes(w)),
   `correction=[${fettleCorrection.join(", ")}]`,
 );
 assert(

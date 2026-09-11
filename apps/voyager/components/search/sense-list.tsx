@@ -284,20 +284,31 @@ function SenseGroup({
   );
 }
 
+// `edit-distance.ts` has no cap of its own since 2026-09-11 — every headword
+// one edit from the miss comes back, however many there are. `SinResultadoClaroMovil`
+// is a narrow board with no room to lay out nine of them, so the screen caps
+// what it draws here, distinct from what the correction found: showing five
+// of nine is still an answer, where the old data-level cap left the reader
+// with nothing at all.
+const MAX_DISPLAYED_CORRECTIONS = 5;
+
 // RL-28: every headword `lookupWord` found one edit from the miss, each its
 // own tap back into `/?q=<word>` — the same door `BlockHeading` opens, drawn
 // smaller here because there is no entry underneath it yet to lead into.
-// Silent when `words` is empty: a real miss with nothing close (`zzqqxv`) or
-// too many equally-close headwords to mean anything (`fettle`, guarded in
-// `edit-distance.ts`) both fall back to `notFoundHint` instead.
+// Silent when `words` is empty — `zzqqxv` is the only case left that reaches
+// no headword at all; a real word the dictionary lacks (`fettle`) draws its
+// wrong-looking candidates here until RL-29 gives that reader a better door.
 function CorrectionOffer({ words, t }: { words: readonly string[]; t: ReturnType<typeof useTranslations> }) {
+  const shown = words.slice(0, MAX_DISPLAYED_CORRECTIONS);
+  const remaining = words.length - shown.length;
+
   return (
     <Flex direction="column" gap="2">
       <Text size="2" color="gray">
         {t("correctionTitle")}
       </Text>
       <Flex gap="4" wrap="wrap">
-        {words.map((word) => (
+        {shown.map((word) => (
           <Link asChild underline="always" key={word}>
             <NextLink href={correctionHref(word)}>
               <TapTarget align="center" gap="1">
@@ -310,6 +321,11 @@ function CorrectionOffer({ words, t }: { words: readonly string[]; t: ReturnType
           </Link>
         ))}
       </Flex>
+      {remaining > 0 && (
+        <Text size="2" color="gray">
+          {t("correctionMore", { count: remaining })}
+        </Text>
+      )}
     </Flex>
   );
 }
