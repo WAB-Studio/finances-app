@@ -356,7 +356,9 @@ for (const headword of index.sortedHeadwords) {
     const overriddenByTable =
       IRREGULAR_TABLE_LEMMAS.has(c.lemma) &&
       ((PAST_TENSE_RULES.has(c.rule) && group.senses.some((s) => s.pos === "v")) ||
-        (PLURAL_RULES.has(c.rule) && group.senses.some((s) => s.pos === "n")));
+        (PLURAL_RULES.has(c.rule) &&
+          group.senses.some((s) => s.pos === "n") &&
+          !group.senses.some((s) => s.pos === "v")));
     return oneLetterLemma || overriddenByTable;
   });
   preFilterBadCandidates += bad.length;
@@ -465,6 +467,43 @@ assert(
   next("zzqqxv, with no headword within one edit, gets no correction"),
   zzqqxvCorrection.length === 0,
   `correction=[${zzqqxvCorrection.join(", ")}]`,
+);
+
+// D17 — the third-person-singular family. English spells the noun plural
+// and the third-person-singular present with the same "-s", and the
+// irregular-table override used to reject a plural guess on the target
+// carrying a noun sense alone — which threw away "goes", "runs", "sees"
+// and every other "-s" form of a verb whose lemma also happens to name a
+// noun. Drives every IRREGULAR_TABLE_LEMMAS entry that carries a verb
+// sense (the population the bug could reach, not three hand-picked
+// words), builds each one's real third-person-singular spelling by the
+// standard English rule, and checks it resolves back to the lemma.
+function thirdPersonSingular(lemma: string): string {
+  if (/(?:[sxz]|ch|sh)$/.test(lemma)) return lemma + "es";
+  if (endsConsonantY(lemma)) return lemma.slice(0, -1) + "ies";
+  if (lemma.length >= 2 && lemma.endsWith("o") && isConsonantLetter(lemma[lemma.length - 2])) return lemma + "es";
+  return lemma + "s";
+}
+
+const verbIrregularLemmas = Array.from(IRREGULAR_TABLE_LEMMAS).filter((lemma) => {
+  const group = groupFor(index, lemma);
+  return group !== null && group.senses.some((s) => s.pos === "v");
+});
+
+let thirdPersonResolved = 0;
+const thirdPersonMissed: string[] = [];
+for (const lemma of verbIrregularLemmas) {
+  const surface = thirdPersonSingular(lemma);
+  const answer = lookupWord(index, surface);
+  const resolves = answer.exact?.headword === lemma || answer.viaInflection.some((h) => h.lemma === lemma);
+  if (resolves) thirdPersonResolved++;
+  else if (thirdPersonMissed.length < 15) thirdPersonMissed.push(`${surface}->${lemma}`);
+}
+assert(
+  next("every irregular-table lemma with a verb sense reaches it from its third-person-singular '-s' form"),
+  thirdPersonResolved === verbIrregularLemmas.length,
+  `${thirdPersonResolved}/${verbIrregularLemmas.length} resolved` +
+    (thirdPersonMissed.length === 0 ? "" : `, missed: ${thirdPersonMissed.join(", ")}`),
 );
 
 report();
