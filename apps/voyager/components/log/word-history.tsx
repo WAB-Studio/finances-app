@@ -182,6 +182,14 @@ export function WordHistory({ normalised }: { normalised: string }) {
 
   const latest = state.rows[0];
   const earliest = state.rows[state.rows.length - 1];
+  // Every row for one `normalised` shares its `kind` — it is fixed at
+  // write time by what the reader typed, not by any one search's outcome.
+  const isPhrase = latest.kind === "phrase";
+  // Most recent search that actually reached a translation: a later retry
+  // that failed must not blank out an answer an earlier one already stored.
+  const phraseTranslation = isPhrase
+    ? (state.rows.find((row) => row.translation !== null)?.translation ?? null)
+    : null;
 
   return (
     <Flex direction="column" gap="5">
@@ -199,10 +207,22 @@ export function WordHistory({ normalised }: { normalised: string }) {
 
       <Separator size="4" />
 
-      {/* The reason the reader opened this screen: the same answer the box
-          gave them, `showExactHeadword` off since the heading above already
-          names this word. */}
-      {dictionaryStatus.state !== "ready" ? (
+      {/* RL-34: a sentence's own answer is the translation already stored
+          on its rows, never a dictionary lookup — `he holds a grudge
+          against me` is never a headword and asking the Worker for one
+          only reproduces the "no tiene esa palabra" miss the record never
+          had. The reason the reader opened this screen on a word stays the
+          same answer the box gave them, `showExactHeadword` off since the
+          heading above already names this word. */}
+      {isPhrase ? (
+        phraseTranslation !== null ? (
+          <Text variant="translation">{phraseTranslation}</Text>
+        ) : (
+          <Text size="2" muted>
+            {t("word.phraseMissing")}
+          </Text>
+        )
+      ) : dictionaryStatus.state !== "ready" ? (
         <InstallStatus status={dictionaryStatus} onRetry={retryDictionary} query="" hasBox={false} />
       ) : answer ? (
         <SenseList answer={answer} showExactHeadword={false} />

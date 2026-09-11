@@ -103,7 +103,8 @@
       "skeletonDate": "0 de enero de 2026",
       "emptyBody": "No has buscado «{word}» todavía.",
       "emptyAction": "Buscarla",
-      "skeletonAnswer": "Su respuesta de ejemplo"
+      "skeletonAnswer": "Su respuesta de ejemplo",
+      "phraseMissing": "No se guardó una traducción para esta frase."
     },
     "clear": {
       "trigger": "Vaciar el registro",
