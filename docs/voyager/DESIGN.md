@@ -262,7 +262,9 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   - **A typo gets a correction, computed on the device.** Edit distance over the 58,944 headwords:
     of 1,955 generated one-edit typos it found the intended word **100% of the time**, 288 with more
     than one candidate, at **0.04 ms** a search. No network, no cost. `recieve` → `receive`.
-    Boards: `SinResultadoSugerencia`, light/dark × desktop/mobile.
+    Boards: `SinResultado`, light × desktop/mobile — it is the face that draws «Quisiste
+    decir» over `recieve`. **`SinResultadoSugerencia` was never drawn**; this line named it
+    until 2026-09-10, when building RL-28 went looking and found no such board.
   - **A real word the dictionary lacks gets a button, never an automatic call.** `fettle` is English,
     absent from the 58,944, and confirmed in Wiktionary as having twelve senses **and no Spanish
     pair** — which is why DBnary never extracted it. Edit distance answers it *wrong*, offering
