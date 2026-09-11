@@ -506,4 +506,22 @@ assert(
     (thirdPersonMissed.length === 0 ? "" : `, missed: ${thirdPersonMissed.join(", ")}`),
 );
 
+// D18 — RL-28: candidates a POS_FREQUENCY_ORDER row exists for sort ahead of
+// candidates it does not, alphabetical within each block. Decided by the
+// user 2026-09-11: the table carries no number, so a rowed candidate is
+// never ranked against another rowed one — only rowed-or-not is honest.
+// "bame" moves 8 of its 13 candidates ahead of the other 5; "fettle" is
+// unchanged, since none of kettle/mettle/nettle/settle carries a row. Named
+// exactly, not just "returned": an unordered check stays green when the
+// order it was written to prove regresses to plain alphabetical.
+const bameCorrection = lookupWord(index, "bame").correction;
+const fettleOrderCorrection = lookupWord(index, "fettle").correction;
+assert(
+  next("suggestCorrection ranks a candidate with a POS_FREQUENCY_ORDER row ahead of one without, alphabetical within each block"),
+  JSON.stringify(bameCorrection) ===
+    JSON.stringify(["bale", "bare", "base", "blame", "game", "lame", "name", "tame", "bae", "bake", "bane", "fame", "same"]) &&
+    JSON.stringify(fettleOrderCorrection) === JSON.stringify(["kettle", "mettle", "nettle", "settle"]),
+  `bame=[${bameCorrection.join(", ")}], fettle=[${fettleOrderCorrection.join(", ")}]`,
+);
+
 report();
