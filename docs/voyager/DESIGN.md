@@ -299,8 +299,15 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   - **The candidates are ordered by measured frequency, and carry no translation beside them.
     Decided by the user 2026-09-11.** Alphabetical order is no order at all: `bame` returns 13
     candidates with `bae` first and `name` tenth, so the reader taps down a list that tells them
-    nothing. SUBTLEX-US, which RL-43 landed the same day, already knows which of the thirteen a
-    reader meant, and this reads the table RL-43 paid for rather than a new one.
+    nothing. **Unbuilt, and blocked on a data source the repo does not have — corrected 2026-09-11,
+    the same day it was written.** The decision was taken believing RL-43's table could rank one
+    headword against another. It cannot: `POS_FREQUENCY_ORDER` stores a part-of-speech order string
+    per headword — `"nv"`, `"vn"` — and `build-pos-frequency.ts` discards the raw SUBTLEX counts
+    before writing the file. Measured over `bame`'s 13 candidates, 8 carry a row and `bae`, `bake`,
+    `bane`, `fame` and `same` carry none; **all four of `fettle`'s candidates carry none**, so the
+    case that motivated RL-28 would come back unordered. The raw `private/subtlex-pos.xlsx` is not
+    in the tree. Nothing was written against this decision, because the table was read before a
+    worker was dispatched, not after.
   - **Drawing each candidate's first translation was measured and refused.** It was the first choice
     and it does not survive the data: the dictionary's first sense for `name` is «ñame» — the yam —
     with «nombre» sitting in sense 1, and `game`'s first sense leads «gancho, imán, jale» with
