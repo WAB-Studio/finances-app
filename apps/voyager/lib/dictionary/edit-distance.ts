@@ -2,6 +2,7 @@
 // Everything here runs on the query's own device — the worker thread that
 // already holds `DictionaryIndex` — and touches no network.
 import type { DictionaryIndex } from "./index-build";
+import { POS_FREQUENCY_ORDER } from "./pos-frequency";
 
 // Letters only, plus the two marks a normalised headword can carry
 // internally (`normaliseHeadword` in format.ts). Space is left out on
@@ -30,12 +31,20 @@ function editsAtDistanceOne(word: string): Set<string> {
 }
 
 // Every headword one edit from `normalised` that the index actually has,
-// sorted for a stable order on screen — empty only when there is none
+// ranked for a stable order on screen — empty only when there is none
 // (`zzqqxv`). No cap: decided by the user 2026-09-11, against
 // `docs/voyager/DESIGN.md`'s "One edit, no cap" — a real word the
 // dictionary lacks (`fettle`) can sit one edit from several headwords at
 // once and still surface all of them here; RL-29 is what tells that reader
 // none of them is what they meant, not this function withholding the list.
+//
+// Ranking: `POS_FREQUENCY_ORDER` carries no number, only a per-headword
+// part-of-speech order, so it cannot say a rowed candidate is used more
+// than another rowed one — inventing a score on top of it was refused
+// (`docs/voyager/DESIGN.md`, RL-28, 2026-09-11). What it can say is which
+// candidates it has ever measured at all: those sort ahead as one block,
+// alphabetical among themselves; the rest keep today's alphabetical order
+// behind them. `fettle`'s four candidates carry no row, so it is unchanged.
 export function suggestCorrection(index: DictionaryIndex, normalised: string): string[] {
   if (normalised.length < 2 || normalised.includes(" ")) return [];
 
@@ -43,5 +52,8 @@ export function suggestCorrection(index: DictionaryIndex, normalised: string): s
   for (const candidate of editsAtDistanceOne(normalised)) {
     if (index.byHeadword.has(candidate)) hits.push(candidate);
   }
-  return hits.sort();
+  return hits.sort((a, b) => {
+    const rowed = Number(POS_FREQUENCY_ORDER.has(b)) - Number(POS_FREQUENCY_ORDER.has(a));
+    return rowed !== 0 ? rowed : a < b ? -1 : a > b ? 1 : 0;
+  });
 }
