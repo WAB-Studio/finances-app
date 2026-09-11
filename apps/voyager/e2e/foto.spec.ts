@@ -3,6 +3,7 @@ import type { Page } from "@playwright/test";
 
 import messages from "../messages/es.json";
 import manifest from "../public/dictionary/manifest.json";
+import { PHRASE_DEBOUNCE_MS } from "../lib/query/settle";
 
 // CI's `voyager-e2e` job (`.github/workflows/ci.yml`) sets none of the five
 // `SUPABASE_STORAGE_*` variables `isStorageConfigured` checks — deliberately,
@@ -196,4 +197,112 @@ test("a concrete noun's cached photo draws real pixels, seeded rather than fetch
   expect(measured.complete).toBe(true);
   expect(measured.naturalWidth).toBe(SEED_WIDTH);
   expect(measured.naturalHeight).toBe(SEED_HEIGHT);
+});
+
+// `use-decoration.ts`'s own defect: `fetchPhoto` and `fetchText` used to
+// settle behind one `Promise.all`, so the text sat on Postgres, already
+// answerable, while a slow photo held it off the screen. Long enough that
+// the generated block would have appeared well inside it were it still
+// waiting on nothing slower — short enough that the deliberately slow photo
+// route below has not fulfilled yet when it is checked.
+const SLOW_PHOTO_DELAY_MS = 3000;
+
+const GENERATED_TEXT = {
+  definition: "Un mamífero doméstico, fabricado por esta prueba.",
+  example: { en: "The dog runs in the park.", es: "El perro corre en el parque." },
+};
+
+test("the generated text draws while a slow photo is still pending, waiting on neither", async ({
+  page,
+  allowRealWordRoute,
+  stubWordText,
+}) => {
+  await deleteTranslator(page);
+  await stubWordText(GENERATED_TEXT);
+  // The delayed 204 below is this spec's own, never the real route — opting
+  // in only silences the watchdog for a response it cannot tag itself.
+  await allowRealWordRoute("photo", "the delayed 204 is fulfilled by this spec's own route below, never real Openverse");
+
+  await page.route(`${baseURL}/api/word/photo`, async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, SLOW_PHOTO_DELAY_MS));
+    await route.fulfill({ status: 204 });
+  });
+  const photoRequest = page.waitForResponse((response) => response.url().includes("/api/word/photo"));
+
+  await searchAndSettle(page, "dog");
+
+  // The photo's own 3s delay has not elapsed: the text arriving here is
+  // proof it never waited for the photo, not a race won by chance.
+  await expect(page.getByText(messages.word.definitionGenerated)).toBeVisible({
+    timeout: SLOW_PHOTO_DELAY_MS - 500,
+  });
+  await expect(page.getByText(GENERATED_TEXT.example.en)).toBeVisible();
+  await expect(page.locator("img")).toHaveCount(0);
+
+  expect((await photoRequest).status()).toBe(204);
+});
+
+const DOG_TEXT = {
+  definition: "Definición de dog: nunca debe aparecer bajo cat.",
+  example: { en: "The dog barks loudly.", es: "El perro ladra fuerte." },
+};
+const CAT_TEXT = {
+  definition: "Definición de cat.",
+  example: { en: "The cat sleeps all day.", es: "El gato duerme todo el día." },
+};
+
+test("a headword replaced mid-flight never lands its decoration on the word that replaced it", async ({
+  page,
+  allowRealWordRoute,
+}) => {
+  await deleteTranslator(page);
+  // Headword-specific bodies and delays, wired by this test alone — the
+  // default stub answers the same body for every headword, which cannot
+  // tell "dog's answer" from "cat's answer" apart.
+  await allowRealWordRoute("text", "this spec answers per headword itself, below, never the real route");
+
+  await page.route(`${baseURL}/api/word/text`, async (route) => {
+    const body = route.request().postDataJSON() as { headword: string };
+    const isDog = body.headword === "dog";
+    if (isDog) {
+      // Long enough to still be in flight when "cat" replaces it below.
+      await new Promise((resolve) => setTimeout(resolve, SLOW_PHOTO_DELAY_MS));
+    }
+    try {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(isDog ? DOG_TEXT : CAT_TEXT),
+      });
+    } catch {
+      // `dog`'s own AbortController already cancelled the fetch client-side
+      // by the time this fires; there is nothing left to answer.
+    }
+  });
+
+  const assetResponse = page.waitForResponse(
+    (response) => response.url().includes(manifest.asset.path) && response.ok(),
+  );
+  await page.goto("/");
+  await assetResponse;
+  await page.waitForTimeout(1000);
+
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+  await searchBox.fill("dog");
+  await expect(page.getByRole("heading", { name: "dog", exact: true })).toBeVisible({ timeout: 5000 });
+
+  // Past the debounce, so `dog`'s own fetch has actually been sent — the
+  // abort this proves is one of an in-flight request, not one still only
+  // queued behind the timer.
+  await page.waitForTimeout(PHRASE_DEBOUNCE_MS + 300);
+
+  await searchBox.fill("cat");
+  await expect(page.getByRole("heading", { name: "cat", exact: true })).toBeVisible({ timeout: 5000 });
+  await expect(page.getByText(CAT_TEXT.example.en)).toBeVisible({ timeout: PHRASE_DEBOUNCE_MS + 2000 });
+
+  // Long enough that `dog`'s 3s answer, had it not been abandoned, would
+  // already have landed.
+  await page.waitForTimeout(SLOW_PHOTO_DELAY_MS);
+  await expect(page.getByText(CAT_TEXT.example.en)).toBeVisible();
+  await expect(page.getByText(DOG_TEXT.example.en)).toHaveCount(0);
 });
