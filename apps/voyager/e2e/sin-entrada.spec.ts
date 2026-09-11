@@ -71,10 +71,18 @@ test("a two-token miss draws both headwords, offline, with no request", async ({
 // "zzqx" is absent from `eng-spa-2025.11.23.json` as a headword, and no
 // inflection rule in `lib/dictionary/inflect.ts` strips a suffix off it —
 // there is nothing left for `lookupWord` to find under any of its rules.
+// Two tokens now reaches the translator online, like any other phrase
+// (module 30) — only a failed translation still falls to this breakdown,
+// same as the "dog cat" case above, so the route is stubbed to fail here too.
 test("a two-token miss where the dictionary lacks one word draws that word's own heading and its own miss, and the other's answer", async ({
   page,
 }) => {
   await deleteTranslator(page);
+  let translateCount = 0;
+  await page.route("**/api/translate", async (route) => {
+    translateCount++;
+    await route.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({ error: "provider" }) });
+  });
   await openReady(page);
 
   const searchBox = page.getByRole("textbox", { name: messages.search.label });
@@ -87,6 +95,11 @@ test("a two-token miss where the dictionary lacks one word draws that word's own
   await expect(mainHeadings(page).filter({ hasText: "zzqx" })).toBeVisible();
   await expect(mainHeadings(page)).toHaveCount(2);
   await expect(page.getByText(messages.search.noEntry.wordMiss)).toBeVisible();
+  const failedTitle = messages.search.noEntry.titleTranslationFailed.replace("{query}", "hello zzqx");
+  await expect(page.getByText(failedTitle)).toBeVisible();
+
+  await page.waitForTimeout(PHRASE_DEBOUNCE_MS + 300);
+  expect(translateCount, "the translation is attempted once, and fails").toBe(1);
 });
 
 test("a 61-token string draws one line and no heading, and asks the dictionary nothing", async ({ page }) => {
@@ -214,12 +227,12 @@ test("a phrase whose translation fails falls to the per-word breakdown, capped a
   expect(stray).toEqual([]);
 });
 
-// The two-token path this replaces nothing of: below `PHRASE_MIN_TOKENS`,
-// `schedulePhrase` still routes straight to `scheduleNoEntry` and never
-// reaches `translatePhrase`, so a failing `/api/translate` stub is never
-// even called here — proof this string still draws exactly what it drew
-// before RL-37 touched the phrase-in-range path.
-test("a two-token string still never reaches the translator, and still draws the no-entry title", async ({
+// Two tokens is the phrasal-verb case — "toiling up", "give in" — whose
+// meaning is not the sum of its parts, so it goes to the translator like
+// any other phrase. When the translator fails it still falls back to the
+// word-by-word breakdown, which is what this asserts: reaching the route
+// and failing must not cost the reader the breakdown they had before.
+test("a two-token string reaches the translator, and falls back to the breakdown when it fails", async ({
   page,
 }) => {
   await deleteTranslator(page);
@@ -235,12 +248,29 @@ test("a two-token string still never reaches the translator, and still draws the
 
   await expect(mainHeadings(page).filter({ hasText: "dog" })).toBeVisible();
   await expect(mainHeadings(page).filter({ hasText: "cat" })).toBeVisible();
-  const expectedTitle = messages.search.noEntry.title.replace("{query}", "dog cat");
-  await expect(page.getByText(expectedTitle)).toBeVisible();
-  await expect(page.getByText(messages.search.noEntry.titleTranslationFailed.replace("{query}", "dog cat"))).toHaveCount(0);
+  const failedTitle = messages.search.noEntry.titleTranslationFailed.replace("{query}", "dog cat");
+  await expect(page.getByText(failedTitle)).toBeVisible();
 
   await page.waitForTimeout(PHRASE_DEBOUNCE_MS + 300);
-  expect(translateCount, "a two-token string never reaches the translate route").toBe(0);
+  expect(translateCount, "a two-token string reaches the translate route exactly once").toBe(1);
+});
+
+// The floor itself: one token is a word, never a phrase, whatever the
+// dictionary says about it. Nothing below two may reach the network.
+test("a one-token miss never reaches the translator", async ({ page }) => {
+  await deleteTranslator(page);
+  let translateCount = 0;
+  await page.route("**/api/translate", async (route) => {
+    translateCount++;
+    await route.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({ error: "provider" }) });
+  });
+  await openReady(page);
+
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+  await searchBox.fill("zzzqqq");
+
+  await page.waitForTimeout(PHRASE_DEBOUNCE_MS + 300);
+  expect(translateCount, "a single token never reaches the translate route").toBe(0);
 });
 
 // docs/voyager/DESIGN.md "Every block of the breakdown is a way back in":

@@ -7,7 +7,13 @@ export type QueryKind =
 
 // A phrase below this is still a phrase; the module that declines to
 // translate it is the one that reads this number.
-export const PHRASE_MIN_TOKENS = 3;
+// Two, not three. A two-word query that is not itself an entry is almost
+// always a phrasal verb — "toiling up", "give in", "look after" — whose
+// meaning is precisely not the sum of its parts, so the word-by-word
+// breakdown is the one answer that cannot help. Translating costs nothing
+// worth counting: the device's own translator is free, and MyMemory's
+// anonymous tier caps at ~5,000 words a day against two words a query.
+export const PHRASE_MIN_TOKENS = 2;
 
 // A string above this is still a phrase; the module that refuses to send it
 // over the network is the one that reads this number.

@@ -382,6 +382,17 @@ export function SearchScreen({ initialQuery }: { initialQuery?: string }) {
       return;
     }
 
+    // Offline-first, decided 2026-09-11: the translator is a network call by
+    // definition, so with none to make the request would only wait to fail.
+    // `failed` is the state the JSX below already reads to hand a phrase to
+    // `NoEntryAnswer` instead of `PhraseAnswer` (RL-37) — offline reaches
+    // the same breakdown through the same door, just without the wait.
+    if (!navigator.onLine) {
+      setPhraseState({ kind: "failed" });
+      scheduleNoEntry(phraseText, tokens, dictionaryReady);
+      return;
+    }
+
     setPhraseState({ kind: "waiting" });
     phraseDebounceRef.current = setTimeout(() => {
       phraseDebounceRef.current = null;
