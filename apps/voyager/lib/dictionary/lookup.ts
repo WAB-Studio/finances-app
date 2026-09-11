@@ -65,10 +65,20 @@ const PLURAL_RULES: ReadonlySet<InflectionRule> = new Set(["plural-s", "plural-e
 // governs as a noun. "running" -> "run" is untouched: -ing has no
 // irregular family to lose to, so "run" carrying a past-tense entry
 // ("ran") never enters this check.
+//
+// English spells the noun plural and the third-person-singular present
+// with the same "-s", so a plural guess cannot be rejected on the target
+// carrying a noun sense alone: "leave" carries both, and rejecting it on
+// the noun sense is what stopped "leaves" from ever offering "leave". The
+// plural guess is only ever wrong here when the table governs the lemma
+// as a noun and nothing else — no verb sense for the "-s" to be a
+// third-person-singular of — which is the case the branch was written for.
 function isOverriddenByIrregularTable(rule: InflectionRule, lemma: string, group: SenseGroup): boolean {
   if (!IRREGULAR_TABLE_LEMMAS.has(lemma)) return false;
   if (PAST_TENSE_RULES.has(rule)) return group.senses.some((sense) => sense.pos === "v");
-  if (PLURAL_RULES.has(rule)) return group.senses.some((sense) => sense.pos === "n");
+  if (PLURAL_RULES.has(rule)) {
+    return group.senses.some((sense) => sense.pos === "n") && !group.senses.some((sense) => sense.pos === "v");
+  }
   return false;
 }
 
