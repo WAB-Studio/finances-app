@@ -3,4 +3,5 @@ export * from "./lookups";
 export * from "./devices";
 export * from "./word-photos";
 export * from "./word-texts";
+export * from "./word-answers";
 export * from "./model-spend";
