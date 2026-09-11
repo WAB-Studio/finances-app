@@ -28,6 +28,24 @@ type MyMemoryResponse = {
 // ships a status this file has not seen.
 const MYMEMORY_WARNING_PREFIX = "MYMEMORY WARNING";
 
+// Trim, case-fold, and collapse inner whitespace — the differences a reader
+// never notices between what they typed and what came back. Punctuation is
+// left alone: a reader who typed a trailing "?" and got one back said
+// something, even if the words never moved.
+function foldForComparison(s: string): string {
+  return s.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+// MyMemory echoes a string it cannot place in either language straight
+// back — gibberish included — with `responseStatus: "200"` and no warning:
+// the two checks below never catch it. The same fold also refuses a proper
+// noun, a brand name or a number that legitimately holds still across `en`
+// and `es`; RL-37's per-word breakdown is what that reply lands on instead,
+// an honest "could not answer" rather than a false badge.
+function isEcho(source: string, translated: string): boolean {
+  return foldForComparison(translated) === foldForComparison(source);
+}
+
 // The one function a provider swap replaces. MyMemory's anonymous tier caps
 // at roughly 5,000 words a day per caller IP (10,000 once `de` names a
 // registered email); past that cap it still answers HTTP 200, with
@@ -57,6 +75,9 @@ async function translateWithProvider(text: string): Promise<string> {
   }
   if (translated.toUpperCase().startsWith(MYMEMORY_WARNING_PREFIX)) {
     throw new Error("MyMemory returned a warning instead of a translation");
+  }
+  if (isEcho(text, translated)) {
+    throw new Error("MyMemory returned the input unchanged");
   }
   return translated;
 }
