@@ -19,6 +19,8 @@ import {
   Text,
   TapTarget,
 } from "@/components/ui";
+import { GeneratedText, type GeneratedTextState } from "./generated-text";
+import { WordPhoto, type PhotoState } from "./word-photo";
 
 // docs/voyager/DESIGN.md "Viewport": stroke-width 1.75, round caps and
 // joins, fill none — the same glyph shape `bottom-nav.tsx` draws, sized down
@@ -289,6 +291,8 @@ export function SenseList({
   variant = "full",
   wordHref,
   showExactHeadword = true,
+  photo,
+  generated,
 }: {
   answer: WordAnswer;
   variant?: SenseListVariant;
@@ -303,6 +307,11 @@ export function SenseList({
   // Every `viaInflection` hit still gets its own — that lemma names a
   // different word than the page's own heading.
   showExactHeadword?: boolean;
+  // Set by `search-screen.tsx` alone, from `useDecoration` — the state a
+  // network call resolved for the exact headword, never fetched here.
+  // Absent on `/registro/[palabra]`, which opens no connection at all.
+  photo?: PhotoState;
+  generated?: GeneratedTextState;
 }) {
   const t = useTranslations("word");
   const tSearch = useTranslations("search");
@@ -327,8 +336,13 @@ export function SenseList({
           <Flex align="center" gap="1">
             {showExactHeadword && <BlockHeading word={answer.exact.headword} wordHref={wordHref} />}
             {!compact && <SpeakButton headword={answer.exact.headword} t={t} />}
+            {/* `compact` never reaches this row at all (`SenseListVariant`
+                above): the breakdown of a failed phrase asks the network for
+                nothing on eight words' behalf (RL-35's decoration clause). */}
+            {!compact && photo && <WordPhoto headword={answer.exact.headword} state={photo} />}
           </Flex>
           <SenseGroup senses={answer.exact.senses} compact={compact} t={t} />
+          {!compact && generated && <GeneratedText state={generated} />}
         </Flex>
       )}
 
