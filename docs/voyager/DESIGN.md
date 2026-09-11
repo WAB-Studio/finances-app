@@ -269,7 +269,16 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
     absent from the 58,944, and confirmed in Wiktionary as having twelve senses **and no Spanish
     pair** — which is why DBnary never extracted it. Edit distance answers it *wrong*, offering
     `kettle/mettle/nettle/settle`, so the correction must not fire here. Only a model closes it.
-    Nothing leaves the device until the reader taps. Boards: `SinResultadoIA`, `SinResultadoIAFallo`.
+    Nothing leaves the device until the reader taps. Boards: `SinResultadoIA`, light ×
+    desktop/mobile.
+  - **When the model cannot answer, the reader reaches `SinResultadoSinPista`. Decided by the
+    user 2026-09-11.** RL-29 promises the answer says plainly when it could not be produced, and
+    the board that drew that state — `SinResultadoIAFallo` — was retired the day before; the
+    replacement named there, `SinEntradaFrase`, answers a failed *translation*, never a word the
+    model could not answer. `SinResultadoSinPista` already draws the one thing true in both
+    cases: the app has nothing to offer for this word and no hint to guess with. **No new board
+    was drawn, and that is the decision, not an omission** — the failure adds no control and no
+    layout the no-hint face does not already carry.
   - **The guard between them:** the correction shows only when a candidate is within one edit of a
     headword. `zzqqxv` gets neither line, and that is the case the guard exists for.
   - **The answer is labelled.** An AI answer carries `RESPONDIDO POR IA` above it; the reader always
@@ -568,7 +577,9 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   stays true.
 - **`SinResultadoIAFallo` is stale in all four faces.** «La IA no pudo responder» is the state the
   decision above replaces. The boards stay on the canvas as a record of what was; never cite one in
-  a dispatch. The screen a failed translation reaches from now on is `SinEntradaFrase`.
+  a dispatch. The screen a failed translation reaches from now on is `SinEntradaFrase`, and the
+  screen a word the model could not answer reaches is `SinResultadoSinPista` — decided by the
+  user 2026-09-11, written against RL-29 above.
 - **The app says nothing about being offline, and `offline.notice` goes.** Decided by the user
   2026-09-09, with both readings drawn side by side on the canvas's «Cáscara» page. The string
   existed — «Estás usando la app instalada en el dispositivo, sin conexión» — and it only explains:
