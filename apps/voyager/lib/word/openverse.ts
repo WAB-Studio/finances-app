@@ -6,7 +6,13 @@ import "server-only";
 // `results[].license` (a lowercase code, e.g. "by"), `results[].license_url`,
 // `results[].foreign_landing_url` (the page to credit, not the raw asset),
 // `results[].width`, `results[].height`.
-const OPENVERSE_ENDPOINT = "https://api.openverse.org/v1/images/";
+// `OPENVERSE_ENDPOINT_OVERRIDE` is read nowhere else and named in no
+// `vercel.json` — the same shape as `VOYAGER_E2E_HOOKS` (`next.config.ts`,
+// `app/layout.tsx`) — so a real build never sees it set and always calls
+// Openverse. `scripts/check-decoration.ts`'s T17 is the one reader: it
+// points this at a local stub that never answers, to prove the deadline
+// below fires without waiting on, or paying, the real Openverse.
+const OPENVERSE_ENDPOINT = process.env.OPENVERSE_ENDPOINT_OVERRIDE ?? "https://api.openverse.org/v1/images/";
 const LICENCES = "by,by-sa,cc0,pdm";
 // Five candidates, not one: a result can point at a dead thumbnail
 // (`abeyance`, HTTP 424 — docs/TRAPS.md). Measured over 60 words with this
@@ -14,6 +20,20 @@ const LICENCES = "by,by-sa,cc0,pdm";
 // was one at all.
 const CANDIDATE_COUNT = 5;
 const USER_AGENT = "voyager-word-photo/1.0 (+https://github.com/WAB-Studio/finances-app)";
+
+// RL-36: "the image never blocks or delays the answer" — the reader is
+// waiting on a decoration, not on the dictionary answer already on the
+// device. 5 s is generous for a JSON search or a sub-512 KB image and still
+// short enough that a slow or unreachable host never repeats the 61 s hang
+// measured against this endpoint with no deadline at all.
+const OPENVERSE_TIMEOUT_MS = 5_000;
+
+// `AbortSignal.timeout` rejects the fetch with a `DOMException` named
+// "TimeoutError" (WHATWG spec) — this is the one check that tells that
+// apart from a real 4xx/5xx, a DNS failure or a dropped connection.
+export function isOpenverseTimeout(error: unknown): boolean {
+  return error instanceof Error && error.name === "TimeoutError";
+}
 
 // A Openverse "thumbnail" carries no size guarantee — median 44,117 B, p90
 // 154,415 B, one measured at 5,338,962 B (docs/TRAPS.md). Reject past this
@@ -91,6 +111,7 @@ export async function searchOpenverse(headword: string): Promise<OpenverseCandid
   });
   const response = await fetch(`${OPENVERSE_ENDPOINT}?${params.toString()}`, {
     headers: { "User-Agent": USER_AGENT },
+    signal: AbortSignal.timeout(OPENVERSE_TIMEOUT_MS),
   });
   if (!response.ok) throw new Error(`Openverse search answered ${response.status}`);
   const payload = (await response.json()) as { results?: OpenverseResult[] };
@@ -103,8 +124,16 @@ export type DownloadedImage = { bytes: Buffer; contentType: string; ext: string 
 async function downloadOne(url: string): Promise<DownloadedImage | null> {
   let response: Response;
   try {
-    response = await fetch(url, { headers: { "User-Agent": USER_AGENT } });
-  } catch {
+    response = await fetch(url, {
+      headers: { "User-Agent": USER_AGENT },
+      signal: AbortSignal.timeout(OPENVERSE_TIMEOUT_MS),
+    });
+  } catch (error) {
+    // The deadline expiring is not evidence this image is missing, only
+    // that this attempt was too slow: rethrown so the caller can tell it
+    // apart from a confirmed failure (dead host, bad TLS, refused
+    // connection), which still reads as "no image" here.
+    if (isOpenverseTimeout(error)) throw error;
     return null;
   }
   if (!response.ok) return null;
@@ -119,7 +148,10 @@ async function downloadOne(url: string): Promise<DownloadedImage | null> {
 }
 
 // Tries the thumbnail first, then the full-size asset, so one dead proxy
-// entry does not cost a candidate that would otherwise have downloaded.
+// entry does not cost a candidate that would otherwise have downloaded. A
+// timed-out thumbnail skips straight to the caller rather than trying the
+// full-size asset too: the same slow host is unlikely to answer faster for
+// a bigger file, and the caller still has every other candidate to try.
 export async function downloadCandidate(candidate: OpenverseCandidate): Promise<DownloadedImage | null> {
   if (candidate.thumbnail) {
     const fromThumbnail = await downloadOne(candidate.thumbnail);
