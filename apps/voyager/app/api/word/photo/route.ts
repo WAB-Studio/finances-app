@@ -39,7 +39,13 @@ function toWordPhoto(row: FoundPhoto): WordPhoto {
     // Served through this same route, never a bucket URL: the bucket is
     // private, and re-serving through our own host is the whole point of
     // RL-36's route — the image's host never sees who is asking.
-    url: `${env.NEXT_PUBLIC_SITE_URL}${PHOTO_ENDPOINT}?headword=${encodeURIComponent(row.headword)}`,
+    //
+    // Relative on purpose. `next/image` treats any absolute URL as remote and
+    // demands its host in `remotePatterns`, so an absolute same-origin URL is
+    // refused with `"url" parameter is not allowed` and the photo never draws.
+    // A relative path is also port-agnostic, which an absolute one built from
+    // NEXT_PUBLIC_SITE_URL is not.
+    url: `${PHOTO_ENDPOINT}?headword=${encodeURIComponent(row.headword)}`,
     width: row.width,
     height: row.height,
     author: row.author,

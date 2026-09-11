@@ -34,6 +34,12 @@ export function Photo({
           fill
           sizes="(min-width: 660px) 96px, 76px"
           style={{ objectFit: "cover" }}
+          // The route already hands back a sized WebP it fetched and stored
+          // itself, so a second pass through the optimiser buys nothing. It
+          // also cannot run: the optimiser refuses a local `src` carrying a
+          // query string unless `images.localPatterns` names that exact
+          // query, and the headword varies per word.
+          unoptimized
         />
       )}
     </div>
