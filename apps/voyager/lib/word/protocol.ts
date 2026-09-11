@@ -5,13 +5,19 @@ import { z } from "zod";
 // sync. Loaded by client components too, so no `server-only` here
 // (docs/TRAPS.md, "server-only resolves under Next and nowhere else").
 
+// Declared above the schemas: `photoResponseSchema` reads it at module
+// evaluation time, so it must not sit in the temporal dead zone.
+export const PHOTO_ENDPOINT = "/api/word/photo";
+
 export const photoRequestSchema = z.object({
   headword: z.string().min(1).max(64),
 });
 export type PhotoRequest = z.infer<typeof photoRequestSchema>;
 
 export const photoResponseSchema = z.object({
-  url: z.url(),
+  // A same-origin path, never an absolute URL: see `toWordPhoto`. `next/image`
+  // refuses an absolute URL whose host is not in `remotePatterns`.
+  url: z.string().startsWith(`${PHOTO_ENDPOINT}?`),
   width: z.int().positive(),
   height: z.int().positive(),
   author: z.string().min(1),
@@ -36,5 +42,4 @@ export const textResponseSchema = z.object({
 });
 export type WordText = z.infer<typeof textResponseSchema>;
 
-export const PHOTO_ENDPOINT = "/api/word/photo";
 export const TEXT_ENDPOINT = "/api/word/text";

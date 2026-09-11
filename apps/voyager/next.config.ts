@@ -8,19 +8,6 @@ const nextConfig: NextConfig = {
   env: {
     VOYAGER_E2E_HOOKS: process.env.VOYAGER_E2E_HOOKS ?? "",
   },
-  images: {
-    // RL-36's photo is re-served from a Supabase Storage bucket, whichever
-    // project the deploy points at — the hostname is per-project, `**`
-    // covers it without naming one. `next/image` rejects any other `src` at
-    // request time, not just at build time.
-    remotePatterns: [
-      {
-        protocol: "https",
-        hostname: "**.supabase.co",
-        pathname: "/storage/v1/object/public/**",
-      },
-    ],
-  },
   async headers() {
     return [
       {
