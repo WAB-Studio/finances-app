@@ -296,6 +296,19 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
     which is the same day. RL-29 is what tells that reader none of the four is what they meant; a cap
     that only ever hides the truth from `fettle` was hiding it from every genuine typo past three
     candidates too.
+  - **The candidates are ordered by measured frequency, and carry no translation beside them.
+    Decided by the user 2026-09-11.** Alphabetical order is no order at all: `bame` returns 13
+    candidates with `bae` first and `name` tenth, so the reader taps down a list that tells them
+    nothing. SUBTLEX-US, which RL-43 landed the same day, already knows which of the thirteen a
+    reader meant, and this reads the table RL-43 paid for rather than a new one.
+  - **Drawing each candidate's first translation was measured and refused.** It was the first choice
+    and it does not survive the data: the dictionary's first sense for `name` is «ñame» — the yam —
+    with «nombre» sitting in sense 1, and `game`'s first sense leads «gancho, imán, jale» with
+    «juego» seventh in its own list. RL-43 ordered the sense *groups* by part-of-speech frequency;
+    **inside** a group the senses keep FreeDict's order, which is not frequency. A gloss would tell
+    a reader that `name` means yam, which is worse than the alphabetical list it replaces, because
+    a reader recognises `name` unaided and cannot un-read «ñame». It stays refused until something
+    orders the senses within a group, which nothing does today.
   - **The screen draws every candidate too, with no cap of its own, and this needed a second correction
     the same day.** A first pass capped the screen at five with "y N más" past that — wrong for two
     reasons, not one. `suggestCorrection`'s `hits.sort()` is alphabetical, not ranked by anything the
