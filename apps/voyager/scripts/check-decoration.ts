@@ -11,8 +11,16 @@
  * call against a running server (`VOYAGER_BASE_URL`, default the lane's own
  * :3101), so it seeds and restores `model_spend`'s own row for today and a
  * `word_texts` row for a headword nothing else in this repo names.
+ *
+ * T17 (the Openverse deadline) drives a server too, but never that shared
+ * one: it spawns and tears down its own `next dev`, so the one env variable
+ * it needs lives only in that child process, never in a file anyone else's
+ * checkout would have to carry.
  */
+import { type ChildProcess, spawn } from "node:child_process";
 import { createServer, type Server } from "node:http";
+import { dirname, resolve as resolvePath } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { settleSessionSql } from "@repo/supabase-auth/settle";
 import { PgDialect } from "drizzle-orm/pg-core";
@@ -20,12 +28,24 @@ import postgres from "postgres";
 
 const BASE_URL = process.env.VOYAGER_BASE_URL ?? "http://localhost:3101";
 // One port per lane's own app port, never a fixed one: two lanes running
-// this check at once must not bind the same address. The server under test
-// must be started with `OPENVERSE_ENDPOINT_OVERRIDE` set to this same
-// value (`lib/word/openverse.ts`) — `.env.local`, never committed, never a
-// real build's own env.
+// this check at once must not bind the same address.
 const STUB_PORT = Number(new URL(BASE_URL).port || "3101") + 35_000;
 const STUB_ENDPOINT = `http://127.0.0.1:${STUB_PORT}/v1/images/`;
+// T17 needs `OPENVERSE_ENDPOINT_OVERRIDE` active, and no `.env.local` may
+// carry it (AGENTS.md: that file is off limits, and a hand-edited copy is a
+// test nobody else's checkout can pass). It spawns its own short-lived
+// `next dev` instead, on a third port derived the same way, with the
+// override set only in that child process's own environment — never
+// written to a file, torn down before this script exits either way.
+const APP_DIR = dirname(dirname(fileURLToPath(import.meta.url)));
+const NEXT_BIN = resolvePath(APP_DIR, "../../node_modules/.bin/next");
+const CHILD_PORT = Number(new URL(BASE_URL).port || "3101") + 20_000;
+const CHILD_BASE_URL = `http://127.0.0.1:${CHILD_PORT}`;
+// `next dev` rather than a production `next start`: no `.next` build is a
+// precondition this way, so the assertion needs nothing beyond `npm ci` —
+// the route itself has no client render to double-run, so dev mode changes
+// nothing about what is being proven (unlike a Playwright spec).
+const CHILD_READY_TIMEOUT_MS = 60_000;
 // Concrete, photographable (`concreteness.generated.json`) and named
 // nowhere else in this repo — free to claim without touching a real
 // reader's cache or another check's fixture.
@@ -108,8 +128,8 @@ type WordTextsRow = { headword: string; definition: string | null; example_en: s
 type ModelSpendRow = { day: string; calls: number; photos: number };
 type PhotoRow = { headword: string; status: string };
 
-async function requestPhoto(headword: string): Promise<number> {
-  const response = await fetch(`${BASE_URL}/api/word/photo`, {
+async function requestPhoto(headword: string, baseUrl: string = BASE_URL): Promise<number> {
+  const response = await fetch(`${baseUrl}/api/word/photo`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ headword }),
@@ -204,6 +224,45 @@ function startOpenverseStub(): { server: Server; requestsSeen: string[] } {
   return { server, requestsSeen };
 }
 
+// Spawns `next dev` directly, never through `npm run`, so there is exactly
+// one process to signal and no intermediate npm to forward (or fail to
+// forward) a kill to. `detached: true` puts it in its own process group,
+// so cleanup can signal the group rather than leaving a compiler worker
+// behind — Next's dev server spawns more than the one PID it prints.
+function startChildApp(): { child: ChildProcess; output: string[] } {
+  const output: string[] = [];
+  const child = spawn(NEXT_BIN, ["dev", "--port", String(CHILD_PORT)], {
+    cwd: APP_DIR,
+    env: { ...process.env, OPENVERSE_ENDPOINT_OVERRIDE: STUB_ENDPOINT },
+    detached: true,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  child.stdout?.on("data", (chunk: Buffer) => output.push(chunk.toString()));
+  child.stderr?.on("data", (chunk: Buffer) => output.push(chunk.toString()));
+  return { child, output };
+}
+
+async function waitForChildReady(deadline: number): Promise<boolean> {
+  while (Date.now() < deadline) {
+    try {
+      await fetch(CHILD_BASE_URL, { signal: AbortSignal.timeout(2_000) });
+      return true;
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+  }
+  return false;
+}
+
+function stopChildApp(child: ChildProcess): void {
+  if (child.pid === undefined) return;
+  try {
+    process.kill(-child.pid, "SIGTERM");
+  } catch {
+    // Already gone — nothing left to signal.
+  }
+}
+
 async function checkOpenverseTimeout(): Promise<void> {
   const { server, requestsSeen } = startOpenverseStub();
   await new Promise<void>((resolve, reject) => {
@@ -211,41 +270,52 @@ async function checkOpenverseTimeout(): Promise<void> {
     server.listen(STUB_PORT, "127.0.0.1", () => resolve());
   });
 
-  const words = [SEARCH_HANG_HEADWORD, DOWNLOAD_HANG_HEADWORD];
-  for (const headword of words) {
-    await sql`delete from reading.word_photos where headword = ${headword}`;
-  }
-
+  const { child, output } = startChildApp();
   const failures: string[] = [];
-  for (const headword of words) {
-    const started = Date.now();
-    const status = await requestPhoto(headword);
-    const elapsedMs = Date.now() - started;
-    const [row] = await sql<PhotoRow[]>`select headword, status from reading.word_photos where headword = ${headword}`;
-    if (status !== 204) failures.push(`${headword}: status=${status} (expected 204)`);
-    if (elapsedMs >= TIMEOUT_MARGIN_MS) failures.push(`${headword}: took ${elapsedMs}ms (expected under ${TIMEOUT_MARGIN_MS}ms)`);
-    if (row) failures.push(`${headword}: a "${row.status}" row was written (expected none, on a timeout)`);
-  }
 
-  if (!requestsSeen.some((seen) => seen.includes(`q=${SEARCH_HANG_HEADWORD}`))) {
-    failures.push(`the stub never saw the search for "${SEARCH_HANG_HEADWORD}" — is OPENVERSE_ENDPOINT_OVERRIDE set on the server under test?`);
-  }
-  if (!requestsSeen.some((seen) => seen.startsWith("/photo.jpg"))) {
-    failures.push(`the stub never saw a download for "${DOWNLOAD_HANG_HEADWORD}"'s candidate`);
+  try {
+    const ready = await waitForChildReady(Date.now() + CHILD_READY_TIMEOUT_MS);
+    if (!ready) {
+      failures.push(`the child app on :${CHILD_PORT} never answered — ${output.join("").slice(-1000) || "no output"}`);
+    } else {
+      const words = [SEARCH_HANG_HEADWORD, DOWNLOAD_HANG_HEADWORD];
+      for (const headword of words) {
+        await sql`delete from reading.word_photos where headword = ${headword}`;
+      }
+
+      for (const headword of words) {
+        const started = Date.now();
+        const status = await requestPhoto(headword, CHILD_BASE_URL);
+        const elapsedMs = Date.now() - started;
+        const [row] = await sql<PhotoRow[]>`select headword, status from reading.word_photos where headword = ${headword}`;
+        if (status !== 204) failures.push(`${headword}: status=${status} (expected 204)`);
+        if (elapsedMs >= TIMEOUT_MARGIN_MS) failures.push(`${headword}: took ${elapsedMs}ms (expected under ${TIMEOUT_MARGIN_MS}ms)`);
+        if (row) failures.push(`${headword}: a "${row.status}" row was written (expected none, on a timeout)`);
+      }
+
+      if (!requestsSeen.some((seen) => seen.includes(`q=${SEARCH_HANG_HEADWORD}`))) {
+        failures.push(`the stub never saw the search for "${SEARCH_HANG_HEADWORD}"`);
+      }
+      if (!requestsSeen.some((seen) => seen.startsWith("/photo.jpg"))) {
+        failures.push(`the stub never saw a download for "${DOWNLOAD_HANG_HEADWORD}"'s candidate`);
+      }
+
+      for (const headword of words) {
+        await sql`delete from reading.word_photos where headword = ${headword}`;
+      }
+    }
+  } finally {
+    stopChildApp(child);
+    await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 
   assert(
     "T17",
     failures.length === 0,
     failures.length === 0
-      ? `both deadlines fired inside ${TIMEOUT_MARGIN_MS}ms and wrote no row`
+      ? `both deadlines fired inside ${TIMEOUT_MARGIN_MS}ms and wrote no row, on a server this check started itself`
       : failures.join("; "),
   );
-
-  for (const headword of words) {
-    await sql`delete from reading.word_photos where headword = ${headword}`;
-  }
-  await new Promise<void>((resolve) => server.close(() => resolve()));
 }
 
 async function main() {
