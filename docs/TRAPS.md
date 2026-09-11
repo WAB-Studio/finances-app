@@ -694,6 +694,35 @@ not count effects.
 build, not the tree. Reverting a guard and rerunning without rebuilding tests the old bundle and
 shows green for the wrong reason — which is exactly the failure a negative control exists to catch.
 
+### The voyager suite drives the real decoration routes, and pays for them
+
+Counted 2026-09-11 across `apps/voyager/e2e`: **11 of the 19 spec files search for words and
+intercept nothing.** Only `export`, `speak`, `sync`, `url` and `word` call
+`page.route("**/api/word/photo", ...)`; `log.spec.ts` (15 tests), `registro.spec.ts` (12),
+`palabra-historial.spec.ts` (13), `sin-entrada.spec.ts` (9) and seven more do not. That is **79
+tests** reaching `/api/word/photo` and `/api/word/text` for real, on every run.
+
+What each run therefore does:
+
+- **Writes rows to the shared Postgres**, which is the user's production database. Measured that
+  day: three separate purges of 5, 4 and 4 rows, plus their bucket objects, all left by suites.
+  `reading.word_photos` has no expiry, so nothing removes them on its own.
+- **Spends the model's daily cap.** `/api/word/text` calls `gpt-5-nano`. The only thing standing
+  between a suite run and a real bill is a human remembering `OPENAI_API_KEY=""` as a process
+  override — a convention, never a guard.
+- **Puts an unbounded network call inside timing-sensitive tests.** `log.spec.ts:377` races an 800 ms
+  settle window against a killed tab; Openverse's latency lands in the middle of it. That spec fails
+  in CI on branches that touch no part of the log, and passes on one that does, which is the shape
+  of a race and not of a regression.
+
+`url.spec.ts` is the warning written in the file itself: it **defines** `stubDecorationRoutes` and
+calls it in one of its five tests.
+
+**The stub belongs in the fixture, not in each spec.** A spec that wants the real route should opt
+in and say why, the way `foto.spec.ts` does — it drives the real route deliberately, with two
+headwords chosen so nothing is written: `dog` is already cached and `grudge` is refused by the
+guard before Postgres.
+
 ### Every worktree shares one stash, so a lane can pop another lane's work
 
 `git stash` writes to `refs/stash`, and that ref lives in the **common** git directory, not in the
