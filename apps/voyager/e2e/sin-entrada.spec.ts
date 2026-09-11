@@ -214,12 +214,12 @@ test("a phrase whose translation fails falls to the per-word breakdown, capped a
   expect(stray).toEqual([]);
 });
 
-// The two-token path this replaces nothing of: below `PHRASE_MIN_TOKENS`,
-// `schedulePhrase` still routes straight to `scheduleNoEntry` and never
-// reaches `translatePhrase`, so a failing `/api/translate` stub is never
-// even called here — proof this string still draws exactly what it drew
-// before RL-37 touched the phrase-in-range path.
-test("a two-token string still never reaches the translator, and still draws the no-entry title", async ({
+// Two tokens is the phrasal-verb case — "toiling up", "give in" — whose
+// meaning is not the sum of its parts, so it goes to the translator like
+// any other phrase. When the translator fails it still falls back to the
+// word-by-word breakdown, which is what this asserts: reaching the route
+// and failing must not cost the reader the breakdown they had before.
+test("a two-token string reaches the translator, and falls back to the breakdown when it fails", async ({
   page,
 }) => {
   await deleteTranslator(page);
@@ -235,12 +235,29 @@ test("a two-token string still never reaches the translator, and still draws the
 
   await expect(mainHeadings(page).filter({ hasText: "dog" })).toBeVisible();
   await expect(mainHeadings(page).filter({ hasText: "cat" })).toBeVisible();
-  const expectedTitle = messages.search.noEntry.title.replace("{query}", "dog cat");
-  await expect(page.getByText(expectedTitle)).toBeVisible();
-  await expect(page.getByText(messages.search.noEntry.titleTranslationFailed.replace("{query}", "dog cat"))).toHaveCount(0);
+  const failedTitle = messages.search.noEntry.titleTranslationFailed.replace("{query}", "dog cat");
+  await expect(page.getByText(failedTitle)).toBeVisible();
 
   await page.waitForTimeout(PHRASE_DEBOUNCE_MS + 300);
-  expect(translateCount, "a two-token string never reaches the translate route").toBe(0);
+  expect(translateCount, "a two-token string reaches the translate route exactly once").toBe(1);
+});
+
+// The floor itself: one token is a word, never a phrase, whatever the
+// dictionary says about it. Nothing below two may reach the network.
+test("a one-token miss never reaches the translator", async ({ page }) => {
+  await deleteTranslator(page);
+  let translateCount = 0;
+  await page.route("**/api/translate", async (route) => {
+    translateCount++;
+    await route.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({ error: "provider" }) });
+  });
+  await openReady(page);
+
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+  await searchBox.fill("zzzqqq");
+
+  await page.waitForTimeout(PHRASE_DEBOUNCE_MS + 300);
+  expect(translateCount, "a single token never reaches the translate route").toBe(0);
 });
 
 // docs/voyager/DESIGN.md "Every block of the breakdown is a way back in":
