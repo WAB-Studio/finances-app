@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "./fixtures";
+import type { Page } from "@playwright/test";
 
 import messages from "../messages/es.json";
 import manifest from "../public/dictionary/manifest.json";
@@ -11,6 +12,11 @@ async function deleteTranslator(page: Page): Promise<void> {
     delete (window as unknown as { Translator?: unknown }).Translator;
   });
 }
+
+// `useDecoration`'s own debounce (`PHRASE_DEBOUNCE_MS`) plus margin: long
+// enough that its pair of requests has fired and resolved by the time this
+// elapses.
+const DECORATION_SETTLE_MARGIN_MS = 900;
 
 // Exposes the one `Worker` the hook creates as `window.__dictionaryWorker`,
 // so a test can drive it directly and measure the round trip RNL-01 governs
@@ -261,11 +267,11 @@ test("a paused prefix never leaves the page blank", async ({ page }) => {
   expect(textLength).toBeGreaterThan(0);
 });
 
-// Counts a `<button>` whose text names the fold, bounded by document order
-// to two headings — never the whole page — so a second headword's own
-// senses (an inflected form's `viaInflection` group) never inflate the
-// count of the one being measured.
-async function countFoldsBetween(
+// Counts definition blocks (docs/voyager/DESIGN.md "The English definition
+// draws open, always") bounded by document order to two headings — never
+// the whole page — so a second headword's own senses (an inflected form's
+// `viaInflection` group) never inflate the count of the one being measured.
+async function countDefinitionsBetween(
   page: Page,
   afterHeading: string,
   beforeHeading: string | null,
@@ -277,7 +283,7 @@ async function countFoldsBetween(
       const after = headings.find((h) => h.textContent === afterHeading);
       const before = beforeHeading ? headings.find((h) => h.textContent === beforeHeading) : undefined;
       if (!after) return -1;
-      return Array.from(document.querySelectorAll("button"))
+      return Array.from(document.querySelectorAll("[data-definition-block]"))
         .filter((b) => b.textContent?.includes(label))
         .filter((b) => Boolean(after.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING))
         .filter((b) => !before || Boolean(b.compareDocumentPosition(before) & Node.DOCUMENT_POSITION_FOLLOWING))
@@ -287,8 +293,11 @@ async function countFoldsBetween(
   );
 }
 
-test("a headword with no definition at all shows no fold control and no dangling line", async ({ page }) => {
+test("a headword with no definition at all draws no definition label and no dangling line", async ({ page }) => {
   await deleteTranslator(page);
+  // `./fixtures`'s own default already answers 204 on the text route (the
+  // daily cap reached, no key, or a provider failure): no dictionary label,
+  // and — this is the claim the slice adds — no generated one either.
 
   const assetResponse = page.waitForResponse(
     (response) => response.url().includes(manifest.asset.path) && response.ok(),
@@ -303,15 +312,91 @@ test("a headword with no definition at all shows no fold control and no dangling
   // headword and translations.
   await searchBox.fill("umbrella");
   await expect(page.getByRole("heading", { name: "umbrella", exact: true })).toBeVisible({ timeout: 5000 });
+  await page.waitForTimeout(DECORATION_SETTLE_MARGIN_MS);
 
   await expect(page.getByText(messages.word.definitionEnglish)).toHaveCount(0);
-  await expect(page.getByRole("button", { name: messages.word.definitionEnglish })).toHaveCount(0);
+  await expect(page.getByText(messages.word.definitionGenerated)).toHaveCount(0);
 });
 
-test("`left` (one of the 34 entries whose definition is a bare '.') never folds onto that period", async ({
+test("umbrella draws no dictionary definition, and the generated one arrives marked", async ({
+  page,
+  stubWordText,
+}) => {
+  await deleteTranslator(page);
+  // Photo stays absent — this test is about the text block alone — while
+  // the text route answers as if the model had generated one, still fully
+  // mocked.
+  await stubWordText({
+    definition: "A device used for protection against rain, consisting of a folding frame.",
+    example: { en: "She opened her umbrella as it started to rain.", es: "Abrió su paraguas cuando empezó a llover." },
+  });
+
+  const assetResponse = page.waitForResponse(
+    (response) => response.url().includes(manifest.asset.path) && response.ok(),
+  );
+  await page.goto("/");
+  await assetResponse;
+  await page.waitForTimeout(1000);
+
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+  await searchBox.fill("umbrella");
+  await expect(page.getByRole("heading", { name: "umbrella", exact: true })).toBeVisible({ timeout: 5000 });
+  await page.waitForTimeout(DECORATION_SETTLE_MARGIN_MS);
+
+  // Still no dictionary label — umbrella's own source entry has none — but
+  // now the generated block, carrying its «generada» mark.
+  await expect(page.getByText(messages.word.definitionEnglish)).toHaveCount(0);
+  await expect(page.getByText(messages.word.definitionGenerated)).toBeVisible();
+  await expect(page.getByText(messages.word.generatedMark)).toBeVisible();
+});
+
+test("a generated example with no definition heads itself as an example, never as a definition", async ({
+  page,
+  stubWordText,
+}) => {
+  await deleteTranslator(page);
+  // The route answers `definition: null` whenever the dictionary already
+  // carries one, not only for the 19.7% missing outright
+  // (`app/api/word/text/route.ts`) — «Definición generada» must not stand
+  // over an example alone either way.
+  await stubWordText({
+    definition: null,
+    example: {
+      en: "She opened her umbrella as it started to rain.",
+      es: "Abrió su paraguas cuando empezó a llover.",
+    },
+  });
+
+  const assetResponse = page.waitForResponse(
+    (response) => response.url().includes(manifest.asset.path) && response.ok(),
+  );
+  await page.goto("/");
+  await assetResponse;
+  await page.waitForTimeout(1000);
+
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+  await searchBox.fill("umbrella");
+  await expect(page.getByRole("heading", { name: "umbrella", exact: true })).toBeVisible({ timeout: 5000 });
+  await page.waitForTimeout(DECORATION_SETTLE_MARGIN_MS);
+
+  // No definition heading of either kind, the example headed by its own
+  // label instead, and the «generada» mark still on it.
+  await expect(page.getByText(messages.word.definitionEnglish)).toHaveCount(0);
+  await expect(page.getByText(messages.word.definitionGenerated)).toHaveCount(0);
+  await expect(page.getByText(messages.word.example, { exact: true })).toBeVisible();
+  await expect(page.getByText(messages.word.generatedMark)).toBeVisible();
+  await expect(page.getByText("She opened her umbrella as it started to rain.")).toBeVisible();
+});
+
+test("`left` (one of the 34 entries whose definition is a bare '.') never draws that period as one", async ({
   page,
 }) => {
   await deleteTranslator(page);
+  // `left` has its own dictionary definitions; stubbing the text route to
+  // 204 leaves the count below the dictionary's own, unmoved by decoration.
+  // Module 7 keeps the generated label ("Definición generada") apart from
+  // the dictionary's own ("Definición en inglés"); if this ever moves off
+  // 2, the two strings collided.
 
   const assetResponse = page.waitForResponse(
     (response) => response.url().includes(manifest.asset.path) && response.ok(),
@@ -327,18 +412,17 @@ test("`left` (one of the 34 entries whose definition is a bare '.') never folds 
   // no definition at all, so bounding the count to `left`'s own block below
   // proves the period-only filter without depending on that separately.
   await expect(page.getByRole("heading", { name: "leave", exact: true })).toBeVisible();
+  await page.waitForTimeout(DECORATION_SETTLE_MARGIN_MS);
 
   // Four senses of "left" carry a definition in the source: adj (null,
   // never had one), adv ("On the left side."), n ("The left side or
-  // direction.") and v ("."). Only the two real ones fold; the bare period
+  // direction.") and v ("."). Only the two real ones draw; the bare period
   // is filtered to no definition, same as adj's null.
-  const folds = await countFoldsBetween(page, "left", "leave", messages.word.definitionEnglish);
-  expect(folds).toBe(2);
+  const definitions = await countDefinitionsBetween(page, "left", "leave", messages.word.definitionEnglish);
+  expect(definitions).toBe(2);
 });
 
-test("the English definition opens on tap and folds back on the next one, reachable by keyboard", async ({
-  page,
-}) => {
+test("the English definition draws open with no interaction, and stays inside the column", async ({ page }) => {
   await deleteTranslator(page);
 
   const assetResponse = page.waitForResponse(
@@ -353,31 +437,13 @@ test("the English definition opens on tap and folds back on the next one, reacha
   await expect(page.getByRole("heading", { name: "her", exact: true })).toBeVisible({ timeout: 5000 });
 
   const englishText = "The form of she used after a preposition, as the object of a verb";
-  const fold = page.getByRole("button", { name: messages.word.definitionEnglish }).first();
 
-  // Closed on open: the control names itself, the English prose does not
-  // show, and it says its own state to the accessibility tree.
-  await expect(fold).toBeVisible();
-  await expect(fold).toHaveAttribute("aria-expanded", "false");
-  await expect(page.getByText(englishText)).toHaveCount(0);
-
-  // 360px, closed: nothing spills sideways.
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
-
-  // A tap opens it — the keyboard reaches the same control, no `div` with
-  // an `onClick` would answer `Tab` or `Enter`.
-  await fold.focus();
-  await fold.press("Enter");
-  await expect(fold).toHaveAttribute("aria-expanded", "true");
+  // Open on arrival, nothing tapped: the label and its prose both show.
+  await expect(page.getByText(messages.word.definitionEnglish).first()).toBeVisible();
   await expect(page.getByText(englishText)).toBeVisible();
 
-  // 360px, open: the unfolded prose still fits inside the column.
+  // 360px, open: the prose fits inside the column with no horizontal spill.
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
-
-  // A second tap folds it back away.
-  await fold.press("Enter");
-  await expect(fold).toHaveAttribute("aria-expanded", "false");
-  await expect(page.getByText(englishText)).toHaveCount(0);
 });
 
 // `bed` is a headword the dictionary carries. It also matched two false

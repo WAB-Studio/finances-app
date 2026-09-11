@@ -46,6 +46,21 @@ this gets built, and no schema, table or column is "prepared for" it.
 #### The word
 
 - [ ] **RL-04** — A headword's answer shows every sense the dictionary carries for it, grouped by part of speech, each with its IPA when one exists and all of its Spanish translations.
+- [ ] **RL-43** — Those groups are ordered by how often the word is really used in each part of
+  speech, not by a rank fixed in advance. `grudge` answers as «rencor» before its rare verb, and
+  `leave` still answers as «dejar» before «permiso» — an order no single rank can give both. The
+  frequency is a table built once, read on the device, and never a request: the answer stays whole
+  and offline (RL-35). A headword the table has no row for keeps the rank it has today.
+
+  **The table is derived from SUBTLEX-US with part-of-speech information, which is CC BY-NC-SA 4.0.**
+  Taken by the user 2026-09-11, knowing what it binds: the credit is shown on `/cuenta` beside the
+  dictionary's own, the derived table carries the same licence, and the app stays non-commercial
+  while it ships. Measured that day: 4,650 of 58,946 headwords carry more than one part of speech,
+  SUBTLEX covers 3,888 of them, 2,681 can be ordered, and **1,797 of those 2,681 — 67.0% — are in
+  the wrong order today**. That figure is the generator's own, printed by `npm run pos:build`; a
+  prototype run the day the decision was taken said 1,808, and the eleven-row gap is headwords whose
+  two parts of speech are used equally often, where nothing defines which wins. The shipped table is
+  54.4 KB, 11.6 KB compressed, against a 8.2 MB dictionary.
 - [x] **RL-40** — An inflected form resolves to its headword, and the answer names both the form
   typed and the headword reached: `went` finds `go`, `children` finds `child`, `studies` finds
   `study`. When the form typed is itself a headword, its own entry answers first and the headword it
@@ -74,19 +89,55 @@ this gets built, and no schema, table or column is "prepared for" it.
   waits on the network: with a connection or without one, the same text appears at the same speed,
   and no keystroke ever leaves the device. What the network can add afterwards is decoration: it
   arrives late, arrives only sometimes, and its absence never changes the answer or delays it.
-- [ ] **RL-36** — The answer to a concrete noun can carry an image, requested from Wikimedia Commons
-  as the answer draws and only with a connection. The image never blocks or delays the answer;
-  offline, with no result, or on failure, the answer draws just the same, with no gap left for it.
-  Asking Wikimedia directly tells it which word the reader is looking up, and the reader's IP address
-  — a known price, accepted deliberately by the user on 2026-09-08, and the one place this app lets a
-  lookup leave the device to a party of its own: everywhere else, RL-35, RNL-09 and the copy's
-  consent keep a lookup off the network entirely. The alternative declined was a route handler of the
-  app's own in front of the request, the shape RL-09 already uses for the sentence path.
+- [ ] **RL-41** — A word whose dictionary entry carries **no definition at all** can be given one
+  over the network: one English sentence, in the dictionary's own register. **12,670 of the 64,258
+  entries (19.7%) carry none** — 6,989 nouns, 2,664 verbs, 2,098 adjectives — and today those words
+  answer with translations alone. It is **decoration under RL-35**: it is resolved the first time
+  someone looks that word up, never in a pass over the dictionary, it is cached so a word costs once
+  for every reader ever, and with no connection the answer is exactly the one the device already
+  draws. A word that already has a definition never asks for one.
+
+- [ ] **RL-42** — A word can carry **one example sentence using it**, with its Spanish translation,
+  resolved and cached the same way and under the same decoration clause. This is not RL-08's path:
+  RL-08 translates a sentence the reader typed, this shows the word in use.
+
+  **The daily cap is the on-switch, not just a limit.** `WORD_TEXT_DAILY_CALL_CAP` is optional, and
+  left unset the route answers `204` to every cold word: generated text is off until a number is set.
+  **That number is 50, decided by the user 2026-09-10.** It bounds distinct new words per day, not
+  words lacking a definition — the example generates for every word looked up, so a word that already
+  has a definition still costs one call. A cap that bites costs nothing: the reader gets the screen
+  RL-35 already draws. `WORD_PHOTO_DAILY_CAP` is the opposite by design — left unset it means no
+  limit, which is right because Openverse is free.
+
+- [ ] **RL-36** — The answer to a concrete noun can carry an image, requested as the answer draws and
+  only with a connection. The image never blocks or delays the answer; offline, with no result, or on
+  failure, the answer draws just the same, with no gap left for it. The image comes from Openverse, a
+  search over permissively licensed photos, and the request no longer goes straight from the device to
+  a party of its own: it passes through a route handler of this app's own, the shape RL-09 already
+  uses for the sentence path, and the bytes it returns are re-served from storage this app owns. The
+  price moves with it: the image's original host stops seeing which word a reader looked up or from
+  which address, and this app's own server starts — once per word, because the result is cached for
+  every reader after the first. Each image's author, licence, licence link and source stay attached to
+  it and are credited by file in `/cuenta`, next to RL-33's own credit.
+
+  **«Concrete noun» is a test the code runs, not a phrase in this line.** Written 2026-09-11, after
+  the reader hit `grudge` and got a photograph of someone underwater. The headword must carry a noun
+  sense **and** score at least 3.0 for concreteness; a headword with no concreteness score is asked
+  for no image at all. Absence is already a screen this app draws, so a word with no photo costs the
+  reader nothing. Measured that day against the live Openverse and the built index: of 36 headwords
+  probed, concrete nouns came back relevant **12 of 12**, abstract nouns **2 of 12**, non-nouns
+  **6 of 12** — 55.6% overall. A noun-only filter buys almost nothing, because **12 of the 12
+  abstract headwords probed carry a noun sense too**; concreteness separates them cleanly, every
+  concrete probe scoring 4.58 or above and every abstract one 2.37 or below. The scores come from
+  Brysbaert, Warriner and Kuperman's 40,000-lemma norms, which cover 14,533 of the dictionary's
+  37,429 noun headwords, so at the 3.0 threshold an image is possible for **9,942 headwords — 16.9%
+  of the dictionary** rather than all of it. **That source states no licence**, unlike SUBTLEX-US in
+  RL-43; the user took it knowingly on 2026-09-11 and it is credited in `/cuenta` all the same.
 
 #### The sentence
 
 - [ ] **RL-08** — A sentence is translated by the device's own translator when the browser offers one and it is ready. Whether it does is asked of the browser at runtime, on every open, and never inferred from the browser's name or version.
-- [x] **RL-09** — When the device offers no translator, the sentence is translated over the network, and the answer says the translation came from the network. *This is the app's only server surface and the single exception to "no backend": one route handler that holds the provider's identity and any key it needs off the client and makes the provider a one-file change. Nothing on the word path passes through it, ever.*
+- [x] **RL-09** — When the device offers no translator, the sentence is translated over the network, and the answer says the translation came from the network. *This is a server surface and the sentence path's own exception to "no backend": one route handler that holds the provider's identity and any key it needs off the client and makes the provider a one-file change. Nothing on the word path passes through it, ever.*
 - [ ] **RL-10** — While the device's translator is downloading what it needs, the interface says so and the box stays usable.
 - [x] **RL-11** — When the device has a translator that is not yet installed, that sentence is translated over the network and a single control offers to install the translator. Activating that control is what starts the download; every sentence after it is translated on the device. A person who never activates it keeps getting network translations and is never blocked.
 
@@ -285,8 +336,9 @@ Rules the model must always guarantee, regardless of how they are implemented:
 - The dictionary is data, never state. Nothing the reader does mutates it.
 - A headword is a group of senses, never a row. Its senses, its parts of speech,
   its pronunciations and its translations answer together or not at all.
-- A word's answer never touches the network (RL-35). Its image (RL-36) does, and only with a
-  connection: decoration, never a condition of the answer.
+- A word's answer never touches the network (RL-35). Its image, its definition and its example
+  (RL-36, RL-41, RL-42) do, and only with a connection: decoration, never a condition of the answer.
+  That request goes to a route handler of this app's own, never straight to a party of its own.
 - The payload is installed whole or not at all. There is no partial dictionary
   a lookup could read from.
 - The interface never asserts a browser capability it has not asked for at
@@ -304,33 +356,45 @@ A Next.js application whose data lives on the device.
 Principles, not recipes:
 
 - **The read path has no backend for its text.** The dictionary ships as a static asset and is read
-  locally; a word's answer touches the network on no keystroke (RL-35). The app has two server
-  surfaces and neither is on that path: the sentence translation (RL-09), and the copy of the
-  reader's record (RL-22), which runs on the same Supabase as `apps/orbit`, in a schema of its own,
-  and only once the reader opened an account on purpose. With no account, nothing of the reader's
-  leaves the device (RNL-09).
-- **A word's image is the one thing on that path that does reach the network** (RL-36), and it
-  reaches a fourth party, not one of the app's own two surfaces: it is requested straight from
-  Wikimedia Commons as the answer draws, only with a connection, never blocking or delaying the
-  text. Unlike the sentence path, no route handler of the app's own sits in front of it, so Wikimedia
-  sees which word the reader is looking up and from which address. Decided by the user 2026-09-08,
-  the request itself weighed against building a fifth route handler to hide it.
-- **The server surface is four route handlers and one page**, and nothing else. Rewritten
-  2026-09-08, when the account slice landed and left the old wording — "one route handler is the
-  single exception" — false:
+  locally; a word's answer touches the network on no keystroke (RL-35). The app has three server
+  surfaces and none of them is on that path: the sentence translation (RL-09); the copy of the
+  reader's record — its sync, its wipe and the devices that hold it (RL-22, RL-25) — which runs on the
+  same Supabase as `apps/orbit`, in a schema of its own, and only once the reader opened an account on
+  purpose; and the word's decoration (RL-36, RL-41, RL-42), which reaches the network only after the
+  text is already drawn and never changes or delays it. With no account, nothing of the reader's
+  record leaves the device (RNL-09); the decoration reaches the network with or without one, because
+  it is not the reader's record.
+- **A word's image, its definition and its example are the things on that path that do reach the
+  network** (RL-36, RL-41, RL-42), and each now goes through a route handler of the app's own, not
+  straight to a party of its own. Decided by the user 2026-09-10, reversing the direct-to-a-third-party
+  design this file carried until then: hiding the request behind a route of the app's own is exactly
+  what RL-09 already does for the sentence path, and it is what keeps a third party from learning
+  which word a reader is looking up. Both requests reach the network only as the answer draws and only
+  with a connection, and neither blocks or delays the text.
+- **The server surface is five route handlers and one page, and nothing else.** It becomes seven
+  when RL-36, RL-41 and RL-42 land: those three are unticked, and the two handlers they need are
+  **not written yet** — do not read the list below as though they were. Rewritten 2026-09-10, when
+  the decoration slice claimed two more and the count turned out to have been short one all along:
+  `app/api/log/clear/route.ts` existed and had never been listed.
   - `app/api/translate/route.ts` — the sentence path (RL-09). Justified by two things a client
     cannot do: keep the provider's identity and key off the client, and make swapping the provider a
     one-file change.
-  - `app/api/log/sync/route.ts` and `app/api/devices/route.ts` — the copy of the reader's record and
-    the devices that hold it (RL-22, RL-25). They answer **only** a request that carries a session
-    the reader opened on purpose; with no account they answer 401 without opening a connection.
+  - `app/api/log/sync/route.ts`, `app/api/log/clear/route.ts` and `app/api/devices/route.ts` — the
+    copy of the reader's record, its wipe, and the devices that hold it (RL-22, RL-25). They answer
+    **only** a request that carries a session the reader opened on purpose; with no account they
+    answer 401 without opening a connection.
   - `app/auth/confirm/route.ts` — landing the sign-in link (RL-22).
+  - `app/api/word/photo/route.ts` and `app/api/word/text/route.ts` — the word's decoration (RL-36,
+    RL-41, RL-42): an image, a definition for the entries that carry none, and an example sentence.
+    Neither answers with a session, both cache what they resolve, and both answer with nothing rather
+    than a provider's own error on any failure.
   - `app/cuenta/page.tsx` — a server component that reads the session and queries nothing.
 - **The word's text never passes through any of them.** That is the claim "no backend" actually
-  protects, and it is the one to check before adding a fifth: not how many handlers exist, but
-  whether the answer's text still touches none of them (RL-35, RNL-09). The word's image (RL-36)
-  touches the network too, but never through one of these four: it goes straight to Wikimedia,
-  decoration on an answer that already stands without it.
+  protects, and it is the one to check before adding an eighth: not how many handlers exist, but
+  whether the answer's text still touches none of them (RL-35, RNL-09). The word's decoration — its
+  image, its definition and its example (RL-36, RL-41, RL-42) — does touch two of them, but only once
+  the text already stands on its own: it arrives late, arrives only sometimes, and its absence never
+  changes or delays the text it decorates.
 - **A local MCP server (RL-27) is not part of the deployed app.** It is a
   script the reader runs on their own machine, over the file `/registro`
   exported (RL-20), never over the deployed app's network. It does not

@@ -356,7 +356,9 @@ for (const headword of index.sortedHeadwords) {
     const overriddenByTable =
       IRREGULAR_TABLE_LEMMAS.has(c.lemma) &&
       ((PAST_TENSE_RULES.has(c.rule) && group.senses.some((s) => s.pos === "v")) ||
-        (PLURAL_RULES.has(c.rule) && group.senses.some((s) => s.pos === "n")));
+        (PLURAL_RULES.has(c.rule) &&
+          group.senses.some((s) => s.pos === "n") &&
+          !group.senses.some((s) => s.pos === "v")));
     return oneLetterLemma || overriddenByTable;
   });
   preFilterBadCandidates += bad.length;
@@ -374,6 +376,152 @@ assert(
   postFilterBadHits === 0
     ? `${preFilterBadCandidates} candidates carried one of these two defects before the filter, 0 after`
     : `${postFilterBadHits} still shipped: ${stillBadExamples.join(", ")}`,
+);
+
+// D13 — RL-43: the measured order actually reaches `groupFor`. D6 above proves
+// "leave" carries both senses; nothing proved which came first, so reverting
+// the frequency table left every check green. These eleven are the words the
+// order was decided on: `grudge` is the reader's own complaint, `leave` is
+// the case POS_RANK was hand-tuned for, and no single fixed rank gives both.
+const FREQUENCY_ORDER_CASES: ReadonlyArray<readonly [string, readonly PartOfSpeech[]]> = [
+  ["grudge", ["n", "v"]],
+  ["leave", ["v", "n"]],
+  ["light", ["n", "adj", "v"]],
+  ["run", ["v", "n"]],
+  // Three senses, two of them scored: the unmeasured `adj` falls to POS_RANK
+  // behind both, which is the fallback this order is built on.
+  ["fire", ["n", "v", "adj"]],
+  ["record", ["n", "v"]],
+  ["bank", ["n", "v"]],
+  ["match", ["n", "v"]],
+  ["book", ["n", "v"]],
+  ["water", ["n", "v"]],
+  ["present", ["n", "v", "adj"]],
+];
+
+const wrongOrder = FREQUENCY_ORDER_CASES.filter(([headword, expected]) => {
+  const group = groupFor(index, headword);
+  if (group === null) return true;
+  // Senses repeat a part of speech; the group order is the order its
+  // categories first appear, which is what the screen draws as its labels.
+  const drawn: PartOfSpeech[] = [];
+  for (const sense of group.senses) if (!drawn.includes(sense.pos)) drawn.push(sense.pos);
+  return drawn.join(",") !== expected.join(",");
+});
+assert(
+  next("every sense group is ordered by measured frequency, not by POS_RANK"),
+  wrongOrder.length === 0,
+  wrongOrder.length === 0
+    ? `${FREQUENCY_ORDER_CASES.length} headwords in their measured order, "grudge" as n before v`
+    : wrongOrder
+        .map(([headword, expected]) => {
+          const group = groupFor(index, headword);
+          const drawn = group === null ? "absent" : [...new Set(group.senses.map((s) => s.pos))].join(",");
+          return `${headword}: drew ${drawn}, measured ${expected.join(",")}`;
+        })
+        .join("; "),
+);
+
+// D14 — RL-28: a one-edit miss recovers the headword it was one edit away
+// from, 100% of the time. Decided by the user 2026-09-11: no cap survives
+// on `edit-distance.ts`'s own candidate count. Sample is every 50th eligible
+// headword (length >= 4, plain a-z), its middle character deleted, so a red
+// here reruns identically. A corruption that happens to land on another
+// real answer — "grueling" reads as "gruel"+"-ing" before it ever reaches
+// `suggestCorrection`, "met" is a headword in its own right — is not a miss
+// at all, so it is excluded rather than counted as a false recovery.
+const editableHeadwords = index.sortedHeadwords.filter((w) => /^[a-z]+$/.test(w) && w.length >= 4);
+const sample = editableHeadwords.filter((_, i) => i % 50 === 0);
+let recovered = 0;
+let tested = 0;
+const missedExamples: string[] = [];
+for (const headword of sample) {
+  const mid = Math.floor(headword.length / 2);
+  const typo = headword.slice(0, mid) + headword.slice(mid + 1);
+  const typoAnswer = lookupWord(index, typo);
+  if (typoAnswer.exact !== null || typoAnswer.viaInflection.length > 0) continue; // not a miss
+  tested++;
+  if (typoAnswer.correction.includes(headword)) recovered++;
+  else if (missedExamples.length < 10) missedExamples.push(`${headword}->${typo}`);
+}
+assert(
+  next("a one-edit typo of a sampled headword recovers it in lookupWord's own correction field, 100% of the time"),
+  recovered === tested,
+  `${recovered}/${tested} recovered (${sample.length - tested} of the ${sample.length} sampled excluded as not misses), missed: ${missedExamples.join(", ") || "none"}`,
+);
+
+// D15 and D16 — `fettle` sits one substitution from four real headwords (kettle,
+// mettle, nettle, settle) and gets all four: decided by the user 2026-09-11
+// that RL-28 corrects every one-edit miss with no cap, knowing `fettle` is
+// not a typo but a real word the dictionary lacks — RL-29 is what tells
+// that reader none of the four is what they meant, not this guard.
+// `zzqqxv` has no headword within one edit at all, which stays empty.
+const fettleCorrection = lookupWord(index, "fettle").correction;
+const zzqqxvCorrection = lookupWord(index, "zzqqxv").correction;
+assert(
+  next("fettle's four equally-close headwords all come back, uncapped"),
+  fettleCorrection.length === 4 && ["kettle", "mettle", "nettle", "settle"].every((w) => fettleCorrection.includes(w)),
+  `correction=[${fettleCorrection.join(", ")}]`,
+);
+assert(
+  next("zzqqxv, with no headword within one edit, gets no correction"),
+  zzqqxvCorrection.length === 0,
+  `correction=[${zzqqxvCorrection.join(", ")}]`,
+);
+
+// D17 — the third-person-singular family. English spells the noun plural
+// and the third-person-singular present with the same "-s", and the
+// irregular-table override used to reject a plural guess on the target
+// carrying a noun sense alone — which threw away "goes", "runs", "sees"
+// and every other "-s" form of a verb whose lemma also happens to name a
+// noun. Drives every IRREGULAR_TABLE_LEMMAS entry that carries a verb
+// sense (the population the bug could reach, not three hand-picked
+// words), builds each one's real third-person-singular spelling by the
+// standard English rule, and checks it resolves back to the lemma.
+function thirdPersonSingular(lemma: string): string {
+  if (/(?:[sxz]|ch|sh)$/.test(lemma)) return lemma + "es";
+  if (endsConsonantY(lemma)) return lemma.slice(0, -1) + "ies";
+  if (lemma.length >= 2 && lemma.endsWith("o") && isConsonantLetter(lemma[lemma.length - 2])) return lemma + "es";
+  return lemma + "s";
+}
+
+const verbIrregularLemmas = Array.from(IRREGULAR_TABLE_LEMMAS).filter((lemma) => {
+  const group = groupFor(index, lemma);
+  return group !== null && group.senses.some((s) => s.pos === "v");
+});
+
+let thirdPersonResolved = 0;
+const thirdPersonMissed: string[] = [];
+for (const lemma of verbIrregularLemmas) {
+  const surface = thirdPersonSingular(lemma);
+  const answer = lookupWord(index, surface);
+  const resolves = answer.exact?.headword === lemma || answer.viaInflection.some((h) => h.lemma === lemma);
+  if (resolves) thirdPersonResolved++;
+  else if (thirdPersonMissed.length < 15) thirdPersonMissed.push(`${surface}->${lemma}`);
+}
+assert(
+  next("every irregular-table lemma with a verb sense reaches it from its third-person-singular '-s' form"),
+  thirdPersonResolved === verbIrregularLemmas.length,
+  `${thirdPersonResolved}/${verbIrregularLemmas.length} resolved` +
+    (thirdPersonMissed.length === 0 ? "" : `, missed: ${thirdPersonMissed.join(", ")}`),
+);
+
+// D18 — RL-28: candidates a POS_FREQUENCY_ORDER row exists for sort ahead of
+// candidates it does not, alphabetical within each block. Decided by the
+// user 2026-09-11: the table carries no number, so a rowed candidate is
+// never ranked against another rowed one — only rowed-or-not is honest.
+// "bame" moves 8 of its 13 candidates ahead of the other 5; "fettle" is
+// unchanged, since none of kettle/mettle/nettle/settle carries a row. Named
+// exactly, not just "returned": an unordered check stays green when the
+// order it was written to prove regresses to plain alphabetical.
+const bameCorrection = lookupWord(index, "bame").correction;
+const fettleOrderCorrection = lookupWord(index, "fettle").correction;
+assert(
+  next("suggestCorrection ranks a candidate with a POS_FREQUENCY_ORDER row ahead of one without, alphabetical within each block"),
+  JSON.stringify(bameCorrection) ===
+    JSON.stringify(["bale", "bare", "base", "blame", "game", "lame", "name", "tame", "bae", "bake", "bane", "fame", "same"]) &&
+    JSON.stringify(fettleOrderCorrection) === JSON.stringify(["kettle", "mettle", "nettle", "settle"]),
+  `bame=[${bameCorrection.join(", ")}], fettle=[${fettleOrderCorrection.join(", ")}]`,
 );
 
 report();

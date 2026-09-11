@@ -6,6 +6,28 @@ file, the measurement and the date. Read the ones that touch what you are about 
 Working rules live in `AGENTS.md`. Session state lives in `private/handoffs/`. This file
 holds only what a person could not guess from the code.
 
+
+## A test seeded with the answer passes whether or not the code works
+
+Measured 2026-09-10, module 8 (the photo credits in `/cuenta`).
+
+`/api/word/photo` stores and returns **bare licence codes** — `by`, `by-sa`, `cc0`, `pdm`. The
+component was supposed to turn those into a name a reader recognises, using the
+`account.info.photoLicence` map module 3 had already shipped. It never did: it interpolated
+`credit.licence` verbatim, so a real row rendered «osde8info · by-sa» where the board says
+«CC BY-SA». Naming the licence is the part of CC BY-SA that redistribution requires, so this was a
+licence defect, not a cosmetic one.
+
+The worker verified it and reported a pass. Its seed set `licence` to the already-formatted string
+`"CC BY-SA 4.0"` instead of the enum code the route emits, so the assertion held whether or not the
+mapping existed. **Seed a probe with what the producer really writes, never with the string you
+expect to read.** The same shape caught the repo twice before — module 16 read a mark no writer
+sets, module 14 drew data no query selects.
+
+The durable fix was a type, not a lookup: `Credit["licence"]` is now `WordPhoto["licence"]`, so a
+pre-formatted string can no longer be stored by mistake. Prefer the type that makes the bad seed
+impossible over the test that catches it.
+
 ## Drizzle
 
 ### An embedded column renders bare in a projection
@@ -654,6 +676,77 @@ a real one behind a number you have already talked yourself out of.
 
 Measured 2026-09-07 while validating the dictionary worker.
 
+**It is not one count, it is 13 red specs, and it cost two lanes an afternoon.** Measured
+2026-09-11: `check:e2e` against `next dev` hands back **121 passed, 13 failed, 2 skipped** where a
+production build passes them. The 13, by name, so the next session recognises the shape without
+re-deriving it: `bottom-nav.spec.ts:143`, `error-boundary.spec.ts:74`, `install.spec.ts:15`,
+`offline.spec.ts:77`, `offline.spec.ts:177`, `palabra-historial.spec.ts:101,295,359,392`,
+`url.spec.ts:94`. `export.spec.ts:146` and `log.spec.ts:377,444` fail in the full dev run and pass
+in isolation — those are load flakes, not StrictMode.
+
+**The cause was a printed command, not a misreading.** `scripts/worktree.sh` printed
+`PORT=<n> npm run dev` on the line directly above the `check:e2e` line, so a lane that followed its
+own birth message ran the suite the one way the config forbids. Fixed the same day: the script now
+prints `npm run build` and `npm run start` for voyager, and keeps `dev` for orbit, whose suite does
+not count effects.
+
+**Rebuild before every rerun, and that includes the negative control.** `next start` serves the
+build, not the tree. Reverting a guard and rerunning without rebuilding tests the old bundle and
+shows green for the wrong reason — which is exactly the failure a negative control exists to catch.
+
+### The voyager suite drives the real decoration routes, and pays for them
+
+Counted 2026-09-11 across `apps/voyager/e2e`: **11 of the 19 spec files search for words and
+intercept nothing.** Only `export`, `speak`, `sync`, `url` and `word` call
+`page.route("**/api/word/photo", ...)`; `log.spec.ts` (15 tests), `registro.spec.ts` (12),
+`palabra-historial.spec.ts` (13), `sin-entrada.spec.ts` (9) and seven more do not. That is **79
+tests** reaching `/api/word/photo` and `/api/word/text` for real, on every run.
+
+What each run therefore does:
+
+- **Writes rows to the shared Postgres**, which is the user's production database. Measured that
+  day: three separate purges of 5, 4 and 4 rows, plus their bucket objects, all left by suites.
+  `reading.word_photos` has no expiry, so nothing removes them on its own.
+- **Spends the model's daily cap.** `/api/word/text` calls `gpt-5-nano`. The only thing standing
+  between a suite run and a real bill is a human remembering `OPENAI_API_KEY=""` as a process
+  override — a convention, never a guard.
+- **Puts an unbounded network call inside timing-sensitive tests.** `log.spec.ts:377` races an 800 ms
+  settle window against a killed tab; Openverse's latency lands in the middle of it. That spec fails
+  in CI on branches that touch no part of the log, and passes on one that does, which is the shape
+  of a race and not of a regression.
+
+`url.spec.ts` is the warning written in the file itself: it **defines** `stubDecorationRoutes` and
+calls it in one of its five tests.
+
+**The stub belongs in the fixture, not in each spec.** A spec that wants the real route should opt
+in and say why, the way `foto.spec.ts` does — it drives the real route deliberately, with two
+headwords chosen so nothing is written: `dog` is already cached and `grudge` is refused by the
+guard before Postgres.
+
+### Every worktree shares one stash, so a lane can pop another lane's work
+
+`git stash` writes to `refs/stash`, and that ref lives in the **common** git directory, not in the
+worktree. Five lanes are five worktrees over one repository, so they all push onto and pop off the
+same stack.
+
+Measured 2026-09-11: a lane on `orden-frecuencia` ran `git stash -u` and `git stash pop` to build a
+negative control. A validator working in a different worktree, on a different branch, watched its
+own `git stash list` go from one entry to empty without running a single stash command. Nothing was
+lost that time — the other lane popped what it had pushed — but the order is not guaranteed: two
+lanes stashing and popping in any interleaving hand each other the wrong tree.
+
+**Never `git stash` in a lane.** To take a change out and put it back, use a patch, which is local
+to the worktree:
+
+    git diff > /tmp/guard.patch && git apply -R /tmp/guard.patch   # take it out
+    git apply /tmp/guard.patch                                     # put it back
+
+or edit the file and restore it with `git checkout -- <file>`.
+
+**Say this in every dispatch that asks for a negative control.** Reverting and re-checking is the
+one thing that proves a test watches anything, so it is exactly the moment a worker reaches for
+`stash`.
+
 ### Regenerating a lockfile on one machine drops every other platform's packages
 
 Renaming the two app directories left four stale workspace keys in `package-lock.json`. Deleting the
@@ -1203,6 +1296,46 @@ para explicar por qué.
 - El mecanismo que inventó era plausible y estaba mal: `width: auto` en un hijo de una columna flex
   **sí** resta los márgenes al estirarse. Eso es lo que arregla el desbordamiento.
 
+**Medido otra vez el 2026-09-10, y esta vez enrojeció una suite, no a un crítico.** Un módulo quitó
+el plegado de la definición; `word.spec.ts` dio dos rojos y el `error-context.md` del fallo mostraba
+`button "Definición en inglés"` — el control que el cambio elimina. El código estaba bien.
+
+Lo nuevo, y es lo que cuesta encontrar: **el build estaba fresco y el servidor no.** `BUILD_ID`
+marcaba las 14:33 y el fuente las 13:52, así que el `npm run build` sí había corrido. Faltaba el
+reinicio, porque `next start` lee el `.next` **al arrancar**.
+
+- **`Another next dev server is already running` no aplica a un `next start`.** Esa regla de
+  `AGENTS.md` es correcta para un `dev`, que recompila solo, y **falsa para un build de producción**,
+  que no. El worker intentó reiniciar :3100, la regla lo mandó a reusar el que había, y midió JS
+  viejo. Tras reconstruir, **reinicia siempre**, aunque el puerto responda.
+- Diagnóstico en un solo paso: `stat -c '%y' apps/voyager/.next/BUILD_ID` contra el `%y` del fichero
+  que editaste. Si el build es posterior y la página sigue mostrando lo viejo, es el servidor.
+- El snapshot del `error-context.md` dice qué se estaba sirviendo de verdad. Léelo antes de dudar
+  del código: ahí se vio el `button` que ya no existía en el fuente.
+
+## La `e2e` de orbit sale «cancelled» en el push a `main`, y no es un defecto
+
+Medido 2026-09-10 sobre el run 34511136317, el merge de la PR #140. Los otros siete jobs en verde
+(`policies`, `typecheck`, `changes`, `dictionary`, `lint`, `voyager-e2e`, `build-orbit`); sólo `e2e`
+cancelada, a los 102 s.
+
+La causa está en el propio workflow:
+
+```yaml
+concurrency:
+  group: e2e-remote-db
+  cancel-in-progress: false
+```
+
+`cancel-in-progress: false` no toca al run que está corriendo, pero **GitHub sólo admite un run
+pendiente por grupo**: un tercero encolado detrás cancela al que ya esperaba. Es el interlock
+funcionando — el grupo existe para que dos runs no toquen la base remota a la vez.
+
+No hay nada que arreglar. La cobertura existe: el mismo árbol pasó la `e2e` en verde dentro de la
+PR #140, y `AGENTS.md` ya dice que la `e2e` de orbit es informativa y que ningún check la exige en
+`main`. Lo único que se pierde es la señal en el push cuando los runs se amontonan. **Escrito para
+que nadie lo investigue una cuarta vez.**
+
 ## This machine cannot test a reserved scrollbar
 
 Measured 2026-09-09 while fixing `components/ui/page.module.css`'s `100vw` centring. Chromium here
@@ -1450,3 +1583,160 @@ the account wipe calls `DELETE /api/log/clear`, which cannot work offline anyway
 it.** `npm run build -w apps/voyager` prints `○ /registro` before and `ƒ /registro` after. Nothing
 fails; the route just starts costing a server render per visit. Diff the route table against the
 base branch whenever a page gains a call that reads cookies or headers.
+
+
+## Openverse y el bucket de Supabase: tres cosas que muerden al escribir el módulo
+
+Medido 2026-09-10 conduciendo la cadena entera —buscar, bajar, subir— antes de despachar nada.
+Las tres salieron en las primeras cinco palabras.
+
+### Los metadatos de S3 sólo admiten ASCII, y los autores de Openverse no lo son
+
+`put_object` con `Metadata={"creator": ...}` revienta con
+`ParamValidationError: Non ascii characters found in S3 metadata`. El autor que lo destapó venía
+como **`☺ Lee J Haywood`** — un emoticono dentro del nombre, en el primer resultado de `kettle`.
+
+**La atribución no va pegada al objeto en S3. Va a Postgres**, que además es de donde lee la lista
+por imagen de `/cuenta`. Pegarla al objeto era la arquitectura equivocada y el error lo dice antes.
+
+### Un resultado de Openverse puede apuntar a una imagen muerta
+
+`abeyance` devolvió un resultado válido cuya miniatura dio **`HTTP 424 Failed Dependency`** — el
+proxy de miniaturas de Openverse contesta 424 cuando el original de aguas arriba ya no está.
+
+- Pide **varios candidatos** (`page_size=5`), no uno.
+- Por cada candidato prueba `thumbnail` y, si falla, `url`.
+- Con eso, medido sobre 60 palabras: **93,3% bajan**, y en el 100% de las que tenían resultado
+  **sirvió el primer candidato**. El 424 es ocasional, no sistemático — pero sin reintento se lleva
+  por delante una palabra que sí tenía foto.
+- **La cobertura real es 93,3%, no el 95,7%** que salió al contar resultados en vez de descargas.
+  Contar resultados cuenta también los muertos.
+
+### Una «miniatura» de Openverse puede pesar 5,3 MB
+
+Sobre las mismas 60: mediana **44.117 B**, p90 **154.415 B**, **máximo 5.338.962 B**. No hay
+garantía de tamaño en el campo `thumbnail`.
+
+Guardar 5 MB para dibujar un cuadro de 76 px es tirar el bucket. **Pon un tope de bytes y descarta
+el candidato que lo pase**, pasando al siguiente — no lo recortes después de haberlo subido.
+
+## El CSV de OpenAI no dice lo que gastó la app
+
+Medido 2026-09-11, sobre el export de la cuenta en `private/openai/`, un mes entero: **421
+peticiones** en el proyecto, repartidas así.
+
+| modelo | peticiones | ¿lo llama este repo? |
+|---|---:|---|
+| `gpt-5-nano` | 368 | sí, es `apps/voyager/lib/word/model.ts:11` |
+| `gpt-4o-mini-transcribe` | 36 | no |
+| `gpt-realtime-mini` | 12 | no |
+| `gpt-4.1-nano` / `gpt-4.1-mini` | 4 | no |
+| `gpt-5.5` | 1 | no |
+
+**La clave es compartida con trabajo que no es este repo.** Voyager no transcribe audio ni habla en
+tiempo real: esas 53 peticiones son de otra parte, y el CSV no las distingue porque todo cae bajo un
+`project_id` y una `api_key_id`.
+
+Y el desajuste no se queda ahí. El repo tiene **un solo sitio** que llama al modelo —
+`apps/voyager/app/api/word/text/route.ts:102` — y pide cupo en `lib/word/spend.ts` **antes** de
+llamar, así que ninguna llamada queda sin contar. El 2026-09-10 `reading.model_spend` marcó
+`calls=19` y el CSV marca **346 peticiones de `gpt-5-nano` ese día**. Las otras 327 no salieron de
+aquí.
+
+- **Nunca deduzcas de ese CSV lo que gastó la app.** No separa proyectos.
+- **`model_spend` sí es la cifra de esta app**, porque el único llamador reclama cupo antes de llamar.
+- Un total en dólares de la cuenta — los **$0,33** que leyó el usuario ese día — es de todo el
+  proyecto junto, y dividirlo entre las llamadas de voyager da un número inventado.
+
+## Un relevo que sí llega a IndexedDB se duplica si nadie lo comprueba al recuperarlo
+
+Encontrado 2026-09-11, `apps/voyager/lib/log/record.ts`, en el fallo intermitente de
+`e2e/log.spec.ts:377`. Este defecto es primo del de "Un relevo de una sola clave pierde una fila
+cuando un `flush` compromete dos" (arriba) y de "`log.spec.ts`'s killed-tab test loses its race
+under a loaded machine": los tres hablan del mismo relevo, pero éste es una carrera distinta, y la
+de arriba de 2026-09-09 lo daba por un caso sin arreglo posible ("it would reopen only with a
+failure that reproduces alone"). No lo era.
+
+`pagehide` y `visibilitychange` disparan los dos al cerrar una pestaña, pero eso no duplica nada:
+`flushPendingLookup` pone `pending = null` en la misma pasada síncrona que comprometió la fila, así
+que una segunda llamada no encuentra nada que comprometer. Medido con `console.debug` en los dos
+manejadores: ambos disparan, y el segundo siempre ve `pending` ya vacío.
+
+La duplicación real está en el relevo:
+
+```
+commit(row)
+  → relayPendingRow(row)   escribe row en localStorage (síncrono, garantizado)
+  → writeRowSync(row)      abre la transacción IDB en la MISMA tarea, vuelve true
+la pestaña muere
+  → la transacción SÍ compromete — el propio comentario de commit() ya lo decía:
+    "a killed tab still lets its transaction commit (measured)"
+  → pero transaction.oncomplete nunca corre: el documento ya no existe
+  → así que clearRelayedRow(row) no se ejecuta, y la fila sigue en localStorage
+documento siguiente
+  → recoverRelayedRow() corre al cargar el módulo
+  → writeRow(row) la escribe OTRA VEZ, sin comprobar nada antes
+```
+
+Medido contra un build de producción, `e2e/log.spec.ts` sin ningún arreglo, `--repeat-each=20`:
+**2/20** fallan, siempre con la misma forma — dos filas `book` con el mismo `at` al milisegundo
+(viene del apunte, no del momento de escribir) e `id` consecutivo del `autoIncrement`:
+`{"at":…,"normalised":"book","id":2}` y `{"at":…,"normalised":"book","id":3}`. Coincide bit a bit
+con el fallo de CI en `private/flake-log-377/ci-155-orden-frecuencia.log` y
+`ci-156-foto-concreta.log` — ninguna de las dos ramas de esos logs toca el registro, porque el
+defecto no es de ninguna rama.
+
+**El arreglo: que `writeRow` compruebe antes de escribir, dentro de la misma transacción.**
+`writeRow` abre una transacción `readwrite`, primero pide `store.index("at").getAll(row.at)` y sólo
+llama a `store.add(row)` si ninguna fila devuelta comparte también `normalised`. La comprobación y
+la escritura comparten una transacción — nunca una lectura suelta seguida de una escritura aparte —
+porque IndexedDB nunca deja abrir una segunda transacción `readwrite` sobre `lookups` mientras ésta
+sigue viva: nada puede colarse entre las dos aquí, donde una segunda transacción sí podría ganarle
+la apertura a una comprobación hecha por separado. Se descartó una clave determinista con un índice
+único (subir `DATABASE_VERSION` a 3, `onupgradeneeded` recorriendo y borrando duplicados ya
+existentes antes de crear el índice): resuelve la misma carrera sin depender del orden de llegada,
+pero un `onupgradeneeded` que borra filas de un lector real es más riesgo del que este defecto
+merece para el tamaño de la ventana real (una comprobación en la misma transacción ya la cierra en
+la práctica, y `at` sólo colisiona con `normalised` igual cuando es este mismo defecto).
+
+Medido tras el arreglo, mismo build, mismo `--repeat-each=20`: **20/20** pasan. La suite completa,
+138 tests, **136 passed, 2 skipped, 0 failed**, 4.6 min.
+
+**No toques el relevo mismo.** Sigue siendo la única copia de una fila que un `reload`, una
+navegación de URL o un `history.back()` sí destruyen antes de que la transacción llegue a
+comprometer — a diferencia de una pestaña matada, a esos tres nunca les da tiempo ni a eso. El
+arreglo sólo hace que *recuperar* dos veces la misma fila cueste una lectura de índice, nunca una
+fila de más.
+
+## `foto.spec.ts` no puede pedirle píxeles al bucket en CI, y no debe pedirle credenciales tampoco
+
+Medido 2026-09-11. `.github/workflows/ci.yml`'s `voyager-e2e` no define ninguna de las cinco
+`SUPABASE_STORAGE_*` que `isStorageConfigured()` exige — a propósito: dárselas a cada corrida de CI
+le daría a cualquier push escritura sobre el bucket de producción del usuario. Sin ellas, la ruta
+`GET /api/word/photo` nunca puede servir el objeto, así que una prueba que dependa del bucket para
+dibujar píxeles reales **no puede pasar en CI jamás**, con o sin credenciales de más.
+
+- La guarda (`isPhotographableHeadword`) sí se prueba sin bucket: corta antes de tocar Postgres o
+  Openverse, así que `grudge` responde 204 igual con o sin almacenamiento.
+- Que la ruta **acepte** una palabra fotografiable sólo se distingue de un fallo de bucket cuando la
+  palabra ya tiene una fila `found` cacheada — `dog` la tiene, en la base compartida que usan tanto
+  los carriles como CI (mismo `DATABASE_URL`). Sin esa fila cacheada, un `dog` sin bucket responde
+  204 igual que uno cuya guarda lo hubiera cortado: `getCachedPhoto` corre antes que
+  `isStorageConfigured`, así que una palabra sin caché y sin bucket nunca llega a Openverse. Purgar
+  esa fila deja esta distinción sin piso.
+- La costura del dibujo — que los bytes se conviertan en píxeles — se prueba con bytes **sembrados**,
+  no con el bucket: intercepta sólo `GET /api/word/photo?*` en el propio origen de la prueba
+  (`VOYAGER_BASE_URL`, nunca un patrón `**` que también atrape una URL absoluta a otro host) y
+  responde con un PNG generado por el propio `<canvas>` del navegador — decodificable de verdad,
+  nunca un data URI copiado a mano. El POST sigue siendo real: sólo se sustituyen los bytes que el
+  bucket habría servido.
+- Control negativo de la guarda: `isPhotographableHeadword` a `return true`, más `DATABASE_URL`
+  apuntado a un puerto que rechaza la conexión (nunca a la base real: así la guarda rota nunca llega
+  a escribir una fila de un headword que no pasa el corpus). `grudge` da `500`, no `204` — la prueba
+  se pone roja sin tocar la base compartida.
+- Control negativo del dibujo: revertir sólo `toWordPhoto` en `route.ts` a construir la URL absoluta
+  con `NEXT_PUBLIC_SITE_URL` (el defecto original de #152) sin tocar `protocol.ts`. El esquema
+  `photoResponseSchema` — endurecido en el mismo commit que arregló el defecto — ya rechaza esa URL
+  en el cliente (`.startsWith("/api/word/photo?")`), así que `fetchPhoto` cae a `catch` y la foto
+  queda `{ kind: "absent" }`: ni siquiera se monta un `<img>`. La prueba se pone roja en
+  `expect(img).toBeVisible()`, antes de llegar a la interceptación.

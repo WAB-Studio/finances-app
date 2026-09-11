@@ -1,3 +1,4 @@
+import { suggestCorrection } from "./edit-distance";
 import { normaliseHeadword } from "./format";
 import { groupFor, type DictionaryIndex, type SenseGroup } from "./index-build";
 import { lemmaCandidates, type InflectionRule } from "./inflect";
@@ -14,6 +15,10 @@ export type WordAnswer = {
   query: string;
   exact: SenseGroup | null;
   viaInflection: readonly InflectedHit[];
+  // RL-28: headwords one edit from the query, computed only when the query
+  // hit neither of the two fields above — an answered query never needed a
+  // correction, so this stays empty rather than costing a lookup nobody reads.
+  correction: readonly string[];
 };
 
 const MAX_INFLECTED_HITS = 3;
@@ -60,10 +65,20 @@ const PLURAL_RULES: ReadonlySet<InflectionRule> = new Set(["plural-s", "plural-e
 // governs as a noun. "running" -> "run" is untouched: -ing has no
 // irregular family to lose to, so "run" carrying a past-tense entry
 // ("ran") never enters this check.
+//
+// English spells the noun plural and the third-person-singular present
+// with the same "-s", so a plural guess cannot be rejected on the target
+// carrying a noun sense alone: "leave" carries both, and rejecting it on
+// the noun sense is what stopped "leaves" from ever offering "leave". The
+// plural guess is only ever wrong here when the table governs the lemma
+// as a noun and nothing else — no verb sense for the "-s" to be a
+// third-person-singular of — which is the case the branch was written for.
 function isOverriddenByIrregularTable(rule: InflectionRule, lemma: string, group: SenseGroup): boolean {
   if (!IRREGULAR_TABLE_LEMMAS.has(lemma)) return false;
   if (PAST_TENSE_RULES.has(rule)) return group.senses.some((sense) => sense.pos === "v");
-  if (PLURAL_RULES.has(rule)) return group.senses.some((sense) => sense.pos === "n");
+  if (PLURAL_RULES.has(rule)) {
+    return group.senses.some((sense) => sense.pos === "n") && !group.senses.some((sense) => sense.pos === "v");
+  }
   return false;
 }
 
@@ -75,8 +90,8 @@ function isOverriddenByIrregularTable(rule: InflectionRule, lemma: string, group
 // the irregular table's own "was"/"were".
 export function lookupWord(index: DictionaryIndex, query: string): WordAnswer {
   const normalised = normaliseHeadword(query);
-  if (normalised.length === 0) return { query, exact: null, viaInflection: [] };
-  if (!isAnswerableHeadword(normalised)) return { query, exact: null, viaInflection: [] };
+  if (normalised.length === 0) return { query, exact: null, viaInflection: [], correction: [] };
+  if (!isAnswerableHeadword(normalised)) return { query, exact: null, viaInflection: [], correction: [] };
 
   const exact = groupFor(index, normalised);
 
@@ -92,7 +107,9 @@ export function lookupWord(index: DictionaryIndex, query: string): WordAnswer {
     if (viaInflection.length === MAX_INFLECTED_HITS) break;
   }
 
-  return { query, exact, viaInflection };
+  const correction = exact === null && viaInflection.length === 0 ? suggestCorrection(index, normalised) : [];
+
+  return { query, exact, viaInflection, correction };
 }
 
 // Lowest index whose entry is not less than target, so a prefix's matches

@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "./fixtures";
+import type { Page } from "@playwright/test";
 
 import messages from "../messages/es.json";
 import manifest from "../public/dictionary/manifest.json";
@@ -43,6 +44,8 @@ type SeedRow = {
   normalised: string;
   translation: string | null;
   outcome?: LookupOutcome;
+  // "word" unless said otherwise: every seeded row until RL-34 was one.
+  kind?: "word" | "phrase";
   // Set on a row standing in for one another device already merged in
   // (`merge.ts`'s own shape); absent on a row this "device" wrote itself.
   device?: string;
@@ -64,19 +67,20 @@ async function seedRows(page: Page, rows: SeedRow[]): Promise<void> {
           const tx = db.transaction("lookups", "readwrite");
           const store = tx.objectStore("lookups");
           for (const row of rows) {
+            const kind = row.kind ?? "word";
             const record: Record<string, unknown> = {
               schema: 2,
               at: row.at,
               text: row.text,
               normalised: row.normalised,
-              kind: "word",
+              kind,
               outcome: row.outcome ?? "exact",
-              headword: row.text,
+              headword: kind === "word" ? row.text : null,
               rule: null,
-              senses: 1,
+              senses: kind === "word" ? 1 : 0,
               translation: row.translation,
               dictionaryReady: true,
-              origin: null,
+              origin: kind === "phrase" ? "network" : null,
             };
             // Only a foreign row names a device, matching `record.ts`'s own
             // `foreign` index: a local row carries neither key at all.
@@ -413,4 +417,56 @@ test("opening /registro/bed, with the dictionary already on the device, reaches 
 
   expect(assetRequests, "the dictionary asset is read off the device, never fetched again").toBe(0);
   expect(apiRequests, "no server route fires on this screen").toBe(0);
+});
+
+// RL-34: a sentence is never a headword, so asking the dictionary for one
+// always misses — the bug this seeds against drew that miss's own copy,
+// "El diccionario no tiene esa palabra", over a translation the row already
+// held. `kind: "phrase"` is what tells the screen to read `translation`
+// instead of asking the Worker for something a sentence can never answer.
+test("a phrase's history draws its own stored translation, never the dictionary's word-not-found notice", async ({
+  page,
+}) => {
+  await deleteTranslator(page);
+
+  const phrase = "he holds a grudge against me";
+  await page.goto("/registro");
+  const seed = {
+    text: phrase,
+    normalised: phrase,
+    translation: "me guarda rencor",
+    kind: "phrase" as const,
+    outcome: "translated" as const,
+  };
+  await seedRows(page, [
+    { ...seed, at: Date.now() - DAY_MS },
+    { ...seed, at: Date.now() },
+  ]);
+
+  await page.goto(`/registro/${encodeURIComponent(phrase)}`);
+  await expect(page.getByRole("heading", { name: phrase })).toBeVisible();
+  await expect(page.getByText(/2 búsquedas/)).toBeVisible();
+  await expect(page.getByText("me guarda rencor", { exact: true })).toBeVisible();
+  await expect(page.getByText(messages.search.notFound)).toHaveCount(0);
+});
+
+// The other half: a phrase every one of whose searches failed to translate
+// carries no stored answer at all (`translation` null throughout). The
+// screen must still not fall back to the word-dictionary's own miss copy —
+// that copy answers a headword lookup, and this page never made one.
+test("a phrase that never translated shows its own missing-translation copy, not the dictionary's", async ({
+  page,
+}) => {
+  await deleteTranslator(page);
+
+  const phrase = "this sentence never translated";
+  await page.goto("/registro");
+  await seedRows(page, [
+    { at: Date.now(), text: phrase, normalised: phrase, translation: null, kind: "phrase", outcome: "untranslated" },
+  ]);
+
+  await page.goto(`/registro/${encodeURIComponent(phrase)}`);
+  await expect(page.getByRole("heading", { name: phrase })).toBeVisible();
+  await expect(page.getByText(messages.log.word.phraseMissing)).toBeVisible();
+  await expect(page.getByText(messages.search.notFound)).toHaveCount(0);
 });

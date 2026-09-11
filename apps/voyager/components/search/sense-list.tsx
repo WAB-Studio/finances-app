@@ -9,7 +9,6 @@ import type { WordAnswer } from "@/lib/dictionary/lookup";
 import { speak, speechSupported } from "@/lib/speech/speak";
 import {
   Box,
-  Collapsible,
   Flex,
   Grid,
   Headword,
@@ -20,6 +19,17 @@ import {
   Text,
   TapTarget,
 } from "@/components/ui";
+import { GeneratedText, type GeneratedTextState } from "./generated-text";
+import { WordPhoto, type PhotoState } from "./word-photo";
+
+// `search-screen.tsx`'s own query name: every door this file opens onto a
+// correction is `/?q=<word>`, the same param `no-entry-answer.tsx` reads —
+// no shared import between the two, so the literal is repeated, not the code.
+const CORRECTION_QUERY_PARAM = "q";
+
+function correctionHref(word: string): string {
+  return `/?${CORRECTION_QUERY_PARAM}=${encodeURIComponent(word)}`;
+}
 
 // docs/voyager/DESIGN.md "Viewport": stroke-width 1.75, round caps and
 // joins, fill none — the same glyph shape `bottom-nav.tsx` draws, sized down
@@ -133,9 +143,9 @@ function SpeakButton({ headword, t }: { headword: string; t: ReturnType<typeof u
 }
 
 // One sense's own body: every translation on its own line, its English
-// definition folded behind a tap when the entry carries one
-// (docs/voyager/DESIGN.md "The English definition folds away behind a
-// tap"), and its own IPA only when it differs from the one already drawn on
+// definition drawn open beneath its own label when the entry carries one
+// (docs/voyager/DESIGN.md "The English definition draws open, always"), and
+// its own IPA only when it differs from the one already drawn on
 // its segment's label row — repeating an identical IPA on every sense would
 // say nothing a reader does not already have. `compact` drops the IPA and
 // the definition (docs/voyager/DESIGN.md "A word block on `SinEntradaFrase`
@@ -172,11 +182,20 @@ function SenseDetail({
         ))}
       </Flex>
       {!compact && sense.definition !== null && (
-        <Collapsible label={t("definitionEnglish")}>
-          <Text size="2" serif muted>
-            {sense.definition}
-          </Text>
-        </Collapsible>
+        <Flex direction="column" data-definition-block="">
+          <Separator size="4" />
+          <Box pt="2" pb="1">
+            <Flex direction="column" gap="1">
+              <Text variant="definitionLabel" muted>
+                {t("definitionEnglish")}
+              </Text>
+              <Text size="2" serif muted>
+                {sense.definition}
+              </Text>
+            </Flex>
+          </Box>
+          <Separator size="4" />
+        </Flex>
       )}
     </Flex>
   );
@@ -265,6 +284,42 @@ function SenseGroup({
   );
 }
 
+// RL-28: every headword `lookupWord` found one edit from the miss, each its
+// own tap back into `/?q=<word>` — the same door `BlockHeading` opens, drawn
+// smaller here because there is no entry underneath it yet to lead into. No
+// cap, on the data or on the screen: `hits.sort()` in `edit-distance.ts` is
+// alphabetical, not ranked by anything the reader meant, so cutting it after
+// five would drop the intended word by accident of spelling, not keep it —
+// measured 2026-09-11, more than five candidates happens on 0.9% of 4,000
+// real one-edit typos. `wrap="wrap"` below carries nine short words in a
+// few rows at 360px with nothing pushed off screen (checked against `boz`).
+// Silent when `words` is empty — `zzqqxv` is the only case left that reaches
+// no headword at all; a real word the dictionary lacks (`fettle`) draws its
+// wrong-looking candidates here until RL-29 gives that reader a better door.
+function CorrectionOffer({ words, t }: { words: readonly string[]; t: ReturnType<typeof useTranslations> }) {
+  return (
+    <Flex direction="column" gap="2">
+      <Text size="2" color="gray">
+        {t("correctionTitle")}
+      </Text>
+      <Flex gap="4" wrap="wrap">
+        {words.map((word) => (
+          <Link asChild underline="always" key={word}>
+            <NextLink href={correctionHref(word)}>
+              <TapTarget align="center" gap="1">
+                <Text size="3" serif>
+                  {word}
+                </Text>
+                <ChevronGlyph />
+              </TapTarget>
+            </NextLink>
+          </Link>
+        ))}
+      </Flex>
+    </Flex>
+  );
+}
+
 // `full` is a direct lookup's own answer — IPA, definition, voice, the lot.
 // `compact` is a word block inside the no-entry breakdown
 // (`no-entry-answer.tsx`): headword, category and translations alone
@@ -281,6 +336,8 @@ export function SenseList({
   variant = "full",
   wordHref,
   showExactHeadword = true,
+  photo,
+  generated,
 }: {
   answer: WordAnswer;
   variant?: SenseListVariant;
@@ -295,6 +352,11 @@ export function SenseList({
   // Every `viaInflection` hit still gets its own — that lemma names a
   // different word than the page's own heading.
   showExactHeadword?: boolean;
+  // Set by `search-screen.tsx` alone, from `useDecoration` — the state a
+  // network call resolved for the exact headword, never fetched here.
+  // Absent on `/registro/[palabra]`, which opens no connection at all.
+  photo?: PhotoState;
+  generated?: GeneratedTextState;
 }) {
   const t = useTranslations("word");
   const tSearch = useTranslations("search");
@@ -303,11 +365,19 @@ export function SenseList({
   const hasAnswer = answer.exact !== null || answer.viaInflection.length > 0;
   if (!hasAnswer) {
     return (
-      <Flex direction="column" gap="1">
-        <Text size="3">{tSearch("notFound")}</Text>
-        <Text size="2" color="gray">
-          {tSearch("notFoundHint")}
-        </Text>
+      <Flex direction="column" gap="3">
+        <Flex direction="column" gap="1">
+          <Text size="3">{tSearch("notFound")}</Text>
+          {/* RL-28 replaces the hint below with a correction the moment one
+              exists — "revisa la ortografía" tells the reader nothing a tap
+              wouldn't have already fixed for them. */}
+          {answer.correction.length === 0 && (
+            <Text size="2" color="gray">
+              {tSearch("notFoundHint")}
+            </Text>
+          )}
+        </Flex>
+        {answer.correction.length > 0 && <CorrectionOffer words={answer.correction} t={tSearch} />}
       </Flex>
     );
   }
@@ -319,8 +389,13 @@ export function SenseList({
           <Flex align="center" gap="1">
             {showExactHeadword && <BlockHeading word={answer.exact.headword} wordHref={wordHref} />}
             {!compact && <SpeakButton headword={answer.exact.headword} t={t} />}
+            {/* `compact` never reaches this row at all (`SenseListVariant`
+                above): the breakdown of a failed phrase asks the network for
+                nothing on eight words' behalf (RL-35's decoration clause). */}
+            {!compact && photo && <WordPhoto headword={answer.exact.headword} state={photo} />}
           </Flex>
           <SenseGroup senses={answer.exact.senses} compact={compact} t={t} />
+          {!compact && generated && <GeneratedText state={generated} />}
         </Flex>
       )}
 

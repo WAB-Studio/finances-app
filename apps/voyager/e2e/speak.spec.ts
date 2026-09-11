@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "./fixtures";
+import type { Page } from "@playwright/test";
 
 import messages from "../messages/es.json";
 import manifest from "../public/dictionary/manifest.json";
@@ -36,6 +37,10 @@ async function deleteSpeechSynthesis(page: Page): Promise<void> {
     delete (window as unknown as { speechSynthesis?: unknown }).speechSynthesis;
   });
 }
+
+// `useDecoration`'s own debounce (`PHRASE_DEBOUNCE_MS`) plus margin: long
+// enough that its pair of requests has fired by the time this elapses.
+const DECORATION_SETTLE_MARGIN_MS = 900;
 
 async function gotoReady(page: Page): Promise<void> {
   const assetResponse = page.waitForResponse(
@@ -143,11 +148,23 @@ test("RL-26: pressing the speak control fires no network request of its own", as
   await searchBox.fill("abandonable");
   await expect(page.getByRole("heading", { name: "abandonable" })).toBeVisible({ timeout: 5000 });
 
+  // The stricter bound: at the instant of paint, decoration's own debounce
+  // has not fired yet, so the click below still finds nothing pending.
+  const atPaint = requests.filter((url) => !url.includes(manifest.asset.path));
+  expect(atPaint, `requests before decoration could fire: ${JSON.stringify(atPaint)}`).toEqual([]);
+
+  // The assertion this test exists for, kept intact: the click itself emits
+  // nothing of its own.
   const speakButton = page.getByRole("button", { name: "Escuchar «abandonable»" });
   await speakButton.click();
-  await page.waitForTimeout(200);
+  await page.waitForTimeout(DECORATION_SETTLE_MARGIN_MS);
 
-  expect(requests.filter((url) => !url.includes(manifest.asset.path))).toEqual([]);
+  const stray = requests.filter((url) => !url.includes(manifest.asset.path) && !url.includes("/api/word/"));
+  expect(stray, `requests foreign to decoration: ${JSON.stringify(stray)}`).toEqual([]);
+
+  // One settled word, never one request per keystroke or per click.
+  const decoration = requests.filter((url) => url.includes("/api/word/"));
+  expect(decoration.length).toBeLessThanOrEqual(2);
 });
 
 test("RL-26 at 360px, dark: 44px tap target, muted glyph #9a9484", async ({ page }) => {

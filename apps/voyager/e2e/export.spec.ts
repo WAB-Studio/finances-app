@@ -1,7 +1,8 @@
 import fs from "node:fs/promises";
 
 import { createTranslator } from "next-intl";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "./fixtures";
+import type { Page } from "@playwright/test";
 
 import messages from "../messages/es.json";
 import manifest from "../public/dictionary/manifest.json";
@@ -25,6 +26,10 @@ async function deleteTranslator(page: Page): Promise<void> {
     delete (window as unknown as { Translator?: unknown }).Translator;
   });
 }
+
+// `useDecoration`'s own debounce (`PHRASE_DEBOUNCE_MS`) plus margin: long
+// enough that its pair of requests has fired by the time this elapses.
+const DECORATION_SETTLE_MARGIN_MS = 900;
 
 // Exposes every `Worker` construction as `window.__workersBuilt`, so a test
 // can prove `/registro` mounts none (RNL-08) without importing the hook that
@@ -227,7 +232,9 @@ test("RNL-08: /registro mounts no dictionary Worker, and searching issues no req
   // A warm-up run of the exact same keystrokes first, autocomplete included,
   // so every web font any state along the way paints is already cached
   // before the measured run: a font request belongs to painting a state for
-  // the first time ever, not to the word path RL-14 governs.
+  // the first time ever, not to the word path RL-14 governs. Clearing the
+  // box straight after the heading aborts decoration's own debounce before
+  // it fires, so the word is never cached from this run.
   await searchBox.pressSequentially(tenKeystrokes, { delay: 40 });
   await expect(page.getByRole("heading", { name: tenKeystrokes })).toBeVisible();
   await searchBox.fill("");
@@ -237,6 +244,22 @@ test("RNL-08: /registro mounts no dictionary Worker, and searching issues no req
   page.on("request", (request) => requestsWhileTyping.push(request.url()));
 
   await searchBox.pressSequentially(tenKeystrokes, { delay: 40 });
+  await expect(page.getByRole("heading", { name: tenKeystrokes })).toBeVisible();
 
-  expect(requestsWhileTyping, `10 keystrokes issued: ${JSON.stringify(requestsWhileTyping)}`).toHaveLength(0);
+  // The stricter bound: at the instant of paint, decoration's own debounce
+  // has not fired yet, so ten keystrokes owe nothing at all — the route
+  // included.
+  expect(
+    requestsWhileTyping,
+    `requests at paint, ten keystrokes issued: ${JSON.stringify(requestsWhileTyping)}`,
+  ).toHaveLength(0);
+
+  await page.waitForTimeout(DECORATION_SETTLE_MARGIN_MS);
+
+  const stray = requestsWhileTyping.filter((url) => !url.includes("/api/word/"));
+  expect(stray, `requests foreign to decoration: ${JSON.stringify(stray)}`).toEqual([]);
+
+  // One settled word, never one request per keystroke.
+  const decoration = requestsWhileTyping.filter((url) => url.includes("/api/word/"));
+  expect(decoration.length).toBeLessThanOrEqual(2);
 });

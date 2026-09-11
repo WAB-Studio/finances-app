@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 import messages from "../messages/es.json";
 import manifest from "../public/dictionary/manifest.json";
@@ -133,4 +133,57 @@ test("Buscar reaches a bare / with nothing to remember", async ({ page }) => {
 
   const buscar = page.getByRole("navigation", { name: messages.nav.label }).getByRole("link", { name: messages.nav.search });
   await expect(buscar).toHaveAttribute("href", "/");
+});
+
+// The bar is what makes this reachable: "Buscar" returns to `/?q=<word>`,
+// the URL keeps the query, and the search screen remounts and answers it
+// again. Answering again is right; recording it again is not — a reader who
+// walks to the log and back three times looked the word up once. Found by
+// reading a real book, where that round trip is constant.
+test("returning through the bar does not record the restored query again", async ({ page }) => {
+  await page.addInitScript(() => {
+    delete (window as unknown as { Translator?: unknown }).Translator;
+  });
+
+  const assetResponse = page.waitForResponse(
+    (response) => response.url().includes(manifest.asset.path) && response.ok(),
+  );
+  // Opened at the query, the state a reader is in once they have looked a
+  // word up: the bar reads the address bar into its own memory at mount.
+  await page.goto("/?q=manures");
+  await assetResponse;
+  await page.waitForTimeout(1000);
+
+  const nav = () => page.getByRole("navigation", { name: messages.nav.label });
+  for (let trip = 0; trip < 3; trip += 1) {
+    await nav().getByRole("link", { name: messages.nav.log }).click();
+    await expect(page).toHaveURL(/\/registro$/);
+    await nav().getByRole("link", { name: messages.nav.search }).click();
+    await expect(page).toHaveURL(/q=manures/);
+    await page.waitForTimeout(900);
+  }
+
+  // One last trip away forces the final flush, then settle before counting.
+  // A polled `toBe(1)` is wrong here: rows land one flush at a time, so it
+  // passes on the transient first row and never sees the duplicates arrive
+  // behind it — it wins a race against its own data.
+  await nav().getByRole("link", { name: messages.nav.log }).click();
+  await expect(page).toHaveURL(/\/registro$/);
+  await page.waitForTimeout(1500);
+
+  const rows: Array<{ normalised: string }> = await page.evaluate(
+    () =>
+      new Promise((resolve, reject) => {
+        const request = indexedDB.open("reading-log");
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => {
+          const getAll = request.result.transaction("lookups", "readonly").objectStore("lookups").getAll();
+          getAll.onsuccess = () => resolve(getAll.result);
+          getAll.onerror = () => reject(getAll.error);
+        };
+      }),
+  );
+
+  const manures = rows.filter((row) => row.normalised === "manures");
+  expect(manures, "three round trips record the word once, not four times").toHaveLength(1);
 });

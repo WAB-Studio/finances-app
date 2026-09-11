@@ -39,4 +39,4 @@ export { PosLabel } from "./label";
 
 export { MetaLabel } from "./meta-label";
 
-export { Collapsible } from "./collapsible";
+export { Photo } from "./photo";

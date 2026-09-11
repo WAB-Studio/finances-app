@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "./fixtures";
+import type { Page } from "@playwright/test";
 
 import messages from "../messages/es.json";
 import manifest from "../public/dictionary/manifest.json";
@@ -378,6 +379,9 @@ test("a killed tab still commits the query it had settled on, and a fast one sti
   page,
   context,
 }) => {
+  // `./fixtures` already stubs both routes on the context, not the page:
+  // `reopened` and `finalPage` below are new pages this same test opens
+  // with `context.newPage()`, and they inherit it with nothing extra here.
   await deleteTranslator(page);
   const assetResponse = page.waitForResponse(
     (response) => response.url().includes(manifest.asset.path) && response.ok(),

@@ -98,6 +98,16 @@ case $APP_NAME in
     COMMANDS="  cd $APP
   PORT=$PORT npm run dev
   HARNESS_LANE=$LANE HARNESS_BASE_URL=http://localhost:$PORT npm run check:e2e" ;;
+  # Voyager's suite counts effects, and `next dev` runs them twice under
+  # StrictMode, so `dev` hands back 13 red specs that a build passes. Its
+  # config says so at the top; printing `dev` here next to the suite line is
+  # what made two lanes believe it. Build, serve, and rebuild after every edit
+  # — `start` serves the build, not the tree.
+  voyager)
+    COMMANDS="  cd $DIR
+  npm run build -w apps/$APP_NAME
+  PORT=$PORT npm run start -w apps/$APP_NAME
+  ${APP_NAME^^}_BASE_URL=http://localhost:$PORT npm run check:e2e -w apps/$APP_NAME" ;;
   # An app with no harness has no lane to name, so its suite takes the port alone.
   *)
     COMMANDS="  cd $DIR

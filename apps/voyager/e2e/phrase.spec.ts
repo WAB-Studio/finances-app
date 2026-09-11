@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "./fixtures";
+import type { Page } from "@playwright/test";
 
 import messages from "../messages/es.json";
 import manifest from "../public/dictionary/manifest.json";
@@ -97,13 +98,14 @@ test("the sentence path debounces, dedupes, and never raises the word UI", async
   await page.waitForTimeout(PHRASE_DEBOUNCE_MS + 300);
   expect(translated.count(), "a cached phrase never reaches the debounce, let alone the network").toBe(1);
 
-  // Below the three-token floor: neither a request nor a panel.
+  // Two tokens no longer sits below the floor (module 30): "I left" reaches
+  // the translator exactly like the full sentence above, one request of
+  // its own — it is a distinct phrase, so RNL-05's cache owes it nothing.
   await searchBox.fill("");
   await searchBox.fill("I left");
   await page.waitForTimeout(PHRASE_DEBOUNCE_MS + 300);
-  expect(translated.count()).toBe(1);
-  await expect(page.getByText("Me fui de mi casa ayer")).toHaveCount(0);
-  await expect(page.getByText(messages.phrase.translating)).toHaveCount(0);
+  expect(translated.count(), "a fresh two-token phrase reaches the translator on its own").toBe(2);
+  await expect(page.getByText("Me fui de mi casa ayer")).toBeVisible();
 
   // "give up" is a headword in its own right (RL-03): answered as a word,
   // and the whole-string lookup means the sentence path is never asked.
@@ -111,7 +113,7 @@ test("the sentence path debounces, dedupes, and never raises the word UI", async
   await searchBox.fill("give up");
   await expect(page.getByRole("heading", { name: "give up" })).toBeVisible();
   await expect(page.getByText(messages.word.translations).first()).toBeVisible();
-  expect(translated.count(), "the word path never reaches the translate route (RL-09)").toBe(1);
+  expect(translated.count(), "the word path never reaches the translate route (RL-09)").toBe(2);
 });
 
 test("a translator that can be installed answers over the network until a person asks for it", async ({ page }) => {

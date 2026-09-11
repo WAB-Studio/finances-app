@@ -183,10 +183,16 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
 - **`Fuente`'s four boards draw a route that is being retired.** The decision below takes `/fuente`
   out; `CuentaInformacion` (T4) is the credit's only board from now on. The `Fuente` boards stay on
   the canvas as stale — never cite one in a dispatch.
-- **The one board still missing is the photo.** RL-36 draws a photo inside the word's answer and no
-  board in any of the four faces has a state for it. No module of the 2026-09-08 slice draws one, so
-  it blocks nothing today — and the first module that does opens the amendment before it writes a
-  line.
+- **Every route this app serves has a board, checked 2026-09-10 against `app/`'s own files.** The
+  routes are `/`, `/cuenta`, `/registro`, `/registro/[palabra]` and the three error screens; the 43
+  board families cover all of them. A handoff carried «four screens from yesterday still have no
+  board» from 2026-09-09 into 2026-09-10 — it named none of them, and by the time it was checked
+  every route was drawn. **Name the screen or do not carry the claim.**
+- **This canvas has since drawn every board this slice needs, and this line no longer holds.**
+  Searched every board's source 2026-09-10, that morning, for `<img`, `background-image`, `foto` and
+  `photo`: **zero hits across all 127**. That afternoon the photo gained five boards (canvas version
+  29) and the generated definition and example gained three more (canvas version 30) — eight in all,
+  named under **Settled** below. RL-36 no longer draws from nothing, and neither do RL-41 and RL-42.
 - **The two dark `BarraSidebar` boards marked «Claro» selected in the theme control**, drawn dark.
   Fixed in place 2026-09-09. A worker copying that builds a control that contradicts the page it
   sits on.
@@ -256,14 +262,86 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   - **A typo gets a correction, computed on the device.** Edit distance over the 58,944 headwords:
     of 1,955 generated one-edit typos it found the intended word **100% of the time**, 288 with more
     than one candidate, at **0.04 ms** a search. No network, no cost. `recieve` → `receive`.
-    Boards: `SinResultadoSugerencia`, light/dark × desktop/mobile.
+    Boards: `SinResultado`, light × desktop/mobile — it is the face that draws «Quisiste
+    decir» over `recieve`. **`SinResultadoSugerencia` was never drawn**; this line named it
+    until 2026-09-10, when building RL-28 went looking and found no such board.
   - **A real word the dictionary lacks gets a button, never an automatic call.** `fettle` is English,
     absent from the 58,944, and confirmed in Wiktionary as having twelve senses **and no Spanish
     pair** — which is why DBnary never extracted it. Edit distance answers it *wrong*, offering
     `kettle/mettle/nettle/settle`, so the correction must not fire here. Only a model closes it.
-    Nothing leaves the device until the reader taps. Boards: `SinResultadoIA`, `SinResultadoIAFallo`.
+    Nothing leaves the device until the reader taps. Boards: `SinResultadoIA`, light ×
+    desktop/mobile.
+  - **When the model cannot answer, the reader reaches `SinResultadoSinPista`. Decided by the
+    user 2026-09-11.** RL-29 promises the answer says plainly when it could not be produced, and
+    the board that drew that state — `SinResultadoIAFallo` — was retired the day before; the
+    replacement named there, `SinEntradaFrase`, answers a failed *translation*, never a word the
+    model could not answer. `SinResultadoSinPista` already draws the one thing true in both
+    cases: the app has nothing to offer for this word and no hint to guess with. **No new board
+    was drawn, and that is the decision, not an omission** — the failure adds no control and no
+    layout the no-hint face does not already carry.
   - **The guard between them:** the correction shows only when a candidate is within one edit of a
     headword. `zzqqxv` gets neither line, and that is the case the guard exists for.
+  - **That guard never silenced `fettle`, and this file was wrong to say it did, from 2026-09-08
+    until today.** "Edit distance answers it wrong... so the correction must not fire here" (above)
+    reads as if the one-edit guard itself withheld the offer. It does not: `fettle` sits exactly one
+    substitution from `kettle`, `mettle`, `nettle` and `settle` alike, so "within one edit of a
+    headword" is true of all four and a plain one-edit guard shows every one of them. Building RL-28
+    on 2026-09-11 found this by running it, not by reading the paragraph above, and a cap of three
+    candidates was added to make the old sentence true — with no textual basis in either the 2026-09-08
+    decision above or in `docs/voyager/SPEC.md`'s RL-28. Measured against that cap, over 4,000 real
+    one-edit typos: **90.2% have exactly one candidate**, and the cap **silenced the 2.9% with more
+    than three** — dropping recovery from 100% to 97.1% (cap 3) or 95.5% (cap 2). Put to the user with
+    that number: **decided 2026-09-11, no cap.** RL-28 corrects 100% of one-edit typos, and `fettle`
+    draws `kettle`, `mettle`, `nettle` and `settle` — wrong, and known to be wrong — until RL-29 ships,
+    which is the same day. RL-29 is what tells that reader none of the four is what they meant; a cap
+    that only ever hides the truth from `fettle` was hiding it from every genuine typo past three
+    candidates too.
+  - **The candidates are ordered by measured frequency, and carry no translation beside them.
+    Decided by the user 2026-09-11.** Alphabetical order is no order at all: `bame` returns 13
+    candidates with `bae` first and `name` tenth, so the reader taps down a list that tells them
+    nothing. **Unbuilt, and blocked on a data source the repo does not have — corrected 2026-09-11,
+    the same day it was written.** The decision was taken believing RL-43's table could rank one
+    headword against another. It cannot: `POS_FREQUENCY_ORDER` stores a part-of-speech order string
+    per headword — `"nv"`, `"vn"` — and `build-pos-frequency.ts` discards the raw SUBTLEX counts
+    before writing the file. Measured over `bame`'s 13 candidates, 8 carry a row and `bae`, `bake`,
+    `bane`, `fame` and `same` carry none; **all four of `fettle`'s candidates carry none**, so the
+    case that motivated RL-28 would come back unordered. The raw `private/subtlex-pos.xlsx` is not
+    in the tree. Nothing was written against this decision, because the table was read before a
+    worker was dispatched, not after.
+  - **What ships instead: rank the candidates the table does carry, and leave the rest alphabetical
+    behind them. Decided by the user 2026-09-11, knowing what it does not fix.** 8 of `bame`'s 13
+    move; `bae`, `bake`, `bane`, `fame` and `same` keep their alphabetical place after them. **`fettle`
+    is unchanged in every respect** — none of `kettle`, `mettle`, `nettle`, `settle` carries a row —
+    so the case that opened RL-28 still shows four candidates in alphabetical order. Building the
+    raw frequency table was offered and refused: it needs `private/subtlex-pos.xlsx` placed in the
+    tree, and the user chose the partial order over waiting for it. A new corpus was refused too.
+  - **Drawing each candidate's first translation was measured and refused.** It was the first choice
+    and it does not survive the data: the dictionary's first sense for `name` is «ñame» — the yam —
+    with «nombre» sitting in sense 1, and `game`'s first sense leads «gancho, imán, jale» with
+    «juego» seventh in its own list. RL-43 ordered the sense *groups* by part-of-speech frequency;
+    **inside** a group the senses keep FreeDict's order, which is not frequency. A gloss would tell
+    a reader that `name` means yam, which is worse than the alphabetical list it replaces, because
+    a reader recognises `name` unaided and cannot un-read «ñame». It stays refused until something
+    orders the senses within a group, which nothing does today.
+  - **No board for the ordering, and it does not need one.** `SinResultado` already draws the
+    candidate list under «Quisiste decir»; a list reordered is the same board, exactly as RL-43's
+    reordered sense stack was. A face nobody drew here is a face nobody needed. The refused gloss
+    would have needed one — a second column is a different layout — and none was drawn, because the
+    measurement killed it before it reached a canvas.
+  - **The screen draws every candidate too, with no cap of its own, and this needed a second correction
+    the same day.** A first pass capped the screen at five with "y N más" past that — wrong for two
+    reasons, not one. `suggestCorrection`'s `hits.sort()` is alphabetical, not ranked by anything the
+    reader meant, so cutting the list drops the intended word by accident of spelling, not by
+    relevance: "boz" (nine headwords one edit away, no autocomplete prefix to hide behind) would have
+    shown `boa, boaz, bob, bog, boo` and hidden `bot, bow, box, boy` for no reason a reader could act
+    on. And "y N más" is exactly the shape of text `AGENTS.md` forbids — informing the reader of a
+    gap without a tap that closes it, the same defect `notFoundHint` had. Measured 2026-09-11 over the
+    same 4,000 typos: more than five candidates happens on **0.9%**, so the cap paid this cost on
+    nearly every screen for a case that almost never shows up. `Flex`'s own `wrap="wrap"` already
+    carries nine short words into a few rows with room to spare — checked at 360px, the narrowest
+    viewport this app supports: `boz`'s nine wrap to two rows, the widest tap target's right edge at
+    324px of 360, no horizontal scroll. Nothing here is a board decision — the board never asked for a
+    cap, a worker added one and then found the reason it was wrong.
   - **The answer is labelled.** An AI answer carries `RESPONDIDO POR IA` above it; the reader always
     knows what came from the dictionary and what did not.
   - **A failure is a failure.** Measured 2026-09-08: 3 of ~12 calls failed (two 403, one 503). The
@@ -377,15 +455,168 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   an implementation detail: everywhere else in this app a lookup never leaves the device — RL-35 (the
   word's text), RNL-09 (the copy), the consent the account screen already asks for — and the photo is
   the one deliberate exception, telling Wikimedia both the word and the reader's IP address.
-- **No board draws a photo in the answer.** The canvas has no state for it in `Palabra`, in any of
-  the four combinations of light/dark × desktop/mobile. It needs an amendment to the `Palabra` board
-  before any module draws one, and until that amendment exists, none does.
+- **The photo comes from Openverse, not from Wikimedia, and no model chooses it.** Decided by the
+  user 2026-09-10 after the Wikimedia path was measured and found to be the wrong question: this file
+  had assumed Wikipedia as the source, and the user had never asked for that constraint — «a mí no me
+  importaba la fuente». Measured over the same 300 nouns:
+
+  | | coverage | wrong-subject redirects | LLM calls |
+  |---|---|---|---|
+  | Wikipedia article images | 55.0% | 11.7% | 0 |
+  | Wikipedia + `gpt-5-nano` choosing the article | 58.3% | 6.0% | 100% |
+  | **Openverse image search** | **95.7%** | — | **0** |
+
+  Openverse is WordPress's CC image search over Flickr, Wikimedia and others. **It needs no key and
+  no model.** Restricted to permissive licences only — `by`, `by-sa`, `cc0`, `pdm`, no NC and no ND,
+  which matters because the bytes are re-served from our own bucket — the search itself still answers
+  95.0% (285 of 300). Licences seen: `by` 139, `by-sa` 127, `cc0` 11, `pdm` 8.
+  **The 95.7% and 95.0% above count Openverse's search results, not the bytes that actually arrive,
+  and a result can point to a dead thumbnail** (`abeyance`, `HTTP 424`). **The real coverage is 93.3%,
+  not 95.7%** — measured 2026-09-10 over 60 words, requesting five candidates per word and falling
+  back from `thumbnail` to `url` on a dead one (`docs/TRAPS.md`). Every image that does arrive carries
+  its author and licence, which is what feeds the per-image list in `/cuenta`.
+  **The whole `gpt-5-nano` article-choosing design is dropped.** It bought 3.3 points of coverage for
+  a paid call and 3.7s of latency per word.
+
+- **The model moves to what the dictionary is actually missing: definitions and example sentences.**
+  Decided by the user 2026-09-10. **RL-41** fills the 19.7% of entries that carry no definition at
+  all; **RL-42** adds one example sentence with its translation.
+
+- **The model is `gpt-5-nano` with `reasoning_effort: low`.** Decided by the user 2026-09-10, over
+  `minimal`, with the fallback stated plainly: «si lo vemos muy mal pues se prueba en otra».
+  Measured on the same 12 entries that carry no definition:
+
+  | | output tokens | reasoning | time | quality |
+  |---|---|---|---|---|
+  | `gpt-5-nano` `low` | 2,695 | 2,240 | 17.6s | correct |
+  | `gpt-5-nano` `minimal` | **607** | 0 | 4.5s | **invented one definition** |
+  | `gpt-4.1-nano` | 460 | 0 | 7.3s | **rejected** |
+
+  `minimal` is 4.4x cheaper and defined `abies` as «the embryonic or immature forms of certain
+  trees»; it is the fir genus, which `low` got right. **A false definition in a dictionary is worse
+  than no definition** — the same test the photo had to pass. The saving is not worth it because
+  **lazy caching already makes a word cost once for the life of the app**: 4x on cents.
+  `gpt-4.1-nano` was rejected outright — in 12 of 12 it returned the bare word where the sentence's
+  translation was asked for, and invented «antivario» as Spanish.
+  **`reasoning_effort` is where the bill actually was**: 83% of the output tokens in the first test
+  were reasoning, spent to write dictionary sentences that need none. Never leave it unset.
+  **Never send a flagship for a task like this.** One `gpt-5.5` call was spent on an opinion during
+  this session and it bought nothing the measurement did not already say.
+
+- **The photo's bytes go to a Supabase Storage bucket, and the project gains its first storage
+  credential.** Decided by the user 2026-09-10, told plainly that `apps/voyager/lib/env.ts:3-7`
+  forbids a server-side Supabase key in writing, citing RNL-10, and told the alternative that needed
+  no credential at all — the bytes as `bytea` in the `reading` schema, written over the
+  `DATABASE_URL` connection that already exists. They chose the bucket: a database is scarcer and
+  more expensive space than a file store, and at a measured ~24 KB a thumbnail it grows fast.
+  **The prohibition in `env.ts` is narrowed, not deleted.** What RNL-10 protects is a reader's record,
+  and the photo cache is not one. So the rule becomes: **no privileged key may reach Postgres**, and
+  the storage credential must be
+  **scoped to Storage alone** — Supabase's S3 access keys are, and `service_role` is not, because
+  `service_role` bypasses every RLS policy in the database as well. One file may read it. It never
+  builds a client that touches the `reading` schema, and RNL-10 is still proved by driving it.
+  Hotlinking straight to Openverse was offered as a third way and refused: it is exactly the leak the
+  user closed on 2026-09-08 — the image host would see the reader's IP and the word looked up.
+
+- **Our own server now sees which word each reader looks up, and that is new.** On 2026-09-08 the
+  user accepted that Wikimedia would see the word and the reader's IP, over building a route of the
+  app's own. Openverse behind our route reverses that: the image host sees nothing, and the server
+  sees everything. Better against third parties, worse against us. Written down because the earlier
+  decision went the other way and nobody should read this file and think it never changed.
+
+- **Generated text is marked «generada»; a dictionary definition is not.** The dictionary's own
+  definitions come from Wiktionary under CC BY-SA and have been reviewed by people; a generated one
+  was written by a model that mis-defined `abies` in a test of twelve. Without the mark the reader
+  cannot tell which is which, and has no way to know when to doubt one. Taken 2026-09-10 on the
+  user's «déjalo como consideres», against the cost of one more 10px line on the screen.
+
+- **The route carries a hard daily spend ceiling, and refuses past it.** Lazy generation means the
+  bill follows use, and use has no ceiling of its own. Past the cap the route stops calling the model
+  and answers as if there were no connection — which RL-35 already makes safe, and which the
+  «sin red» board already draws, so no new state is invented for it. Taken 2026-09-10 on the same
+  instruction. The number lives in an env var, not in code, so moving it costs no deploy.
+
+- **Both are resolved lazily and cached, never in a pass over the dictionary.** Decided by the user
+  2026-09-10, explicitly: «que se gaste poco a poco pero que no se ponga a buscar todo el diccionario
+  de un tacazo». A word is generated the first time somebody looks it up, and cached so it costs once
+  for every reader there will ever be. **This is what bounds the bill**, and the bound is real usage,
+  not the 64,258 entries.
+  **It also keeps the asset where it is.** Baking the generated text into the downloaded dictionary
+  would take it from **8.00 MiB to 14.14 MiB** — measured — and that cost is paid by every reader on
+  every install, in an offline-first app. Caching server-side pays nothing at install.
+
+- **RL-35 does not need retiring for this, and was not.** Its own text already allows it: «what the
+  network can add afterwards is decoration: it arrives late, arrives only sometimes, and its absence
+  never changes the answer or delays it». A definition for a word that has none, and a sentence, only
+  ever add. With no connection the screen is exactly the one the device draws today.
+
+- **Dollar figures in this repo's AI reports before 2026-09-10 were assumed, not verified, and were
+  wrong by about 7x.** The per-token prices were never checked against a bill; the account balance
+  moved **USD 9.96 → 9.68** while the estimates for the same work summed to USD 0.04. The key cannot
+  read `api.usage.read`, so **the balance is the only ground truth available** — read it, do not
+  compute it. What that corrects: the 300-noun photo run cost **~USD 0.25, not 0.035**, and resolving
+  the whole dictionary with a model would have been **~USD 20, not 2.89**.
+
+- **The photo is drawn on the dark face, in five boards** — canvas version 29, 2026-09-10:
+  `PalabraFotoOscuroMovil` (resolved), `PalabraFotoCargandoOscuroMovil` (asked for, not yet back),
+  `PalabraSinFotoOscuroMovil` (the 6.7% with nothing behind them), `PalabraFotoOscuroEscritorio` and
+  `CuentaInformacionFotosOscuroMovil` (the credits). Dark, not light, because a photograph on
+  `#14130F` is a real design difference and not the token table applied — the one place in this app
+  where the dark face is not derivable from the light one.
+- **The generated definition and example are drawn on the dark face too, in three boards** — canvas
+  version 30, 2026-09-10: `PalabraGeneradaOscuroMovil` (resolved, the definition and example marked
+  «generada»), `PalabraGenerandoOscuroMovil` (asked for, not yet back — the translation above is
+  already whole, so this block reserves no height for it) and `PalabraSinDefinicionOscuroMovil` (no
+  connection, no result, or the daily ceiling reached — exactly today's screen, with no gap left for
+  what did not arrive). Same reason as the photo: a generated block on `#14130F` is a real design
+  difference, not the token table applied.
+- **The heading over a generated block names what is under it, and no board draws the case where
+  that is only an example. Decided and built 2026-09-11.** «Definición generada» was drawn
+  unconditionally while the definition itself was gated on `definition !== null`, so a word without
+  one was told it had a definition. Measured against `reading.word_texts` that day: **22 of 41 rows
+  carry a null definition** — two populations, not one, and both want the same answer: RL-41's
+  19.7% of headwords the dictionary ships with no definition at all, and every word that already
+  has a dictionary definition, where the route strips the generated one by design. The heading now
+  reads «Ejemplo» there, in the same treatment, and the «generada» mark stays either way.
+  **`PalabraSinDefinicion` is NOT this case** — it is the absent state: no connection, no result,
+  or the daily ceiling reached. **No board draws «resolved, no definition, has example», and one
+  was not drawn:** it reuses an existing heading treatment and an existing string, changes no
+  layout and adds no control, so it is the same board with a different word in it.
+- **The pending square is silent, not spinning.** A 76px ornament that the reader is not waiting on
+  must not advertise itself as a task; a spinner would turn it into one. The whole answer reads
+  without it.
+- **The photo sits beside the headword, small and square, not in the body of the answer.** Decided by
+  the user 2026-09-10, over placing it last after every sense and over placing it under the first
+  translation. The header already has that height, so a lazily-resolved image **pushes nothing** —
+  the reason the other two placements needed a reserved slot disappears with this one. The price the
+  user took knowingly: at that size a photograph of an object reads poorly, and **it forces a desktop
+  face**, because the header is the one band of this screen whose proportions really change between
+  360px and a wide column. Both faces are drawn.
+- **No photo means no slot, no placeholder and no apology.** The 6.7% with nothing behind them — the
+  complement of the 93.3% that actually downloads, measured 2026-09-10 over 60 words with five
+  candidates each and a thumbnail-then-`url` fallback (`docs/TRAPS.md`) — draws exactly the screen it
+  draws today, headword flush left as though the photo had never been a possibility. A «sin imagen»
+  marker would turn the commonest case into a visible failure.
 - **Wikimedia's licence is per file, and this app hides licences in a tab today.** CC BY-SA, CC0 and
   public domain sit mixed across individual files, so every photo carries its own attribution, unlike
   the CC BY-SA 3.0 that covers the whole dictionary asset under one credit. `/cuenta` is where this
   app already puts a licence (RL-33's source and licence, in an information tab). A per-image credit
   cannot hide there. A per-image attribution has to sit next to its image to mean anything, which is the
-  opposite instinct. **Open, not resolved here:** where does a photo's attribution go?
+  opposite instinct. **Now obligatory, not optional:** the user chose 2026-09-10 to keep the bytes in
+  a Supabase bucket rather than hotlink, and re-serving a CC BY-SA file is redistribution, which
+  carries its share-alike with it.
+  **Resolved 2026-09-10: the credits go where the other licences already are** — the information tab
+  inside `/cuenta`, `CuentaInformacion`, beside RL-33's source and edition. Chosen by the user over
+  riding on the image's foot and over hiding behind a tap on the image. The instinct this file
+  recorded on 2026-09-08 — that a per-image credit cannot live in a collection's licence tab — was
+  **too strong, and is corrected here**: a credits page satisfies CC BY-SA when it names each file
+  individually and the reader can reach it. **What that costs, and it is not optional:** every photo
+  gets **its own entry** — author, licence, link to the file — and one blanket line covering «the
+  photos» does not discharge it, because the licence is per file and the files differ (CC BY-SA, CC0
+  and public domain sit mixed). The list is the reader's own resolved photos, so it is finite and
+  grows only as they look words up. **It is a device's list, not an account's**: it lives in the
+  browser's own storage, never in `reading`, and that is why `CuentaInformacion` keeps drawing it with
+  no session — the same reason RL-33's credit already draws there without one.
 
 - **A sense group carries one category label, and the group's IPA sits on that label's row.**
   Decided by the user 2026-09-09, looking at `PalabraCategoria`, over the alternative of giving every
@@ -417,9 +648,23 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   module built on «done with empty text» would have landed dark. Written as **RL-37**; RL-31 is
   untouched, because its own claim — a string *not* treated as a sentence never gets silence —
   stays true.
+- **The generated text draws as soon as it is ready, without waiting for the photo. Decided by the
+  user 2026-09-11.** `use-decoration.ts` settled both in one `Promise.all`, so text already sitting
+  in Postgres waited on the photo: **64 s measured** for `left`. Two readings were offered and
+  refused — leaving them coupled, and separating them with no reserved box. **Board:
+  `PalabraTextoAntesDeFoto`, óscuro × móvil**, drawn 2026-09-11 on the «Palabra» page beside
+  `PalabraGenerada` and `PalabraGenerando`. The 76 px slot is **reserved from the first paint**, so
+  nothing moves under the reader's finger when the photo lands, and the square stays **silent, not
+  spinning** — `PalabraFotoCargando`'s own reasoning holds: a 76 px ornament is not a task the
+  reader is waiting on, and a spinner would make it one.
+- **No light face and no desktop face for it, and neither is missing.** This screen's decoration
+  states were only ever drawn óscuro × móvil, and this one changes neither layout nor controls —
+  only what has arrived by the time the reader looks.
 - **`SinResultadoIAFallo` is stale in all four faces.** «La IA no pudo responder» is the state the
   decision above replaces. The boards stay on the canvas as a record of what was; never cite one in
-  a dispatch. The screen a failed translation reaches from now on is `SinEntradaFrase`.
+  a dispatch. The screen a failed translation reaches from now on is `SinEntradaFrase`, and the
+  screen a word the model could not answer reaches is `SinResultadoSinPista` — decided by the
+  user 2026-09-11, written against RL-29 above.
 - **The app says nothing about being offline, and `offline.notice` goes.** Decided by the user
   2026-09-09, with both readings drawn side by side on the canvas's «Cáscara» page. The string
   existed — «Estás usando la app instalada en el dispositivo, sin conexión» — and it only explains:
@@ -476,7 +721,9 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   3-to-60-token phrase to `PhraseAnswer` today, so the breakdown ran at exactly two tokens and
   `MAX_BLOCKS = 8` never fired. From now on, a 3-to-60-token phrase whose translation comes back
   empty drops to `NoEntryAnswer`: at most eight word blocks, the rest one line. The cut and the «N
-  más» line become reachable, and the board that draws that fallback does not exist yet.
+  más» line become reachable. **The board for it does exist** — `SinEntradaFraseEnlaces`, which
+  draws the eight blocks, the «y 2 palabras más» line and the links out of each one. This sentence
+  said otherwise until 2026-09-10; it was written before that board landed and nobody moved it.
 - **`/fuente` is retired, and the credit lives in `/cuenta` alone.** Decided by the user 2026-09-09.
   The route was orphaned from module 6 — no screen linked it, `source.open` had no caller — and it
   is a leftover of RL-15, retired 2026-09-08. RL-33 already puts the source, the edition and the CC
@@ -583,13 +830,17 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   failure line, no retry and no way out but a reload. This is the one screen that genuinely needs
   the network, so it is the one screen allowed to say so. Everywhere else the silence holds.
 
-- **The English definition folds away behind a tap.** Decided by the user 2026-09-09. **51,622 of
-  64,258 entries (80.3%)** carry a «Definición» block whose prose is English — `her` → «The form of
-  she used after a preposition…» — under a Spanish heading, for someone who has just demonstrated
-  they did not understand an English word. Folding keeps it for the reader who does read some
-  English and shortens the app's longest screen for the one who does not. Removing it outright was
-  refused: the information is real. The fold's two states must be drawn, and which one opens is a
-  drawing decision, not a code one.
+- **The English definition draws open, always.** Decided by the user 2026-09-10, over folding it
+  and over opening it only under a length threshold. **This reverses the fold decided 2026-09-09**,
+  whose stated reason was to shorten the app's longest screen. Measured before the question was put:
+  the definition is **a sentence**, not a paragraph — median **75 characters**, p75 114, p90 161,
+  p95 194, p99 270, max 657; senses carrying one at all have a median of **1** per word, max 4. A
+  fold costs a tap in the **80.3%** of lookups that carry a definition (51,622 of 64,258 entries) to
+  save two lines. The counter-argument was put to the user and refused: it is English prose under a
+  Spanish heading, for someone who has just demonstrated they did not understand an English word, so
+  opening it always does not make it more useful, it makes it more visible. Removing it outright was
+  refused 2026-09-09 and stays refused: the information is real.
+  **`PalabraDefinicionPlegada` is retired as a board** — there is no folded state left to draw.
 
 - **A one-character query answers only `a` and `i`, everything else falls through to
   suggestions. Decided by the user 2026-09-09.** Typing `b` against the production build drew
@@ -611,3 +862,59 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   become unreachable by any typed query — `normaliseHeadword` strips a trailing period before the
   index is ever consulted, so `b.` already collapsed to the same `b` the bare letter did; there was
   no second spelling to fall back to, and this fix removes the only one that reached them.
+
+- **The senses of a headword are ordered by measured frequency, not by a fixed rank. Decided by the
+  user 2026-09-11.** `index-build.ts:22`'s `POS_RANK` put `v` before `n` so that «leave» would show
+  «dejar» before «permiso»; the same rank is what put `grudge`'s rare verb «diñar de mala gana» in
+  front of «rencor», which the user hit reading. No single rank gives both, because the right order
+  is a fact about each word. Measured against the built index that day: 4,650 of 58,946 headwords
+  carry more than one part of speech, SUBTLEX-US covers 3,888 of them, 2,681 can be ordered, and
+  **1,797 of those 2,681 — 67.0% — sit in the wrong order today**. The 762 headwords SUBTLEX has no
+  row for keep `POS_RANK` and change nothing.
+- **Quote the generator, never the prototype that argued for it.** The measurement that opened this
+  decision said 1,808 rows and a 40.9 KB table; what shipped is 1,797 and 54.4 KB, and for a day the
+  paragraph carrying a non-commercial licence decision described neither. The eleven rows are
+  headwords used equally often in two parts of speech, where nothing defines a winner; the kilobytes
+  are the one-entry-per-line format the repo prefers over a minified line. `npm run pos:build`
+  prints both numbers, so there is no reason to carry an older one.
+- **Its source is CC BY-NC-SA 4.0, and that price was taken knowingly.** SUBTLEX-US with
+  part-of-speech information is non-commercial and share-alike, so the derived table ships under the
+  same licence and the app stays non-commercial while it does. The credit goes on `/cuenta`, in
+  `CuentaInformacion`, as one more `MetaLabel` block beside the dictionary's own FreeDict credit and
+  the per-photo credits.
+- **No board was drawn for either, and neither needs one.** The order changes what a sense list
+  says, never how it is drawn: `PalabraCategoria` already draws a stack of sense groups behind their
+  category labels, in all four faces, and a stack reordered is the same board. The attribution is the fourth repetition of a block
+  `CuentaInformacion` already draws three times — same `MetaLabel`, same `Text`, same `Separator`,
+  no new layout, no new control. A face nobody drew here is a face nobody needed.
+- **The photo is gated on measured concreteness, and a word with no score gets none. Decided by the
+  user 2026-09-11.** RL-36 has said «concrete noun» since it was written and the route never tested
+  either half: `openverse.ts:86` searched the bare headword, and the only guard in the chain asked
+  whether the word was in the dictionary, never what kind of word it was. The 93.3% that justified
+  the design measured whether a photo came back, never whether it had anything to do with the word —
+  coverage is not relevance, and nobody had measured relevance until this day. What it measured:
+  **20 of 36 relevant overall**, 12 of 12 for concrete nouns, **2 of 12 for abstract ones**.
+- **Filtering on part of speech alone was measured and refused.** All 12 abstract headwords probed
+  carry a noun sense in the index, so the filter RL-36's own wording seems to ask for lifts relevance
+  from 55.6% to 58.3% and leaves `grudge` exactly where it was.
+- **The price, taken knowingly: the photo becomes rare.** 9,942 of 58,946 headwords can carry one,
+  against every headword today, and 22,896 noun headwords go without because the norms have no row
+  for them. Rarity is the right failure here — `PalabraSinFoto` is already drawn, and a reader who
+  sees no photo loses nothing, while a reader who sees the wrong one stops trusting the screen.
+- **The rows already cached must go.** `reading.word_photos` has no expiry, so every word resolved
+  before this change keeps serving the photo it got under no filter at all.
+- **No board for this either.** `PalabraFoto` and `PalabraSinFoto` already draw both outcomes; this
+  decides which a word reaches, and adds no state to draw.
+- **Concreteness alone still lets pronouns and time nouns through, and a closed list is what
+  removes them. Decided by the user 2026-09-11.** `we` scored above the threshold and returned an
+  axe head, which at 76 px in dark reads as a blank square; `you`, `him`, `time`, `hour`, `minute`,
+  `week`, `war`, `sale` and `spare` sit in the same file. `build-concreteness.ts` asks only for
+  `pos === "n"`, and Wiktionary grants that to the corporate «we».
+- **Requiring the first sense group to be a noun was measured and refused.** It reads as the
+  general rule and it is not one: measured against the shipped index, it leaves `we`, `him`,
+  `time`, `hour`, `minute`, `week` and `sale` photographed — 7 of the 10 words that prompted it,
+  the axe-head `we` included — because the dictionary tags them `n` and RL-43's order puts that
+  group first. It costs **871 of 9,942 (8.8%)** photographable words that deserve one, whose first
+  group happens to be a verb or adjective: `abscess`, `ace`, `aim`, `antique`, `asphalt`, `alien`.
+  A rule that generalises in argument and not in measurement is worth less than the list it
+  replaces.

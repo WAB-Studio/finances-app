@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import path from "node:path";
 
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import postgres from "postgres";
 
 import messages from "../messages/es.json";
