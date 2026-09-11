@@ -4,10 +4,12 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 
 import { classify, PHRASE_MAX_TOKENS, PHRASE_MIN_TOKENS, type QueryKind } from "@/lib/query/classify";
+import { PHRASE_DEBOUNCE_MS } from "@/lib/query/settle";
 import { normaliseHeadword } from "@/lib/dictionary/format";
-import type { Sense } from "@/lib/dictionary/index-build";
+import type { Sense, SenseGroup } from "@/lib/dictionary/index-build";
 import { useDictionary } from "@/lib/dictionary/use-dictionary";
 import type { WordAnswer } from "@/lib/dictionary/lookup";
+import { useDecoration } from "@/lib/word/use-decoration";
 import { deviceTranslatorState, type TranslatorState } from "@/lib/translate/availability";
 import { enableDeviceTranslator, translateOnDevice } from "@/lib/translate/on-device";
 import { translateOverNetwork } from "@/lib/translate/network";
@@ -22,11 +24,6 @@ import { SearchBox } from "./search-box";
 import { SenseList } from "./sense-list";
 import { Suggestions } from "./suggestions";
 
-// RNL-05, rule 1: how long the box waits for a pause before a sentence is
-// worth asking about at all. The URL settle below rides the same pause, so
-// the reader sees one rhythm, not two.
-const PHRASE_DEBOUNCE_MS = 600;
-
 // The query string's own name: `/?q=book`.
 const QUERY_PARAM = "q";
 
@@ -35,7 +32,7 @@ const PHRASE_CACHE_LIMIT = 20;
 
 type LogPayload = Omit<LookupRecord, "id" | "schema">;
 
-// Cut, never truncated silently past the point RL-36's list can hold — the
+// Cut, never truncated silently past the point RL-34's list can hold — the
 // module 27 wire schema and the row this fills both agree on the same 120.
 const TRANSLATION_MAX_CHARS = 120;
 const TRANSLATION_MAX_SENSES = 3;
@@ -58,6 +55,12 @@ function formatSenseTranslations(senses: readonly Sense[]): string {
     .flatMap((sense) => sense.translations)
     .join(", ");
   return cutTranslation(joined);
+}
+
+// RL-41: "a word that already has a definition never asks for one" — true
+// only when none of the exact match's own senses carry one.
+function needsDefinition(group: SenseGroup): boolean {
+  return group.senses.every((sense) => sense.definition === null);
 }
 
 function wordLogPayload(text: string, answer: WordAnswer, dictionaryReady: boolean): LogPayload {
@@ -475,6 +478,16 @@ export function SearchScreen({ initialQuery }: { initialQuery?: string }) {
   const wordFound = wordAnswer !== null && (wordAnswer.exact !== null || wordAnswer.viaInflection.length > 0);
   const suppressNotFound = !wordFound && suggestions.length > 0;
 
+  // RL-35's decoration clause: the network is asked about a headword only
+  // once its own answer is already painted, and only for the exact match —
+  // an inflected-only hit (`ru` -> nothing exact) has no headword row to
+  // decorate. `useDecoration` itself waits for the settle and de-dupes.
+  const exactGroup = kind.kind === "word" && wordAnswer !== null ? wordAnswer.exact : null;
+  const decoration = useDecoration(
+    exactGroup ? exactGroup.headword : null,
+    exactGroup ? needsDefinition(exactGroup) : false,
+  );
+
   return (
     <Flex direction="column" gap="5">
       <Flex direction="column" gap="2">
@@ -491,7 +504,9 @@ export function SearchScreen({ initialQuery }: { initialQuery?: string }) {
       {kind.kind === "word" && (
         <Flex direction="column" gap="4">
           {!wordFound && <Suggestions items={suggestions} onPick={handleTextChange} />}
-          {wordAnswer && !suppressNotFound && <SenseList answer={wordAnswer} />}
+          {wordAnswer && !suppressNotFound && (
+            <SenseList answer={wordAnswer} photo={decoration.photo} generated={decoration.text} />
+          )}
         </Flex>
       )}
 
