@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "./fixtures";
+import type { Page } from "@playwright/test";
 
 import messages from "../messages/es.json";
 import manifest from "../public/dictionary/manifest.json";
@@ -17,14 +18,6 @@ async function deleteTranslator(page: Page): Promise<void> {
 // enough past `useDecoration`'s own debounce, the same constant, for its
 // pair of requests to have fired by the time this margin elapses.
 const SETTLE_MARGIN_MS = 900;
-
-// Stubs the two routes `useDecoration` calls once a word settles, so this
-// suite never reaches Openverse or the paid model — determinism and cost
-// both, never the real network.
-async function stubDecorationRoutes(page: Page): Promise<void> {
-  await page.route("**/api/word/photo", (route) => route.fulfill({ status: 204 }));
-  await page.route("**/api/word/text", (route) => route.fulfill({ status: 204 }));
-}
 
 async function openReady(page: Page): Promise<void> {
   const assetResponse = page.waitForResponse(
@@ -137,7 +130,6 @@ test("typing ten letters adds one history entry, not ten", async ({ page }) => {
 
 test("no request leaves the device while typing, past the dictionary asset itself", async ({ page }) => {
   await deleteTranslator(page);
-  await stubDecorationRoutes(page);
   await openReady(page);
 
   const requestUrls: string[] = [];

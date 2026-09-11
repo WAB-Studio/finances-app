@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "./fixtures";
+import type { Page } from "@playwright/test";
 
 // The module 7 done criterion: `/registro` groups by word, orders by
 // frequency, folds case into one row, and links each row to its own

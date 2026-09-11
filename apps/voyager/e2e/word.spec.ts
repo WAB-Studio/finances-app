@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "./fixtures";
+import type { Page } from "@playwright/test";
 
 import messages from "../messages/es.json";
 import manifest from "../public/dictionary/manifest.json";
@@ -16,25 +17,6 @@ async function deleteTranslator(page: Page): Promise<void> {
 // enough that its pair of requests has fired and resolved by the time this
 // elapses.
 const DECORATION_SETTLE_MARGIN_MS = 900;
-
-// Neither photo nor text: the shape a reader with no connection, a provider
-// failure or the daily cap already sees today (RL-35).
-async function stubDecorationAbsent(page: Page): Promise<void> {
-  await page.route("**/api/word/photo", (route) => route.fulfill({ status: 204 }));
-  await page.route("**/api/word/text", (route) => route.fulfill({ status: 204 }));
-}
-
-// The photo stays absent — this suite is about the text block alone — while
-// the text route answers as if the model had generated one.
-async function stubGeneratedText(
-  page: Page,
-  body: { definition: string | null; example: { en: string; es: string } },
-): Promise<void> {
-  await page.route("**/api/word/photo", (route) => route.fulfill({ status: 204 }));
-  await page.route("**/api/word/text", (route) =>
-    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) }),
-  );
-}
 
 // Exposes the one `Worker` the hook creates as `window.__dictionaryWorker`,
 // so a test can drive it directly and measure the round trip RNL-01 governs
@@ -313,10 +295,9 @@ async function countDefinitionsBetween(
 
 test("a headword with no definition at all draws no definition label and no dangling line", async ({ page }) => {
   await deleteTranslator(page);
-  // 204 on the text route (the daily cap reached, no key, or a provider
-  // failure) draws exactly today's screen: no dictionary label, and — this
-  // is the claim the slice adds — no generated one either.
-  await stubDecorationAbsent(page);
+  // `./fixtures`'s own default already answers 204 on the text route (the
+  // daily cap reached, no key, or a provider failure): no dictionary label,
+  // and — this is the claim the slice adds — no generated one either.
 
   const assetResponse = page.waitForResponse(
     (response) => response.url().includes(manifest.asset.path) && response.ok(),
@@ -337,9 +318,15 @@ test("a headword with no definition at all draws no definition label and no dang
   await expect(page.getByText(messages.word.definitionGenerated)).toHaveCount(0);
 });
 
-test("umbrella draws no dictionary definition, and the generated one arrives marked", async ({ page }) => {
+test("umbrella draws no dictionary definition, and the generated one arrives marked", async ({
+  page,
+  stubWordText,
+}) => {
   await deleteTranslator(page);
-  await stubGeneratedText(page, {
+  // Photo stays absent — this test is about the text block alone — while
+  // the text route answers as if the model had generated one, still fully
+  // mocked.
+  await stubWordText({
     definition: "A device used for protection against rain, consisting of a folding frame.",
     example: { en: "She opened her umbrella as it started to rain.", es: "Abrió su paraguas cuando empezó a llover." },
   });
@@ -372,7 +359,6 @@ test("`left` (one of the 34 entries whose definition is a bare '.') never draws 
   // Module 7 keeps the generated label ("Definición generada") apart from
   // the dictionary's own ("Definición en inglés"); if this ever moves off
   // 2, the two strings collided.
-  await stubDecorationAbsent(page);
 
   const assetResponse = page.waitForResponse(
     (response) => response.url().includes(manifest.asset.path) && response.ok(),
