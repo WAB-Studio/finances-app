@@ -1548,3 +1548,31 @@ garantía de tamaño en el campo `thumbnail`.
 
 Guardar 5 MB para dibujar un cuadro de 76 px es tirar el bucket. **Pon un tope de bytes y descarta
 el candidato que lo pase**, pasando al siguiente — no lo recortes después de haberlo subido.
+
+## El CSV de OpenAI no dice lo que gastó la app
+
+Medido 2026-09-11, sobre `completions_usage_2026-08-12_2026-09-11.csv`, un mes entero: **421
+peticiones** en el proyecto, repartidas así.
+
+| modelo | peticiones | ¿lo llama este repo? |
+|---|---:|---|
+| `gpt-5-nano` | 368 | sí, es `apps/voyager/lib/word/model.ts:11` |
+| `gpt-4o-mini-transcribe` | 36 | no |
+| `gpt-realtime-mini` | 12 | no |
+| `gpt-4.1-nano` / `gpt-4.1-mini` | 4 | no |
+| `gpt-5.5` | 1 | no |
+
+**La clave es compartida con trabajo que no es este repo.** Voyager no transcribe audio ni habla en
+tiempo real: esas 53 peticiones son de otra parte, y el CSV no las distingue porque todo cae bajo un
+`project_id` y una `api_key_id`.
+
+Y el desajuste no se queda ahí. El repo tiene **un solo sitio** que llama al modelo —
+`apps/voyager/app/api/word/text/route.ts:102` — y pide cupo en `lib/word/spend.ts` **antes** de
+llamar, así que ninguna llamada queda sin contar. El 2026-09-10 `reading.model_spend` marcó
+`calls=19` y el CSV marca **346 peticiones de `gpt-5-nano` ese día**. Las otras 327 no salieron de
+aquí.
+
+- **Nunca deduzcas de ese CSV lo que gastó la app.** No separa proyectos.
+- **`model_spend` sí es la cifra de esta app**, porque el único llamador reclama cupo antes de llamar.
+- Un total en dólares de la cuenta — los **$0,33** que leyó el usuario ese día — es de todo el
+  proyecto junto, y dividirlo entre las llamadas de voyager da un número inventado.
