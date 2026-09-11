@@ -849,3 +849,16 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   before this change keeps serving the photo it got under no filter at all.
 - **No board for this either.** `PalabraFoto` and `PalabraSinFoto` already draw both outcomes; this
   decides which a word reaches, and adds no state to draw.
+- **Concreteness alone still lets pronouns and time nouns through, and a closed list is what
+  removes them. Decided by the user 2026-09-11.** `we` scored above the threshold and returned an
+  axe head, which at 76 px in dark reads as a blank square; `you`, `him`, `time`, `hour`, `minute`,
+  `week`, `war`, `sale` and `spare` sit in the same file. `build-concreteness.ts` asks only for
+  `pos === "n"`, and Wiktionary grants that to the corporate «we».
+- **Requiring the first sense group to be a noun was measured and refused.** It reads as the
+  general rule and it is not one: measured against the shipped index, it leaves `we`, `him`,
+  `time`, `hour`, `minute`, `week` and `sale` photographed — 7 of the 10 words that prompted it,
+  the axe-head `we` included — because the dictionary tags them `n` and RL-43's order puts that
+  group first. It costs **871 of 9,942 (8.8%)** photographable words that deserve one, whose first
+  group happens to be a verb or adjective: `abscess`, `ace`, `aim`, `antique`, `asphalt`, `alien`.
+  A rule that generalises in argument and not in measurement is worth less than the list it
+  replaces.
