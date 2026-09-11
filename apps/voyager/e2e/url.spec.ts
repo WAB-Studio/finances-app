@@ -13,8 +13,18 @@ async function deleteTranslator(page: Page): Promise<void> {
 
 // The debounce a settle waits out (`PHRASE_DEBOUNCE_MS` in
 // `search-screen.tsx`, not exported) plus enough margin that a slow CI
-// runner never reads the URL before the timer has actually fired.
+// runner never reads the URL before the timer has actually fired. Also long
+// enough past `useDecoration`'s own debounce, the same constant, for its
+// pair of requests to have fired by the time this margin elapses.
 const SETTLE_MARGIN_MS = 900;
+
+// Stubs the two routes `useDecoration` calls once a word settles, so this
+// suite never reaches Openverse or the paid model — determinism and cost
+// both, never the real network.
+async function stubDecorationRoutes(page: Page): Promise<void> {
+  await page.route("**/api/word/photo", (route) => route.fulfill({ status: 204 }));
+  await page.route("**/api/word/text", (route) => route.fulfill({ status: 204 }));
+}
 
 async function openReady(page: Page): Promise<void> {
   const assetResponse = page.waitForResponse(
@@ -127,6 +137,7 @@ test("typing ten letters adds one history entry, not ten", async ({ page }) => {
 
 test("no request leaves the device while typing, past the dictionary asset itself", async ({ page }) => {
   await deleteTranslator(page);
+  await stubDecorationRoutes(page);
   await openReady(page);
 
   const requestUrls: string[] = [];
@@ -135,14 +146,32 @@ test("no request leaves the device while typing, past the dictionary asset itsel
   const searchBox = page.getByRole("textbox", { name: messages.search.label });
   await searchBox.pressSequentially("serendipity", { delay: 30 });
   await expect(page.getByRole("heading", { name: "serendipity" })).toBeVisible({ timeout: 5000 });
+
+  // The instant the answer is painted, `useDecoration`'s own debounce has
+  // not fired yet — this is the stricter bound: zero of anything, decoration
+  // included, at the moment RL-35 promises an answer with nothing pending.
+  const atPaint = requestUrls.filter(
+    (url) => !url.includes(manifest.asset.path) && !url.includes("/_next/static/"),
+  );
+  expect(atPaint, `requests at paint, before decoration could fire: ${JSON.stringify(atPaint)}`).toEqual([]);
+
   await page.waitForTimeout(SETTLE_MARGIN_MS);
 
   // A lazily-loaded font past the fold is a rendering detail, not a lookup —
   // the box owes RL-14 no request of its own, and `_next/static/` never
-  // carries one.
+  // carries one. Decoration's own pair is counted apart, below, never here.
   const stray = requestUrls.filter(
-    (url) => !url.includes(manifest.asset.path) && !url.includes("/_next/static/"),
+    (url) =>
+      !url.includes(manifest.asset.path) &&
+      !url.includes("/_next/static/") &&
+      !url.includes("/api/word/"),
   );
-  console.log(`requests while typing, dictionary asset and static assets excluded: ${stray.length}`);
+  console.log(`requests while typing, dictionary asset, static assets and decoration excluded: ${stray.length}`);
   expect(stray).toEqual([]);
+
+  // Ten keystrokes settle to one headword: at most one request per
+  // decoration route, never one per keystroke.
+  const decoration = requestUrls.filter((url) => url.includes("/api/word/"));
+  console.log(`decoration requests for one settled word: ${decoration.length}`);
+  expect(decoration.length).toBeLessThanOrEqual(2);
 });

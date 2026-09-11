@@ -12,6 +12,30 @@ async function deleteTranslator(page: Page): Promise<void> {
   });
 }
 
+// `useDecoration`'s own debounce (`PHRASE_DEBOUNCE_MS`) plus margin: long
+// enough that its pair of requests has fired and resolved by the time this
+// elapses.
+const DECORATION_SETTLE_MARGIN_MS = 900;
+
+// Neither photo nor text: the shape a reader with no connection, a provider
+// failure or the daily cap already sees today (RL-35).
+async function stubDecorationAbsent(page: Page): Promise<void> {
+  await page.route("**/api/word/photo", (route) => route.fulfill({ status: 204 }));
+  await page.route("**/api/word/text", (route) => route.fulfill({ status: 204 }));
+}
+
+// The photo stays absent — this suite is about the text block alone — while
+// the text route answers as if the model had generated one.
+async function stubGeneratedText(
+  page: Page,
+  body: { definition: string | null; example: { en: string; es: string } },
+): Promise<void> {
+  await page.route("**/api/word/photo", (route) => route.fulfill({ status: 204 }));
+  await page.route("**/api/word/text", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) }),
+  );
+}
+
 // Exposes the one `Worker` the hook creates as `window.__dictionaryWorker`,
 // so a test can drive it directly and measure the round trip RNL-01 governs
 // — the message posted to the answer received — with nothing of React's own
@@ -289,6 +313,10 @@ async function countDefinitionsBetween(
 
 test("a headword with no definition at all draws no definition label and no dangling line", async ({ page }) => {
   await deleteTranslator(page);
+  // 204 on the text route (the daily cap reached, no key, or a provider
+  // failure) draws exactly today's screen: no dictionary label, and — this
+  // is the claim the slice adds — no generated one either.
+  await stubDecorationAbsent(page);
 
   const assetResponse = page.waitForResponse(
     (response) => response.url().includes(manifest.asset.path) && response.ok(),
@@ -303,14 +331,48 @@ test("a headword with no definition at all draws no definition label and no dang
   // headword and translations.
   await searchBox.fill("umbrella");
   await expect(page.getByRole("heading", { name: "umbrella", exact: true })).toBeVisible({ timeout: 5000 });
+  await page.waitForTimeout(DECORATION_SETTLE_MARGIN_MS);
 
   await expect(page.getByText(messages.word.definitionEnglish)).toHaveCount(0);
+  await expect(page.getByText(messages.word.definitionGenerated)).toHaveCount(0);
+});
+
+test("umbrella draws no dictionary definition, and the generated one arrives marked", async ({ page }) => {
+  await deleteTranslator(page);
+  await stubGeneratedText(page, {
+    definition: "A device used for protection against rain, consisting of a folding frame.",
+    example: { en: "She opened her umbrella as it started to rain.", es: "Abrió su paraguas cuando empezó a llover." },
+  });
+
+  const assetResponse = page.waitForResponse(
+    (response) => response.url().includes(manifest.asset.path) && response.ok(),
+  );
+  await page.goto("/");
+  await assetResponse;
+  await page.waitForTimeout(1000);
+
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+  await searchBox.fill("umbrella");
+  await expect(page.getByRole("heading", { name: "umbrella", exact: true })).toBeVisible({ timeout: 5000 });
+  await page.waitForTimeout(DECORATION_SETTLE_MARGIN_MS);
+
+  // Still no dictionary label — umbrella's own source entry has none — but
+  // now the generated block, carrying its «generada» mark.
+  await expect(page.getByText(messages.word.definitionEnglish)).toHaveCount(0);
+  await expect(page.getByText(messages.word.definitionGenerated)).toBeVisible();
+  await expect(page.getByText(messages.word.generatedMark)).toBeVisible();
 });
 
 test("`left` (one of the 34 entries whose definition is a bare '.') never draws that period as one", async ({
   page,
 }) => {
   await deleteTranslator(page);
+  // `left` has its own dictionary definitions; stubbing the text route to
+  // 204 leaves the count below the dictionary's own, unmoved by decoration.
+  // Module 7 keeps the generated label ("Definición generada") apart from
+  // the dictionary's own ("Definición en inglés"); if this ever moves off
+  // 2, the two strings collided.
+  await stubDecorationAbsent(page);
 
   const assetResponse = page.waitForResponse(
     (response) => response.url().includes(manifest.asset.path) && response.ok(),
@@ -326,6 +388,7 @@ test("`left` (one of the 34 entries whose definition is a bare '.') never draws 
   // no definition at all, so bounding the count to `left`'s own block below
   // proves the period-only filter without depending on that separately.
   await expect(page.getByRole("heading", { name: "leave", exact: true })).toBeVisible();
+  await page.waitForTimeout(DECORATION_SETTLE_MARGIN_MS);
 
   // Four senses of "left" carry a definition in the source: adj (null,
   // never had one), adv ("On the left side."), n ("The left side or

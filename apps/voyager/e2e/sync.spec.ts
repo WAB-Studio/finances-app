@@ -39,6 +39,17 @@ async function hideTab(page: Page): Promise<void> {
   });
 }
 
+// Stubs the two routes `useDecoration` calls once a word settles, so this
+// suite never reaches Openverse or the paid model.
+async function stubDecorationRoutes(page: Page): Promise<void> {
+  await page.route("**/api/word/photo", (route) => route.fulfill({ status: 204 }));
+  await page.route("**/api/word/text", (route) => route.fulfill({ status: 204 }));
+}
+
+// `useDecoration`'s own debounce (`PHRASE_DEBOUNCE_MS`) plus margin: long
+// enough that its pair of requests has fired by the time this elapses.
+const DECORATION_SETTLE_MARGIN_MS = 900;
+
 type SeedSyncRow = SyncState;
 type SeedLookupRow = Omit<LookupRecord, "id">;
 
@@ -214,6 +225,7 @@ test("RNL-09: with no account, ten keystrokes and a hidden tab issue nothing to 
 
 test("RL-14: the word-path guard holds with the sync driver mounted in the layout", async ({ page }) => {
   await deleteTranslator(page);
+  await stubDecorationRoutes(page);
 
   const assetResponse = page.waitForResponse(
     (response) => response.url().includes(manifest.asset.path) && response.ok(),
@@ -228,6 +240,8 @@ test("RL-14: the word-path guard holds with the sync driver mounted in the layou
   // A warm-up run first, autocomplete included, so every font any state
   // along the way paints is already cached before the measured run — a font
   // request belongs to painting a state for the first time, not to RL-14.
+  // Clearing the box straight after the heading aborts decoration's own
+  // debounce before it fires, so the word is never cached from this run.
   await searchBox.pressSequentially(tenKeystrokes, { delay: 40 });
   await expect(page.getByRole("heading", { name: tenKeystrokes })).toBeVisible();
   await searchBox.fill("");
@@ -237,8 +251,24 @@ test("RL-14: the word-path guard holds with the sync driver mounted in the layou
   page.on("request", (request) => requestsWhileTyping.push(request.url()));
 
   await searchBox.pressSequentially(tenKeystrokes, { delay: 40 });
+  await expect(page.getByRole("heading", { name: tenKeystrokes })).toBeVisible();
 
-  expect(requestsWhileTyping, `10 keystrokes issued: ${JSON.stringify(requestsWhileTyping)}`).toHaveLength(0);
+  // The stricter bound: at the instant of paint, decoration's own debounce
+  // has not fired yet, so ten keystrokes owe nothing at all — the route
+  // included.
+  expect(
+    requestsWhileTyping,
+    `requests at paint, ten keystrokes issued: ${JSON.stringify(requestsWhileTyping)}`,
+  ).toHaveLength(0);
+
+  await page.waitForTimeout(DECORATION_SETTLE_MARGIN_MS);
+
+  const stray = requestsWhileTyping.filter((url) => !url.includes("/api/word/"));
+  expect(stray, `requests foreign to decoration: ${JSON.stringify(stray)}`).toEqual([]);
+
+  // One settled word, never one request per keystroke.
+  const decoration = requestsWhileTyping.filter((url) => url.includes("/api/word/"));
+  expect(decoration.length).toBeLessThanOrEqual(2);
 });
 
 test("RL-24: the copy fires on hide, never on a keystroke, and the request lands even unauthenticated", async ({

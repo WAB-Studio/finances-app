@@ -37,6 +37,17 @@ async function deleteSpeechSynthesis(page: Page): Promise<void> {
   });
 }
 
+// Stubs the two routes `useDecoration` calls once a word settles, so this
+// suite never reaches Openverse or the paid model.
+async function stubDecorationRoutes(page: Page): Promise<void> {
+  await page.route("**/api/word/photo", (route) => route.fulfill({ status: 204 }));
+  await page.route("**/api/word/text", (route) => route.fulfill({ status: 204 }));
+}
+
+// `useDecoration`'s own debounce (`PHRASE_DEBOUNCE_MS`) plus margin: long
+// enough that its pair of requests has fired by the time this elapses.
+const DECORATION_SETTLE_MARGIN_MS = 900;
+
 async function gotoReady(page: Page): Promise<void> {
   const assetResponse = page.waitForResponse(
     (response) => response.url().includes(manifest.asset.path) && response.ok(),
@@ -125,6 +136,7 @@ test("RL-26: with no speechSynthesis, the control does not render at all", async
 test("RL-26: pressing the speak control fires no network request of its own", async ({ page }) => {
   await deleteTranslator(page);
   await captureSpeech(page);
+  await stubDecorationRoutes(page);
   await gotoReady(page);
 
   const searchBox = page.getByRole("textbox", { name: messages.search.label });
@@ -143,11 +155,23 @@ test("RL-26: pressing the speak control fires no network request of its own", as
   await searchBox.fill("abandonable");
   await expect(page.getByRole("heading", { name: "abandonable" })).toBeVisible({ timeout: 5000 });
 
+  // The stricter bound: at the instant of paint, decoration's own debounce
+  // has not fired yet, so the click below still finds nothing pending.
+  const atPaint = requests.filter((url) => !url.includes(manifest.asset.path));
+  expect(atPaint, `requests before decoration could fire: ${JSON.stringify(atPaint)}`).toEqual([]);
+
+  // The assertion this test exists for, kept intact: the click itself emits
+  // nothing of its own.
   const speakButton = page.getByRole("button", { name: "Escuchar «abandonable»" });
   await speakButton.click();
-  await page.waitForTimeout(200);
+  await page.waitForTimeout(DECORATION_SETTLE_MARGIN_MS);
 
-  expect(requests.filter((url) => !url.includes(manifest.asset.path))).toEqual([]);
+  const stray = requests.filter((url) => !url.includes(manifest.asset.path) && !url.includes("/api/word/"));
+  expect(stray, `requests foreign to decoration: ${JSON.stringify(stray)}`).toEqual([]);
+
+  // One settled word, never one request per keystroke or per click.
+  const decoration = requests.filter((url) => url.includes("/api/word/"));
+  expect(decoration.length).toBeLessThanOrEqual(2);
 });
 
 test("RL-26 at 360px, dark: 44px tap target, muted glyph #9a9484", async ({ page }) => {
