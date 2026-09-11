@@ -676,6 +676,24 @@ a real one behind a number you have already talked yourself out of.
 
 Measured 2026-09-07 while validating the dictionary worker.
 
+**It is not one count, it is 13 red specs, and it cost two lanes an afternoon.** Measured
+2026-09-11: `check:e2e` against `next dev` hands back **121 passed, 13 failed, 2 skipped** where a
+production build passes them. The 13, by name, so the next session recognises the shape without
+re-deriving it: `bottom-nav.spec.ts:143`, `error-boundary.spec.ts:74`, `install.spec.ts:15`,
+`offline.spec.ts:77`, `offline.spec.ts:177`, `palabra-historial.spec.ts:101,295,359,392`,
+`url.spec.ts:94`. `export.spec.ts:146` and `log.spec.ts:377,444` fail in the full dev run and pass
+in isolation — those are load flakes, not StrictMode.
+
+**The cause was a printed command, not a misreading.** `scripts/worktree.sh` printed
+`PORT=<n> npm run dev` on the line directly above the `check:e2e` line, so a lane that followed its
+own birth message ran the suite the one way the config forbids. Fixed the same day: the script now
+prints `npm run build` and `npm run start` for voyager, and keeps `dev` for orbit, whose suite does
+not count effects.
+
+**Rebuild before every rerun, and that includes the negative control.** `next start` serves the
+build, not the tree. Reverting a guard and rerunning without rebuilding tests the old bundle and
+shows green for the wrong reason — which is exactly the failure a negative control exists to catch.
+
 ### Regenerating a lockfile on one machine drops every other platform's packages
 
 Renaming the two app directories left four stale workspace keys in `package-lock.json`. Deleting the
