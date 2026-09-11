@@ -1707,3 +1707,36 @@ navegación de URL o un `history.back()` sí destruyen antes de que la transacci
 comprometer — a diferencia de una pestaña matada, a esos tres nunca les da tiempo ni a eso. El
 arreglo sólo hace que *recuperar* dos veces la misma fila cueste una lectura de índice, nunca una
 fila de más.
+
+## `foto.spec.ts` no puede pedirle píxeles al bucket en CI, y no debe pedirle credenciales tampoco
+
+Medido 2026-09-11. `.github/workflows/ci.yml`'s `voyager-e2e` no define ninguna de las cinco
+`SUPABASE_STORAGE_*` que `isStorageConfigured()` exige — a propósito: dárselas a cada corrida de CI
+le daría a cualquier push escritura sobre el bucket de producción del usuario. Sin ellas, la ruta
+`GET /api/word/photo` nunca puede servir el objeto, así que una prueba que dependa del bucket para
+dibujar píxeles reales **no puede pasar en CI jamás**, con o sin credenciales de más.
+
+- La guarda (`isPhotographableHeadword`) sí se prueba sin bucket: corta antes de tocar Postgres o
+  Openverse, así que `grudge` responde 204 igual con o sin almacenamiento.
+- Que la ruta **acepte** una palabra fotografiable sólo se distingue de un fallo de bucket cuando la
+  palabra ya tiene una fila `found` cacheada — `dog` la tiene, en la base compartida que usan tanto
+  los carriles como CI (mismo `DATABASE_URL`). Sin esa fila cacheada, un `dog` sin bucket responde
+  204 igual que uno cuya guarda lo hubiera cortado: `getCachedPhoto` corre antes que
+  `isStorageConfigured`, así que una palabra sin caché y sin bucket nunca llega a Openverse. Purgar
+  esa fila deja esta distinción sin piso.
+- La costura del dibujo — que los bytes se conviertan en píxeles — se prueba con bytes **sembrados**,
+  no con el bucket: intercepta sólo `GET /api/word/photo?*` en el propio origen de la prueba
+  (`VOYAGER_BASE_URL`, nunca un patrón `**` que también atrape una URL absoluta a otro host) y
+  responde con un PNG generado por el propio `<canvas>` del navegador — decodificable de verdad,
+  nunca un data URI copiado a mano. El POST sigue siendo real: sólo se sustituyen los bytes que el
+  bucket habría servido.
+- Control negativo de la guarda: `isPhotographableHeadword` a `return true`, más `DATABASE_URL`
+  apuntado a un puerto que rechaza la conexión (nunca a la base real: así la guarda rota nunca llega
+  a escribir una fila de un headword que no pasa el corpus). `grudge` da `500`, no `204` — la prueba
+  se pone roja sin tocar la base compartida.
+- Control negativo del dibujo: revertir sólo `toWordPhoto` en `route.ts` a construir la URL absoluta
+  con `NEXT_PUBLIC_SITE_URL` (el defecto original de #152) sin tocar `protocol.ts`. El esquema
+  `photoResponseSchema` — endurecido en el mismo commit que arregló el defecto — ya rechaza esa URL
+  en el cliente (`.startsWith("/api/word/photo?")`), así que `fetchPhoto` cae a `catch` y la foto
+  queda `{ kind: "absent" }`: ni siquiera se monta un `<img>`. La prueba se pone roja en
+  `expect(img).toBeVisible()`, antes de llegar a la interceptación.

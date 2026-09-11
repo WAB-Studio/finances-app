@@ -1,38 +1,28 @@
 import "server-only";
 
 import { createHash, createHmac } from "node:crypto";
-import { readFile } from "node:fs/promises";
-import path from "node:path";
 
 import { sql } from "drizzle-orm";
 
 import { db } from "@/db/client";
 import type { WordPhotoRow } from "@/db/schema";
-import { MANIFEST_PATH, manifestSchema, normaliseHeadword, type DictionaryPayload } from "@/lib/dictionary/format";
 import { env } from "@/lib/env";
 import type { OpenverseLicence } from "@/lib/word/openverse";
 
-// --- The dictionary gate -----------------------------------------------
+import concretenessCorpus from "./concreteness.generated.json";
+
+// --- The concreteness gate ------------------------------------------------
 //
-// The closed list of headwords is the only thing bounding the bill: an
-// anonymous route that fires a paid/bandwidth call on arbitrary text is how
-// someone inflates it. Loaded once per server process from the same static
-// asset the client installs, never from a pass through `reading`.
+// RL-36 asks for a *concrete noun*, not any dictionary headword: bundled at
+// build time (`scripts/build-concreteness.ts`), never read from disk per
+// request, so the check that must run before Openverse is a Set lookup, not
+// a file read. The generator built this set from the dictionary's own
+// asset, so a hit here already implies the word is a real headword — no
+// separate dictionary lookup is needed ahead of it.
+const PHOTOGRAPHABLE_HEADWORDS: ReadonlySet<string> = new Set(concretenessCorpus.headwords);
 
-let headwordsPromise: Promise<ReadonlySet<string>> | null = null;
-
-async function loadHeadwords(): Promise<ReadonlySet<string>> {
-  const manifestFsPath = path.join(process.cwd(), "public", ...MANIFEST_PATH.split("/").filter(Boolean));
-  const manifest = manifestSchema.parse(JSON.parse(await readFile(manifestFsPath, "utf8")));
-  const assetFsPath = path.join(process.cwd(), "public", ...manifest.asset.path.split("/").filter(Boolean));
-  const payload = JSON.parse(await readFile(assetFsPath, "utf8")) as DictionaryPayload;
-  return new Set(payload.entries.map((entry) => normaliseHeadword(entry[0])));
-}
-
-export async function isDictionaryHeadword(normalisedHeadword: string): Promise<boolean> {
-  headwordsPromise ??= loadHeadwords();
-  const headwords = await headwordsPromise;
-  return headwords.has(normalisedHeadword);
+export function isPhotographableHeadword(normalisedHeadword: string): boolean {
+  return PHOTOGRAPHABLE_HEADWORDS.has(normalisedHeadword);
 }
 
 // --- reading.word_photos and reading.model_spend -------------------------
@@ -170,7 +160,7 @@ function signingKey(secret: string, dateStamp: string, region: string): Buffer {
 
 async function signedS3Request(
   config: StorageConfig,
-  method: "GET" | "PUT",
+  method: "GET" | "PUT" | "DELETE",
   key: string,
   body: Buffer | null,
   contentType: string | null,
@@ -223,6 +213,15 @@ export async function putPhotoObject(key: string, bytes: Buffer, contentType: st
   if (!config) throw new Error("Storage is not configured");
   const response = await signedS3Request(config, "PUT", key, bytes, contentType);
   if (!response.ok) throw new Error(`S3 PUT answered ${response.status}`);
+}
+
+// Idempotent: a 404 here means the object is already gone, which is the
+// outcome the caller wanted anyway.
+export async function deletePhotoObject(key: string): Promise<void> {
+  const config = storageConfig();
+  if (!config) return;
+  const response = await signedS3Request(config, "DELETE", key, null, null);
+  if (!response.ok && response.status !== 404) throw new Error(`S3 DELETE answered ${response.status}`);
 }
 
 export async function getPhotoObject(key: string): Promise<{ bytes: Buffer; contentType: string } | null> {

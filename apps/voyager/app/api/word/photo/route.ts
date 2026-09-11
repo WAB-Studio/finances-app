@@ -8,7 +8,7 @@ import {
   claimPhotoQuota,
   getCachedPhoto,
   getPhotoObject,
-  isDictionaryHeadword,
+  isPhotographableHeadword,
   isStorageConfigured,
   putPhotoObject,
   writeFoundPhoto,
@@ -83,9 +83,11 @@ export async function POST(request: Request): Promise<Response> {
 
   const headword = normaliseHeadword(parsed.data.headword);
 
-  // The closed list of headwords is the only thing bounding the bill: an
-  // anonymous route serving arbitrary text is how someone inflates it.
-  if (!(await isDictionaryHeadword(headword))) return absent();
+  // RL-36 asks for a concrete noun, not any headword: a word absent from
+  // this closed, pre-scored set never reaches Postgres or Openverse, so
+  // this bounds the bill the way the dictionary check used to and answers
+  // "no photo for you" without opening a connection either way.
+  if (!isPhotographableHeadword(headword)) return absent();
 
   // Hot path: one round trip to Postgres, no outgoing request either way.
   const cached = await getCachedPhoto(headword);

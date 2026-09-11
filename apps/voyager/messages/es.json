@@ -173,6 +173,9 @@
         "cc0": "CC0",
         "pdm": "Marca de dominio público"
       },
+      "concretenessLabel": "Concreción de las fotos",
+      "concretenessName": "Concreteness ratings for 40 thousand generally known English word lemmas",
+      "concretenessCredit": "Marc Brysbaert, Amy Beth Warriner y Victor Kuperman (2014), Behavior Research Methods, 46, 904–911. Esta fuente no declara licencia.",
       "appLabel": "La app",
       "appVersion": "Diccionario de lectura · versión {version}"
     },
