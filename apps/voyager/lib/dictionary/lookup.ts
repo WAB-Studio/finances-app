@@ -1,3 +1,4 @@
+import { suggestCorrection } from "./edit-distance";
 import { normaliseHeadword } from "./format";
 import { groupFor, type DictionaryIndex, type SenseGroup } from "./index-build";
 import { lemmaCandidates, type InflectionRule } from "./inflect";
@@ -14,6 +15,10 @@ export type WordAnswer = {
   query: string;
   exact: SenseGroup | null;
   viaInflection: readonly InflectedHit[];
+  // RL-28: headwords one edit from the query, computed only when the query
+  // hit neither of the two fields above — an answered query never needed a
+  // correction, so this stays empty rather than costing a lookup nobody reads.
+  correction: readonly string[];
 };
 
 const MAX_INFLECTED_HITS = 3;
@@ -75,8 +80,8 @@ function isOverriddenByIrregularTable(rule: InflectionRule, lemma: string, group
 // the irregular table's own "was"/"were".
 export function lookupWord(index: DictionaryIndex, query: string): WordAnswer {
   const normalised = normaliseHeadword(query);
-  if (normalised.length === 0) return { query, exact: null, viaInflection: [] };
-  if (!isAnswerableHeadword(normalised)) return { query, exact: null, viaInflection: [] };
+  if (normalised.length === 0) return { query, exact: null, viaInflection: [], correction: [] };
+  if (!isAnswerableHeadword(normalised)) return { query, exact: null, viaInflection: [], correction: [] };
 
   const exact = groupFor(index, normalised);
 
@@ -92,7 +97,9 @@ export function lookupWord(index: DictionaryIndex, query: string): WordAnswer {
     if (viaInflection.length === MAX_INFLECTED_HITS) break;
   }
 
-  return { query, exact, viaInflection };
+  const correction = exact === null && viaInflection.length === 0 ? suggestCorrection(index, normalised) : [];
+
+  return { query, exact, viaInflection, correction };
 }
 
 // Lowest index whose entry is not less than target, so a prefix's matches

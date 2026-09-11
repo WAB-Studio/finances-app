@@ -281,6 +281,35 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
     layout the no-hint face does not already carry.
   - **The guard between them:** the correction shows only when a candidate is within one edit of a
     headword. `zzqqxv` gets neither line, and that is the case the guard exists for.
+  - **That guard never silenced `fettle`, and this file was wrong to say it did, from 2026-09-08
+    until today.** "Edit distance answers it wrong... so the correction must not fire here" (above)
+    reads as if the one-edit guard itself withheld the offer. It does not: `fettle` sits exactly one
+    substitution from `kettle`, `mettle`, `nettle` and `settle` alike, so "within one edit of a
+    headword" is true of all four and a plain one-edit guard shows every one of them. Building RL-28
+    on 2026-09-11 found this by running it, not by reading the paragraph above, and a cap of three
+    candidates was added to make the old sentence true — with no textual basis in either the 2026-09-08
+    decision above or in `docs/voyager/SPEC.md`'s RL-28. Measured against that cap, over 4,000 real
+    one-edit typos: **90.2% have exactly one candidate**, and the cap **silenced the 2.9% with more
+    than three** — dropping recovery from 100% to 97.1% (cap 3) or 95.5% (cap 2). Put to the user with
+    that number: **decided 2026-09-11, no cap.** RL-28 corrects 100% of one-edit typos, and `fettle`
+    draws `kettle`, `mettle`, `nettle` and `settle` — wrong, and known to be wrong — until RL-29 ships,
+    which is the same day. RL-29 is what tells that reader none of the four is what they meant; a cap
+    that only ever hides the truth from `fettle` was hiding it from every genuine typo past three
+    candidates too.
+  - **The screen draws every candidate too, with no cap of its own, and this needed a second correction
+    the same day.** A first pass capped the screen at five with "y N más" past that — wrong for two
+    reasons, not one. `suggestCorrection`'s `hits.sort()` is alphabetical, not ranked by anything the
+    reader meant, so cutting the list drops the intended word by accident of spelling, not by
+    relevance: "boz" (nine headwords one edit away, no autocomplete prefix to hide behind) would have
+    shown `boa, boaz, bob, bog, boo` and hidden `bot, bow, box, boy` for no reason a reader could act
+    on. And "y N más" is exactly the shape of text `AGENTS.md` forbids — informing the reader of a
+    gap without a tap that closes it, the same defect `notFoundHint` had. Measured 2026-09-11 over the
+    same 4,000 typos: more than five candidates happens on **0.9%**, so the cap paid this cost on
+    nearly every screen for a case that almost never shows up. `Flex`'s own `wrap="wrap"` already
+    carries nine short words into a few rows with room to spare — checked at 360px, the narrowest
+    viewport this app supports: `boz`'s nine wrap to two rows, the widest tap target's right edge at
+    324px of 360, no horizontal scroll. Nothing here is a board decision — the board never asked for a
+    cap, a worker added one and then found the reason it was wrong.
   - **The answer is labelled.** An AI answer carries `RESPONDIDO POR IA` above it; the reader always
     knows what came from the dictionary and what did not.
   - **A failure is a failure.** Measured 2026-09-08: 3 of ~12 calls failed (two 403, one 503). The
