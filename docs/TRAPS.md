@@ -694,6 +694,30 @@ not count effects.
 build, not the tree. Reverting a guard and rerunning without rebuilding tests the old bundle and
 shows green for the wrong reason — which is exactly the failure a negative control exists to catch.
 
+### Every worktree shares one stash, so a lane can pop another lane's work
+
+`git stash` writes to `refs/stash`, and that ref lives in the **common** git directory, not in the
+worktree. Five lanes are five worktrees over one repository, so they all push onto and pop off the
+same stack.
+
+Measured 2026-09-11: a lane on `orden-frecuencia` ran `git stash -u` and `git stash pop` to build a
+negative control. A validator working in a different worktree, on a different branch, watched its
+own `git stash list` go from one entry to empty without running a single stash command. Nothing was
+lost that time — the other lane popped what it had pushed — but the order is not guaranteed: two
+lanes stashing and popping in any interleaving hand each other the wrong tree.
+
+**Never `git stash` in a lane.** To take a change out and put it back, use a patch, which is local
+to the worktree:
+
+    git diff > /tmp/guard.patch && git apply -R /tmp/guard.patch   # take it out
+    git apply /tmp/guard.patch                                     # put it back
+
+or edit the file and restore it with `git checkout -- <file>`.
+
+**Say this in every dispatch that asks for a negative control.** Reverting and re-checking is the
+one thing that proves a test watches anything, so it is exactly the moment a worker reaches for
+`stash`.
+
 ### Regenerating a lockfile on one machine drops every other platform's packages
 
 Renaming the two app directories left four stale workspace keys in `package-lock.json`. Deleting the

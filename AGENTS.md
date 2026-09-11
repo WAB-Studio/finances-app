@@ -101,6 +101,9 @@ Contract: `docs/SPEC.md` §1. Model and invariants: §2. Stack: §4. Flows: `doc
   is opened by hand: `git worktree add -b <branch> ../<checkout>-l<n> <base> && cp -al node_modules ...`.
 - `private/` is gitignored. `worktree.sh` copies the plans into the lane at birth; a plan you edit after that is stale there. Re-copy before you dispatch, and carry the report back by hand.
 - Give every track its own lane. Never two tracks on one lane.
+- Never `git stash` in a lane. Every worktree shares one `refs/stash`, so a pop can take another
+  lane's tree. Take a change out with `git diff > /tmp/x.patch && git apply -R`, put it back with
+  `git apply`. Say it in every dispatch that asks for a negative control.
 - Split the work before you start it. A track per defect, per module, per screen.
 - Cut a lane's branch from the branch it serves. For a module of the slice in hand that is
   `integracion`, not `main`.
