@@ -378,6 +378,10 @@ test("a killed tab still commits the query it had settled on, and a fast one sti
   page,
   context,
 }) => {
+  // On the context, not the page: `reopened` and `finalPage` below are new
+  // pages this same test opens, and neither must reach Openverse either.
+  await context.route("**/api/word/photo", (route) => route.fulfill({ status: 204 }));
+  await context.route("**/api/word/text", (route) => route.fulfill({ status: 204 }));
   await deleteTranslator(page);
   const assetResponse = page.waitForResponse(
     (response) => response.url().includes(manifest.asset.path) && response.ok(),

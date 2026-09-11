@@ -6,6 +6,7 @@ import { LOOKUP_SCHEMA, type LookupOutcome, type LookupRecord, type SyncState } 
 const DATABASE_NAME = "reading-log";
 export const DATABASE_VERSION = 2;
 const STORE_NAME = "lookups";
+const AT_INDEX = "at";
 const SYNC_STORE_NAME = "sync";
 const SYNC_KEY = "state";
 
@@ -149,12 +150,28 @@ function clearRelayedRow(row: LookupRecord): void {
   }
 }
 
+// Writes `row` unless one with the same `at` and `normalised` is already
+// there. The check and the `add` share one transaction — never a read
+// first and a separate write after — because a second `readwrite`
+// transaction on `lookups` cannot open until this one finishes: nothing can
+// land between the two here, where a second transaction could still race
+// this one open. `at` names the settle that produced the row, not the
+// moment it happens to be written, so a real repeat search keeps its own
+// row: two settles landing the same millisecond is the recovery race
+// below, never a reader.
 async function writeRow(row: LookupRecord): Promise<void> {
   try {
     const database = await openDatabase();
     await new Promise<void>((resolve, reject) => {
       const transaction = database.transaction(STORE_NAME, "readwrite");
-      transaction.objectStore(STORE_NAME).add(row);
+      const store = transaction.objectStore(STORE_NAME);
+      const existing = store.index(AT_INDEX).getAll(row.at);
+      existing.onsuccess = () => {
+        const alreadyLanded = (existing.result as LookupRecord[]).some(
+          (candidate) => candidate.normalised === row.normalised,
+        );
+        if (!alreadyLanded) store.add(row);
+      };
       transaction.oncomplete = () => resolve();
       transaction.onerror = () => reject(transaction.error);
       transaction.onabort = () => reject(transaction.error);
@@ -168,10 +185,13 @@ async function writeRow(row: LookupRecord): Promise<void> {
 }
 
 // Reads back every row the previous document relayed and never got to clear
-// — the sign its own IndexedDB write did not survive it — and writes each
-// one here instead, oldest first. `writeRow` clears its own row out of the
-// list once it lands, the same as it would for a row committed the
-// ordinary way, so one row's write never waits on another's.
+// — the sign its own IndexedDB write did not survive it, or the sign it did
+// and only the callback that would have cleared this same entry did not
+// (`writeRow`'s own guard, above, is what a killed tab's surviving write
+// needs) — and writes each one here instead, oldest first. `writeRow`
+// clears its own row out of the list once it lands, the same as it would
+// for a row committed the ordinary way, so one row's write never waits on
+// another's.
 function recoverRelayedRow(): void {
   if (typeof localStorage === "undefined") return;
   const raw = localStorage.getItem(PENDING_RELAY_KEY);
