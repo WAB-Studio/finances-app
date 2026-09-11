@@ -350,6 +350,44 @@ test("umbrella draws no dictionary definition, and the generated one arrives mar
   await expect(page.getByText(messages.word.generatedMark)).toBeVisible();
 });
 
+test("a generated example with no definition heads itself as an example, never as a definition", async ({
+  page,
+  stubWordText,
+}) => {
+  await deleteTranslator(page);
+  // The route answers `definition: null` whenever the dictionary already
+  // carries one, not only for the 19.7% missing outright
+  // (`app/api/word/text/route.ts`) — «Definición generada» must not stand
+  // over an example alone either way.
+  await stubWordText({
+    definition: null,
+    example: {
+      en: "She opened her umbrella as it started to rain.",
+      es: "Abrió su paraguas cuando empezó a llover.",
+    },
+  });
+
+  const assetResponse = page.waitForResponse(
+    (response) => response.url().includes(manifest.asset.path) && response.ok(),
+  );
+  await page.goto("/");
+  await assetResponse;
+  await page.waitForTimeout(1000);
+
+  const searchBox = page.getByRole("textbox", { name: messages.search.label });
+  await searchBox.fill("umbrella");
+  await expect(page.getByRole("heading", { name: "umbrella", exact: true })).toBeVisible({ timeout: 5000 });
+  await page.waitForTimeout(DECORATION_SETTLE_MARGIN_MS);
+
+  // No definition heading of either kind, the example headed by its own
+  // label instead, and the «generada» mark still on it.
+  await expect(page.getByText(messages.word.definitionEnglish)).toHaveCount(0);
+  await expect(page.getByText(messages.word.definitionGenerated)).toHaveCount(0);
+  await expect(page.getByText(messages.word.example, { exact: true })).toBeVisible();
+  await expect(page.getByText(messages.word.generatedMark)).toBeVisible();
+  await expect(page.getByText("She opened her umbrella as it started to rain.")).toBeVisible();
+});
+
 test("`left` (one of the 34 entries whose definition is a bare '.') never draws that period as one", async ({
   page,
 }) => {

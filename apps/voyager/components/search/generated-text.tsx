@@ -40,6 +40,14 @@ export function GeneratedText({ state }: { state: GeneratedTextState }) {
   }
 
   const { text } = state;
+  // `text.definition` is null both for the 19.7% the dictionary has no
+  // entry for (RL-41 never asked the model) and for every word that already
+  // carries one (the route strips it, `app/api/word/text/route.ts`). Either
+  // way «Definición generada» would head nothing: the heading and the
+  // hidden a11y label below it swap to the example alone, no board drawn
+  // this case (docs/voyager/DESIGN.md, `PalabraSinDefinicionOscuroMovil` is
+  // the no-network/no-result/capped state, not this one).
+  const hasDefinition = text.definition !== null;
 
   return (
     <Flex direction="column" data-generated-block="">
@@ -48,14 +56,14 @@ export function GeneratedText({ state }: { state: GeneratedTextState }) {
         <Flex direction="column" gap="2">
           <Flex align="center" gap="2">
             <Text variant="definitionLabel" muted>
-              {t("definitionGenerated")}
+              {hasDefinition ? t("definitionGenerated") : t("example")}
             </Text>
             <Text variant="generatedMark" muted="quietest">
               {t("generatedMark")}
             </Text>
           </Flex>
           <Flex direction="column" gap="2">
-            {text.definition !== null && (
+            {hasDefinition && (
               <Text variant="generatedProse" serif muted>
                 {text.definition}
               </Text>
@@ -63,8 +71,8 @@ export function GeneratedText({ state }: { state: GeneratedTextState }) {
             <Flex direction="column" gap="1">
               {/* `word.example` and `word.exampleTranslation` label the pair
                   for a screen reader without drawing a fourth caption line —
-                  the board holds only the definition's own label above it. */}
-              <VisuallyHidden>{t("example")}</VisuallyHidden>
+                  skipped when the heading above already says "Ejemplo". */}
+              {hasDefinition && <VisuallyHidden>{t("example")}</VisuallyHidden>}
               <Text variant="generatedProse" serif>
                 {text.example.en}
               </Text>
