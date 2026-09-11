@@ -38,6 +38,45 @@ const THRESHOLD = 3.0;
 const WORD_COLUMN = 1;
 const CONCRETENESS_COLUMN = 3;
 
+// Concreteness plus `pos === "n"` still lets two classes through: Wiktionary
+// grants a noun sense to the corporate "we", and a norm like "hour" rates
+// concrete despite naming no object. Decided by the user 2026-09-11, after
+// `we` returned an axe head that at 76px in dark mode read as a blank
+// square. A closed list, checked against the dictionary's own noun senses
+// for this headword — never a POS rule, which was measured and refused
+// (`docs/voyager/DESIGN.md`, RL-36: 8.8% of legitimate photos lost, and
+// still leaves `we`, `him`, `time`, `hour`, `minute`, `week` and `sale`
+// through).
+//
+// A headword is skipped here only when every noun sense the dictionary
+// lists for it is a pronoun or a stretch of time — never on a hunch. A
+// dictionary check ruled several look-alikes back IN: `mine` also names an
+// excavation, `one` also names the digit, `spring` also names a coil and a
+// fountain, `quarter` also names a room, a barracks, a neighbourhood,
+// `second` also names a gear, and `march`/`may` in this edition carry no
+// month sense at all (a parade; the hawthorn). Excluding any of those would
+// cost a real photo to fix none of the ten reported.
+const EXCLUDED_HEADWORDS: ReadonlySet<string> = new Set([
+  // Personal and possessive pronouns, plus their reflexive forms — every
+  // sense the dictionary lists for each is the pronoun, none names a thing.
+  "i", "me", "you", "he", "him", "her", "his", "she", "we", "us", "them",
+  "yourself", "himself", "herself", "yourselves", "oneself",
+
+  // Units and stretches of time: no dictionary sense for any of these
+  // names an object, only a duration or a point in the calendar.
+  "time", "hour", "minute", "day", "week", "month", "year", "decade",
+  "morning", "evening", "night", "midnight", "dawn", "dusk", "weekend", "yesterday",
+  "season", "summer", "autumn", "winter",
+  "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+
+  // Not pronouns, not time — the one judgement call the fix asks for.
+  // `war` (guerra) and `sale` (venta, rebajas) name an event, never a
+  // graspable thing, the same imprecision that let `we` through. `spare`
+  // stays IN: its only noun sense here is "recambio, refacción, repuesto"
+  // — a spare part or tire, a real object — so it is left off this list.
+  "war", "sale",
+]);
+
 function log(step: string): void {
   console.log(`[concreteness:build] ${step}`);
 }
@@ -78,8 +117,12 @@ async function main() {
   const scoredNouns = [...nounHeadwords].filter((headword) => scores.has(headword));
   log(`noun headwords with a concreteness score: ${scoredNouns.length}`);
 
-  const headwords = [...nounHeadwords].filter((headword) => (scores.get(headword) ?? 0) >= THRESHOLD).sort();
-  log(`passing >= ${THRESHOLD}: ${headwords.length}`);
+  const concreteEnough = [...nounHeadwords].filter((headword) => (scores.get(headword) ?? 0) >= THRESHOLD);
+  log(`passing >= ${THRESHOLD}: ${concreteEnough.length}`);
+
+  const headwords = concreteEnough.filter((headword) => !EXCLUDED_HEADWORDS.has(headword)).sort();
+  log(`excluded as pronoun/time/judged: ${concreteEnough.length - headwords.length}`);
+  log(`final headwords: ${headwords.length}`);
 
   const output = {
     source: "Brysbaert, Warriner & Kuperman (2014), Concreteness ratings for 40 thousand generally known English word lemmas",

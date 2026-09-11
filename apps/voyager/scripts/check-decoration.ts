@@ -25,6 +25,22 @@ const COLD_HEADWORD = "narwhal";
 // test — the route's "no cap configured" fallback answers 204 too.
 const OVER_CAP_CALLS = 1_000_000;
 
+// Mirrors `EXCLUDED_HEADWORDS` in `scripts/build-concreteness.ts` — kept as
+// a literal, not an import, because that script's output is the artefact
+// under test, not a module this one can share without re-running the build.
+const EXCLUDED_HEADWORDS = [
+  "i", "me", "you", "he", "him", "her", "his", "she", "we", "us", "them",
+  "yourself", "himself", "herself", "yourselves", "oneself",
+  "time", "hour", "minute", "day", "week", "month", "year", "decade",
+  "morning", "evening", "night", "midnight", "dawn", "dusk", "weekend", "yesterday",
+  "season", "summer", "autumn", "winter",
+  "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+  "war", "sale",
+];
+// Concrete nouns that must keep drawing a photo: the negative control the
+// exclusion list must never touch.
+const CONTROL_HEADWORDS = ["dog", "book", "apple"];
+
 const sql = postgres(process.env.DATABASE_URL!, {
   prepare: false,
   max: 1,
@@ -72,6 +88,65 @@ async function denied(
 
 type WordTextsRow = { headword: string; definition: string | null; example_en: string; example_es: string; model: string };
 type ModelSpendRow = { day: string; calls: number; photos: number };
+type PhotoRow = { headword: string; status: string };
+
+async function requestPhoto(headword: string): Promise<number> {
+  const response = await fetch(`${BASE_URL}/api/word/photo`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ headword }),
+  });
+  return response.status;
+}
+
+// Drives `isPhotographableHeadword` (`lib/word/photo-cache.ts`) through the
+// route, never by importing it: that module opens with `import "server-only"`,
+// which throws under plain Node (the same reason
+// `purge-unphotographable-photos.ts` keeps its own Postgres client).
+//
+// A control's `found` row is seeded only if none already exists — real
+// cached photos (`dog`, `book`) are never overwritten — and only the
+// seeded ones are removed again. Seeding makes a control's 200 independent
+// of Openverse and the storage bucket alike: the route answers from
+// Postgres on a cache hit, before either is ever reached, so CI's missing
+// `SUPABASE_STORAGE_S3_*` cannot fail this check.
+async function checkPhotoGate(): Promise<void> {
+  const seeded: string[] = [];
+  for (const headword of CONTROL_HEADWORDS) {
+    const [existing] = await sql<PhotoRow[]>`select headword, status from reading.word_photos where headword = ${headword}`;
+    if (existing) continue;
+    await sql`
+      insert into reading.word_photos (headword, status, object_path, width, height, author, licence, licence_url, source_url)
+      values (${headword}, 'found', ${`${headword}.t16`}, 1, 1, 'T16 fixture', 'cc0',
+              'https://example.invalid/licence', 'https://example.invalid/source')`;
+    seeded.push(headword);
+  }
+
+  const failures: string[] = [];
+
+  for (const headword of EXCLUDED_HEADWORDS) {
+    const status = await requestPhoto(headword);
+    const [row] = await sql<PhotoRow[]>`select headword, status from reading.word_photos where headword = ${headword}`;
+    if (status !== 204 || row) failures.push(`${headword}: status=${status}, cached=${Boolean(row)} (expected 204, no row)`);
+  }
+
+  for (const headword of CONTROL_HEADWORDS) {
+    const status = await requestPhoto(headword);
+    if (status !== 200) failures.push(`${headword}: status=${status} (expected 200)`);
+  }
+
+  assert(
+    "T16",
+    failures.length === 0,
+    failures.length === 0
+      ? `${EXCLUDED_HEADWORDS.length} excluded words gated, ${CONTROL_HEADWORDS.length} controls kept their photo`
+      : failures.join("; "),
+  );
+
+  for (const headword of seeded) {
+    await sql`delete from reading.word_photos where headword = ${headword}`;
+  }
+}
 
 async function main() {
   const subject = crypto.randomUUID();
@@ -192,6 +267,8 @@ async function main() {
   } else {
     await sql`delete from reading.model_spend where day = current_date`;
   }
+
+  await checkPhotoGate();
 
   await sql.end();
   if (failed) process.exit(1);
