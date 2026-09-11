@@ -32,6 +32,13 @@ const PHRASE_CACHE_LIMIT = 20;
 
 type LogPayload = Omit<LookupRecord, "id" | "schema">;
 
+// Module scope on purpose: it survives client-side navigation inside the tab
+// but not a reload. Tapping "Registro" unmounts this screen, and coming back
+// lands on `/?q=<word>` — the URL keeps the query — so the mount effect
+// answers it again. Answering again is right; recording it again is not.
+// A reader who walks to the log and back five times looked the word up once.
+let lastLoggedText: string | null = null;
+
 // Cut, never truncated silently past the point RL-34's list can hold — the
 // module 27 wire schema and the row this fills both agree on the same 120.
 const TRANSLATION_MAX_CHARS = 120;
@@ -166,11 +173,21 @@ export function SearchScreen({ initialQuery }: { initialQuery?: string }) {
   const boundaryRef = useRef(resolvedQuery === "");
   const urlSettleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const initialQueryRanRef = useRef(false);
+  // True when this mount is restoring a query this tab already recorded.
+  const restoringRef = useRef(false);
 
   // The call site the log's fields are true to: an effect fires after React
   // has already committed the answer, never inside the path that produced it.
   useEffect(() => {
-    if (logPayload) recordLookup(logPayload);
+    if (!logPayload) return;
+    // Conditioned on both the flag and the text, so a restore can never
+    // swallow the next genuine lookup, whatever order the two arrive in.
+    if (restoringRef.current && logPayload.text === lastLoggedText) {
+      restoringRef.current = false;
+      return;
+    }
+    recordLookup(logPayload);
+    lastLoggedText = logPayload.text;
   }, [logPayload]);
 
   useEffect(() => {
@@ -192,6 +209,7 @@ export function SearchScreen({ initialQuery }: { initialQuery?: string }) {
   useEffect(() => {
     if (initialQueryRanRef.current || !resolvedQuery) return;
     initialQueryRanRef.current = true;
+    restoringRef.current = resolvedQuery === lastLoggedText;
     latestTextRef.current = resolvedQuery;
     void runQuery(resolvedQuery, status.state === "ready");
     // eslint-disable-next-line react-hooks/exhaustive-deps
