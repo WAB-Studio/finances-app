@@ -22,6 +22,15 @@ import {
 import { GeneratedText, type GeneratedTextState } from "./generated-text";
 import { WordPhoto, type PhotoState } from "./word-photo";
 
+// `search-screen.tsx`'s own query name: every door this file opens onto a
+// correction is `/?q=<word>`, the same param `no-entry-answer.tsx` reads —
+// no shared import between the two, so the literal is repeated, not the code.
+const CORRECTION_QUERY_PARAM = "q";
+
+function correctionHref(word: string): string {
+  return `/?${CORRECTION_QUERY_PARAM}=${encodeURIComponent(word)}`;
+}
+
 // docs/voyager/DESIGN.md "Viewport": stroke-width 1.75, round caps and
 // joins, fill none — the same glyph shape `bottom-nav.tsx` draws, sized down
 // for an inline word.
@@ -275,6 +284,36 @@ function SenseGroup({
   );
 }
 
+// RL-28: every headword `lookupWord` found one edit from the miss, each its
+// own tap back into `/?q=<word>` — the same door `BlockHeading` opens, drawn
+// smaller here because there is no entry underneath it yet to lead into.
+// Silent when `words` is empty: a real miss with nothing close (`zzqqxv`) or
+// too many equally-close headwords to mean anything (`fettle`, guarded in
+// `edit-distance.ts`) both fall back to `notFoundHint` instead.
+function CorrectionOffer({ words, t }: { words: readonly string[]; t: ReturnType<typeof useTranslations> }) {
+  return (
+    <Flex direction="column" gap="2">
+      <Text size="2" color="gray">
+        {t("correctionTitle")}
+      </Text>
+      <Flex gap="4" wrap="wrap">
+        {words.map((word) => (
+          <Link asChild underline="always" key={word}>
+            <NextLink href={correctionHref(word)}>
+              <TapTarget align="center" gap="1">
+                <Text size="3" serif>
+                  {word}
+                </Text>
+                <ChevronGlyph />
+              </TapTarget>
+            </NextLink>
+          </Link>
+        ))}
+      </Flex>
+    </Flex>
+  );
+}
+
 // `full` is a direct lookup's own answer — IPA, definition, voice, the lot.
 // `compact` is a word block inside the no-entry breakdown
 // (`no-entry-answer.tsx`): headword, category and translations alone
@@ -320,11 +359,19 @@ export function SenseList({
   const hasAnswer = answer.exact !== null || answer.viaInflection.length > 0;
   if (!hasAnswer) {
     return (
-      <Flex direction="column" gap="1">
-        <Text size="3">{tSearch("notFound")}</Text>
-        <Text size="2" color="gray">
-          {tSearch("notFoundHint")}
-        </Text>
+      <Flex direction="column" gap="3">
+        <Flex direction="column" gap="1">
+          <Text size="3">{tSearch("notFound")}</Text>
+          {/* RL-28 replaces the hint below with a correction the moment one
+              exists — "revisa la ortografía" tells the reader nothing a tap
+              wouldn't have already fixed for them. */}
+          {answer.correction.length === 0 && (
+            <Text size="2" color="gray">
+              {tSearch("notFoundHint")}
+            </Text>
+          )}
+        </Flex>
+        {answer.correction.length > 0 && <CorrectionOffer words={answer.correction} t={tSearch} />}
       </Flex>
     );
   }
