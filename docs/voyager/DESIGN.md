@@ -766,3 +766,28 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   become unreachable by any typed query — `normaliseHeadword` strips a trailing period before the
   index is ever consulted, so `b.` already collapsed to the same `b` the bare letter did; there was
   no second spelling to fall back to, and this fix removes the only one that reached them.
+
+- **The senses of a headword are ordered by measured frequency, not by a fixed rank. Decided by the
+  user 2026-09-11.** `index-build.ts:22`'s `POS_RANK` put `v` before `n` so that «leave» would show
+  «dejar» before «permiso»; the same rank is what put `grudge`'s rare verb «diñar de mala gana» in
+  front of «rencor», which the user hit reading. No single rank gives both, because the right order
+  is a fact about each word. Measured against the built index that day: 4,650 of 58,946 headwords
+  carry more than one part of speech, SUBTLEX-US covers 3,888 of them, 2,681 can be ordered, and
+  **1,797 of those 2,681 — 67.0% — sit in the wrong order today**. The 762 headwords SUBTLEX has no
+  row for keep `POS_RANK` and change nothing.
+- **Quote the generator, never the prototype that argued for it.** The measurement that opened this
+  decision said 1,808 rows and a 40.9 KB table; what shipped is 1,797 and 54.4 KB, and for a day the
+  paragraph carrying a non-commercial licence decision described neither. The eleven rows are
+  headwords used equally often in two parts of speech, where nothing defines a winner; the kilobytes
+  are the one-entry-per-line format the repo prefers over a minified line. `npm run pos:build`
+  prints both numbers, so there is no reason to carry an older one.
+- **Its source is CC BY-NC-SA 4.0, and that price was taken knowingly.** SUBTLEX-US with
+  part-of-speech information is non-commercial and share-alike, so the derived table ships under the
+  same licence and the app stays non-commercial while it does. The credit goes on `/cuenta`, in
+  `CuentaInformacion`, as one more `MetaLabel` block beside the dictionary's own FreeDict credit and
+  the per-photo credits.
+- **No board was drawn for either, and neither needs one.** The order changes what a sense list
+  says, never how it is drawn: `PalabraCategoria` already draws a stack of sense groups behind their
+  category labels, in all four faces, and a stack reordered is the same board. The attribution is the fourth repetition of a block
+  `CuentaInformacion` already draws three times — same `MetaLabel`, same `Text`, same `Separator`,
+  no new layout, no new control. A face nobody drew here is a face nobody needed.

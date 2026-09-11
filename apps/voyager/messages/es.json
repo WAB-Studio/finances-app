@@ -158,6 +158,8 @@
       "dictionaryStats": "{entries} entradas · {edition} · {size} en este dispositivo.",
       "licenceLabel": "Licencia",
       "licenceCredit": "Obra derivada de DBnary, bajo <cc>CC BY-SA 3.0</cc>. Esta app la distribuye bajo la misma licencia.",
+      "frequencyLabel": "Orden de las acepciones",
+      "frequencyCredit": "El orden en que se muestran las acepciones de una palabra viene de <source>SUBTLEX-US con información gramatical</source>, bajo <cc>CC BY-NC-SA 4.0</cc>. Esta app distribuye esa tabla bajo la misma licencia, sin uso comercial.",
       "photosLabel": "Fotos",
       "photosIntro": "Cada foto que has visto, con su autor y su licencia.",
       "photosEmpty": "Todavía no has resuelto ninguna foto.",
