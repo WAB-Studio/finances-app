@@ -1,7 +1,8 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import path from "node:path";
 
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "./fixtures";
+import type { Page } from "@playwright/test";
 import postgres from "postgres";
 
 import messages from "../messages/es.json";
@@ -37,13 +38,6 @@ async function hideTab(page: Page): Promise<void> {
     Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
     document.dispatchEvent(new Event("visibilitychange"));
   });
-}
-
-// Stubs the two routes `useDecoration` calls once a word settles, so this
-// suite never reaches Openverse or the paid model.
-async function stubDecorationRoutes(page: Page): Promise<void> {
-  await page.route("**/api/word/photo", (route) => route.fulfill({ status: 204 }));
-  await page.route("**/api/word/text", (route) => route.fulfill({ status: 204 }));
 }
 
 // `useDecoration`'s own debounce (`PHRASE_DEBOUNCE_MS`) plus margin: long
@@ -225,7 +219,6 @@ test("RNL-09: with no account, ten keystrokes and a hidden tab issue nothing to 
 
 test("RL-14: the word-path guard holds with the sync driver mounted in the layout", async ({ page }) => {
   await deleteTranslator(page);
-  await stubDecorationRoutes(page);
 
   const assetResponse = page.waitForResponse(
     (response) => response.url().includes(manifest.asset.path) && response.ok(),

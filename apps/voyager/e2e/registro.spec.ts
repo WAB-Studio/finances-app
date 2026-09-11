@@ -2,7 +2,8 @@ import { randomBytes, randomUUID } from "node:crypto";
 import path from "node:path";
 
 import { createTranslator } from "next-intl";
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test } from "./fixtures";
+import type { Locator, Page } from "@playwright/test";
 import postgres from "postgres";
 
 import messages from "../messages/es.json";

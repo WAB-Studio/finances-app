@@ -1,7 +1,8 @@
 import fs from "node:fs/promises";
 
 import { createTranslator } from "next-intl";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "./fixtures";
+import type { Page } from "@playwright/test";
 
 import messages from "../messages/es.json";
 import manifest from "../public/dictionary/manifest.json";
@@ -24,13 +25,6 @@ async function deleteTranslator(page: Page): Promise<void> {
   await page.addInitScript(() => {
     delete (window as unknown as { Translator?: unknown }).Translator;
   });
-}
-
-// Stubs the two routes `useDecoration` calls once a word settles, so this
-// suite never reaches Openverse or the paid model.
-async function stubDecorationRoutes(page: Page): Promise<void> {
-  await page.route("**/api/word/photo", (route) => route.fulfill({ status: 204 }));
-  await page.route("**/api/word/text", (route) => route.fulfill({ status: 204 }));
 }
 
 // `useDecoration`'s own debounce (`PHRASE_DEBOUNCE_MS`) plus margin: long
@@ -207,7 +201,6 @@ test("RNL-08: /registro mounts no dictionary Worker, and searching issues no req
 }) => {
   await deleteTranslator(page);
   await countWorkerConstructions(page);
-  await stubDecorationRoutes(page);
 
   // Reached cold, the way a reader who never opened the box would reach it.
   await page.goto("/registro");

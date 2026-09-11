@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "./fixtures";
+import type { Page } from "@playwright/test";
 
 import messages from "../messages/es.json";
 import manifest from "../public/dictionary/manifest.json";
@@ -35,13 +36,6 @@ async function deleteSpeechSynthesis(page: Page): Promise<void> {
   await page.addInitScript(() => {
     delete (window as unknown as { speechSynthesis?: unknown }).speechSynthesis;
   });
-}
-
-// Stubs the two routes `useDecoration` calls once a word settles, so this
-// suite never reaches Openverse or the paid model.
-async function stubDecorationRoutes(page: Page): Promise<void> {
-  await page.route("**/api/word/photo", (route) => route.fulfill({ status: 204 }));
-  await page.route("**/api/word/text", (route) => route.fulfill({ status: 204 }));
 }
 
 // `useDecoration`'s own debounce (`PHRASE_DEBOUNCE_MS`) plus margin: long
@@ -136,7 +130,6 @@ test("RL-26: with no speechSynthesis, the control does not render at all", async
 test("RL-26: pressing the speak control fires no network request of its own", async ({ page }) => {
   await deleteTranslator(page);
   await captureSpeech(page);
-  await stubDecorationRoutes(page);
   await gotoReady(page);
 
   const searchBox = page.getByRole("textbox", { name: messages.search.label });

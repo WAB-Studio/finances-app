@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "./fixtures";
+import type { Page } from "@playwright/test";
 
 import messages from "../messages/es.json";
 import manifest from "../public/dictionary/manifest.json";
@@ -79,8 +80,13 @@ async function assertPngDecodes(page: Page, bytes: Buffer): Promise<void> {
 
 test("an abstract noun's photo request answers 204, and no <img> draws — not even an empty one", async ({
   page,
+  allowRealWordRoute,
 }) => {
   await deleteTranslator(page);
+  // This test's whole claim is about the real route's own guard (route.ts:90),
+  // not a stand-in for it — `./fixtures`'s default would give the same 204
+  // for a different reason and prove nothing.
+  await allowRealWordRoute("photo", "asserts the real guard rejects an abstract noun before Postgres or Openverse");
 
   const photoRequest = page.waitForResponse((response) => response.url().includes("/api/word/photo"));
   // `grudge` fails `isPhotographableHeadword` — abstract, never scored
@@ -97,8 +103,15 @@ test("an abstract noun's photo request answers 204, and no <img> draws — not e
   await expect(page.locator("img")).toHaveCount(0);
 });
 
-test("a concrete noun's photo request passes the guard, against the real route", async ({ page }) => {
+test("a concrete noun's photo request passes the guard, against the real route", async ({
+  page,
+  allowRealWordRoute,
+}) => {
   await deleteTranslator(page);
+  // Same reason as the abstract-noun case above: the claim is about the
+  // real guard letting a concrete noun through, which a stub cannot stand
+  // in for.
+  await allowRealWordRoute("photo", "asserts the real guard passes a concrete, cached noun through to a 200");
 
   const photoRequest = page.waitForResponse(
     (response) => response.url().includes("/api/word/photo") && response.request().method() === "POST",
@@ -128,8 +141,13 @@ test("a concrete noun's photo request passes the guard, against the real route",
 
 test("a concrete noun's cached photo draws real pixels, seeded rather than fetched from the bucket", async ({
   page,
+  allowRealWordRoute,
 }) => {
   await deleteTranslator(page);
+  // The POST must reach the real route (see the page.route comment below,
+  // on the GET) so the URL it hands back, `next/image` and this component
+  // wire together for real; only the bucket's own bytes are substituted.
+  await allowRealWordRoute("photo", "keeps the POST real so the wiring around it is real; only the GET is seeded");
 
   const seed = await drawSeedPng(page);
   await assertPngDecodes(page, seed);
