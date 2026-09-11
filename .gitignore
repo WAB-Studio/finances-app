@@ -53,6 +53,8 @@ CLAUDE.local.md
 
 # plans and local working notes: readable, never committed
 private/
+# OpenAI usage exports: account-wide, not this app's, and never a commit.
+completions_usage_*.csv
 .claude/usage-log.tsv
 
 # the dictionary build's downloaded tarball and extracted TEI source

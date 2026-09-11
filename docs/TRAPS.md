@@ -1593,7 +1593,7 @@ el candidato que lo pase**, pasando al siguiente — no lo recortes después de 
 
 ## El CSV de OpenAI no dice lo que gastó la app
 
-Medido 2026-09-11, sobre `completions_usage_2026-08-12_2026-09-11.csv`, un mes entero: **421
+Medido 2026-09-11, sobre el export de la cuenta en `private/openai/`, un mes entero: **421
 peticiones** en el proyecto, repartidas así.
 
 | modelo | peticiones | ¿lo llama este repo? |
