@@ -1786,3 +1786,35 @@ all. A reader typing a real word never trips it; a caller wrapping one in markup
 
 The general shape: **a gate that runs after a cleaner is a gate on the cleaner's output, not on the
 caller's input.** Put the equality check between them, or gate the raw string.
+
+## `linkInvalid` is a 504 on a one-shot token, not a quota limit
+
+The `redirected to .../cuenta?error=linkInvalid` intermittent has now fired three times —
+`sync.spec.ts:326` and `registro.spec.ts:348` on 2026-09-11, `offline.spec.ts:177` on CI on
+2026-09-12 — and the third one finally arrived with its server log attached.
+**`private/flake-linkinvalid-offline-177/`**, downloaded from the run's own artifacts. The two
+earlier footprints were lost to reruns; this one came off CI, where a passing rerun cannot wipe it.
+
+What the log says, in order, inside one sign-in:
+
+```
+magic link verification failed  AuthRetryableFetchError: Gateway Timeout       status 504
+magic link verification failed  AuthApiError: Email link is invalid or has expired
+                                                            status 403, code otp_expired
+```
+
+**A magic link is single-use.** The 504 is the gateway giving up on a call Supabase had already
+begun, so the token was spent by the time the error surfaced. `AuthRetryableFetchError` says
+retryable in its own name, the client retried, and the retry met a consumed token — `otp_expired`.
+The visible symptom, `linkInvalid`, is the second error; the cause is the first.
+
+**This does not reopen the separate-Supabase-project question, and now for a reason rather than for a
+missing footprint.** `AGENTS.md` asks for "an actual quota error code, not an inference". 504 is a
+gateway timeout and `otp_expired` is a spent token. Neither is a quota. Nothing here shows a limit
+being hit.
+
+**Do not buy quiet on it.** No `retry`, no `waitFor`, no `sleep`, and do not serialize lanes —
+`retries: 0` is deliberate. The honest fix lives in the sign-in path, not in the spec: a 504 on
+`verifyOtp` must not be retried, because the operation underneath it is not idempotent. Treat
+`AuthRetryableFetchError` on `verifyOtp` as terminal and say so to the reader, rather than spending
+their only link on a retry that cannot succeed.
