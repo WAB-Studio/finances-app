@@ -120,13 +120,22 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   2026-09-07. Checked 2026-09-08: the published canvas contains the string `Noche` zero times.
   Nothing on it contradicts this file any more.
 - When a board and this file disagree, **this file wins**.
-- **The canvas is 141 boards**, counted 2026-09-11 from **version 32**'s own `appifact-doc` block
+- **The canvas is 142 boards**, counted 2026-09-12 from **version 33**'s own `appifact-doc` block
+  (143 `.dc.html` files plus `canvas.json`). The one added is RL-44's fourth state,
+  `SinResultadoIASinDefinicion`, on the primary face and with no second face.
+- **The canvas was 141 boards**, counted 2026-09-11 from **version 32**'s own `appifact-doc` block
   (142 `.dc.html` files, of which `Main.dc.html` is the entry, plus `canvas.json`). It was 135 at
   version 31; the seven added are RL-44's three, RL-47's two, RL-45's one and RL-46's one, all on the
   primary face and none with a second face.
 - **Read the canvas by extracting it, never by reading the page in.** `action: "read"` prints a head
   that is the editor's own stylesheet and its base64 font — tens of thousands of tokens before a
-  single board. It saves the whole file to disk and that file is the artifact: pull
+  single board. **Saving to disk does not spare you that head: the tool prints it and saves the file,
+  both.** Paid again 2026-09-12, with this warning already written here. There is no way to ask for
+  the file alone, so budget the head once per session and never read it twice.
+- **Republishing strips a wrapper.** The saved file opens with the publish-time skeleton — a
+  `<!doctype html><html><head>` with a small reset — and the canvas's own document starts at the
+  *second* `<!doctype html>`, at byte 356. Publish from that offset, with the trailing
+  `</body></html>` of the wrapper removed, or the page is wrapped twice. It saves the whole file to disk and that file is the artifact: pull
   `content.files` out of the `appifact-doc` script block into one file per board, edit those, and
   rebuild. Verified 2026-09-11 by round-tripping 142 files back through the page's own parse.
 - **The canvas was 126 boards**, counted 2026-09-10 from the published file's `appifact-doc` block.
@@ -951,8 +960,20 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
     not spinning), `SinResultadoIA` (translation, English definition, example with its Spanish),
     `SinResultadoIAFallo` (the `## Failure` shape: hairline, failure line in full-weight ink, retry
     in the ordinary accent button — no red is added, this palette has none).
+  - **An answer that arrives without a definition drops the line, and is not a failure. Decided by
+    the user 2026-09-12.** `definition` is `string|null` in the route's own contract, so the state is
+    reachable and not an edge. The label «Definición en inglés» and its paragraph both disappear and
+    the hairline closes over the example — no reserved gap, and no text explaining the absence. A
+    technical word whose translation is its cognate is answered in full by the example; calling that
+    a failure would throw away what did arrive. A missing *translation* is a different thing: there
+    is no answer at all, and that state stays `SinResultadoIAFallo`.
+  - Board, canvas **version 33**, page «Buscar · sin respuesta»: `SinResultadoIASinDefinicion`,
+    dark × mobile, fourth in the RL-44 row at x 1440. It takes for granted that translation and
+    example are both there.
   - **Stale: `SinResultadoSinPista`**, which draws the dead end this replaces, and the light
     `SinResultadoIA` / `SinResultadoIAFallo` pair, drawn behind a control that no longer exists.
+  - **No board exists for the light face of any of RL-44's four states, and none is needed**: the
+    token table says what light is, and drawing it again repeats a decision instead of taking one.
 
 - **A dictionary answer that is thin is completed over the network. Decided by the user
   2026-09-11**, on their own words about `snuff`: «me dice palabras todas tontas cuando en google sí
