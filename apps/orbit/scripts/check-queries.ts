@@ -114,6 +114,10 @@ import {
   getTransactionFormOptions,
 } from "@/db/queries/transaction-form";
 import {
+  listSourcesForTransaction,
+  recordTransactionSource,
+} from "@/db/queries/transaction-sources";
+import {
   createTransaction,
   deleteTransaction,
   getTransactionById,
@@ -3044,6 +3048,114 @@ async function timingSuite(): Promise<void> {
       getDebtOverview(),
     );
   });
+}
+
+/**
+ * RF-134's read/write half, driven against a real two-leg movement the seeded
+ * user already owns — no transaction is minted for this alone. Not in
+ * `CLEANUP_ORDER`: the table has no writer anywhere else yet, so this suite
+ * deletes every row it makes itself, at its own end, rather than through `track`.
+ */
+async function transactionSourceSuite(): Promise<void> {
+  const seededOwner = { id: SEEDED_USER_ID, email: "seeded@harness.invalid" };
+  const tag = randomUUID().slice(0, 8);
+  const createdIds: string[] = [];
+
+  const [movement] = await fixtureSql<
+    { m1_id: string; from_account_id: string; to_account_id: string; m2_id: string | null }[]
+  >`
+    with m1 as (
+      select id, from_account_id, to_account_id
+      from transactions
+      where owner_user_id = ${SEEDED_USER_ID}
+        and from_account_id is not null and to_account_id is not null
+      order by id
+      limit 1
+    )
+    select m1.id as m1_id, m1.from_account_id, m1.to_account_id,
+      (select t2.id from transactions t2
+         where t2.owner_user_id = ${SEEDED_USER_ID}
+           and t2.id <> m1.id
+           and (t2.from_account_id = m1.from_account_id or t2.to_account_id = m1.from_account_id)
+         limit 1) as m2_id
+    from m1`;
+
+  const bothLegsRecorded = next(
+    "recordTransactionSource writes one row per leg, both read back by listSourcesForTransaction",
+  );
+  let fromRef: string | null = null;
+  if (!movement) {
+    skip(bothLegsRecorded, "the seeded user has no two-leg movement to hang the rows off");
+  } else {
+    fromRef = `harness-from-${tag}`;
+    const toRef = `harness-to-${tag}`;
+    try {
+      await asUser(seededOwner, async () => {
+        const from = await recordTransactionSource({
+          transactionId: movement.m1_id,
+          accountId: movement.from_account_id,
+          statementId: null,
+          sourceRef: fromRef,
+          sourceSeq: null,
+        });
+        if (from) createdIds.push(from.id);
+
+        const to = await recordTransactionSource({
+          transactionId: movement.m1_id,
+          accountId: movement.to_account_id,
+          statementId: null,
+          sourceRef: toRef,
+          sourceSeq: null,
+        });
+        if (to) createdIds.push(to.id);
+
+        const rows = await listSourcesForTransaction(movement.m1_id);
+        const refs = rows.map((row) => row.sourceRef);
+
+        assert(
+          bothLegsRecorded,
+          from !== null && to !== null && refs.includes(fromRef) && refs.includes(toRef),
+          `from ${from ? "written" : "refused"}, to ${to ? "written" : "refused"}, listSourcesForTransaction read back ${rows.length} row(s): ${refs.join(", ")}`,
+        );
+      });
+    } catch (error) {
+      assert(bothLegsRecorded, false, refusal(error));
+    }
+  }
+
+  const duplicateRefRefused = next(
+    "a second leg reusing another movement's (account_id, source_ref) is refused 23505 at the database",
+  );
+  if (!movement?.m2_id || fromRef === null || createdIds.length === 0) {
+    skip(
+      duplicateRefRefused,
+      "the first leg never landed, so there is no (account_id, source_ref) pair to collide with",
+    );
+  } else {
+    try {
+      await asUser(seededOwner, () =>
+        recordTransactionSource({
+          transactionId: movement.m2_id!,
+          accountId: movement.from_account_id,
+          statementId: null,
+          sourceRef: fromRef,
+          sourceSeq: null,
+        }),
+      );
+      assert(duplicateRefRefused, false, "it was accepted, not refused");
+    } catch (error) {
+      assert(
+        duplicateRefRefused,
+        pgErrorCode(error) === "23505" &&
+          rootMessage(error).includes("transaction_sources_account_ref_unique"),
+        refusal(error),
+      );
+    }
+  }
+
+  if (createdIds.length > 0) {
+    await fixtureSql`delete from transaction_sources where id in ${fixtureSql(createdIds)}`;
+  }
 }
 
 async function main(): Promise<void> {
