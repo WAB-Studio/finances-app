@@ -229,7 +229,7 @@ this gets built, and no schema, table or column is "prepared for" it.
   word's translation, its definition and one example sentence with its Spanish translation. It says
   it did not come from the dictionary, and says plainly when it could not be produced. A hyphenated
   string the dictionary has no entry for reaches this answer like any other word.
-- [ ] **RL-45** — A dictionary answer that is thin — at most four translations, and either more than
+- [x] **RL-45** — A dictionary answer that is thin — at most four translations, and either more than
   one sense or no definition at all — is completed over the network. What arrives is
   added underneath what the dictionary said and marked as coming from the network; it never replaces
   it. What counts as thin is measured over the shipped index, not asserted.
