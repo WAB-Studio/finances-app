@@ -120,7 +120,16 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   2026-09-07. Checked 2026-09-08: the published canvas contains the string `Noche` zero times.
   Nothing on it contradicts this file any more.
 - When a board and this file disagree, **this file wins**.
-- **The canvas is 126 boards**, counted 2026-09-10 from the published file's `appifact-doc` block.
+- **The canvas is 141 boards**, counted 2026-09-11 from **version 32**'s own `appifact-doc` block
+  (142 `.dc.html` files, of which `Main.dc.html` is the entry, plus `canvas.json`). It was 135 at
+  version 31; the seven added are RL-44's three, RL-47's two, RL-45's one and RL-46's one, all on the
+  primary face and none with a second face.
+- **Read the canvas by extracting it, never by reading the page in.** `action: "read"` prints a head
+  that is the editor's own stylesheet and its base64 font — tens of thousands of tokens before a
+  single board. It saves the whole file to disk and that file is the artifact: pull
+  `content.files` out of the `appifact-doc` script block into one file per board, edit those, and
+  rebuild. Verified 2026-09-11 by round-tripping 142 files back through the page's own parse.
+- **The canvas was 126 boards**, counted 2026-09-10 from the published file's `appifact-doc` block.
   It was 168 that morning. **42 dark boards were deleted the same day**, on the user's decision, and
   the four-faces-per-state rule went with them (`AGENTS.md`, "Design").
 - **What was deleted, and how it was chosen.** A dark board was deleted when it is an exact colour
@@ -935,7 +944,15 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
     produced.** That half of `RL-29` survives into `RL-44` unchanged.
   - **The cost, taken knowingly:** one network call per word the dictionary misses, with nobody
     authorising it. `RNL-09` is untouched — what leaves is the word, never the record.
-  - Boards: **none yet.** `SinResultadoSinPista` draws the dead end this replaces and is now stale.
+  - Boards, canvas **version 32**, page «Buscar · sin respuesta», dark × mobile — the primary face,
+    and the only one: nothing but the palette changes in light, and `SinResultadoIA` /
+    `SinResultadoIAFallo` already stand in light from the control-first design.
+    `SinResultadoIACargando` (the word and the stamp painted at once, the rest reserved, quiet and
+    not spinning), `SinResultadoIA` (translation, English definition, example with its Spanish),
+    `SinResultadoIAFallo` (the `## Failure` shape: hairline, failure line in full-weight ink, retry
+    in the ordinary accent button — no red is added, this palette has none).
+  - **Stale: `SinResultadoSinPista`**, which draws the dead end this replaces, and the light
+    `SinResultadoIA` / `SinResultadoIAFallo` pair, drawn behind a control that no longer exists.
 
 - **A dictionary answer that is thin is completed over the network. Decided by the user
   2026-09-11**, on their own words about `snuff`: «me dice palabras todas tontas cuando en google sí
@@ -949,6 +966,10 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   - **What counts as thin is not decided yet, and it is the whole of this code's risk.** Too loose
     and every word pays a round trip; too tight and `snuff` stays wrong. Measure the distribution
     over the shipped index before writing the threshold, never after.
+  - Board, canvas **version 32**, page «Buscar · la palabra»: `PalabraCompletada`, dark × mobile.
+    The network line sits under the dictionary's own inside the same sense group, carrying a small
+    outlined «por internet» tag rather than the full-width stamp — provenance without turning half
+    the screen into labels. **No board for the un-completed case:** that is `Palabra`, unchanged.
 
 - **A translated sentence carries a note on the terms that are not obvious. Decided by the user
   2026-09-11**, on their own words: «aquí es donde me gustaría que al traducir una oración también
@@ -958,7 +979,10 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
     learned the words and not the thing.
   - The app picks which terms earn a note. A note on every word is `RL-31`'s word-by-word list,
     which already exists and is a different answer.
-  - Boards: **none yet.**
+  - Board, canvas **version 32**, page «Buscar · la frase»: `FraseConNotas`, dark × mobile. The
+    notes follow the sentence's own order, not importance: the reader is following their own text.
+    **No board for a sentence with no term worth a note** — the «En la oración» block is not drawn
+    and the screen is `Frase`, which already exists.
 
 - **The form the reader typed leads the answer, and the headword it inflects from sits underneath.
   Decided by the user 2026-09-11**, on their own words: «busco reading, la app debería decir
@@ -981,5 +1005,10 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   - **The cost, taken knowingly:** a network call on every inflected form the dictionary cannot
     translate on its own. Answering the form from the lemma where the inflection is regular was
     offered and **not** taken: the reader chose the form's own answer in every case.
-  - Boards: **none yet.** `PalabraConFlexion` and `Flexion` both draw the order this reverses and are
-    now stale.
+  - Boards, canvas **version 32**, page «Buscar · la palabra», dark × mobile: `PalabraFormaPropia`
+    and `PalabraFormaPropiaCargando`. The second draws the lemma and its groups already painted —
+    they come from the device — with the form's own answer reserved, quiet and not spinning, the
+    shape `PalabraTextoAntesDeFoto` settled 2026-09-11.
+  - **No board for the form the dictionary can translate on its own** (`left`): the «Por internet»
+    stamp is not drawn and nothing else changes, so drawing it would repeat a decision.
+  - **Stale: `PalabraConFlexion` and `Flexion`**, which both draw the order this reverses.
