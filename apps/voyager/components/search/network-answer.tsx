@@ -72,8 +72,7 @@ export function NetworkAnswer({ state, surface }: { state: NetworkAnswerState; s
   // itself would have answered `failed` (module 10's contract). `definition`
   // alone is `string | null` and reaching null here is not a failure — an
   // answer whose translation is its cognate is complete without one
-  // (docs/voyager/DESIGN.md "A word the dictionary has no entry for",
-  // decided 2026-09-12).
+  // (docs/voyager/DESIGN.md "A word the dictionary has no entry for").
   const hasDefinition = answer.definition !== null;
 
   return (
