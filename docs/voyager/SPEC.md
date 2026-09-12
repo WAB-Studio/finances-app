@@ -66,6 +66,13 @@ this gets built, and no schema, table or column is "prepared for" it.
   the form itself. The headword it inflects from sits **underneath**, named as such, with its own
   sense groups: `swishing` answers «silbando» and offers `swish` under it. An exact entry the reader
   typed on purpose still wins the top of the screen: `bed` answers as `bed` and offers nothing.
+  **When the form's suffix pins a part of speech — only a verb takes `-ing` or `-ed`, only an
+  adjective takes `-ly` — that group leads the headword's own, ahead of any frequency order.** It is
+  answered from the device and touches the network on no keystroke.
+
+- [ ] **RL-48** — A search that found nothing is recorded like any other the reader settled on, so the
+  record holds what the dictionary could not answer and not only what it could. The same settling rule
+  governs it: a word half-typed is never a row.
   - Measured 2026-09-10 by `apps/voyager/scripts/check-dictionary.ts`: **D7 back to 53/53** from the
     34 that `#128` left, and **D12 new — 27 candidates carried a defect before the filter, 0 after**.
     The filter is two rules, both driven against the shipped asset: a one-letter lemma is not a lemma

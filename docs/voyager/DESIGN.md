@@ -1111,3 +1111,58 @@ Median translation list this session: **4**. But **13 of 45 words carry 8 or mor
 degenerado, depravado»; `gnaw` offers «chancomer, rosigar, rustir, concomer, recomer, reconcomer»;
 `pullet` offers «polla» alone, which is vulgar in half the language's speakers. `RL-45` completes the
 thin end. **Nothing trims the padded end, and no code is opened for it** — it is the user's to decide.
+
+### Pruning the dictionary was measured and refused, 2026-09-12
+
+The user asked for the padded translation lists to be trimmed when the asset is built. **Measured,
+there is almost nothing to trim, and trimming would not have changed one word of their chapter.**
+
+- **Within a part-of-speech group — which is how the screen draws it — the median is 1 translation
+  and the 90th percentile is 4.** Only 5.9% of the 64,258 groups hold more than five. Cutting every
+  group to five removes 7.3% of the asset's translations and touches tails the reader never reaches.
+- The mechanical rules fare no better. Dropping a translation that echoes the English headword is
+  4.42% of all translations; dropping a gloss of three words or more is 11.4%; together they take
+  15.8% and leave **10,335 senses with nothing at all**, so a floor would hand most of it straight
+  back. Against the reader's own chapter: `creep` 10 → 9, `clamp` 10 → 9, `gnaw` 9 → 9,
+  `trample` 10 → 10, `pullet` 1 → 1. Nothing that mattered moved.
+- **The flat soup the reader saw was `/registro`, not the word screen.** `RL-34` stores one
+  translation string cut to 120 characters, so the record flattens every group into one line —
+  «deformación por fluencia lenta, fatiga, alimaña, degenerado» is that field, not the answer.
+
+**The real defect is which group leads, and a corpus cannot fix it.** `creep`'s noun group holds 8
+translations and leads; its verb group holds 2 — «reptar, hormiguear» — and comes second. `RL-43`
+would keep it that way: SUBTLEX scores `creep` **`"nv"`**, and in film subtitles the noun really is
+commoner. A corpus-wide order cannot know the reader is in *Animal Farm*.
+
+**What the reader typed knows more than the corpus does.** Measured over their 21 inflected forms:
+**16 carry a suffix that pins a part of speech** — only a verb takes `-ing` or `-ed`, only an
+adjective takes `-ly` — and **in 5 of those 16 the group that leads is the wrong one**, every one of
+them a case `RL-43`'s table would also get wrong:
+
+| form | lemma | leads | the suffix demands | SUBTLEX says |
+|---|---|---|---|---|
+| `creeping` | `creep` | noun | verb | `nv` |
+| `shrieked` | `shriek` | noun | verb | `nv` |
+| `frosted` | `frost` | noun | verb | `nv` |
+| `toiled` | `toil` | noun | verb | `nv` |
+| `sternly` | `stern` | noun | adjective | `nj` |
+
+- **This becomes a clause of `RL-47`, not a code of its own:** when the form's suffix pins a part of
+  speech, that group leads. It is the same decision — the form the reader typed governs the answer —
+  and it costs **no network call and no table**: the suffix is already parsed to find the lemma.
+- It is the cheapest thing in this slice and it fixes `sternly` → «popa» outright, on the device,
+  with no connection.
+- **`pullet` → «polla», alone, is none of the above.** One sense, one translation, and that
+  translation is vulgar to half the language's speakers. It is not padding and not order: the
+  dictionary is simply thin there, which is `RL-45`'s case.
+
+- **A search that found nothing is recorded too. Decided by the user 2026-09-12.** Written as
+  `RL-48`. `lib/log/record.ts:252` keeps `{exact, inflected, translated}` and drops `miss` and
+  `untranslated` before they reach IndexedDB — deliberately, because every prefix of a word being
+  typed is a miss. The settling rule already solves that: it is what stops «wher» becoming a row, and
+  it applies to a miss exactly as it applies to a hit.
+  - What it cost: the reader's own log held **0 misses** for the evening whose screenshots show four
+    — `whereat`, `coccidiosis`, `mangels`, `milk-pails`. The words that failed them are the only ones
+    the app throws away, and how often the dead end fires cannot be counted from the record.
+  - **No new screen, and no board.** `/registro` draws a recorded lookup; this adds rows to it, not a
+    view. The user was offered a «what I could not answer» screen and did not take it.
