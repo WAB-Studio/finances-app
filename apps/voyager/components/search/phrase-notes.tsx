@@ -78,8 +78,8 @@ export function PhraseNotes({ source, translation }: { source: string; translati
     );
   }
 
-  // Cero notas es una respuesta válida (RL-46): la traducción ya contestó,
-  // y ese silencio es la pantalla de hoy.
+  // Zero notes is a valid answer (RL-46): the translation already replied,
+  // and that silence is the screen as it stands today.
   if (result.notes.length === 0) return null;
 
   return (
