@@ -7,14 +7,11 @@ import { MODEL_NAME } from "@/lib/word/model";
 
 const CHAT_COMPLETIONS_ENDPOINT = "https://api.openai.com/v1/chat/completions";
 
-// `reasoning_effort: "low"`, the same choice `lib/word/model.ts` measured —
-// but not its 700-token cap. Measured 2026-09-10 there for two fields
-// (definition, example); this route asks a third (translations) and, on a
-// genuinely unlisted word or a bare inflected form, reasons harder about
-// what the word even is. Measured here 2026-09-12: "coccidiosis" span 576
-// reasoning tokens plus content, "swishing" span 1,024 — both spent the
-// entire 700-token and 1,000-token budgets on reasoning alone and returned
-// empty content (`finish_reason: "length"`) before this was raised.
+// `reasoning_effort: "low"` is `lib/word/model.ts`'s choice, but not its
+// 700-token cap: that one covers two fields, and this route asks a third
+// while reasoning about a word it has no entry for. "coccidiosis" spends 576
+// reasoning tokens and "swishing" 1,024, so at 700 or 1,000 the whole budget
+// goes to reasoning and the call returns empty on `finish_reason: "length"`.
 const REASONING_EFFORT = "low";
 const MAX_OUTPUT_TOKENS = 2000;
 
