@@ -1740,3 +1740,30 @@ dibujar píxeles reales **no puede pasar en CI jamás**, con o sin credenciales 
   en el cliente (`.startsWith("/api/word/photo?")`), así que `fetchPhoto` cae a `catch` y la foto
   queda `{ kind: "absent" }`: ni siquiera se monta un `<img>`. La prueba se pone roja en
   `expect(img).toBeVisible()`, antes de llegar a la interceptación.
+
+## The CREATE TABLE auto-grant does not reach a schema Supabase did not make
+
+`AGENTS.md` says to revoke ALL from `anon`, `authenticated` and `service_role` in every migration that
+creates a table, because "Supabase grants them at `CREATE TABLE`". **Keep doing it — and know that in
+`apps/voyager`'s `reading` schema the grant it defends against never arrives.**
+
+Measured 2026-09-12 against the live database:
+
+- `pg_default_acl` carries rows for `graphql`, `graphql_public`, `extensions`, `realtime`, `cron` and
+  `public` — and **none at all for `reading`**. Default privileges are per-schema and Supabase sets
+  them only on the schemas it creates. `reading` was created by a migration of ours, so it inherited
+  nothing.
+- A table created inside a rolled-back transaction on `reading` with no `REVOKE` still answered
+  `42501` to `anon` and `authenticated`. That is the auto-grant failing to happen, not a revoke
+  working.
+- The three tables migration `0002` added — `word_answers`, `phrase_notes`, `client_spend` — carry
+  **zero grants** to those three roles and have RLS on. The only live grants in `reading` are
+  `devices` and `lookups` → `authenticated` → `SELECT, DELETE`, which are deliberate and RLS-scoped.
+
+**What this changes:** nothing about what you write, and one thing about what you conclude. A negative
+control that removes the `REVOKE` and then watches `anon` get refused **has proved nothing** in this
+schema — it would be refused either way. Prove a grant by reading `information_schema.role_table_grants`
+for the table you just made, not by revoking and watching a query fail.
+
+`apps/orbit` is where the rule was learned and its tables live in `public`, which **does** carry
+default ACL rows. The rule is right there and cheap everywhere, so it stays as written.
