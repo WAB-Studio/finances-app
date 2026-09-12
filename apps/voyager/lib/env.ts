@@ -28,6 +28,15 @@ export const env = createEnv({
     // The daily ceiling on RL-36 photos ingested from Openverse. Same shape,
     // same reason.
     WORD_PHOTO_DAILY_CAP: z.coerce.number().int().positive().optional(),
+    // The daily ceiling on RL-44/RL-47 calls per caller, keyed by a salted
+    // hash of the IP. Optional: unset means 204 for every caller.
+    WORD_UNLISTED_DAILY_CLIENT_CAP: z.coerce.number().int().positive().optional(),
+    // The daily ceiling on RL-46 phrase-notes model calls. Same shape as
+    // WORD_TEXT_DAILY_CALL_CAP.
+    PHRASE_NOTES_DAILY_CALL_CAP: z.coerce.number().int().positive().optional(),
+    // Salts the per-caller hash WORD_UNLISTED_DAILY_CLIENT_CAP counts against,
+    // so the IP itself is never stored.
+    CLIENT_KEY_SALT: z.string().min(16).optional(),
     // Supabase Storage's S3-compatible endpoint, region and bucket, and an
     // S3 access key pair scoped to Storage alone (see the file comment
     // above). All four optional together: missing any one, the photo route
