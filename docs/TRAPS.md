@@ -1787,34 +1787,34 @@ all. A reader typing a real word never trips it; a caller wrapping one in markup
 The general shape: **a gate that runs after a cleaner is a gate on the cleaner's output, not on the
 caller's input.** Put the equality check between them, or gate the raw string.
 
-## `linkInvalid` is a 504 on a one-shot token, not a quota limit
+## `linkInvalid` is a 504 the reader is told is a broken link
 
-The `redirected to .../cuenta?error=linkInvalid` intermittent has now fired three times —
-`sync.spec.ts:326` and `registro.spec.ts:348` on 2026-09-11, `offline.spec.ts:177` on CI on
-2026-09-12 — and the third one finally arrived with its server log attached.
-**`private/flake-linkinvalid-offline-177/`**, downloaded from the run's own artifacts. The two
-earlier footprints were lost to reruns; this one came off CI, where a passing rerun cannot wipe it.
+The `redirected to .../cuenta?error=linkInvalid` intermittent has fired four times —
+`sync.spec.ts:326` and `registro.spec.ts:348` on 2026-09-11, `offline.spec.ts:177` on CI twice on
+2026-09-12. Two footprints survive, both off CI where a passing rerun cannot wipe them:
+**`private/flake-linkinvalid-offline-177/`**, the second under `sample-2-run-34712443635/`.
 
-What the log says, in order, inside one sign-in:
+**An earlier reading of this said the client retried and met a spent token. It does not, and the
+arithmetic says so.** The run's whole server log holds exactly two `magic link verification failed`
+lines: one `AuthRetryableFetchError: Gateway Timeout` (504) and one `AuthApiError ... otp_expired`.
+`sync.spec.ts:643` sends a deliberately bogus hash and expects the rejection, and it **passed** in
+that same run — so it logged exactly one `otp_expired`, which accounts for that line in full. The
+failing test logged **only the 504**.
 
-```
-magic link verification failed  AuthRetryableFetchError: Gateway Timeout       status 504
-magic link verification failed  AuthApiError: Email link is invalid or has expired
-                                                            status 403, code otp_expired
-```
+Nothing retries. `app/auth/confirm/route.ts` calls `verifyOtp` once; `signInAs` calls the route
+once with `maxRedirects: 0`. Count the log lines against the tests that ran before inferring a
+second attempt from an error that merely has "Retryable" in its name.
 
-**A magic link is single-use.** The 504 is the gateway giving up on a call Supabase had already
-begun, so the token was spent by the time the error surfaced. `AuthRetryableFetchError` says
-retryable in its own name, the client retried, and the retry met a consumed token — `otp_expired`.
-The visible symptom, `linkInvalid`, is the second error; the cause is the first.
+**So the cause is one gateway timeout, and the defect it exposes is a product one.**
+`route.ts:48` is `if (error || !data.user) return invalidLink(...)` — every failure collapses into
+one message. A reader whose verification times out is told their link is **invalid or expired**
+when it is neither: the link is still good and the same one would work. They will ask for another
+email instead, and each one is a real send from the user's own Gmail.
 
-**This does not reopen the separate-Supabase-project question, and now for a reason rather than for a
-missing footprint.** `AGENTS.md` asks for "an actual quota error code, not an inference". 504 is a
-gateway timeout and `otp_expired` is a spent token. Neither is a quota. Nothing here shows a limit
-being hit.
+**This does not reopen the separate-Supabase-project question.** `AGENTS.md` asks for "an actual
+quota error code, not an inference". A 504 is a gateway timeout. Nothing here shows a limit.
 
 **Do not buy quiet on it.** No `retry`, no `waitFor`, no `sleep`, and do not serialize lanes —
-`retries: 0` is deliberate. The honest fix lives in the sign-in path, not in the spec: a 504 on
-`verifyOtp` must not be retried, because the operation underneath it is not idempotent. Treat
-`AuthRetryableFetchError` on `verifyOtp` as terminal and say so to the reader, rather than spending
-their only link on a retry that cannot succeed.
+`retries: 0` is deliberate. A 504 on `verifyOtp` must still never be retried: the operation
+underneath is not idempotent, and the timeout says nothing about whether the token was spent. The
+fix is to tell the reader which of the two happened, not to try again for them.
