@@ -233,7 +233,7 @@ this gets built, and no schema, table or column is "prepared for" it.
   one sense or no definition at all — is completed over the network. What arrives is
   added underneath what the dictionary said and marked as coming from the network; it never replaces
   it. What counts as thin is measured over the shipped index, not asserted.
-- [ ] **RL-46** — A sentence answered by translation also names the terms in it that are not obvious
+- [x] **RL-46** — A sentence answered by translation also names the terms in it that are not obvious
   and says what they are. The app picks which terms earn a note; a note on every word is RL-31's
   answer, not this one.
 - [ ] **RL-31** — A string of more than one word that the dictionary has no entry for, and that is
