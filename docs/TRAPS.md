@@ -1767,3 +1767,22 @@ for the table you just made, not by revoking and watching a query fail.
 
 `apps/orbit` is where the rule was learned and its tables live in `public`, which **does** carry
 default ACL rows. The rule is right there and cheap everywhere, so it stays as written.
+
+## Normalising before you check the shape launders markup into a real word
+
+`apps/voyager/lib/word/admit.ts` gates which strings may reach a paid model on a route the dictionary
+cannot vouch for. The obvious order — normalise, then test the shape — **is a hole**, and module 4's
+worker found it while building to a contract that specified exactly that order.
+
+`normaliseHeadword("<script>")` strips the angle brackets and hands back `script`, which is a real
+dictionary headword and passes `^[a-z][a-z'-]{1,31}$` cleanly. Every character class the gate means to
+refuse — markup, quotes, semicolons — is the character class the normaliser is built to remove, so
+normalising first hands the gate a laundered string and the gate admits it.
+
+**Reject anything whose normalisation changed it.** `admitWord` compares `normaliseHeadword(raw)`
+against `raw.trim().toLowerCase()` and returns `null` when they differ, before testing the shape at
+all. A reader typing a real word never trips it; a caller wrapping one in markup always does.
+`check:admission` D11 drives it, and D10 drives `snuff'; drop table --` the same way.
+
+The general shape: **a gate that runs after a cleaner is a gate on the cleaner's output, not on the
+caller's input.** Put the equality check between them, or gate the raw string.
