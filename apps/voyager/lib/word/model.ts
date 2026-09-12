@@ -17,11 +17,11 @@ const CHAT_COMPLETIONS_ENDPOINT = "https://api.openai.com/v1/chat/completions";
 // unset, never "minimal" for this task.
 const REASONING_EFFORT = "low";
 
-// Raised from 700 to 2000, 2026-09-12: RL-45's "translations" field pushed
-// this model's own reasoning past that cap on 3 of 4 tries against `snuff`
-// — `finish_reason: "length"`, 700 reasoning tokens spent, zero of content,
-// so the JSON truncates to nothing and the whole call answers null. Four
-// tries at 2000 all finished with content, reasoning between 320 and 960.
+// RL-45's "translations" field pushes this model's own reasoning past 700 on
+// 3 of 4 tries against `snuff` — `finish_reason: "length"`, the whole budget
+// spent on reasoning and none on content, so the JSON truncates to nothing
+// and the call answers null. At 2000 every try finishes, reasoning between
+// 320 and 960, and a word that is not thin still spends only 193 to 321.
 const MAX_OUTPUT_TOKENS = 2000;
 
 type ChatCompletionsPayload = {
