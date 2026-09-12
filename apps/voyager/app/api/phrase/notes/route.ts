@@ -95,7 +95,7 @@ export async function POST(request: Request): Promise<Response> {
   // no chargeable client, over either cap, a provider failure, or a
   // generation that fails to validate all answer `204` — the same
   // "no connection" screen already drawn (RL-35).
-  if (!env.OPENAI_API_KEY || !env.PHRASE_NOTES_DAILY_CALL_CAP) {
+  if (!env.OPENAI_API_KEY || !env.PHRASE_NOTES_DAILY_CALL_CAP || !env.PHRASE_NOTES_DAILY_CLIENT_CAP) {
     return empty(204);
   }
 
@@ -106,8 +106,18 @@ export async function POST(request: Request): Promise<Response> {
   if (!client) {
     return empty(204);
   }
-  await claimClientCall(client);
 
+  // The same `reading.client_spend` row `/api/word/unlisted` bumps for this
+  // caller, read against this route's own ceiling — never against
+  // WORD_UNLISTED_DAILY_CLIENT_CAP, and never left unread the way it was.
+  const clientCalls = await claimClientCall(client);
+  if (clientCalls > env.PHRASE_NOTES_DAILY_CLIENT_CAP) {
+    return empty(204);
+  }
+
+  // Sequential, not `Promise.all` with the claim above: both are writes
+  // that bump a counter, and run in parallel the second one climbs even
+  // when the first should already have refused the request.
   const calls = await claimDailyCall();
   if (calls > env.PHRASE_NOTES_DAILY_CALL_CAP) {
     return empty(204);

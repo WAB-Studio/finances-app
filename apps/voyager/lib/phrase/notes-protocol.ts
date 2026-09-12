@@ -28,7 +28,10 @@ export type NotesResponse = z.infer<typeof notesResponseSchema>;
 
 const MAX_CHARS = 200;
 const MIN_TOKENS = 2;
-const MAX_SOURCE_TOKENS = 12;
+// Shared by both strings: the source is a sentence of real words, and a
+// translation this long is already past what one note-worthy sentence
+// looks like — nothing in the contract asks for two different ceilings.
+const MAX_PHRASE_TOKENS = 12;
 
 // Whitespace and `.,;:'"?!` both break a token — this is the one place a
 // contraction or a quoted word costs the gate: "don't" splits into "don"
@@ -39,6 +42,43 @@ const SEPARATOR = /[\s.,;:'"?!]+/;
 
 export function tokenisePhrase(s: string): string[] {
   return s.split(SEPARATOR).filter(Boolean);
+}
+
+// The translation is Spanish prose, not a word list, so `admitWord` never
+// runs on it — it would refuse "año" and "¿qué" as readily as it refuses
+// `<script>`. Its own shape is looser on the alphabet (accents, ñ, ü, the
+// opening ¿¡) and tighter nowhere `admitWord` already is not: no `<`, no
+// `>`, no CJK or kana, no fullwidth Latin. `À-ÖØ-öø-ÿ` is the Latin-1
+// accented block end to end; it excludes `×` and `÷`, the two symbols that
+// sit in its gaps, and it excludes every fullwidth or CJK codepoint outright
+// — they are a different block, not a different case of the same letter.
+const TRANSLATION_SHAPE = /^[A-Za-zÀ-ÖØ-öø-ÿ¿¡.,;:'"?!—-\s]+$/;
+
+// Only the whitespace collapse `normaliseHeadword` also opens with — never
+// its `\p{L}` trim, the step that laundered `<script>` into the real word
+// `script` (docs/TRAPS.md, "Normalising before you check the shape launders
+// markup into a real word"). Checking `TRANSLATION_SHAPE` against this
+// output is safe because nothing here can turn a character the shape
+// refuses into one it accepts.
+function collapseWhitespace(s: string): string {
+  return s.trim().replace(/\s+/g, " ");
+}
+
+/**
+ * Admits Spanish prose, never a lookup key. Returns the translation's own
+ * tokens on success or `null` on any failure. A fullwidth homoglyph such as
+ * `ｆｏｘ` is refused as typed rather than folded to `fox` by NFKC and
+ * accepted — the same choice `admitWord` already makes by never normalising
+ * a shape check's input, only its own trim.
+ */
+export function admitTranslation(translation: string): string[] | null {
+  const collapsed = collapseWhitespace(translation);
+  if (!TRANSLATION_SHAPE.test(collapsed)) return null;
+
+  const tokens = tokenisePhrase(collapsed);
+  if (tokens.length < MIN_TOKENS || tokens.length > MAX_PHRASE_TOKENS) return null;
+
+  return tokens;
 }
 
 /**
@@ -52,15 +92,16 @@ export function admitPhrase(source: string, translation: string): string[] | nul
   if (source.length > MAX_CHARS || translation.length > MAX_CHARS) return null;
 
   const sourceTokens = tokenisePhrase(source);
-  const translationTokens = tokenisePhrase(translation);
-  if (sourceTokens.length < MIN_TOKENS || translationTokens.length < MIN_TOKENS) return null;
+  if (sourceTokens.length < MIN_TOKENS) return null;
 
   for (const token of sourceTokens) {
     if (admitWord(token) === null) return null;
   }
 
   if (/\d/.test(source) || /\d/.test(translation)) return null;
-  if (sourceTokens.length > MAX_SOURCE_TOKENS) return null;
+  if (sourceTokens.length > MAX_PHRASE_TOKENS) return null;
+
+  if (admitTranslation(translation) === null) return null;
 
   return sourceTokens;
 }
