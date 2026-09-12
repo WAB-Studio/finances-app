@@ -1050,19 +1050,23 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   - The guard is the plan's, unchanged: **12 tokens, 200 characters, and the sentence is never stored
     in the clear.**
 
-- **«Thin» is `≤4 translations` and `(≥2 senses or no definition)`: 9,523 of 59,253 lemmas, 16.1%.
+- **«Thin» is `≤4 translations` and `(≥2 senses or no definition)`: 9,685 of 58,944 lemmas, 16.4%.
   Decided by the user 2026-09-11**, who asked for wider than the first rule measured.
-  - The ladder that produced it, measured over the shipped asset (59,253 distinct lemmas):
+  - The ladder that produced it. **These are `check:thinness`'s numbers, over the real runtime
+    pipeline**: `buildIndex` groups the shipped asset into **58,944 lemmas**, which is `manifest.json`'s
+    own count, asserted as D1. An earlier table here read 59,253 and was mine — I grouped raw entries by
+    headword string without `normaliseHeadword`, so variants counted as separate lemmas. The shape of
+    the conclusion did not move; every figure did, by about two tenths of a point.
 
     | rule | lemmas | share | catches |
     |---|---|---|---|
-    | `≤3 tr` and `≥2 senses` | 1,735 | 2.9% | `snuff` |
-    | `≤4 tr` and `≥2 senses` | 2,284 | 3.9% | `snuff`, `stern` |
-    | **`≤4 tr` and (`≥2 senses` or no definition)** | **9,523** | **16.1%** | `snuff`, `stern` |
-    | `≤5 tr` and (`≥2 senses` or no definition) | 10,507 | 17.7% | `snuff`, `stern` |
-    | `≤4 tr`, no sense floor | 53,332 | 90.0% | everything, including `swish` |
+    | `≤3 tr` and `≥2 senses` | 1,885 | 3.2% | `snuff` |
+    | `≤4 tr` and `≥2 senses` | 2,463 | 4.2% | `snuff`, `stern` |
+    | **`≤4 tr` and (`≥2 senses` or no definition)** | **9,685** | **16.4%** | `snuff`, `stern` |
+    | `≤5 tr` and (`≥2 senses` or no definition) | 10,681 | 18.1% | `snuff`, `stern` |
+    | `≤4 tr`, no sense floor | 52,991 | 89.9% | everything, including `swish` |
 
-  - **The sense floor is what stops it being every word**, and dropping it is the cliff: 3.9% → 90.0%
+  - **The sense floor is what stops it being every word**, and dropping it is the cliff: 4.2% → 89.9%
     in one step. What widens it safely is the missing definition — a word answered thinly **and** left
     undefined is thin twice over. That clause alone is 2.9% → 13.6%.
   - It catches `stern`, which the reader also hit: `sternly` answered «popa» off a 4-translation,
@@ -1087,7 +1091,7 @@ spinney`, `fore hoofs`, `snuffed the ground`.
   typed was a form, not a lemma, and this is the session that returned `swishing` → «sofisticado» and
   `sternly` → «popa».
 - **`RL-45`'s threshold holds against real use.** The rule catches **8 of these 45 words, 18%** —
-  `gilded`, `sleet`, `stern`, `snuff`, `envious`, `edible`, `shriek`, `rejoice` — against 16.1% of
+  `gilded`, `sleet`, `stern`, `snuff`, `envious`, `edible`, `shriek`, `rejoice` — against 16.4% of
   the dictionary at large. Calibrated, not lucky.
 - **The ceiling of 500 is now grounded.** This session alone is **45 + 21 + 10 ≈ 76 calls in 43
   minutes**. At 50 the reader hits the wall around minute 28, mid-chapter. 500 buys about 4.7 hours.
