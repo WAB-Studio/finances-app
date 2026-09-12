@@ -42,7 +42,10 @@ export const textResponseSchema = z.object({
   // RL-45: null for an answer the dictionary was never thin on. A thin one
   // asked over the network answers an array — empty if none came back — and
   // is never asked again (`word-texts.ts`'s `translationsAsked`).
-  translations: z.array(z.string().min(1)).nullable(),
+  // Absent parses as null rather than throwing: `use-decoration.ts` parses
+  // with `.parse`, so a body cached before this field existed would take the
+  // generated text down with it.
+  translations: z.array(z.string().min(1)).nullable().default(null),
 });
 export type WordText = z.infer<typeof textResponseSchema>;
 
