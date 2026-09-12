@@ -47,12 +47,21 @@ export function tokenisePhrase(s: string): string[] {
 // The translation is Spanish prose, not a word list, so `admitWord` never
 // runs on it — it would refuse "año" and "¿qué" as readily as it refuses
 // `<script>`. Its own shape is looser on the alphabet (accents, ñ, ü, the
-// opening ¿¡) and tighter nowhere `admitWord` already is not: no `<`, no
-// `>`, no CJK or kana, no fullwidth Latin. `À-ÖØ-öø-ÿ` is the Latin-1
-// accented block end to end; it excludes `×` and `÷`, the two symbols that
-// sit in its gaps, and it excludes every fullwidth or CJK codepoint outright
-// — they are a different block, not a different case of the same letter.
-const TRANSLATION_SHAPE = /^[A-Za-zÀ-ÖØ-öø-ÿ¿¡.,;:'"?!—-\s]+$/;
+// opening ¿¡, and the quoting marks «»""''… and – a Spanish sentence sets in)
+// and tighter nowhere `admitWord` already is not: no `<`, no `>`, no CJK or
+// kana, no fullwidth Latin. `À-ÖØ-öø-ÿ` is the Latin-1 accented block end to
+// end; it excludes `×` and `÷`, the two symbols that sit in its gaps, and it
+// excludes every fullwidth or CJK codepoint outright — they are a different
+// block, not a different case of the same letter.
+const TRANSLATION_SHAPE = /^[A-Za-zÀ-ÖØ-öø-ÿ¿¡.,;:'"?!—–«»…""''\s-]+$/;
+
+// A translation is one line of prose: nothing a reader types has any
+// business carrying a C0 control or DEL. Tested on the raw string, before
+// `collapseWhitespace` ever runs — that call folds `\n`, `\r` and a tab into
+// a plain space, which would launder every one of them past this check the
+// same way skipping straight to a trimmed shape test laundered `<script>`
+// into `script` (docs/TRAPS.md).
+const CONTROL_CHAR = /[\u0000-\u001F\u007F]/;
 
 // Only the whitespace collapse `normaliseHeadword` also opens with — never
 // its `\p{L}` trim, the step that laundered `<script>` into the real word
@@ -69,10 +78,17 @@ function collapseWhitespace(s: string): string {
  * tokens on success or `null` on any failure. A fullwidth homoglyph such as
  * `ｆｏｘ` is refused as typed rather than folded to `fox` by NFKC and
  * accepted — the same choice `admitWord` already makes by never normalising
- * a shape check's input, only its own trim.
+ * a shape check's input, only its own trim. NFC is the one normalisation
+ * this function does run: it composes a combining accent onto its base
+ * letter (`e` + U+0301 becomes the same `é` a reader who typed the
+ * precomposed form already sent), a canonical equivalence that never folds
+ * a fullwidth or CJK codepoint into a different block the way NFKC would.
  */
 export function admitTranslation(translation: string): string[] | null {
-  const collapsed = collapseWhitespace(translation);
+  const normalised = translation.normalize("NFC");
+  if (CONTROL_CHAR.test(normalised)) return null;
+
+  const collapsed = collapseWhitespace(normalised);
   if (!TRANSLATION_SHAPE.test(collapsed)) return null;
 
   const tokens = tokenisePhrase(collapsed);

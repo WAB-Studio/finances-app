@@ -93,6 +93,25 @@ const SCRIPT_TRANSLATION = "<script>alert(x)</script>";
 const HOMOGLYPH_TRANSLATION = "ｆｏｘ 日本語 テスト"; // "fox 日本語 テスト" in fullwidth Latin + CJK + katakana
 const PUNCTUATED_TRANSLATION = "¿qué año? — el mío"; // "¿qué año? — el mío"
 
+// A raw control character sitting inside otherwise-valid Spanish prose:
+// each pairs with VALID_SOURCE, the source untouched, to isolate the one
+// character the gate must catch on the translation side.
+const NEWLINE_TRANSLATION = "el zorro veloz\nsalta hoy";
+const CARRIAGE_RETURN_TRANSLATION = "el zorro veloz\rsalta hoy";
+const TAB_TRANSLATION = "el zorro veloz\tsalta hoy";
+
+// Real Spanish punctuation MyMemory itself returns: angled quotes nested
+// inside prose, and a horizontal-ellipsis character (U+2026, not three
+// periods) closing two clauses.
+const NESTED_QUOTE_TRANSLATION = "«cita» dentro de otra";
+const ELLIPSIS_TRANSLATION = "punto final… suspensivos…";
+
+// The same word in two Unicode encodings of the identical accent: precomposed
+// `é` (U+00E9) against `e` followed by a combining acute (U+0301). NFC folds
+// the second into the first; neither string should answer differently.
+const ACCENT_PRECOMPOSED_TRANSLATION = "tomo un café caliente";
+const ACCENT_COMBINING_TRANSLATION = "tomo un café caliente";
+
 let failed = false;
 let passes = 0;
 let failures = 0;
@@ -363,6 +382,54 @@ async function checkClientCap(): Promise<void> {
   }
 }
 
+// D22-D28, appended after D20 rather than inserted between the existing
+// calls: the validator's own battery against the gate's control-character
+// and punctuation handling, none of it needing a model call, since a phrase
+// this gate admits still answers 204 with no cap configured.
+async function checkControlAndAccents(): Promise<void> {
+  const newline = await postNotes(BASE_URL, VALID_SOURCE, NEWLINE_TRANSLATION);
+  assert("D22. a raw \\n inside the translation answers 400", newline.status === 400, `status=${newline.status}`);
+
+  const carriageReturn = await postNotes(BASE_URL, VALID_SOURCE, CARRIAGE_RETURN_TRANSLATION);
+  assert(
+    "D23. a raw \\r inside the translation answers 400",
+    carriageReturn.status === 400,
+    `status=${carriageReturn.status}`,
+  );
+
+  const tab = await postNotes(BASE_URL, VALID_SOURCE, TAB_TRANSLATION);
+  assert("D24. a raw tab inside the translation answers 400", tab.status === 400, `status=${tab.status}`);
+
+  const nestedQuote = await postNotes(BASE_URL, VALID_SOURCE, NESTED_QUOTE_TRANSLATION);
+  assert(
+    "D25. \"«cita» dentro de otra\" passes the gate (not 400)",
+    nestedQuote.status !== 400,
+    `status=${nestedQuote.status}`,
+  );
+
+  const ellipsis = await postNotes(BASE_URL, VALID_SOURCE, ELLIPSIS_TRANSLATION);
+  assert(
+    "D26. \"punto final… suspensivos…\" passes the gate (not 400)",
+    ellipsis.status !== 400,
+    `status=${ellipsis.status}`,
+  );
+
+  const precomposed = await postNotes(BASE_URL, VALID_SOURCE, ACCENT_PRECOMPOSED_TRANSLATION);
+  const combining = await postNotes(BASE_URL, VALID_SOURCE, ACCENT_COMBINING_TRANSLATION);
+  assert(
+    "D27. precomposed é (U+00E9) and e+U+0301 answer the same status, neither 400",
+    precomposed.status === combining.status && precomposed.status !== 400,
+    `precomposed=${precomposed.status} combining=${combining.status}`,
+  );
+
+  const homoglyph = await postNotes(BASE_URL, VALID_SOURCE, HOMOGLYPH_TRANSLATION);
+  assert(
+    "D28. fullwidth \"fox\" plus CJK still answers 400 after NFC — proof NFC is not NFKC",
+    homoglyph.status === 400,
+    `status=${homoglyph.status}`,
+  );
+}
+
 async function main(): Promise<void> {
   if (PAID_PASS) {
     await checkPaid();
@@ -371,6 +438,7 @@ async function main(): Promise<void> {
     await checkGate();
     await checkUnconfigured();
     await checkTranslationShape();
+    await checkControlAndAccents();
   }
 
   await sql.end();
