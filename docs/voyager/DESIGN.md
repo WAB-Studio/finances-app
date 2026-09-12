@@ -1011,4 +1011,60 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
     shape `PalabraTextoAntesDeFoto` settled 2026-09-11.
   - **No board for the form the dictionary can translate on its own** (`left`): the «Por internet»
     stamp is not drawn and nothing else changes, so drawing it would repeat a decision.
-  - **Stale: `PalabraConFlexion` and `Flexion`**, which both draw the order this reverses.
+  - **Stale: `Flexion`**, which draws the case RL-47 reverses — the form typed is not a headword of
+    its own, so the lemma's entry is the whole answer and stands above nothing.
+  - **`PalabraConFlexion` is not stale, and an earlier line here said it was.** It draws the exact
+    entry on top with the inflection offered below, which is the `bed` clause RL-47 **keeps**: a
+    reader who types `left` still gets `left`'s own entry first. What RL-47 reverses is the case that
+    board never drew — the form that is *only* a form, where the entry on top is a different word
+    wearing the same spelling.
+
+### The four numbers this slice runs on, decided 2026-09-11
+
+- **The network answer arrives even when a correction fits. Decided by the user 2026-09-11.**
+  `RL-44` as first written said «when a search finds nothing **and no suggestion fits**», and the
+  measurement killed that clause: `whereat` **does** have a candidate, `whereas`. Read literally, the
+  word the reader met in their book would stay in exactly the dead end they photographed. The
+  correction is offered first and the network's answer for **the word as typed** lands underneath it.
+  The clause is struck from `RL-44`.
+  - The cost, taken knowingly: a call on real typos too, where the reader will take the suggestion
+    and never read what arrived.
+  - Board: `SinResultadoIA` gains `Sugerencias`' offer above its hairline; both already exist.
+
+- **One global daily ceiling, raised. Decided by the user 2026-09-11**, who chose the global ceiling
+  over a per-route one. **The number is 500 and it is mine, not theirs** — they said «súbelo» without
+  naming one, and a ceiling is one variable, so this is the cheapest thing in the slice to move.
+  - Why 50 cannot stand: it was sized when `RL-42` alone bit. Measured, **98.5% of inflected forms
+    have no row of their own**, so `RL-47` spends a call per new form on top of `RL-42`'s per new
+    word, and `RL-46` spends one per sentence. A reading evening of 40 new words, 40 new forms and
+    20 sentences is ~100 calls. At 50 the reader hits tonight's screen halfway through a chapter.
+  - Why not much higher: the word path caches **forever and for every reader**, so its steady state
+    falls away. `RL-46` is the only one that keeps costing, and 500 leaves it room without leaving
+    the bill open.
+
+- **`RL-46` ships on, with its ceiling. Decided by the user 2026-09-11**, over shipping it dark and
+  over putting its notes behind a control. It is the first time the reader's own free text reaches a
+  paid model — the sentence already leaves for MyMemory, but a translator is not a model — and it is
+  the code that caches least: a sentence out of a book is unique, so it is ~1 call per sentence
+  against one call per word for every reader who ever looks that word up.
+  - The guard is the plan's, unchanged: **12 tokens, 200 characters, and the sentence is never stored
+    in the clear.**
+
+- **«Thin» is `≤4 translations` and `(≥2 senses or no definition)`: 9,523 of 59,253 lemmas, 16.1%.
+  Decided by the user 2026-09-11**, who asked for wider than the first rule measured.
+  - The ladder that produced it, measured over the shipped asset (59,253 distinct lemmas):
+
+    | rule | lemmas | share | catches |
+    |---|---|---|---|
+    | `≤3 tr` and `≥2 senses` | 1,735 | 2.9% | `snuff` |
+    | `≤4 tr` and `≥2 senses` | 2,284 | 3.9% | `snuff`, `stern` |
+    | **`≤4 tr` and (`≥2 senses` or no definition)** | **9,523** | **16.1%** | `snuff`, `stern` |
+    | `≤5 tr` and (`≥2 senses` or no definition) | 10,507 | 17.7% | `snuff`, `stern` |
+    | `≤4 tr`, no sense floor | 53,332 | 90.0% | everything, including `swish` |
+
+  - **The sense floor is what stops it being every word**, and dropping it is the cliff: 3.9% → 90.0%
+    in one step. What widens it safely is the missing definition — a word answered thinly **and** left
+    undefined is thin twice over. That clause alone is 2.9% → 13.6%.
+  - It catches `stern`, which the reader also hit: `sternly` answered «popa» off a 4-translation,
+    2-sense entry. It leaves out `swish` (1 sense, 1 translation — thin because the word is simple),
+    `clamp` (10), `read` (8) and `black` (11).

@@ -201,12 +201,14 @@ this gets built, and no schema, table or column is "prepared for" it.
 - [ ] **RL-28** — When a search finds nothing and the word looks like a typo of one the dictionary
   has, the answer offers the words it might have been, and reaching one of them is a tap. The
   suggestion is computed on the device and touches the network on no keystroke.
-- [ ] **RL-44** *(successor of RL-29)* — When a search finds nothing and no suggestion fits, the word
-  is answered over the network on its own, and the reader asks for nothing. The answer carries the
+- [ ] **RL-44** *(successor of RL-29)* — When a search finds nothing, the word is answered over the
+  network on its own, and the reader asks for nothing. A suggestion RL-28 finds is offered above it
+  and never instead of it: `whereat` offers `whereas` and still answers `whereat`. The answer carries the
   word's translation, its definition and one example sentence with its Spanish translation. It says
   it did not come from the dictionary, and says plainly when it could not be produced. A hyphenated
   string the dictionary has no entry for reaches this answer like any other word.
-- [ ] **RL-45** — A dictionary answer that is thin is completed over the network. What arrives is
+- [ ] **RL-45** — A dictionary answer that is thin — at most four translations, and either more than
+  one sense or no definition at all — is completed over the network. What arrives is
   added underneath what the dictionary said and marked as coming from the network; it never replaces
   it. What counts as thin is measured over the shipped index, not asserted.
 - [ ] **RL-46** — A sentence answered by translation also names the terms in it that are not obvious
