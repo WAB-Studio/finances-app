@@ -918,3 +918,68 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   group happens to be a verb or adjective: `abscess`, `ace`, `aim`, `antique`, `asphalt`, `alien`.
   A rule that generalises in argument and not in measurement is worth less than the list it
   replaces.
+
+- **A word the dictionary has no entry for is answered over the network on its own, and the reader
+  asks for nothing. Decided by the user 2026-09-11**, on their own words: «esta palabra me apareció
+  en el libro entonces existe, la ia debió darme una traducción con una oración y cosas no
+  simplemente decirme "no la tenemos te jodes"». **This retires `RL-29`**, whose whole point was
+  that nothing left the device until the reader pressed a control. Written as `RL-44`.
+  - What it answers, measured in production at 22:43–23:17 on 2026-09-11, after that day's deploy:
+    `whereat`, `coccidiosis`, `mangels` and `milk-pails` all reached «El diccionario no tiene esa
+    palabra. Revisa la ortografía o prueba con otra forma de la palabra» — four real words, one of
+    them hyphenated, none of them a typo, and `RL-28`'s suggestions had nothing to offer any of them
+    because they are not misspellings of anything.
+  - The dead end is the defect, not the missing entry. A dictionary of 58,946 headwords will always
+    miss the word in the book in front of the reader.
+  - **The answer must say it did not come from the dictionary, and say plainly when it could not be
+    produced.** That half of `RL-29` survives into `RL-44` unchanged.
+  - **The cost, taken knowingly:** one network call per word the dictionary misses, with nobody
+    authorising it. `RNL-09` is untouched — what leaves is the word, never the record.
+  - Boards: **none yet.** `SinResultadoSinPista` draws the dead end this replaces and is now stale.
+
+- **A dictionary answer that is thin is completed over the network. Decided by the user
+  2026-09-11**, on their own words about `snuff`: «me dice palabras todas tontas cuando en google sí
+  me recomendó, y era aspirar, no era muy difícil la palabra como para no saberla». Written as
+  `RL-45`.
+  - Measured in production the same night: `snuff` answered «apagar, despabilar» for the verb and
+    «rapé» for the noun. Google Translate, on the same string, led with «aspirar».
+  - This is the first time the network touches a word the dictionary **does** carry. It is deliberate
+    and it is narrow: what arrives is added underneath what the dictionary said and marked as coming
+    from the network, never substituted for it.
+  - **What counts as thin is not decided yet, and it is the whole of this code's risk.** Too loose
+    and every word pays a round trip; too tight and `snuff` stays wrong. Measure the distribution
+    over the shipped index before writing the threshold, never after.
+
+- **A translated sentence carries a note on the terms that are not obvious. Decided by the user
+  2026-09-11**, on their own words: «aquí es donde me gustaría que al traducir una oración también
+  definamos cosas como qué es un black minorca, que al menos haya un poco de aprendizaje en la
+  oración, no simplemente la traducción». Written as `RL-46`.
+  - Measured: `black minorca pullets` answered «pollitas negras de menorca» and stopped. The reader
+    learned the words and not the thing.
+  - The app picks which terms earn a note. A note on every word is `RL-31`'s word-by-word list,
+    which already exists and is a different answer.
+  - Boards: **none yet.**
+
+- **The form the reader typed leads the answer, and the headword it inflects from sits underneath.
+  Decided by the user 2026-09-11**, on their own words: «busco reading, la app debería decir
+  leyendo o algo relacionado, y luego abajo sí la recomendación de que esta palabra es una forma de
+  read, y así yo entenderé — no quitarme el completo significado». **This retires `RL-40`**, taken
+  2026-09-10, which put the exact entry on top and offered the inflection below it. Written as
+  `RL-47`.
+  - **RL-40 was right about the case it answered and wrong about this one.** It exists because
+    `bed` must not draw «"bed" es una forma de "b"», and that still holds: an exact entry the reader
+    typed on purpose still wins. What it never answered is the form that is *only* a form — where
+    the entry on top is a different word wearing the same spelling.
+  - Measured in production 2026-09-11 at 23:17: `swishing` answered **`swish` · ADJETIVO ·
+    «sofisticado, refinado»**. An `-ing` cannot come from an adjective; the reader typed a verb form
+    and got a word about taste. `sternly` answered **`stern` · SUSTANTIVO · «popa»** — a ship's
+    stern, for an adverb of the adjective. `shrieked` and `fidgeted` answered the bare infinitive:
+    correct and still not what was asked.
+  - **The form's own translation is what leads, resolved over the network when the dictionary has
+    no row for it**, with one example sentence. «es una forma de X» keeps `PalabraConFlexion`'s rule
+    and left border, now carrying the headword's groups underneath rather than above.
+  - **The cost, taken knowingly:** a network call on every inflected form the dictionary cannot
+    translate on its own. Answering the form from the lemma where the inflection is regular was
+    offered and **not** taken: the reader chose the form's own answer in every case.
+  - Boards: **none yet.** `PalabraConFlexion` and `Flexion` both draw the order this reverses and are
+    now stale.
