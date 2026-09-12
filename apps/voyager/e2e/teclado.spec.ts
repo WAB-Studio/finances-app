@@ -32,6 +32,8 @@ async function openWordReady(page: Page, word: string): Promise<void> {
 // never `addInitScript`, because nothing here navigates again afterwards
 // and an init script would only add a second reinjection to reason about
 // (docs/TRAPS.md "`addInitScript` reinjects on every navigation, not once").
+// The override lives on this document alone: navigate after calling it and it
+// is gone, so a spec that navigates has to call it again on the new page.
 async function mockKeyboardOpen(page: Page, visibleHeight: number): Promise<void> {
   await page.evaluate((height) => {
     const viewport = window.visualViewport;
