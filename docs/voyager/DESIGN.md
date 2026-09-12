@@ -1068,3 +1068,46 @@ Measured over the built asset, 64,258 entries. Design for these, not for the rar
   - It catches `stern`, which the reader also hit: `sternly` answered «popa» off a 4-translation,
     2-sense entry. It leaves out `swish` (1 sense, 1 translation — thin because the word is simple),
     `clamp` (10), `read` (8) and `black` (11).
+
+### What one real chapter measured, 2026-09-12
+
+The reader signed in and read a chapter — **55 lookups in 43 minutes**, 22:39 to 23:22 Bogotá,
+copied up to their account. It is the first time this app has been measured against real reading
+instead of against the dictionary. The book is *Animal Farm*: `black minorca pullets`, `beech
+spinney`, `fore hoofs`, `snuffed the ground`.
+
+| what | measured |
+|---|---|
+| words / sentences | 45 distinct words, 10 sentences |
+| exact / inflected | **24 exact, 21 inflected** |
+| sentences translated **on the device** | **0 of 10.** Every one went to the network |
+| misses recorded | **0** — and see below |
+
+- **`RL-47` is not an edge case: it is 21 of 45 word lookups, 47%.** Nearly half of what this reader
+  typed was a form, not a lemma, and this is the session that returned `swishing` → «sofisticado» and
+  `sternly` → «popa».
+- **`RL-45`'s threshold holds against real use.** The rule catches **8 of these 45 words, 18%** —
+  `gilded`, `sleet`, `stern`, `snuff`, `envious`, `edible`, `shriek`, `rejoice` — against 16.1% of
+  the dictionary at large. Calibrated, not lucky.
+- **The ceiling of 500 is now grounded.** This session alone is **45 + 21 + 10 ≈ 76 calls in 43
+  minutes**. At 50 the reader hits the wall around minute 28, mid-chapter. 500 buys about 4.7 hours.
+- **`RL-08` never fires on this reader's phone.** 10 of 10 sentences carry `origin = network`, so
+  every sentence is already a paid round trip and `RL-46` adds its note to a call that happens
+  anyway.
+
+**The record cannot see the app's own failures, by design.** `lib/log/record.ts:252` sets
+`LOGGED_OUTCOMES = {exact, inflected, translated}`, so **`miss` and `untranslated` are dropped before
+they reach IndexedDB** — the comment above `commit` says a miss must never be stored. That is why
+this log holds zero misses while the same evening's screenshots show four: `whereat`, `coccidiosis`,
+`mangels`, `milk-pails`. The reason is sound — every prefix of a word being typed is a miss — but the
+consequence is that **the words that failed the reader are the only ones the app throws away**, and
+no measurement of how often the dead end fires is possible from the record. Open question for the
+user; nothing is built either way.
+
+**The dictionary is thin at one end and padded at the other, and only the thin end has a code.**
+Median translation list this session: **4**. But **13 of 45 words carry 8 or more** — `shiver` 12,
+`frost` 11, `tear` 11, `trample` 10, `creep` 10, `clamp` 10 — and the padding is archaic or regional:
+`creep` answers a story about animals creeping with «deformación por fluencia lenta, fatiga, alimaña,
+degenerado, depravado»; `gnaw` offers «chancomer, rosigar, rustir, concomer, recomer, reconcomer»;
+`pullet` offers «polla» alone, which is vulgar in half the language's speakers. `RL-45` completes the
+thin end. **Nothing trims the padded end, and no code is opened for it** — it is the user's to decide.
